@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview Dashboard — agent fleet overview.
- * Shows all agents as cards with live status, quick actions, and empty state.
+ * Clean light-mode design with stat cards and agent grid.
  *
  * @module web/app/page
  */
@@ -11,110 +11,149 @@ import { useEffect, useState } from 'react';
 import type { Agent } from '@slack-agent-team/shared';
 import Link from 'next/link';
 
-const STATUS_COLOR = {
-  running: '#16a34a',
-  stopped: '#94a3b8',
+const STATUS_COLOR: Record<string, string> = {
+  running: '#059669',
+  stopped: '#a3a3a3',
   error:   '#dc2626',
-} as const;
+};
 
-const STATUS_LABEL = {
+const STATUS_LABEL: Record<string, string> = {
   running: 'Running',
   stopped: 'Stopped',
   error:   'Error',
-} as const;
+};
 
 /**
  * Main dashboard page.
- * Fetches all agents and renders them as cards in a responsive grid.
  *
  * @returns {JSX.Element}
  */
 export default function Dashboard() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState('Welcome to Silicon Valley');
 
   useEffect(() => {
     fetch('/api/agents')
       .then(r => r.json())
       .then(setAgents)
       .finally(() => setLoading(false));
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then((s: Record<string, string>) => { if (s.dashboardTitle) setTitle(s.dashboardTitle); })
+      .catch(() => {});
   }, []);
 
   const running = agents.filter(a => a.status === 'running').length;
+  const stopped = agents.filter(a => a.status === 'stopped').length;
+  const errors  = agents.filter(a => a.status === 'error').length;
   const total   = agents.length;
+  const hasBoss = agents.some(a => a.isBoss);
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 1100 }} className="fade-up">
+    <div style={{ padding: '36px 40px', maxWidth: 1100 }} className="fade-up">
 
-      {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--text)' }}>
-            Agent Fleet
-          </h1>
-          <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-            {loading ? 'Loading…' : `${running} of ${total} agent${total !== 1 ? 's' : ''} running`}
-          </p>
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 style={{
+              margin: 0, fontSize: 26, fontWeight: 700,
+              letterSpacing: '-0.03em', color: 'var(--text)',
+            }}>
+              {title}
+            </h1>
+            <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 14 }}>
+              {loading ? 'Loading agents…' : `${running} of ${total} agent${total !== 1 ? 's' : ''} online`}
+            </p>
+          </div>
+          <Link href="/agents/new" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            background: 'var(--accent)', color: '#fff',
+            padding: '10px 20px', borderRadius: 8,
+            fontSize: 13.5, fontWeight: 500, textDecoration: 'none',
+            boxShadow: 'var(--shadow-sm)',
+            transition: 'opacity 0.15s, transform 0.15s',
+          }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+            </svg>
+            New Agent
+          </Link>
         </div>
-        <Link href="/agents/new" style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          background: 'var(--accent)', color: '#fff',
-          padding: '8px 16px', borderRadius: 8,
-          fontSize: 13, fontWeight: 500, textDecoration: 'none',
-          transition: 'opacity 0.15s',
-        }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-        >
-          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-          </svg>
-          New Agent
-        </Link>
       </div>
 
-      {/* ── Stats row ────────────────────────────────────────────────────── */}
+      {/* ── Stats ────────────────────────────────────────────────────────── */}
       {!loading && total > 0 && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 24 }} className="stagger">
-          {[
-            { label: 'Total Agents', value: total, color: 'var(--text)' },
-            { label: 'Running', value: running, color: '#16a34a' },
-            { label: 'Stopped', value: agents.filter(a => a.status === 'stopped').length, color: 'var(--muted)' },
-            { label: 'Errors', value: agents.filter(a => a.status === 'error').length, color: '#dc2626' },
-            { label: 'Boss Agent', value: agents.filter(a => a.isBoss).length > 0 ? 'Yes' : 'No', color: '#f59e0b' },
-          ].map(stat => (
-            <div key={stat.label} className="fade-up" style={{
-              flex: 1,
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              padding: '14px 16px',
-            }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4, letterSpacing: '0.02em' }}>
-                {stat.label}
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 600, color: stat.color, letterSpacing: '-0.02em' }}>
-                {stat.value}
-              </div>
-            </div>
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }} className="stagger">
+          <StatCard label="Total" value={total} sub={`${total} agent${total !== 1 ? 's' : ''} registered`} />
+          <StatCard label="Running" value={running} color="#059669" sub={running > 0 ? 'All systems healthy' : 'None active'} />
+          <StatCard label="Stopped" value={stopped} color="#a3a3a3" sub={stopped > 0 ? `${stopped} offline` : 'All online'} />
+          <StatCard label="Boss" value={hasBoss ? '1' : '—'} color="#d97706" sub={hasBoss ? 'Orchestrator active' : 'No boss assigned'} />
         </div>
       )}
 
-      {/* ── Agent grid ───────────────────────────────────────────────────── */}
+      {/* ── Agents ───────────────────────────────────────────────────────── */}
       {loading ? (
         <SkeletonGrid />
       ) : total === 0 ? (
         <EmptyState />
       ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))',
-          gap: 14,
-        }} className="stagger">
-          {agents.map(agent => (
-            <AgentCard key={agent.id} agent={agent} />
-          ))}
+        <>
+          <div style={{
+            fontSize: 11, fontWeight: 600, letterSpacing: '0.06em',
+            color: 'var(--subtle)', textTransform: 'uppercase',
+            marginBottom: 12, paddingLeft: 2,
+          }}>
+            All Agents
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gap: 14,
+          }} className="stagger">
+            {agents.map(agent => (
+              <AgentCard key={agent.id} agent={agent} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Stat card ─────────────────────────────────────────────────────────────────
+
+function StatCard({ label, value, color, sub }: {
+  label: string; value: number | string; color?: string; sub?: string;
+}) {
+  return (
+    <div className="fade-up" style={{
+      background: '#fff',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      padding: '18px 20px',
+      boxShadow: 'var(--shadow-sm)',
+    }}>
+      <div style={{
+        fontSize: 11, fontWeight: 600, letterSpacing: '0.05em',
+        color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8,
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 28, fontWeight: 700, color: color ?? 'var(--text)',
+        letterSpacing: '-0.03em', lineHeight: 1,
+        fontVariantNumeric: 'tabular-nums',
+      }}>
+        {value}
+      </div>
+      {sub && (
+        <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 6 }}>
+          {sub}
         </div>
       )}
     </div>
@@ -123,13 +162,8 @@ export default function Dashboard() {
 
 // ── Agent card ────────────────────────────────────────────────────────────────
 
-/**
- * Renders a single agent card with status, description, and quick info.
- *
- * @param {{ agent: Agent }} props
- */
 function AgentCard({ agent }: { agent: Agent }) {
-  const color = STATUS_COLOR[agent.status] ?? '#334155';
+  const color = STATUS_COLOR[agent.status] ?? '#a3a3a3';
 
   return (
     <Link
@@ -137,66 +171,86 @@ function AgentCard({ agent }: { agent: Agent }) {
       className="fade-up"
       style={{
         display: 'block', textDecoration: 'none',
-        background: 'var(--surface)',
+        background: '#fff',
         border: '1px solid var(--border)',
         borderRadius: 12,
-        padding: '18px 20px',
-        transition: 'border-color 0.15s, background 0.15s',
+        padding: '20px 22px',
+        boxShadow: 'var(--shadow-sm)',
+        transition: 'box-shadow 0.2s, transform 0.2s, border-color 0.2s',
         cursor: 'pointer',
+        position: 'relative',
+        overflow: 'hidden',
       }}
       onMouseEnter={e => {
-        (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)';
-        (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)';
+        const el = e.currentTarget as HTMLElement;
+        el.style.boxShadow = 'var(--shadow-md)';
+        el.style.transform = 'translateY(-2px)';
+        el.style.borderColor = 'var(--border-2)';
       }}
       onMouseLeave={e => {
-        (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)';
-        (e.currentTarget as HTMLElement).style.background = 'var(--surface)';
+        const el = e.currentTarget as HTMLElement;
+        el.style.boxShadow = 'var(--shadow-sm)';
+        el.style.transform = 'translateY(0)';
+        el.style.borderColor = 'var(--border)';
       }}
     >
-      {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          {/* Avatar */}
+      {/* Boss accent */}
+      {agent.isBoss && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+          background: 'linear-gradient(90deg, #d97706, #f59e0b)',
+        }} />
+      )}
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <div style={{
-            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-            background: agent.isBoss
-              ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
-              : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+            width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+            background: agent.isBoss ? '#171717' : 'var(--surface-2)',
+            border: agent.isBoss ? 'none' : '1px solid var(--border)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12, fontWeight: 700, color: '#fff',
+            fontSize: 14, fontWeight: 600,
+            color: agent.isBoss ? '#fff' : 'var(--text)',
           }}>
             {agent.name.charAt(0).toUpperCase()}
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>
+              <span style={{
+                fontSize: 14.5, fontWeight: 600, color: 'var(--text)',
+                letterSpacing: '-0.01em',
+              }}>
                 {agent.name}
               </span>
               {agent.isBoss && (
                 <span style={{
-                  fontSize: 9.5, fontWeight: 600, letterSpacing: '0.06em',
-                  background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
-                  padding: '1.5px 6px', borderRadius: 4, border: '1px solid rgba(245,158,11,0.25)',
+                  fontSize: 9.5, fontWeight: 600, letterSpacing: '0.04em',
+                  background: 'rgba(217,119,6,0.1)', color: '#d97706',
+                  padding: '2px 6px', borderRadius: 4,
                   textTransform: 'uppercase',
                 }}>Boss</span>
               )}
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+            <div style={{
+              fontSize: 12, color: 'var(--muted)',
+              fontFamily: 'var(--font-mono)',
+            }}>
               @{agent.slug}
             </div>
           </div>
         </div>
 
         {/* Status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          flexShrink: 0, marginTop: 2,
+        }}>
           <div
             className={agent.status === 'running' ? 'status-running' : ''}
-            style={{
-              width: 7, height: 7, borderRadius: '50%',
-              background: color,
-            }}
+            style={{ width: 7, height: 7, borderRadius: '50%', background: color }}
           />
-          <span style={{ fontSize: 11.5, color: color, fontWeight: 500 }}>
+          <span style={{ fontSize: 12, color, fontWeight: 500 }}>
             {STATUS_LABEL[agent.status]}
           </span>
         </div>
@@ -204,50 +258,68 @@ function AgentCard({ agent }: { agent: Agent }) {
 
       {/* Description */}
       <p style={{
-        margin: 0, fontSize: 12.5, color: 'var(--muted)',
-        lineHeight: 1.5,
+        margin: '0 0 16px', fontSize: 13, color: 'var(--muted)',
+        lineHeight: 1.55,
         display: '-webkit-box', WebkitLineClamp: 2,
         WebkitBoxOrient: 'vertical', overflow: 'hidden',
-        minHeight: 36,
+        minHeight: 40,
       }}>
-        {agent.description || <span style={{ color: 'var(--subtle)', fontStyle: 'italic' }}>No description</span>}
+        {agent.description || (
+          <span style={{ color: 'var(--subtle)', fontStyle: 'italic' }}>No description</span>
+        )}
       </p>
 
       {/* Footer */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)',
+        paddingTop: 14, borderTop: '1px solid var(--border)',
       }}>
-        <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-mono)' }}>
+        <span style={{
+          fontSize: 11.5, color: 'var(--muted)',
+          fontFamily: 'var(--font-mono)',
+          background: 'var(--surface-2)',
+          padding: '3px 8px', borderRadius: 5,
+        }}>
           {agent.model.replace('claude-', '').split('-20')[0]}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
-          {agent.slackBotUserId ? `Slack: ${agent.slackBotUserId}` : 'Not connected'}
+        <span style={{
+          fontSize: 11.5,
+          color: agent.slackBotUserId ? '#059669' : 'var(--subtle)',
+          display: 'flex', alignItems: 'center', gap: 4,
+        }}>
+          {agent.slackBotUserId ? (
+            <>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#059669' }} />
+              Slack connected
+            </>
+          ) : 'Not connected'}
         </span>
       </div>
     </Link>
   );
 }
 
-// ── Skeleton loader ───────────────────────────────────────────────────────────
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function SkeletonGrid() {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 14 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
       {[1, 2, 3].map(i => (
         <div key={i} style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 12, padding: '18px 20px', opacity: 1 - (i - 1) * 0.25,
+          background: '#fff', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '20px 22px',
+          boxShadow: 'var(--shadow-sm)',
+          opacity: 1 - (i - 1) * 0.2,
         }}>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-            <Skel w={32} h={32} r={8} />
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <Skel w={36} h={36} r={10} />
             <div style={{ flex: 1 }}>
-              <Skel w="60%" h={14} r={4} mb={6} />
-              <Skel w="40%" h={11} r={4} />
+              <Skel w="55%" h={15} r={5} mb={6} />
+              <Skel w="35%" h={12} r={4} />
             </div>
           </div>
-          <Skel w="100%" h={11} r={4} mb={5} />
-          <Skel w="75%" h={11} r={4} />
+          <Skel w="100%" h={12} r={4} mb={6} />
+          <Skel w="70%" h={12} r={4} />
         </div>
       ))}
     </div>
@@ -258,43 +330,52 @@ function Skel({ w, h, r = 4, mb = 0 }: { w: number | string; h: number; r?: numb
   return (
     <div style={{
       width: w, height: h, borderRadius: r,
-      background: 'var(--border)', marginBottom: mb,
-      opacity: 0.6,
+      background: 'var(--surface-2)', marginBottom: mb,
     }} />
   );
 }
 
-// ── Empty state ───────────────────────────────────────────────────────────────
+// ── Empty state ──────────────────────────────────────────────────────────────
 
 function EmptyState() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      minHeight: 380, gap: 16, textAlign: 'center',
+      minHeight: 400, gap: 20, textAlign: 'center',
     }}>
       <div style={{
-        width: 64, height: 64, borderRadius: 18,
-        background: 'var(--surface)', border: '1px solid var(--border)',
+        width: 72, height: 72, borderRadius: 20,
+        background: 'var(--surface-2)', border: '1px solid var(--border)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 28,
+        fontSize: 32,
       }}>
         🤖
       </div>
       <div>
-        <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
+        <p style={{
+          margin: '0 0 6px', fontSize: 18, fontWeight: 600,
+          color: 'var(--text)', letterSpacing: '-0.02em',
+        }}>
           No agents yet
         </p>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', maxWidth: 280 }}>
-          Create your first Claude Code agent to connect it to Slack.
+        <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)', maxWidth: 300 }}>
+          Create your first Claude Code agent and connect it to Slack to get started.
         </p>
       </div>
       <Link href="/agents/new" style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6,
+        display: 'inline-flex', alignItems: 'center', gap: 7,
         background: 'var(--accent)', color: '#fff',
-        padding: '9px 20px', borderRadius: 8,
-        fontSize: 13, fontWeight: 500, textDecoration: 'none',
+        padding: '10px 22px', borderRadius: 8,
+        fontSize: 14, fontWeight: 500, textDecoration: 'none',
+        boxShadow: 'var(--shadow-sm)',
         transition: 'opacity 0.15s',
-      }}>
+      }}
+        onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+        onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+        </svg>
         Create First Agent
       </Link>
     </div>

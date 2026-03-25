@@ -147,6 +147,17 @@ CREATE TABLE sessions (
 );
 
 -- -----------------------------------------------------------------------------
+-- settings
+-- Key-value store for platform-level configuration (branding, etc.).
+-- Managed via the /settings page in the web UI.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT        PRIMARY KEY,
+  value      TEXT        NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- -----------------------------------------------------------------------------
 -- Indexes
 -- -----------------------------------------------------------------------------
 CREATE INDEX idx_sessions_agent_key  ON sessions(agent_id, session_key);

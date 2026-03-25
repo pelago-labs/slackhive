@@ -477,3 +477,48 @@ export async function getAgentMemories(agentId: string): Promise<Memory[]> {
 export async function deleteMemory(id: string): Promise<void> {
   await getPool().query('DELETE FROM memories WHERE id = $1', [id]);
 }
+
+// =============================================================================
+// Settings queries
+// =============================================================================
+
+/**
+ * Returns a single setting value by key.
+ *
+ * @param {string} key - The setting key to look up.
+ * @returns {Promise<string | null>} The value, or null if not set.
+ */
+export async function getSetting(key: string): Promise<string | null> {
+  const r = await getPool().query('SELECT value FROM settings WHERE key = $1', [key]);
+  return r.rows.length ? (r.rows[0].value as string) : null;
+}
+
+/**
+ * Creates or updates a single setting.
+ *
+ * @param {string} key - The setting key.
+ * @param {string} value - The setting value.
+ * @returns {Promise<void>}
+ */
+export async function setSetting(key: string, value: string): Promise<void> {
+  await getPool().query(
+    `INSERT INTO settings (key, value)
+     VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, value]
+  );
+}
+
+/**
+ * Returns all settings as a flat key-value map.
+ *
+ * @returns {Promise<Record<string, string>>} All stored settings.
+ */
+export async function getAllSettings(): Promise<Record<string, string>> {
+  const r = await getPool().query('SELECT key, value FROM settings ORDER BY key');
+  const result: Record<string, string> = {};
+  for (const row of r.rows) {
+    result[row.key as string] = row.value as string;
+  }
+  return result;
+}
