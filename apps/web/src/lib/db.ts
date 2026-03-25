@@ -19,10 +19,12 @@ import type {
   Skill,
   Permission,
   Memory,
+  Session,
   AgentEvent,
   AgentStatus,
   UpsertMcpServerRequest,
   CreateAgentRequest,
+  UpdateAgentRequest,
 } from '@slack-agent-team/shared';
 import { AGENT_EVENTS_CHANNEL } from '@slack-agent-team/shared';
 
@@ -197,6 +199,93 @@ export async function updateAgentStatus(id: string, status: AgentStatus): Promis
   );
 }
 
+/**
+ * Updates mutable fields on an agent record.
+ *
+ * @param {string} id - Agent UUID.
+ * @param {UpdateAgentRequest} req - Fields to update.
+ * @returns {Promise<Agent | null>} The updated agent, or null if not found.
+ */
+export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<Agent | null> {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+
+  if (req.name !== undefined) { fields.push(`name = $${idx++}`); values.push(req.name); }
+  if (req.persona !== undefined) { fields.push(`persona = $${idx++}`); values.push(req.persona); }
+  if (req.description !== undefined) { fields.push(`description = $${idx++}`); values.push(req.description); }
+  if (req.slackBotToken !== undefined) { fields.push(`slack_bot_token = $${idx++}`); values.push(req.slackBotToken); }
+  if (req.slackAppToken !== undefined) { fields.push(`slack_app_token = $${idx++}`); values.push(req.slackAppToken); }
+  if (req.slackSigningSecret !== undefined) { fields.push(`slack_signing_secret = $${idx++}`); values.push(req.slackSigningSecret); }
+  if (req.model !== undefined) { fields.push(`model = $${idx++}`); values.push(req.model); }
+
+  if (fields.length === 0) return getAgentById(id);
+
+  fields.push(`updated_at = now()`);
+  values.push(id);
+  const r = await getPool().query(
+    `UPDATE agents SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+    values
+  );
+  return r.rows.length ? rowToAgent(r.rows[0]) : null;
+}
+
+/**
+ * Deletes an agent and all related records (cascades via FK).
+ *
+ * @param {string} id - Agent UUID.
+ * @returns {Promise<void>}
+ */
+export async function deleteAgent(id: string): Promise<void> {
+  await getPool().query('DELETE FROM agents WHERE id = $1', [id]);
+}
+
+/**
+ * Returns all active sessions for an agent.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @returns {Promise<Session[]>} Array of sessions.
+ */
+export async function getAgentSessions(agentId: string): Promise<Session[]> {
+  const r = await getPool().query(
+    'SELECT * FROM sessions WHERE agent_id = $1 ORDER BY last_activity DESC',
+    [agentId]
+  );
+  return r.rows.map(row => ({
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    sessionKey: row.session_key as string,
+    claudeSessionId: row.claude_session_id as string | undefined,
+    lastActivity: row.last_activity as Date,
+  }));
+}
+
+/**
+ * Creates or updates a memory entry for an agent.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {string} type - Memory type.
+ * @param {string} name - Memory name.
+ * @param {string} content - Memory markdown content.
+ * @returns {Promise<Memory>} The upserted memory.
+ */
+export async function upsertMemory(
+  agentId: string,
+  type: string,
+  name: string,
+  content: string
+): Promise<Memory> {
+  const r = await getPool().query(
+    `INSERT INTO memories (agent_id, type, name, content)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (agent_id, name) DO UPDATE
+       SET type = EXCLUDED.type, content = EXCLUDED.content, updated_at = now()
+     RETURNING *`,
+    [agentId, type, name, content]
+  );
+  return rowToMemory(r.rows[0]);
+}
+
 // =============================================================================
 // MCP server queries
 // =============================================================================
@@ -331,6 +420,11 @@ export async function upsertSkill(
 /** Deletes a skill file. */
 export async function deleteSkill(id: string): Promise<void> {
   await getPool().query('DELETE FROM skills WHERE id = $1', [id]);
+}
+
+/** Deletes all skills for an agent. */
+export async function deleteSkillsByAgent(agentId: string): Promise<void> {
+  await getPool().query('DELETE FROM skills WHERE agent_id = $1', [agentId]);
 }
 
 // =============================================================================

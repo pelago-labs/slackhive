@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@300..700&family=Google+Sans+Mono:ital,wght@0,400;0,500;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design Tokens ─────────────────────────────────────────────────────────── */
+:root {
+  --bg:        #f8fafc;
+  --surface:   #ffffff;
+  --surface-2: #f1f5f9;
+  --border:    #e2e8f0;
+  --border-2:  #cbd5e1;
+  --accent:    #2563eb;
+  --accent-dim:#1d4ed8;
+  --success:   #16a34a;
+  --danger:    #dc2626;
+  --warning:   #d97706;
+  --text:      #0f172a;
+  --muted:     #64748b;
+  --subtle:    #94a3b8;
+  --font-sans: 'Google Sans Flex', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Google Sans Mono', 'Fira Code', ui-monospace, monospace;
+}
+
+/* ─── Reset & Base ───────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+::selection { background: rgba(59,130,246,0.25); }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--subtle); }
+
+/* ─── Running status pulse ───────────────────────────────────────────────────── */
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.4); }
+  70%  { box-shadow: 0 0 0 5px rgba(22,163,74,0); }
+  100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+}
+.status-running { animation: pulse-ring 2.2s ease-in-out infinite; }
+
+/* ─── Page entrance ──────────────────────────────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fade-up 0.28s cubic-bezier(0.16,1,0.3,1) both; }
+
+/* ─── Staggered children ─────────────────────────────────────────────────────── */
+.stagger > *:nth-child(1) { animation-delay: 0ms;  }
+.stagger > *:nth-child(2) { animation-delay: 50ms; }
+.stagger > *:nth-child(3) { animation-delay: 100ms;}
+.stagger > *:nth-child(4) { animation-delay: 150ms;}
+.stagger > *:nth-child(5) { animation-delay: 200ms;}
+.stagger > *:nth-child(6) { animation-delay: 250ms;}
+
+/* ─── Glow line on active tab ────────────────────────────────────────────────── */
+.tab-active {
+  color: var(--text) !important;
+  position: relative;
+}
+.tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; left: 0; right: 0;
+  height: 1.5px;
+  background: var(--accent);
+  border-radius: 99px;
+}
+
+/* ─── Log colorization ───────────────────────────────────────────────────────── */
+.log-info  { color: #93c5fd; }
+.log-debug { color: #475569; }
+.log-warn  { color: #fbbf24; }
+.log-error { color: #f87171; }

@@ -26,6 +26,50 @@ import { logger } from './logger';
 const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? '/tmp/agents';
 
 /**
+ * Memory system instructions injected into every agent's CLAUDE.md.
+ * Tells the agent to persist learned facts to .claude/memory/ in its cwd.
+ * The runner watches this directory and syncs to the database.
+ */
+const MEMORY_SYSTEM_SECTION = `# Memory System
+
+You have a persistent memory system. Save important things you learn about the user, their preferences, ongoing projects, or useful facts for future conversations.
+
+## How to save a memory
+
+Use the Write tool to create a file at \`.claude/memory/{name}.md\` with this format:
+
+\`\`\`markdown
+---
+name: short_snake_case_name
+description: one-line description of what this memory contains
+type: user|feedback|project|reference
+---
+
+Memory content here...
+\`\`\`
+
+**Types:**
+- \`user\` — facts about the user (role, preferences, expertise)
+- \`feedback\` — how the user wants you to behave (corrections, style preferences)
+- \`project\` — ongoing work, goals, decisions, deadlines
+- \`reference\` — pointers to external resources, tools, locations
+
+## When to save
+
+- When the user corrects you or gives explicit guidance → \`feedback\`
+- When you learn about the user's role, team, or preferences → \`user\`
+- When important project context or decisions are shared → \`project\`
+- When the user tells you where to find something → \`reference\`
+
+## MEMORY.md index
+
+After writing a memory file, update \`.claude/memory/MEMORY.md\` to add a one-line entry:
+\`- [Name](filename.md) — one-line hook\`
+
+Do NOT save ephemeral task details, code you just wrote, or anything already obvious from the conversation.`;
+
+
+/**
  * Returns the temporary working directory path for an agent.
  *
  * @param {string} slug - Agent slug (e.g., "gilfoyle").
@@ -97,7 +141,15 @@ export async function compileClaudeMd(agent: Agent): Promise<string> {
   }
 
   // -------------------------------------------------------------------------
-  // Section 2: Memories
+  // Section 2: Auto-memory system
+  // Instructs the agent to persist learned facts to .claude/memory/ in its cwd.
+  // The runner watches this directory and upserts records to the DB, so memory
+  // survives across restarts.
+  // -------------------------------------------------------------------------
+  sections.push(MEMORY_SYSTEM_SECTION);
+
+  // -------------------------------------------------------------------------
+  // Section 3: Memories
   // Memories are what the agent has learned from past interactions.
   // They are appended after skills so they can override or refine behavior.
   // Grouped by type for readability: feedback → user → project → reference
@@ -115,6 +167,17 @@ export async function compileClaudeMd(agent: Agent): Promise<string> {
     path: claudeMdPath,
     bytes: Buffer.byteLength(claudeMdContent, 'utf-8'),
   });
+
+  // Propagate updated CLAUDE.md to all existing per-session directories
+  const sessionsDir = path.join(workDir, 'sessions');
+  if (fs.existsSync(sessionsDir)) {
+    for (const entry of fs.readdirSync(sessionsDir)) {
+      const sessionClaudeMd = path.join(sessionsDir, entry, 'CLAUDE.md');
+      if (fs.existsSync(path.join(sessionsDir, entry))) {
+        fs.writeFileSync(sessionClaudeMd, claudeMdContent, 'utf-8');
+      }
+    }
+  }
 
   return workDir;
 }
@@ -159,7 +222,11 @@ export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
  * @returns {string} Compiled skills content.
  */
 function compileSkillsSection(skills: Skill[]): string {
-  return skills.map((s) => s.content.trim()).join('\n\n');
+  // Sort purely by global sort_order (matches skill.config.json assembly order)
+  return [...skills]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((s) => s.content.trim().replace(/^<!--\s*skill:.*?-->\s*\n?/, '').trim())
+    .join('\n\n');
 }
 
 /**

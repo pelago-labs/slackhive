@@ -1,5 +1,3 @@
-version: '3.9'
-
 # =============================================================================
 # Slack Claude Code Agent Team — Docker Compose
 #
@@ -59,7 +57,7 @@ services:
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-agentteam}:${POSTGRES_PASSWORD:-agentteam}@postgres:5432/${POSTGRES_DB:-agentteam}
       REDIS_URL: redis://redis:6379
@@ -71,6 +69,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      # Docker socket so the logs API can tail runner container logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
   # ---------------------------------------------------------------------------
   # runner — Agent runner service
@@ -99,6 +100,11 @@ services:
     volumes:
       # Ephemeral per-agent working directories (CLAUDE.md + memory watch)
       - /tmp/agents:/tmp/agents
+      # Mount host claude binary and config so agents use the host Claude Code subscription
+      - /home/admin/.local/share/claude/versions/2.1.81:/usr/local/bin/claude:ro
+      - /home/admin/.claude:/root/.claude
+      # Mount host home so MCP server paths (e.g. /home/admin/kaishen/...) resolve inside container
+      - /home/admin:/home/admin:ro
 
 volumes:
   pgdata:
