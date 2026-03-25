@@ -9,6 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { getAllSettings, setSetting } from '@/lib/db';
+import { guardAdmin } from '@/lib/api-guard';
 
 /**
  * Returns every stored setting as a flat `{ key: value }` JSON object.
@@ -27,6 +28,8 @@ export async function GET(): Promise<NextResponse> {
  * @returns {Promise<NextResponse>} JSON response confirming the upsert.
  */
 export async function PUT(req: Request): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   const body = await req.json();
   const { key, value } = body as { key: string; value: string };
 

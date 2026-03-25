@@ -111,6 +111,8 @@ export interface Agent {
    * The boss knows all other agents and delegates by @mentioning them in threads.
    */
   isBoss: boolean;
+  /** UUID of the boss agent this agent reports to. Null if this agent IS the boss. */
+  reportsTo: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -407,6 +409,8 @@ export interface CreateAgentRequest {
   slackSigningSecret: string;
   model?: string;
   isBoss?: boolean;
+  /** UUID of the boss agent this agent reports to. */
+  reportsTo?: string | null;
   /** IDs of MCP servers from the catalog to assign to this agent. */
   mcpServerIds?: string[];
   /** Skill template to bootstrap: blank | data-analyst | writer | developer */

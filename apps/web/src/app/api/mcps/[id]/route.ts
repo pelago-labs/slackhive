@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMcpServerById, updateMcpServer, deleteMcpServer } from '@/lib/db';
 import type { UpsertMcpServerRequest } from '@slack-agent-team/shared';
+import { guardAdmin } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -26,6 +27,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const body = (await req.json()) as Partial<UpsertMcpServerRequest>;
@@ -37,7 +40,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+export async function DELETE(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     await deleteMcpServer(id);

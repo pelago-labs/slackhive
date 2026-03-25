@@ -10,6 +10,7 @@
 
 import { useState, useEffect } from 'react';
 import type { McpServer, McpServerType } from '@slack-agent-team/shared';
+import { useAuth } from '@/lib/auth-context';
 
 interface McpFormState {
   name: string; type: McpServerType; description: string; enabled: boolean;
@@ -29,6 +30,7 @@ const DEFAULT_FORM: McpFormState = {
  * @returns {JSX.Element}
  */
 export default function McpSettingsPage() {
+  const { canEdit } = useAuth();
   const [servers, setServers]     = useState<McpServer[]>([]);
   const [loading, setLoading]     = useState(true);
   const [form, setForm]           = useState<McpFormState>(DEFAULT_FORM);
@@ -122,7 +124,7 @@ export default function McpSettingsPage() {
             {servers.length} server{servers.length !== 1 ? 's' : ''} · available to all agents
           </p>
         </div>
-        {!showForm && (
+        {canEdit && !showForm && (
           <button onClick={() => setShowForm(true)} style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             background: 'var(--accent)', color: '#fff',
@@ -150,11 +152,11 @@ export default function McpSettingsPage() {
           <div style={{ fontSize: 28, marginBottom: 10 }}>⚙️</div>
           <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No MCP servers yet</p>
           <p style={{ margin: '0 0 16px', fontSize: 13 }}>Add servers to the catalog to enable agent tools.</p>
-          <button onClick={() => setShowForm(true)} style={{
+          {canEdit && <button onClick={() => setShowForm(true)} style={{
             background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8,
             padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
             fontFamily: 'var(--font-sans)',
-          }}>Add First Server</button>
+          }}>Add First Server</button>}
         </div>
       ) : (
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
@@ -165,6 +167,7 @@ export default function McpSettingsPage() {
               onEdit={() => handleEdit(server)}
               onDelete={() => handleDelete(server.id)}
               onToggle={() => handleToggle(server)}
+              canEdit={canEdit}
             />
           ))}
         </div>
@@ -277,10 +280,11 @@ export default function McpSettingsPage() {
 // ─── Server row ───────────────────────────────────────────────────────────────
 
 function ServerRow({
-  server, isLast, onEdit, onDelete, onToggle,
+  server, isLast, onEdit, onDelete, onToggle, canEdit,
 }: {
   server: McpServer; isLast: boolean;
   onEdit: () => void; onDelete: () => void; onToggle: () => void;
+  canEdit: boolean;
 }) {
   const cfg = server.config as unknown as Record<string, unknown>;
   const preview = server.type === 'stdio'
@@ -325,11 +329,11 @@ function ServerRow({
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-        <ActionBtn onClick={onToggle} color="var(--muted)">
+        <ActionBtn onClick={onToggle} color="var(--muted)" disabled={!canEdit}>
           {server.enabled ? 'Disable' : 'Enable'}
         </ActionBtn>
-        <ActionBtn onClick={onEdit} color="var(--accent)">Edit</ActionBtn>
-        <ActionBtn onClick={onDelete} color="#ef4444">Delete</ActionBtn>
+        {canEdit && <ActionBtn onClick={onEdit} color="var(--accent)">Edit</ActionBtn>}
+        {canEdit && <ActionBtn onClick={onDelete} color="#ef4444">Delete</ActionBtn>}
       </div>
     </div>
   );
@@ -365,12 +369,13 @@ function inputStyle(fontFamily = 'var(--font-sans)'): React.HTMLAttributes<HTMLE
   };
 }
 
-function ActionBtn({ children, onClick, color }: {
-  children: React.ReactNode; onClick: () => void; color?: string;
+function ActionBtn({ children, onClick, color, disabled }: {
+  children: React.ReactNode; onClick: () => void; color?: string; disabled?: boolean;
 }) {
   return (
-    <button onClick={onClick} style={{
-      background: 'none', border: 'none', cursor: 'pointer',
+    <button onClick={onClick} disabled={disabled} style={{
+      background: 'none', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+      opacity: disabled ? 0.4 : 1,
       fontSize: 12, color: color ?? 'var(--muted)', fontFamily: 'var(--font-sans)',
       padding: '3px 8px', borderRadius: 5, transition: 'background 0.12s, color 0.12s',
     }}

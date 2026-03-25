@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentSkills, upsertSkill, publishAgentEvent } from '@/lib/db';
 import type { UpsertSkillRequest } from '@slack-agent-team/shared';
+import { guardAdmin } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -39,6 +40,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
  * @returns {Promise<NextResponse>} The upserted Skill or error.
  */
 export async function POST(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const body = (await req.json()) as UpsertSkillRequest & { category: string; filename: string };

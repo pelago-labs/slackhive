@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById, updateAgent, deleteAgent, publishAgentEvent } from '@/lib/db';
 import type { UpdateAgentRequest } from '@slack-agent-team/shared';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
+import { guardAdmin } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -42,6 +43,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
  * @returns {Promise<NextResponse>} Updated agent JSON or error.
  */
 export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const body = (await req.json()) as Partial<UpdateAgentRequest>;
@@ -63,7 +66,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
  * @param {RouteParams} ctx
  * @returns {Promise<NextResponse>} 204 No Content or error.
  */
-export async function DELETE(_req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+export async function DELETE(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     await publishAgentEvent({ type: 'stop', agentId: id });

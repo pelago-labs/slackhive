@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById, getAgentSkills, getAgentMemories, upsertSkill, deleteSkillsByAgent } from '@/lib/db';
+import { guardAdmin } from '@/lib/api-guard';
 
 export async function GET(
   _req: NextRequest,
@@ -53,6 +54,8 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   const { id } = await params;
   const agent = await getAgentById(id);
   if (!agent) return new NextResponse('Not found', { status: 404 });

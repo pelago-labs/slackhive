@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllMcpServers, createMcpServer } from '@/lib/db';
 import type { UpsertMcpServerRequest } from '@slack-agent-team/shared';
+import { guardAdmin } from '@/lib/api-guard';
 
 /**
  * GET /api/mcps
@@ -46,6 +47,8 @@ export async function GET(): Promise<NextResponse> {
  * }
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const denied = guardAdmin(request);
+  if (denied) return denied;
   try {
     const body = (await request.json()) as UpsertMcpServerRequest;
 

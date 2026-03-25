@@ -19,6 +19,7 @@ import {
 import type { CreateAgentRequest } from '@slack-agent-team/shared';
 import { SKILL_TEMPLATES } from '@/lib/skill-templates';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
+import { guardAdmin } from '@/lib/api-guard';
 
 /**
  * GET /api/agents
@@ -45,6 +46,8 @@ export async function GET(): Promise<NextResponse> {
  * @returns {Promise<NextResponse>} The created Agent (201), or error.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const denied = guardAdmin(request);
+  if (denied) return denied;
   try {
     const body = (await request.json()) as CreateAgentRequest;
 

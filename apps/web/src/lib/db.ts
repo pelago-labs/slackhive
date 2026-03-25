@@ -99,6 +99,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     model: row.model as string,
     status: row.status as AgentStatus,
     isBoss: row.is_boss as boolean,
+    reportsTo: (row.reports_to as string) ?? null,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
@@ -173,13 +174,13 @@ export async function createAgent(req: CreateAgentRequest): Promise<Agent> {
   const r = await getPool().query(
     `INSERT INTO agents
        (slug, name, persona, description, slack_bot_token, slack_app_token,
-        slack_signing_secret, model, is_boss)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        slack_signing_secret, model, is_boss, reports_to)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      RETURNING *`,
     [
       req.slug, req.name, req.persona ?? null, req.description ?? null,
       req.slackBotToken, req.slackAppToken, req.slackSigningSecret,
-      req.model ?? 'claude-opus-4-6', req.isBoss ?? false,
+      req.model ?? 'claude-opus-4-6', req.isBoss ?? false, req.reportsTo ?? null,
     ]
   );
   return rowToAgent(r.rows[0]);
@@ -521,4 +522,59 @@ export async function getAllSettings(): Promise<Record<string, string>> {
     result[row.key as string] = row.value as string;
   }
   return result;
+}
+
+// =============================================================================
+// User queries
+// =============================================================================
+
+/**
+ * Returns a user by username including password hash (for auth).
+ *
+ * @param {string} username - The username to look up.
+ * @returns {Promise<{ id: string; username: string; passwordHash: string; role: string; createdAt: string } | null>}
+ */
+export async function getUserByUsername(username: string): Promise<{ id: string; username: string; passwordHash: string; role: string; createdAt: string } | null> {
+  const r = await getPool().query(
+    'SELECT id, username, password_hash, role, created_at FROM users WHERE username = $1',
+    [username]
+  );
+  if (!r.rows.length) return null;
+  const row = r.rows[0];
+  return { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role, createdAt: row.created_at };
+}
+
+/**
+ * Returns all users (without password hashes).
+ *
+ * @returns {Promise<Array<{ id: string; username: string; role: string; createdAt: string }>>}
+ */
+export async function getAllUsers(): Promise<Array<{ id: string; username: string; role: string; createdAt: string }>> {
+  const r = await getPool().query('SELECT id, username, role, created_at FROM users ORDER BY created_at');
+  return r.rows.map(row => ({ id: row.id, username: row.username, role: row.role, createdAt: row.created_at }));
+}
+
+/**
+ * Creates a new user.
+ *
+ * @param {string} username - Unique username.
+ * @param {string} passwordHash - Bcrypt hash.
+ * @param {string} role - 'admin' or 'viewer'.
+ * @returns {Promise<{ id: string; username: string; role: string }>}
+ */
+export async function createUser(username: string, passwordHash: string, role: string): Promise<{ id: string; username: string; role: string }> {
+  const r = await getPool().query(
+    'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id, username, role',
+    [username, passwordHash, role]
+  );
+  return r.rows[0];
+}
+
+/**
+ * Deletes a user by ID.
+ *
+ * @param {string} id - User UUID.
+ */
+export async function deleteUser(id: string): Promise<void> {
+  await getPool().query('DELETE FROM users WHERE id = $1', [id]);
 }

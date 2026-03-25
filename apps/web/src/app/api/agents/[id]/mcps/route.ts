@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentMcpServers, setAgentMcps, publishAgentEvent } from '@/lib/db';
+import { guardAdmin } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -38,6 +39,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
  * @returns {Promise<NextResponse>} 200 ok or error.
  */
 export async function PUT(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const { mcpIds } = (await req.json()) as { mcpIds: string[] };

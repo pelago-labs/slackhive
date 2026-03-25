@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react';
 import type { Agent } from '@slack-agent-team/shared';
 import Link from 'next/link';
+import { useAuth } from '@/lib/auth-context';
 
 const STATUS_COLOR: Record<string, string> = {
   running: '#059669',
@@ -32,6 +33,7 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('Welcome to Silicon Valley');
+  const { canEdit } = useAuth();
 
   useEffect(() => {
     fetch('/api/agents')
@@ -51,7 +53,7 @@ export default function Dashboard() {
   const hasBoss = agents.some(a => a.isBoss);
 
   return (
-    <div style={{ padding: '36px 40px', maxWidth: 1100 }} className="fade-up">
+    <div style={{ padding: '36px 40px', maxWidth: 1100 }} className="fade-up responsive-pad">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 32 }}>
@@ -67,28 +69,30 @@ export default function Dashboard() {
               {loading ? 'Loading agents…' : `${running} of ${total} agent${total !== 1 ? 's' : ''} online`}
             </p>
           </div>
-          <Link href="/agents/new" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7,
-            background: 'var(--accent)', color: '#fff',
-            padding: '10px 20px', borderRadius: 8,
-            fontSize: 13.5, fontWeight: 500, textDecoration: 'none',
-            boxShadow: 'var(--shadow-sm)',
-            transition: 'opacity 0.15s, transform 0.15s',
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-            </svg>
-            New Agent
-          </Link>
+          {canEdit && (
+            <Link href="/agents/new" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7,
+              background: 'var(--accent)', color: '#fff',
+              padding: '10px 20px', borderRadius: 8,
+              fontSize: 13.5, fontWeight: 500, textDecoration: 'none',
+              boxShadow: 'var(--shadow-sm)',
+              transition: 'opacity 0.15s, transform 0.15s',
+            }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+              </svg>
+              New Agent
+            </Link>
+          )}
         </div>
       </div>
 
       {/* ── Stats ────────────────────────────────────────────────────────── */}
       {!loading && total > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }} className="stagger">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }} className="stagger stats-grid">
           <StatCard label="Total" value={total} sub={`${total} agent${total !== 1 ? 's' : ''} registered`} />
           <StatCard label="Running" value={running} color="#059669" sub={running > 0 ? 'All systems healthy' : 'None active'} />
           <StatCard label="Stopped" value={stopped} color="#a3a3a3" sub={stopped > 0 ? `${stopped} offline` : 'All online'} />
@@ -114,7 +118,7 @@ export default function Dashboard() {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
             gap: 14,
-          }} className="stagger">
+          }} className="stagger agent-grid">
             {agents.map(agent => (
               <AgentCard key={agent.id} agent={agent} />
             ))}
@@ -338,6 +342,7 @@ function Skel({ w, h, r = 4, mb = 0 }: { w: number | string; h: number; r?: numb
 // ── Empty state ──────────────────────────────────────────────────────────────
 
 function EmptyState() {
+  const { canEdit } = useAuth();
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -359,25 +364,27 @@ function EmptyState() {
           No agents yet
         </p>
         <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)', maxWidth: 300 }}>
-          Create your first Claude Code agent and connect it to Slack to get started.
+          {canEdit ? 'Create your first Claude Code agent and connect it to Slack to get started.' : 'No agents have been configured yet. Ask an admin to set one up.'}
         </p>
       </div>
-      <Link href="/agents/new" style={{
-        display: 'inline-flex', alignItems: 'center', gap: 7,
-        background: 'var(--accent)', color: '#fff',
-        padding: '10px 22px', borderRadius: 8,
-        fontSize: 14, fontWeight: 500, textDecoration: 'none',
-        boxShadow: 'var(--shadow-sm)',
-        transition: 'opacity 0.15s',
-      }}
-        onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-        onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-      >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-        </svg>
-        Create First Agent
-      </Link>
+      {canEdit && (
+        <Link href="/agents/new" style={{
+          display: 'inline-flex', alignItems: 'center', gap: 7,
+          background: 'var(--accent)', color: '#fff',
+          padding: '10px 22px', borderRadius: 8,
+          fontSize: 14, fontWeight: 500, textDecoration: 'none',
+          boxShadow: 'var(--shadow-sm)',
+          transition: 'opacity 0.15s',
+        }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+          </svg>
+          Create First Agent
+        </Link>
+      )}
     </div>
   );
 }

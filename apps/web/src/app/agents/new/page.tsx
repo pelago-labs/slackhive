@@ -11,7 +11,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import type { McpServer } from '@slack-agent-team/shared';
+import type { Agent, McpServer } from '@slack-agent-team/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -58,11 +58,21 @@ export default function NewAgentWizard() {
   const [step, setStep]       = useState(0);
   const [state, setState]     = useState<WizardState>(INITIAL);
   const [catalog, setCatalog] = useState<McpServer[]>([]);
+  const [agents, setAgents]   = useState<Agent[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]     = useState('');
 
+  const existingBoss = agents.find(a => a.isBoss);
+
   useEffect(() => {
     fetch('/api/mcps').then(r => r.json()).then(setCatalog);
+    fetch('/api/agents').then(r => r.json()).then((a: Agent[]) => {
+      setAgents(a);
+      // If a boss exists, default new agent to non-boss (reports to boss)
+      if (a.some(ag => ag.isBoss)) {
+        setState(s => ({ ...s, isBoss: false }));
+      }
+    }).catch(() => {});
   }, []);
 
   const update = (patch: Partial<WizardState>) => setState(s => ({ ...s, ...patch }));
@@ -70,7 +80,11 @@ export default function NewAgentWizard() {
   const back = () => setStep(s => Math.max(s - 1, 0));
 
   const canNext = () => {
-    if (step === 0) return !!(state.name && state.slug);
+    if (step === 0) {
+      if (!state.name || !state.slug) return false;
+      if (state.isBoss && existingBoss) return false; // can't have two bosses
+      return true;
+    }
     if (step === 2) return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
     return true;
   };
@@ -80,7 +94,10 @@ export default function NewAgentWizard() {
     try {
       const r = await fetch('/api/agents', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(state),
+        body: JSON.stringify({
+          ...state,
+          reportsTo: state.isBoss ? null : (existingBoss?.id ?? null),
+        }),
       });
       const data = await r.json();
       if (!r.ok) { setError(data.error ?? 'Failed to create agent'); return; }
@@ -154,11 +171,11 @@ export default function NewAgentWizard() {
             className="fade-up"
             key={step}
           >
-            {step === 0 && <Step1Identity state={state} update={update} />}
+            {step === 0 && <Step1Identity state={state} update={update} existingBoss={existingBoss ?? null} agents={agents} />}
             {step === 1 && <Step2SlackApp state={state} />}
             {step === 2 && <Step3Tokens state={state} update={update} />}
             {step === 3 && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
-            {step === 4 && <Step5Review state={state} catalog={catalog} />}
+            {step === 4 && <Step5Review state={state} catalog={catalog} agents={agents} />}
           </div>
 
           {error && (
@@ -219,9 +236,20 @@ export default function NewAgentWizard() {
 
 // ─── Step 1: Identity ─────────────────────────────────────────────────────────
 
-function Step1Identity({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
+function Step1Identity({ state, update, existingBoss, agents }: {
+  state: WizardState; update: (p: Partial<WizardState>) => void;
+  existingBoss: Agent | null; agents: Agent[];
+}) {
   const autoSlug = (name: string) =>
     name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  const handleReportsTo = (value: string) => {
+    if (value === '__none__') {
+      update({ isBoss: true });
+    } else {
+      update({ isBoss: false });
+    }
+  };
 
   return (
     <div>
@@ -266,33 +294,51 @@ function Step1Identity({ state, update }: { state: WizardState; update: (p: Part
         </div>
       </div>
 
-      {/* Boss toggle */}
-      <label style={{
-        display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer',
-        padding: '12px 14px', border: '1px solid',
-        borderColor: state.isBoss ? 'rgba(245,158,11,0.4)' : 'var(--border)',
-        borderRadius: 8, background: state.isBoss ? 'rgba(245,158,11,0.07)' : 'transparent',
-        transition: 'all 0.15s',
-      }}>
-        <div style={{
-          width: 18, height: 18, borderRadius: 5, flexShrink: 0,
-          background: state.isBoss ? '#f59e0b' : 'var(--border)',
-          border: `1.5px solid ${state.isBoss ? '#f59e0b' : 'var(--border-2)'}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'all 0.15s',
-        }}>
-          {state.isBoss && <span style={{ color: '#fff', fontSize: 10, fontWeight: 700 }}>✓</span>}
-        </div>
-        <input type="checkbox" checked={state.isBoss} onChange={e => update({ isBoss: e.target.checked })} style={{ display: 'none' }} />
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: state.isBoss ? '#f59e0b' : 'var(--text)' }}>
-            Boss Agent
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
-            Knows all agents, delegates by @mentioning them in Slack threads
-          </div>
-        </div>
-      </label>
+      {/* Reports to / Boss selection */}
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
+          Reports to
+        </label>
+        <select
+          value={state.isBoss ? '__none__' : (existingBoss?.id ?? '__none__')}
+          onChange={e => handleReportsTo(e.target.value)}
+          style={{
+            width: '100%', padding: '9px 12px', borderRadius: 8,
+            border: '1px solid var(--border)', background: '#fff',
+            fontSize: 13, fontFamily: 'var(--font-sans)', color: 'var(--text)',
+            outline: 'none', cursor: 'pointer',
+          }}
+        >
+          {/* "None" = this agent IS the boss */}
+          <option value="__none__" disabled={!!existingBoss && !state.isBoss}>
+            None — this agent is the Boss
+          </option>
+          {/* Existing boss as the reporting option */}
+          {existingBoss && (
+            <option value={existingBoss.id}>
+              {existingBoss.name} (Boss)
+            </option>
+          )}
+        </select>
+        {state.isBoss ? (
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: '#d97706' }}>
+            ⚡ This agent will be the Boss — it knows all agents and delegates by @mentioning them in Slack threads.
+          </p>
+        ) : existingBoss ? (
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+            This agent reports to <strong style={{ color: 'var(--text)' }}>{existingBoss.name}</strong>. The boss will delegate tasks to this specialist.
+          </p>
+        ) : (
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+            No boss agent exists yet. Select &quot;None&quot; to make this agent the boss, or create a boss first.
+          </p>
+        )}
+        {existingBoss && state.isBoss && (
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>
+            A boss agent already exists ({existingBoss.name}). You cannot have two boss agents.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -483,7 +529,8 @@ function Step4McpsSkills({
 
 // ─── Step 5: Review ───────────────────────────────────────────────────────────
 
-function Step5Review({ state, catalog }: { state: WizardState; catalog: McpServer[] }) {
+function Step5Review({ state, catalog, agents }: { state: WizardState; catalog: McpServer[]; agents: Agent[] }) {
+  const boss = agents.find(a => a.isBoss);
   const assignedMcps = catalog.filter(m => state.mcpServerIds.includes(m.id));
   const template = TEMPLATES.find(t => t.value === state.skillTemplate)?.label ?? state.skillTemplate;
 
@@ -499,7 +546,8 @@ function Step5Review({ state, catalog }: { state: WizardState; catalog: McpServe
           { label: 'Name',          value: state.name,                             mono: false },
           { label: 'Slug',          value: `@${state.slug}`,                       mono: true  },
           { label: 'Model',         value: state.model,                            mono: true  },
-          { label: 'Boss Agent',    value: state.isBoss ? 'Yes' : 'No',            mono: false },
+          { label: 'Role',          value: state.isBoss ? 'Boss (orchestrator)' : 'Specialist', mono: false },
+          { label: 'Reports to',   value: state.isBoss ? '—' : (boss?.name ?? 'No boss yet'), mono: false },
           { label: 'Description',   value: state.description || '—',               mono: false },
           { label: 'Bot Token',     value: `${state.slackBotToken.slice(0, 12)}…`, mono: true  },
           { label: 'App Token',     value: `${state.slackAppToken.slice(0, 12)}…`, mono: true  },

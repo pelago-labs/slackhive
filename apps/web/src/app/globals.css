@@ -91,3 +91,27 @@ body {
 .log-debug { color: #737373; }
 .log-warn  { color: #d97706; }
 .log-error { color: #dc2626; }
+
+/* ─── Mobile overlay backdrop ───────────────────────────────────────────────── */
+.sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.3);
+  z-index: 49;
+  backdrop-filter: blur(2px);
+}
+.sidebar-overlay.open { display: block; }
+
+/* ─── Responsive ─────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .hide-mobile { display: none !important; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  .agent-grid { grid-template-columns: 1fr !important; }
+  .tab-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .responsive-pad { padding: 20px 16px !important; padding-top: 56px !important; }
+}
+
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+  .agent-grid { grid-template-columns: 1fr !important; }
+}

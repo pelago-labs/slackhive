@@ -12,6 +12,7 @@
 import React, { useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
 import type { Agent, Skill, McpServer, Memory, Permission } from '@slack-agent-team/shared';
+import { useAuth } from '@/lib/auth-context';
 
 type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memory' | 'logs';
 
@@ -36,6 +37,7 @@ const STATUS_COLOR = { running: '#16a34a', stopped: 'var(--border-2)', error: '#
  */
 export default function AgentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
+  const { canEdit } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
@@ -72,6 +74,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         padding: '20px 36px 0',
         borderBottom: '1px solid var(--border)',
         paddingBottom: 0,
+        flexWrap: 'wrap', gap: 12,
       }}>
         <div>
           {/* Breadcrumb */}
@@ -127,13 +130,13 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16 }}>
           {actionMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{actionMsg}</span>}
-          {agent.status !== 'running' && (
+          {canEdit && agent.status !== 'running' && (
             <Btn color="#22c55e" onClick={() => triggerAction('start')}>Start</Btn>
           )}
-          {agent.status === 'running' && (
+          {canEdit && agent.status === 'running' && (
             <Btn color="var(--border-2)" textColor="var(--muted)" onClick={() => triggerAction('reload')}>Reload</Btn>
           )}
-          {agent.status === 'running' && (
+          {canEdit && agent.status === 'running' && (
             <Btn color="#ef4444" onClick={() => triggerAction('stop')}>Stop</Btn>
           )}
         </div>
@@ -144,6 +147,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         display: 'flex', gap: 0, padding: '0 36px',
         borderBottom: '1px solid var(--border)',
         background: 'var(--surface)',
+        overflowX: 'auto', WebkitOverflowScrolling: 'touch',
       }}>
         {TABS.map(t => (
           <button
@@ -166,12 +170,12 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} />}
-        {tab === 'skills'      && <SkillsTab      agentId={agent.id} />}
-        {tab === 'claude-md'   && <ClaudeMdTab    agentId={agent.id} />}
-        {tab === 'mcps'        && <McpsTab        agentId={agent.id} />}
-        {tab === 'permissions' && <PermissionsTab agentId={agent.id} />}
-        {tab === 'memory'      && <MemoryTab      agentId={agent.id} />}
+        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} />}
+        {tab === 'skills'      && <SkillsTab      agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'claude-md'   && <ClaudeMdTab    agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'mcps'        && <McpsTab        agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'permissions' && <PermissionsTab agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'memory'      && <MemoryTab      agentId={agent.id} canEdit={canEdit} />}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
       </div>
     </div>
@@ -180,7 +184,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate }: { agent: Agent; onUpdate: (a: Agent) => void }) {
+function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean }) {
   const [form, setForm] = useState({
     name:               agent.name,
     description:        agent.description ?? '',
@@ -217,27 +221,27 @@ function OverviewTab({ agent, onUpdate }: { agent: Agent; onUpdate: (a: Agent) =
     <div style={{ maxWidth: 640 }} className="fade-up">
       <Section title="Identity">
         <Grid2>
-          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} />
+          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit} />
           <Field label="Model" value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))}
-            hint="claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001" />
+            hint="claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001" readOnly={!canEdit} />
         </Grid2>
         <Field label="Description" value={form.description}
           onChange={v => setForm(f => ({ ...f, description: v }))}
-          hint="Shown to the boss agent for delegation decisions." />
+          hint="Shown to the boss agent for delegation decisions." readOnly={!canEdit} />
         <TextArea label="Persona" value={form.persona}
           onChange={v => setForm(f => ({ ...f, persona: v }))}
-          hint="Injected into CLAUDE.md — who is this agent?" rows={4} />
+          hint="Injected into CLAUDE.md — who is this agent?" rows={4} readOnly={!canEdit} />
       </Section>
 
       <Section title="Slack Credentials">
         <Field label="Bot Token" value={form.slackBotToken}
-          onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password"
+          onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
         <Field label="App-Level Token" value={form.slackAppToken}
-          onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password"
+          onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
           hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
         <Field label="Signing Secret" value={form.slackSigningSecret}
-          onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password"
+          onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
           hint="Basic Information → App Credentials → Signing Secret" />
         {agent.slackBotUserId && (
           <div style={{
@@ -254,7 +258,7 @@ function OverviewTab({ agent, onUpdate }: { agent: Agent; onUpdate: (a: Agent) =
       </Section>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>
+        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
         <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
         {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
       </div>
@@ -289,7 +293,7 @@ function OverviewTab({ agent, onUpdate }: { agent: Agent; onUpdate: (a: Agent) =
 
 // ─── CLAUDE.md viewer ─────────────────────────────────────────────────────────
 
-function ClaudeMdTab({ agentId }: { agentId: string }) {
+function ClaudeMdTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [content, setContent] = useState<string>('');
   const [draft, setDraft] = useState<string>('');
   const [editing, setEditing] = useState(false);
@@ -355,7 +359,7 @@ function ClaudeMdTab({ agentId }: { agentId: string }) {
               </button>
             </>
           ) : (
-            <button onClick={() => setEditing(true)} style={{ padding: '6px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>
+            canEdit && <button onClick={() => setEditing(true)} style={{ padding: '6px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>
               Edit
             </button>
           )}
@@ -393,7 +397,7 @@ function ClaudeMdTab({ agentId }: { agentId: string }) {
 
 // ─── Skills ───────────────────────────────────────────────────────────────────
 
-function SkillsTab({ agentId }: { agentId: string }) {
+function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [skills, setSkills]     = useState<Skill[]>([]);
   const [selected, setSelected] = useState<Skill | null>(null);
   const [content, setContent]   = useState('');
@@ -454,10 +458,10 @@ function SkillsTab({ agentId }: { agentId: string }) {
           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             Files
           </span>
-          <button onClick={() => setShowNew(true)} style={{
+          {canEdit && <button onClick={() => setShowNew(true)} style={{
             background: 'none', border: 'none', cursor: 'pointer',
             fontSize: 12, color: 'var(--accent)', fontFamily: 'var(--font-sans)',
-          }}>+ New</button>
+          }}>+ New</button>}
         </div>
         <div style={{ padding: '6px 6px', flex: 1, overflow: 'auto' }}>
           {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([cat, catSkills]) => (
@@ -482,7 +486,7 @@ function SkillsTab({ agentId }: { agentId: string }) {
                   onMouseLeave={e => { if (selected?.id !== s.id) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.filename}</span>
-                  <button
+                  {canEdit && <button
                     onClick={e => { e.stopPropagation(); remove(s); }}
                     style={{
                       background: 'none', border: 'none', cursor: 'pointer',
@@ -492,7 +496,7 @@ function SkillsTab({ agentId }: { agentId: string }) {
                     onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
                     onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
                     className="delete-btn"
-                  >×</button>
+                  >×</button>}
                 </div>
               ))}
             </div>
@@ -517,7 +521,7 @@ function SkillsTab({ agentId }: { agentId: string }) {
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 {msg && <span style={{ fontSize: 11.5, color: '#16a34a' }}>{msg}</span>}
-                <button
+                {canEdit && <button
                   onClick={save} disabled={saving}
                   style={{
                     background: saving ? 'var(--border)' : 'var(--accent)',
@@ -528,12 +532,13 @@ function SkillsTab({ agentId }: { agentId: string }) {
                   }}
                 >
                   {saving ? 'Saving…' : 'Save'}
-                </button>
+                </button>}
               </div>
             </div>
             <textarea
               value={content}
               onChange={e => setContent(e.target.value)}
+              readOnly={!canEdit}
               style={{
                 flex: 1, border: 'none', outline: 'none', resize: 'none',
                 background: 'transparent', color: 'var(--text)',
@@ -571,7 +576,7 @@ function SkillsTab({ agentId }: { agentId: string }) {
 
 // ─── MCPs ─────────────────────────────────────────────────────────────────────
 
-function McpsTab({ agentId }: { agentId: string }) {
+function McpsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [all, setAll]         = useState<McpServer[]>([]);
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [saving, setSaving]   = useState(false);
@@ -627,7 +632,7 @@ function McpsTab({ agentId }: { agentId: string }) {
               type="checkbox"
               checked={assigned.has(mcp.id)}
               onChange={() => toggle(mcp.id)}
-              disabled={!mcp.enabled}
+              disabled={!mcp.enabled || !canEdit}
               style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -646,7 +651,7 @@ function McpsTab({ agentId }: { agentId: string }) {
         ))}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <PrimaryBtn onClick={save} loading={saving}>Save Assignments</PrimaryBtn>
+        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Assignments</PrimaryBtn>}
         {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
       </div>
     </div>
@@ -657,7 +662,7 @@ function McpsTab({ agentId }: { agentId: string }) {
 
 const QUICK_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch'];
 
-function PermissionsTab({ agentId }: { agentId: string }) {
+function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [allowed, setAllowed] = useState('');
   const [denied,  setDenied]  = useState('');
   const [saving,  setSaving]  = useState(false);
@@ -704,6 +709,7 @@ function PermissionsTab({ agentId }: { agentId: string }) {
             <button
               key={t}
               onClick={() => addTool(t, 'allowed')}
+              disabled={!canEdit}
               style={{
                 background: 'var(--border)', border: '1px solid var(--border-2)',
                 color: 'var(--text)', padding: '3px 10px', borderRadius: 5,
@@ -727,7 +733,7 @@ function PermissionsTab({ agentId }: { agentId: string }) {
           </label>
           <textarea
             value={allowed} onChange={e => setAllowed(e.target.value)}
-            rows={12}
+            rows={12} readOnly={!canEdit}
             style={{
               width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
@@ -745,7 +751,7 @@ function PermissionsTab({ agentId }: { agentId: string }) {
           </label>
           <textarea
             value={denied} onChange={e => setDenied(e.target.value)}
-            rows={12}
+            rows={12} readOnly={!canEdit}
             style={{
               width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 8, padding: '10px 12px', color: 'var(--danger)',
@@ -759,7 +765,7 @@ function PermissionsTab({ agentId }: { agentId: string }) {
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <PrimaryBtn onClick={save} loading={saving}>Save Permissions</PrimaryBtn>
+        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Permissions</PrimaryBtn>}
         {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
       </div>
     </div>
@@ -775,7 +781,7 @@ const MEM_TYPE_STYLE: Record<string, { bg: string; color: string }> = {
   reference: { bg: '#f0fdf4', color: '#15803d' },
 };
 
-function MemoryTab({ agentId }: { agentId: string }) {
+function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -849,7 +855,7 @@ function MemoryTab({ agentId }: { agentId: string }) {
                       <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
                         {new Date(m.updatedAt).toLocaleDateString()}
                       </span>
-                      <button
+                      {canEdit && <button
                         onClick={e => { e.stopPropagation(); remove(m.id); }}
                         style={{
                           background: 'none', border: 'none', cursor: 'pointer',
@@ -858,7 +864,7 @@ function MemoryTab({ agentId }: { agentId: string }) {
                         }}
                         onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
                         onMouseLeave={e => (e.currentTarget.style.opacity = '0.5')}
-                      >Delete</button>
+                      >Delete</button>}
                     </div>
                   </div>
                   {expanded.has(m.id) && (
@@ -1082,9 +1088,9 @@ function Grid2({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>;
 }
 
-function Field({ label, value, onChange, hint, type = 'text' }: {
+function Field({ label, value, onChange, hint, type = 'text', readOnly }: {
   label: string; value: string; onChange: (v: string) => void;
-  hint?: React.ReactNode; type?: string;
+  hint?: React.ReactNode; type?: string; readOnly?: boolean;
 }) {
   return (
     <div>
@@ -1092,7 +1098,7 @@ function Field({ label, value, onChange, hint, type = 'text' }: {
         {label}
       </label>
       <input
-        type={type} value={value} onChange={e => onChange(e.target.value)}
+        type={type} value={value} onChange={e => onChange(e.target.value)} readOnly={readOnly}
         style={{
           width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
@@ -1107,9 +1113,9 @@ function Field({ label, value, onChange, hint, type = 'text' }: {
   );
 }
 
-function TextArea({ label, value, onChange, hint, rows = 3 }: {
+function TextArea({ label, value, onChange, hint, rows = 3, readOnly }: {
   label: string; value: string; onChange: (v: string) => void;
-  hint?: string; rows?: number;
+  hint?: string; rows?: number; readOnly?: boolean;
 }) {
   return (
     <div>
@@ -1117,7 +1123,7 @@ function TextArea({ label, value, onChange, hint, rows = 3 }: {
         {label}
       </label>
       <textarea
-        value={value} onChange={e => onChange(e.target.value)} rows={rows}
+        value={value} onChange={e => onChange(e.target.value)} rows={rows} readOnly={readOnly}
         style={{
           width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 7, padding: '8px 11px', color: 'var(--text)',

@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteSkill, publishAgentEvent } from '@/lib/db';
+import { guardAdmin } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string; skillId: string }> };
 
@@ -17,7 +18,9 @@ type RouteParams = { params: Promise<{ id: string; skillId: string }> };
  * @param {RouteParams} ctx
  * @returns {Promise<NextResponse>} 204 No Content or error.
  */
-export async function DELETE(_req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+export async function DELETE(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   try {
     const { id, skillId } = await params;
     await deleteSkill(skillId);

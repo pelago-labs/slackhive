@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, createContext } from 'react';
 import type { Agent } from '@slack-agent-team/shared';
+import { useAuth } from '@/lib/auth-context';
 
 const STATUS_DOT: Record<string, string> = {
   running: '#059669', stopped: '#d4d4d4', error: '#dc2626',
@@ -21,12 +22,22 @@ export const SidebarContext = createContext<{ collapsed: boolean; width: number 
 const W_OPEN = 240;
 const W_CLOSED = 56;
 
-export function Sidebar({ children }: { children?: React.ReactNode }) {
+export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: React.ReactNode; mobileOpen?: boolean; onMobileClose?: () => void }) {
   const pathname = usePathname();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [collapsed, setCollapsed] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [branding, setBranding] = useState({ appName: 'AI Teams', tagline: 'Claude Code Platform', logoUrl: '' });
-  const w = collapsed ? W_CLOSED : W_OPEN;
+  const { username, role, canEdit, logout } = useAuth();
+  const w = isMobile ? 0 : (collapsed ? W_CLOSED : W_OPEN);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   useEffect(() => {
     fetch('/api/agents').then(r => r.json()).then(setAgents).catch(() => {});
@@ -41,13 +52,23 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
 
   return (
     <SidebarContext.Provider value={{ collapsed, width: w }}>
+      {/* Mobile overlay backdrop */}
+      {isMobile && mobileOpen && (
+        <div onClick={onMobileClose} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)',
+          zIndex: 49, backdropFilter: 'blur(2px)',
+        }} />
+      )}
       <aside style={{
-        width: w, flexShrink: 0, background: '#fff',
+        width: W_OPEN, flexShrink: 0, background: '#fff',
         borderRight: '1px solid var(--border)',
         display: 'flex', flexDirection: 'column',
-        position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 50,
-        transition: 'width 0.2s cubic-bezier(0.16,1,0.3,1)',
+        position: 'fixed', top: 0, bottom: 0, zIndex: 50,
+        left: isMobile ? (mobileOpen ? 0 : -W_OPEN) : (collapsed ? 0 : 0),
+        ...(isMobile ? {} : { width: collapsed ? W_CLOSED : W_OPEN }),
+        transition: isMobile ? 'left 0.25s cubic-bezier(0.16,1,0.3,1)' : 'width 0.2s cubic-bezier(0.16,1,0.3,1)',
         overflow: 'hidden',
+        ...(isMobile && mobileOpen ? { boxShadow: 'var(--shadow-lg)' } : {}),
       }}>
 
         {/* ── Brand ──────────────────────────────────────────────────────── */}
@@ -168,7 +189,7 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
             );
           })}
 
-          <Link href="/agents/new" title="Add agent" style={{
+          {canEdit && <Link href="/agents/new" title="Add agent" style={{
             display: 'flex', alignItems: 'center',
             gap: 8, padding: collapsed ? '6px 0' : '7px 10px',
             justifyContent: collapsed ? 'center' : 'flex-start',
@@ -183,7 +204,7 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
               <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
             {!collapsed && 'Add agent'}
-          </Link>
+          </Link>}
 
           <div style={{ height: 1, background: 'var(--border)', margin: '12px 6px' }} />
 
@@ -193,60 +214,95 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
               <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
           }>MCP Catalog</NavItem>
-        </div>
 
-        {/* ── Footer ─────────────────────────────────────────────────────── */}
-        <div style={{ padding: collapsed ? '10px 8px' : '10px 12px 14px', borderTop: '1px solid var(--border)' }}>
-          {/* Settings */}
           <NavItem href="/settings" active={pathname === '/settings'} collapsed={collapsed} icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M6.86 2h2.28l.32 1.6a5 5 0 011.32.77l1.54-.52.94 1.62-1.22 1.08a5 5 0 010 1.54l1.22 1.08-.94 1.62-1.54-.52a5 5 0 01-1.32.77L9.14 14H6.86l-.32-1.6a5 5 0 01-1.32-.77l-1.54.52-.94-1.62 1.22-1.08a5 5 0 010-1.54L2.74 6.83l.94-1.62 1.54.52a5 5 0 011.32-.77L6.86 2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
               <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2"/>
             </svg>
           }>Settings</NavItem>
+        </div>
 
-          {/* Collapse toggle */}
-          <button
-            onClick={() => setCollapsed(c => !c)}
+        {/* ── Footer — Profile ──────────────────────────────────────────── */}
+        <div style={{ padding: collapsed ? '12px 8px' : '12px', borderTop: '1px solid var(--border)', position: 'relative' }}>
+          {/* Profile row — click to toggle popup */}
+          <div
+            onClick={() => setProfileOpen(p => !p)}
             style={{
               display: 'flex', alignItems: 'center',
+              gap: 10, padding: collapsed ? '4px 0' : '8px 10px',
               justifyContent: collapsed ? 'center' : 'flex-start',
-              gap: 8, width: '100%',
-              padding: collapsed ? '8px 0' : '7px 10px',
-              borderRadius: 8, border: 'none', background: 'transparent',
-              color: 'var(--muted)', fontSize: 12.5, cursor: 'pointer',
-              transition: 'color 0.12s, background 0.12s',
-              fontFamily: 'var(--font-sans)',
+              borderRadius: 8, cursor: 'pointer',
+              transition: 'background 0.12s',
+              background: profileOpen ? 'var(--surface-2)' : 'transparent',
             }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text)'; (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            onMouseEnter={e => { if (!profileOpen) e.currentTarget.style.background = 'var(--surface-2)'; }}
+            onMouseLeave={e => { if (!profileOpen) e.currentTarget.style.background = 'transparent'; }}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, transform: collapsed ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-              <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            {!collapsed && 'Collapse'}
-          </button>
+            <div style={{
+              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              background: '#171717',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 600, color: '#fff',
+            }}>
+              {(username || '?').charAt(0).toUpperCase()}
+            </div>
+            {!collapsed && (
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 500, color: 'var(--text)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{username}</div>
+                <div style={{ fontSize: 11, color: 'var(--subtle)', textTransform: 'capitalize' }}>{role}</div>
+              </div>
+            )}
+            {!collapsed && (
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, color: 'var(--subtle)', transform: profileOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </div>
 
-          {!collapsed && (
-            <>
-              <a href="https://github.com/amansrivastava17/slack-claude-code-agent-team"
-                target="_blank" rel="noopener noreferrer"
+          {/* Popup menu */}
+          {profileOpen && (
+            <div style={{
+              position: 'absolute',
+              bottom: collapsed ? 60 : 64,
+              left: collapsed ? 8 : 12,
+              right: collapsed ? 8 : 12,
+              background: '#fff',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              boxShadow: 'var(--shadow-lg)',
+              overflow: 'hidden',
+              zIndex: 60,
+              minWidth: collapsed ? 160 : undefined,
+            }}>
+              {collapsed && (
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{username}</div>
+                  <div style={{ fontSize: 11, color: 'var(--subtle)', textTransform: 'capitalize' }}>{role}</div>
+                </div>
+              )}
+              <button
+                onClick={() => { setProfileOpen(false); logout(); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '6px 10px', borderRadius: 7, textDecoration: 'none',
-                  color: 'var(--muted)', fontSize: 12.5,
-                  transition: 'color 0.12s, background 0.12s',
+                  width: '100%', padding: '10px 14px',
+                  background: 'transparent', border: 'none',
+                  color: '#dc2626', fontSize: 13, cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)',
+                  transition: 'background 0.12s',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text)'; (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(220,38,38,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                  <path d="M6 2H4a2 2 0 00-2 2v8a2 2 0 002 2h2M11 11l3-3-3-3M14 8H6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                GitHub
-              </a>
-              <div style={{ padding: '4px 10px', color: 'var(--subtle)', fontSize: 11 }}>v0.1.0</div>
-            </>
+                Sign out
+              </button>
+            </div>
           )}
         </div>
       </aside>
@@ -255,26 +311,26 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
   );
 }
 
-function NavItem({ href, icon, children, active, collapsed }: {
-  href: string; icon?: React.ReactNode; children: React.ReactNode; active?: boolean; collapsed?: boolean;
+function NavItem({ href, icon, children, active, collapsed, onClick }: {
+  href?: string; icon?: React.ReactNode; children: React.ReactNode; active?: boolean; collapsed?: boolean; onClick?: () => void;
 }) {
-  return (
-    <Link href={href} title={collapsed ? String(children) : undefined}
-      style={{
-        display: 'flex', alignItems: 'center',
-        gap: 9, padding: collapsed ? '8px 0' : '8px 10px',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        borderRadius: 8, textDecoration: 'none',
-        color: active ? 'var(--text)' : 'var(--muted)',
-        background: active ? 'var(--surface-2)' : 'transparent',
-        fontSize: 13, fontWeight: active ? 600 : 400,
-        transition: 'background 0.12s, color 0.12s',
-      }}
-      onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}}
-      onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}}
-    >
-      {icon && <span style={{ flexShrink: 0 }}>{icon}</span>}
-      {!collapsed && children}
-    </Link>
-  );
+  const style: React.CSSProperties = {
+    display: 'flex', alignItems: 'center',
+    gap: 9, padding: collapsed ? '8px 0' : '8px 10px',
+    justifyContent: collapsed ? 'center' : 'flex-start',
+    borderRadius: 8, textDecoration: 'none', border: 'none',
+    color: active ? 'var(--text)' : 'var(--muted)',
+    background: active ? 'var(--surface-2)' : 'transparent',
+    fontSize: 13, fontWeight: active ? 600 : 400,
+    transition: 'background 0.12s, color 0.12s',
+    cursor: 'pointer', width: '100%', fontFamily: 'var(--font-sans)',
+  };
+  const hover = (e: React.MouseEvent) => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }};
+  const leave = (e: React.MouseEvent) => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }};
+  const content = <>{icon && <span style={{ flexShrink: 0 }}>{icon}</span>}{!collapsed && children}</>;
+
+  if (onClick) {
+    return <button onClick={onClick} title={collapsed ? String(children) : undefined} style={style} onMouseEnter={hover} onMouseLeave={leave}>{content}</button>;
+  }
+  return <Link href={href || '/'} title={collapsed ? String(children) : undefined} style={style} onMouseEnter={hover} onMouseLeave={leave}>{content}</Link>;
 }

@@ -35,6 +35,7 @@ CREATE TABLE agents (
   status               TEXT        NOT NULL DEFAULT 'stopped'
                                    CHECK (status IN ('running', 'stopped', 'error')),
   is_boss              BOOLEAN     NOT NULL DEFAULT false,
+  reports_to           UUID        REFERENCES agents(id) ON DELETE SET NULL,
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -155,6 +156,20 @@ CREATE TABLE IF NOT EXISTS settings (
   key        TEXT        PRIMARY KEY,
   value      TEXT        NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- -----------------------------------------------------------------------------
+-- users
+-- Platform users with role-based access.
+-- Superadmin is configured via env vars and never stored here.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  username      TEXT        UNIQUE NOT NULL,
+  password_hash TEXT        NOT NULL,
+  role          TEXT        NOT NULL DEFAULT 'viewer'
+                            CHECK (role IN ('admin', 'viewer')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- -----------------------------------------------------------------------------
