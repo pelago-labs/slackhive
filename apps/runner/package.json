@@ -1,0 +1,28 @@
+{
+  "name": "@slack-agent-team/runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent runner service — manages all Claude Code Slack bot instances",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.59",
+    "@anthropic-ai/claude-code": "^2.1.59",
+    "@slack/bolt": "^4.4.0",
+    "@slack-agent-team/shared": "*",
+    "dotenv": "^16.6.0",
+    "pg": "^8.11.0",
+    "redis": "^4.6.0",
+    "tsx": "^4.20.3",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.3.0"
+  }
+}

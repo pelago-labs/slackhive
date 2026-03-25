@@ -1,0 +1,18 @@
+{
+  "name": "slack-claude-code-agent-team",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source platform for managing teams of Claude Code Slack agents with a boss agent orchestrator",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "sh scripts/dev.sh",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,105 @@
+version: '3.9'
+
+# =============================================================================
+# Slack Claude Code Agent Team — Docker Compose
+#
+# Services:
+#   postgres  — Primary database (port 5432)
+#   redis     — Pub/sub for agent hot-reload events (port 6379)
+#   web       — Next.js management UI (port 3000)
+#   runner    — Agent runner service (manages all Slack bots)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # postgres — Primary datastore
+  # Schema is auto-applied on first start from schema.sql.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agentteam}
+      POSTGRES_USER: ${POSTGRES_USER:-agentteam}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentteam}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./packages/shared/src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentteam} -d ${POSTGRES_DB:-agentteam}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # redis — Lightweight pub/sub broker
+  # Used for agent reload signals from web → runner.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # web — Next.js 15 management UI
+  # Provides agent onboarding wizard, skill editor, MCP catalog,
+  # memory viewer, live logs, and start/stop controls.
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentteam}:${POSTGRES_PASSWORD:-agentteam}@postgres:5432/${POSTGRES_DB:-agentteam}
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV:-production}
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # runner — Agent runner service
+  # Loads all active agents from Postgres at startup, then manages one
+  # @slack/bolt App instance per agent. Listens on Redis for reload events.
+  #
+  # /tmp/agents is mounted to allow the runner to write ephemeral CLAUDE.md
+  # files for the Claude Code SDK, and to watch for memory file writes.
+  # ---------------------------------------------------------------------------
+  runner:
+    build:
+      context: .
+      dockerfile: apps/runner/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentteam}:${POSTGRES_PASSWORD:-agentteam}@postgres:5432/${POSTGRES_DB:-agentteam}
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV:-production}
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Ephemeral per-agent working directories (CLAUDE.md + memory watch)
+      - /tmp/agents:/tmp/agents
+
+volumes:
+  pgdata:
+    driver: local
