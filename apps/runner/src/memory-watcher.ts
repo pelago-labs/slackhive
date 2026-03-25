@@ -48,84 +48,91 @@ const DEBOUNCE_MS = 200;
 export class MemoryWatcher {
   private readonly agent: Agent;
   private readonly memoryDir: string;
-  private watcher: fs.FSWatcher | null = null;
+  private readonly sessionsDir: string;
+  private watchers: fs.FSWatcher[] = [];
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private readonly log: ReturnType<typeof agentLogger>;
 
-  /**
-   * Creates a new MemoryWatcher for an agent.
-   *
-   * @param {Agent} agent - The agent whose memory directory to watch.
-   */
   constructor(agent: Agent) {
     this.agent = agent;
-    this.memoryDir = path.join(getAgentWorkDir(agent.slug), '.claude', 'memory');
+    const workDir = getAgentWorkDir(agent.slug);
+    this.memoryDir = path.join(workDir, '.claude', 'memory');
+    this.sessionsDir = path.join(workDir, 'sessions');
     this.log = agentLogger(agent.slug);
   }
 
-  /**
-   * Starts watching the memory directory.
-   * Creates the directory if it does not exist.
-   * Safe to call multiple times (no-op if already watching).
-   *
-   * @returns {void}
-   */
   start(): void {
-    if (this.watcher) return;
+    if (this.watchers.length > 0) return;
 
-    // Ensure the memory directory exists before watching
+    // Watch the root memory dir (legacy / materialized memories)
     fs.mkdirSync(this.memoryDir, { recursive: true });
+    this.watchDir(this.memoryDir);
 
-    this.log.info('Memory watcher started', { dir: this.memoryDir });
+    // Watch the sessions dir recursively — new session dirs appear at runtime
+    fs.mkdirSync(this.sessionsDir, { recursive: true });
+    this.watchSessionsRoot();
 
-    this.watcher = fs.watch(this.memoryDir, { persistent: false }, (eventType, filename) => {
+    this.log.info('Memory watcher started', { memoryDir: this.memoryDir, sessionsDir: this.sessionsDir });
+  }
+
+  /** Watch the sessions root for new session directories being created. */
+  private watchSessionsRoot(): void {
+    const watcher = fs.watch(this.sessionsDir, { persistent: false }, (eventType, filename) => {
+      if (!filename) return;
+      const sessionDir = path.join(this.sessionsDir, filename);
+      const memDir = path.join(sessionDir, '.claude', 'memory');
+      // When a new session dir appears, start watching its memory dir
+      if (fs.existsSync(sessionDir) && fs.statSync(sessionDir).isDirectory()) {
+        fs.mkdirSync(memDir, { recursive: true });
+        this.watchDir(memDir);
+      }
+    });
+    watcher.on('error', (err) => this.log.warn('Sessions root watcher error', { error: err.message }));
+    this.watchers.push(watcher);
+
+    // Also watch any existing session memory dirs
+    if (fs.existsSync(this.sessionsDir)) {
+      for (const entry of fs.readdirSync(this.sessionsDir)) {
+        const memDir = path.join(this.sessionsDir, entry, '.claude', 'memory');
+        fs.mkdirSync(memDir, { recursive: true });
+        this.watchDir(memDir);
+      }
+    }
+  }
+
+  /** Watch a specific memory directory for .md file changes. */
+  private watchDir(memDir: string): void {
+    // Avoid duplicate watchers
+    const watcher = fs.watch(memDir, { persistent: false }, (eventType, filename) => {
       if (!filename || !filename.endsWith('.md')) return;
+      const filePath = path.join(memDir, filename);
+      const timerKey = filePath;
 
-      // Debounce: wait for file write to complete before reading
-      const existing = this.debounceTimers.get(filename);
+      const existing = this.debounceTimers.get(timerKey);
       if (existing) clearTimeout(existing);
 
       const timer = setTimeout(() => {
-        this.debounceTimers.delete(filename);
-        this.handleMemoryFileChange(filename).catch((err) => {
-          this.log.error('Failed to sync memory file', { filename, error: err.message });
+        this.debounceTimers.delete(timerKey);
+        this.handleMemoryFileChange(filePath).catch((err) => {
+          this.log.error('Failed to sync memory file', { filePath, error: err.message });
         });
       }, DEBOUNCE_MS);
 
-      this.debounceTimers.set(filename, timer);
+      this.debounceTimers.set(timerKey, timer);
     });
-
-    this.watcher.on('error', (err) => {
-      this.log.warn('Memory watcher error', { error: err.message });
-    });
+    watcher.on('error', (err) => this.log.warn('Memory dir watcher error', { dir: memDir, error: err.message }));
+    this.watchers.push(watcher);
   }
 
-  /**
-   * Stops watching the memory directory and clears all pending timers.
-   *
-   * @returns {void}
-   */
   stop(): void {
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
-    }
-    for (const timer of this.debounceTimers.values()) {
-      clearTimeout(timer);
-    }
+    for (const w of this.watchers) w.close();
+    this.watchers = [];
+    for (const timer of this.debounceTimers.values()) clearTimeout(timer);
     this.debounceTimers.clear();
     this.log.info('Memory watcher stopped');
   }
 
-  /**
-   * Handles a change to a memory file.
-   * Reads the file, parses its frontmatter, and upserts to the database.
-   *
-   * @param {string} filename - The changed filename (basename only).
-   * @returns {Promise<void>}
-   */
-  private async handleMemoryFileChange(filename: string): Promise<void> {
-    const filePath = path.join(this.memoryDir, filename);
+  private async handleMemoryFileChange(filePath: string): Promise<void> {
 
     if (!fs.existsSync(filePath)) {
       // File was deleted — we keep the DB record (deletions are explicit via UI)
@@ -136,14 +143,14 @@ export class MemoryWatcher {
     const parsed = parseMemoryFile(content);
 
     if (!parsed) {
-      this.log.warn('Could not parse memory file, skipping', { filename });
+      this.log.warn('Could not parse memory file, skipping', { filePath });
       return;
     }
 
     await upsertMemorySafe(this.agent.id, parsed.type, parsed.name, content);
 
     this.log.info('Memory synced to DB', {
-      filename,
+      filePath,
       name: parsed.name,
       type: parsed.type,
     });

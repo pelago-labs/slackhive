@@ -16,6 +16,15 @@ import { logger } from './logger';
  *
  * @returns {Promise<void>}
  */
+// Prevent a single bad agent from crashing the entire runner process.
+// Individual agent errors are already logged and status set to 'error' in AgentRunner.
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught exception — continuing', { error: err.message, stack: err.stack });
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled rejection — continuing', { error: String(reason) });
+});
+
 async function main(): Promise<void> {
   logger.info('Starting Slack Claude Code Agent Team — Runner Service');
 

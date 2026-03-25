@@ -18,6 +18,7 @@ import {
 } from '@/lib/db';
 import type { CreateAgentRequest } from '@slack-agent-team/shared';
 import { SKILL_TEMPLATES } from '@/lib/skill-templates';
+import { regenerateBossRegistry } from '@/lib/boss-registry';
 
 /**
  * GET /api/agents
@@ -76,6 +77,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Signal the runner to start this agent
     await publishAgentEvent({ type: 'start', agentId: agent.id });
+
+    // Regenerate boss registry now that team has a new member
+    await regenerateBossRegistry().catch(() => {});
 
     return NextResponse.json(agent, { status: 201 });
   } catch (err) {

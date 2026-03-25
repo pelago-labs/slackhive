@@ -121,8 +121,23 @@ export class AgentRunner {
     const agents = await getAllAgents();
     logger.info('Loading agents from database', { count: agents.length });
 
-    // Start agents sequentially to avoid overwhelming Slack's rate limits
+    // Start agents sequentially to avoid overwhelming Slack's rate limits.
+    // Skip agents that are stopped or have placeholder/missing tokens.
     for (const agent of agents) {
+      if (agent.status === 'stopped') {
+        logger.info('Skipping stopped agent', { agent: agent.slug });
+        continue;
+      }
+      if (
+        !agent.slackBotToken.startsWith('xoxb-') ||
+        !agent.slackAppToken.startsWith('xapp-') ||
+        agent.slackBotToken.includes('placeholder') ||
+        agent.slackAppToken.includes('placeholder')
+      ) {
+        logger.warn('Skipping agent with invalid/placeholder tokens', { agent: agent.slug });
+        await updateAgentStatus(agent.id, 'stopped');
+        continue;
+      }
       try {
         await this.startAgent(agent);
       } catch (err) {
