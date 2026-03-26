@@ -287,6 +287,7 @@ function UsersTab() {
             background: '#fff', borderRadius: 14, border: '1px solid var(--border)',
             padding: 28, width: 380, boxShadow: 'var(--shadow-lg)',
             display: 'flex', flexDirection: 'column', gap: 16,
+            maxHeight: '90vh', overflow: 'auto',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>New User</h3>

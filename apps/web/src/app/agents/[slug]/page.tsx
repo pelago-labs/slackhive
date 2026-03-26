@@ -1200,6 +1200,7 @@ function Modal({ title, children, onClose }: {
         borderRadius: 14, padding: '24px', width: 420,
         boxShadow: '0 0 0 1px rgba(255,255,255,0.04)',
         display: 'flex', flexDirection: 'column', gap: 14,
+        maxHeight: '90vh', overflow: 'auto',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{title}</h3>
