@@ -105,29 +105,29 @@ The Boss reads the message, checks its team registry, and delegates to the right
 ┌────────────────────────────▼────────────────────────────────┐
 │  Docker Compose                                             │
 │                                                             │
-│  ┌─────────────────┐  publish events  ┌─────────────────┐  │
-│  │  Web UI         │ ──────────────►  │  Redis 7        │  │
-│  │  Next.js 15     │                  │  pub/sub        │  │
-│  │  :3000          │                  └────────┬────────┘  │
+│  ┌─────────────────┐  publish events  ┌─────────────────┐   │
+│  │  Web UI         │ ──────────────►  │  Redis 7        │   │
+│  │  Next.js 15     │                  │  pub/sub        │   │
+│  │  :3000          │                  └────────┬────────┘   │
 │  │                 │                           │ subscribe  │
-│  │  • Dashboard    │  read/write       ┌───────▼────────┐  │
-│  │  • Agent config │ ◄───────────────► │  Runner        │  │
-│  │  • Skill editor │                   │                │  │
-│  │  • MCP catalog  │                   │  AgentRunner   │  │
-│  │  • Memory viewer│                   │  ├─ Boss       │  │
-│  │  • Live logs    │                   │  ├─ DataBot    │  │
-│  │  • Settings     │                   │  ├─ Writer     │  │
-│  └─────────────────┘                   │  └─ ...        │  │
-│          │                             └───────┬────────┘  │
-│          │ read/write                          │           │
-│          ▼                                     ▼           │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  PostgreSQL 16                                      │   │
-│  │                                                     │   │
-│  │  agents · skills · memories · permissions            │   │
-│  │  mcp_servers · agent_mcps · sessions                │   │
-│  │  settings · users                                   │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  │  • Dashboard    │  read/write       ┌───────▼────────┐   │
+│  │  • Agent config │ ◄───────────────► │  Runner        │   │
+│  │  • Skill editor │                   │                │   │
+│  │  • MCP catalog  │                   │  AgentRunner   │   │
+│  │  • Memory viewer│                   │  ├─ Boss       │   │
+│  │  • Live logs    │                   │  ├─ DataBot    │   │
+│  │  • Settings     │                   │  ├─ Writer     │   │
+│  └─────────────────┘                   │  └─ ...        │   │
+│          │                             └───────┬────────┘   │
+│          │ read/write                          │            │
+│          ▼                                     ▼            │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  PostgreSQL 16                                      │    │
+│  │                                                     │    │
+│  │  agents · skills · memories · permissions           │    │
+│  │  mcp_servers · agent_mcps · sessions                │    │
+│  │  settings · users                                   │    │
+│  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
