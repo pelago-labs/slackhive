@@ -45,8 +45,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   if (!username || !password) {
     return NextResponse.json({ error: 'username and password required' }, { status: 400 });
   }
-  if (role && !['admin', 'viewer'].includes(role)) {
-    return NextResponse.json({ error: 'role must be admin or viewer' }, { status: 400 });
+  if (role && !['admin', 'editor', 'viewer'].includes(role)) {
+    return NextResponse.json({ error: 'role must be admin, editor, or viewer' }, { status: 400 });
   }
 
   try {

@@ -34,7 +34,7 @@ const DEFAULTS: Record<string, string> = {
  * @returns {JSX.Element}
  */
 export default function SettingsPage() {
-  const { canEdit } = useAuth();
+  const { canEdit, canManageUsers } = useAuth();
   const [tab, setTab] = useState<Tab>('general');
 
   return (
@@ -52,11 +52,11 @@ export default function SettingsPage() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
         <TabBtn active={tab === 'general'} onClick={() => setTab('general')}>General</TabBtn>
-        {canEdit && <TabBtn active={tab === 'users'} onClick={() => setTab('users')}>Users</TabBtn>}
+        {canManageUsers && <TabBtn active={tab === 'users'} onClick={() => setTab('users')}>Users</TabBtn>}
       </div>
 
       {tab === 'general' && <GeneralTab />}
-      {tab === 'users' && canEdit && <UsersTab />}
+      {tab === 'users' && canManageUsers && <UsersTab />}
     </div>
   );
 }
@@ -243,7 +243,7 @@ function UsersTab() {
             }}>
               <div style={{
                 width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                background: u.role === 'admin' ? '#171717' : 'var(--surface-2)',
+                background: u.role === 'admin' ? '#171717' : u.role === 'editor' ? '#059669' : 'var(--surface-2)',
                 border: u.role === 'admin' ? 'none' : '1px solid var(--border)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 10, fontWeight: 600, color: u.role === 'admin' ? '#fff' : 'var(--text)',
@@ -254,8 +254,8 @@ function UsersTab() {
               </div>
               <span style={{
                 fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-                color: u.role === 'admin' ? '#2563eb' : 'var(--muted)',
-                background: u.role === 'admin' ? 'rgba(37,99,235,0.1)' : 'var(--surface-2)',
+                color: u.role === 'admin' ? '#2563eb' : u.role === 'editor' ? '#059669' : 'var(--muted)',
+                background: u.role === 'admin' ? 'rgba(37,99,235,0.1)' : u.role === 'editor' ? 'rgba(5,150,105,0.1)' : 'var(--surface-2)',
                 padding: '2px 8px', borderRadius: 4,
               }}>{u.role}</span>
               <button onClick={() => remove(u.id, u.username)} style={{
@@ -311,7 +311,8 @@ function UsersTab() {
               <select value={newUser.role} onChange={e => setNewUser(u => ({ ...u, role: e.target.value }))}
                 style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, outline: 'none', fontFamily: 'var(--font-sans)', background: '#fff' }}>
                 <option value="viewer">Viewer — read-only access</option>
-                <option value="admin">Admin — full access</option>
+                <option value="editor">Editor — create/edit agents, jobs, settings</option>
+                <option value="admin">Admin — full access including user management</option>
               </select>
             </div>
             {error && <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '6px 10px', borderRadius: 6 }}>{error}</div>}
