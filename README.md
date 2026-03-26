@@ -145,12 +145,27 @@ The Boss reads the message, checks its team registry, and delegates to the right
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Option A: One-command install (recommended)
+
+```bash
+npm install -g slackhive
+slackhive init
+```
+
+The CLI will:
+1. Check prerequisites (Docker, Docker Compose, Git)
+2. Clone the repository
+3. Walk you through configuration (API key, admin credentials)
+4. Start all services automatically
+
+### Option B: Manual setup
+
+#### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) + [Docker Compose](https://docs.docker.com/compose/)
 - An [Anthropic API key](https://console.anthropic.com/) (`ANTHROPIC_API_KEY`)
 
-### 1. Clone & configure
+#### 1. Clone & configure
 
 ```bash
 git clone https://github.com/amansrivastava17/slackhive.git
@@ -158,37 +173,50 @@ cd slackhive
 cp .env.example .env
 ```
 
-Edit `.env` with your Anthropic API key and a secure Postgres password.
+Edit `.env` with your Anthropic API key and credentials:
 
-Optional auth config (defaults shown):
 ```env
+ANTHROPIC_API_KEY=sk-ant-...
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=changeme
-AUTH_SECRET=change-this-secret-in-production
+POSTGRES_PASSWORD=slackhive
 ```
 
-### 2. Start everything
+#### 2. Start everything
 
 ```bash
-sh scripts/dev.sh
+docker compose up -d --build
 ```
 
 This launches all four services:
 
 | Service | Port | Description |
 |---------|------|-------------|
-| **Web UI** | `localhost:3000` | Dashboard and agent management |
+| **Web UI** | `localhost:3001` | Dashboard and agent management |
 | **Runner** | — | Manages all Slack bot connections |
 | **PostgreSQL** | `localhost:5432` | Persistent storage |
 | **Redis** | `localhost:6379` | Event pub/sub for hot reload |
 
-### 3. Open the dashboard
+#### 3. Open the dashboard
 
 ```
-http://localhost:3000
+http://localhost:3001
 ```
 
-You're ready to create your first agent.
+Login with your admin credentials and create your first agent.
+
+### CLI Commands
+
+After installing with `npm install -g slackhive`:
+
+| Command | Description |
+|---------|-------------|
+| `slackhive init` | Clone, configure, and start SlackHive |
+| `slackhive start` | Start all services |
+| `slackhive stop` | Stop all services |
+| `slackhive status` | Show running containers |
+| `slackhive logs` | Tail runner logs |
+| `slackhive update` | Pull latest changes and rebuild |
 
 ---
 
