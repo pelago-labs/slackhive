@@ -3,6 +3,10 @@
 /**
  * @fileoverview Client-side auth context — provides role info to components.
  *
+ * Roles: superadmin > admin > editor > viewer
+ * - canEdit: editor, admin, superadmin (can create/edit agents, jobs, settings)
+ * - canManageUsers: admin, superadmin only (can create/delete users)
+ *
  * @module web/lib/auth-context
  */
 
@@ -10,14 +14,17 @@ import { createContext, useContext, useEffect, useState } from 'react';
 
 interface AuthState {
   username: string;
-  role: 'superadmin' | 'admin' | 'viewer' | null;
+  role: 'superadmin' | 'admin' | 'editor' | 'viewer' | null;
   loading: boolean;
+  /** Can create/edit/delete agents, jobs, settings, MCPs. */
   canEdit: boolean;
+  /** Can create/delete users (admin + superadmin only). */
+  canManageUsers: boolean;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState>({
-  username: '', role: null, loading: true, canEdit: false, logout: async () => {},
+  username: '', role: null, loading: true, canEdit: false, canManageUsers: false, logout: async () => {},
 });
 
 /**
@@ -39,7 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const canEdit = role === 'superadmin' || role === 'admin';
+  const canEdit = role === 'superadmin' || role === 'admin' || role === 'editor';
+  const canManageUsers = role === 'superadmin' || role === 'admin';
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -47,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ username, role, loading, canEdit, logout }}>
+    <AuthContext.Provider value={{ username, role, loading, canEdit, canManageUsers, logout }}>
       {children}
     </AuthContext.Provider>
   );

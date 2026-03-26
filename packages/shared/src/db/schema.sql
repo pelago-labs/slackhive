@@ -168,7 +168,7 @@ CREATE TABLE IF NOT EXISTS users (
   username      TEXT        UNIQUE NOT NULL,
   password_hash TEXT        NOT NULL,
   role          TEXT        NOT NULL DEFAULT 'viewer'
-                            CHECK (role IN ('admin', 'viewer')),
+                            CHECK (role IN ('admin', 'editor', 'viewer')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

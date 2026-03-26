@@ -16,7 +16,7 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
 const COOKIE_NAME = 'auth_session';
 
-export type Role = 'superadmin' | 'admin' | 'viewer';
+export type Role = 'superadmin' | 'admin' | 'editor' | 'viewer';
 
 export interface SessionPayload {
   username: string;
@@ -109,11 +109,11 @@ export function getSessionFromRequest(req: Request): SessionPayload | null {
  * @returns {SessionPayload} Verified session.
  * @throws {Error} If not authenticated or insufficient role.
  */
-export function requireRole(req: Request, minRole: 'viewer' | 'admin'): SessionPayload {
+export function requireRole(req: Request, minRole: 'viewer' | 'editor' | 'admin'): SessionPayload {
   const session = getSessionFromRequest(req);
   if (!session) throw new Error('Not authenticated');
 
-  const roleLevel: Record<Role, number> = { viewer: 0, admin: 1, superadmin: 2 };
+  const roleLevel: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, superadmin: 3 };
   if ((roleLevel[session.role] ?? -1) < (roleLevel[minRole] ?? 0)) {
     throw new Error('Insufficient permissions');
   }
