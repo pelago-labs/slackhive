@@ -11,7 +11,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import type { Agent, McpServer } from '@slack-agent-team/shared';
+import type { Agent, McpServer } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 
 // ─── State ────────────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentMemories, upsertMemory } from '@/lib/db';
-import type { UpsertMemoryRequest } from '@slack-agent-team/shared';
+import type { UpsertMemoryRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };

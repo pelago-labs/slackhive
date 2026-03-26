@@ -22,8 +22,8 @@
 
 import { App } from '@slack/bolt';
 import { createClient, type RedisClientType } from 'redis';
-import type { Agent } from '@slack-agent-team/shared';
-import { AGENT_EVENTS_CHANNEL, type AgentEvent } from '@slack-agent-team/shared';
+import type { Agent } from '@slackhive/shared';
+import { AGENT_EVENTS_CHANNEL, type AgentEvent } from '@slackhive/shared';
 import {
   getAllAgents,
   getAgentById,

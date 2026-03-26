@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById, updateAgent, deleteAgent, publishAgentEvent } from '@/lib/db';
-import type { UpdateAgentRequest } from '@slack-agent-team/shared';
+import type { UpdateAgentRequest } from '@slackhive/shared';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
 import { guardAdmin } from '@/lib/api-guard';
 

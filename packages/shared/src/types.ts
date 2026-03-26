@@ -5,7 +5,7 @@
  * and consistency. They mirror the Postgres database schema and define the
  * contracts for Redis pub/sub events and REST API requests/responses.
  *
- * @module @slack-agent-team/shared/types
+ * @module @slackhive/shared/types
  */
 
 // =============================================================================

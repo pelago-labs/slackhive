@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import type { McpServer, McpServerType } from '@slack-agent-team/shared';
+import type { McpServer, McpServerType } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 
 interface McpFormState {

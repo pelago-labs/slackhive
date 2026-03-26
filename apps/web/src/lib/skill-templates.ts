@@ -14,7 +14,7 @@
  * @module web/lib/skill-templates
  */
 
-import type { Agent, SkillTemplate } from '@slack-agent-team/shared';
+import type { Agent, SkillTemplate } from '@slackhive/shared';
 
 /** A skill file definition for seeding. */
 interface SkillSeed {

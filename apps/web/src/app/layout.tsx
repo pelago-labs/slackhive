@@ -3,7 +3,7 @@ import './globals.css';
 import { LayoutShell } from './layout-shell';
 
 export const metadata: Metadata = {
-  title: 'AI Teams',
+  title: 'SlackHive',
   description: 'Claude Code agent control plane',
 };
 

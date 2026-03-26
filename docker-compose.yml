@@ -1,5 +1,5 @@
 # =============================================================================
-# Slack Claude Code Agent Team — Docker Compose
+# SlackHive — Docker Compose
 #
 # Services:
 #   postgres  — Primary database (port 5432)

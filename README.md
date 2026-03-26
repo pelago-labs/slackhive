@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ AI Teams
+# 🐝 SlackHive
 
 ### Build, deploy, and orchestrate teams of Claude Code AI agents on Slack
 
@@ -17,11 +17,11 @@
 
 ---
 
-## Why AI Teams?
+## Why SlackHive?
 
 Most AI agent frameworks focus on a single agent doing a single task. But real teams have **specialists** — a data analyst who speaks SQL, a writer who crafts announcements, an engineer who reviews code. What if your AI team worked the same way?
 
-**AI Teams** was born from a simple observation: the most powerful AI setup isn't one omniscient agent — it's a **team of specialists** that learn and improve from every interaction.
+**SlackHive** was born from a simple observation: the most powerful AI setup isn't one omniscient agent — it's a **team of specialists** that learn and improve from every interaction.
 
 Inspired by how engineering teams actually collaborate in Slack, we built a platform where:
 
@@ -30,7 +30,7 @@ Inspired by how engineering teams actually collaborate in Slack, we built a plat
 - **Every agent learns** — memories from conversations are persisted and loaded on the next start
 - **Everything is configurable** from a clean web UI — no code changes needed to add agents, assign tools, or edit behavior
 
-Whether you're building an internal AI ops team, a customer support squad, or a research group — AI Teams gives you the infrastructure to make it happen.
+Whether you're building an internal AI ops team, a customer support squad, or a research group — SlackHive gives you the infrastructure to make it happen.
 
 <details>
 <summary><b>See it in action</b></summary>
@@ -151,8 +151,8 @@ The Boss reads the message, checks its team registry, and delegates to the right
 ### 1. Clone & configure
 
 ```bash
-git clone https://github.com/amansrivastava17/slack-claude-code-agent-team.git
-cd slack-claude-code-agent-team
+git clone https://github.com/amansrivastava17/slackhive.git
+cd slackhive
 cp .env.example .env
 ```
 
@@ -271,7 +271,7 @@ View and manage all memories from **Agents → [name] → Memory**.
 
 ## 🔒 Authentication & Roles
 
-AI Teams ships with a simple but effective auth system — no external auth provider needed.
+SlackHive ships with a simple but effective auth system — no external auth provider needed.
 
 ### How it works
 
@@ -323,7 +323,7 @@ Tool names follow the pattern `mcp__{serverName}__{toolName}`.
 ## 📁 Project Structure
 
 ```
-slack-claude-code-agent-team/
+slackhive/
 ├── apps/
 │   ├── web/                        # Next.js 15 — Web UI + API
 │   │   └── src/
@@ -385,7 +385,7 @@ We're actively building and these are on the horizon:
 - [ ] **Conversation history UI** — browse past conversations and their outcomes in the web UI
 - [ ] **RAG integration** — connect agents to document stores for knowledge retrieval
 
-Have an idea? [Open an issue](https://github.com/amansrivastava17/slack-claude-code-agent-team/issues) — we'd love to hear it.
+Have an idea? [Open an issue](https://github.com/amansrivastava17/slackhive/issues) — we'd love to hear it.
 
 ---
 
@@ -395,8 +395,8 @@ Contributions are very welcome! This project is in active development.
 
 ```bash
 # Clone and install
-git clone https://github.com/amansrivastava17/slack-claude-code-agent-team.git
-cd slack-claude-code-agent-team
+git clone https://github.com/amansrivastava17/slackhive.git
+cd slackhive
 npm install
 
 # Start infra
@@ -415,11 +415,11 @@ Please open an issue before submitting large PRs so we can discuss the approach.
 
 If you find this project useful, please consider giving it a star — it helps others discover it!
 
-<a href="https://star-history.com/#amansrivastava17/slack-claude-code-agent-team&Date">
+<a href="https://star-history.com/#amansrivastava17/slackhive&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=amansrivastava17/slack-claude-code-agent-team&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=amansrivastava17/slack-claude-code-agent-team&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=amansrivastava17/slack-claude-code-agent-team&type=Date" width="600" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=amansrivastava17/slackhive&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=amansrivastava17/slackhive&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=amansrivastava17/slackhive&type=Date" width="600" />
   </picture>
 </a>
 
