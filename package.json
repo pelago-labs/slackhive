@@ -1,5 +1,5 @@
 {
-  "name": "slack-claude-code-agent-team",
+  "name": "slackhive",
   "version": "0.1.0",
   "private": true,
   "description": "Open-source platform for managing teams of Claude Code Slack agents with a boss agent orchestrator",

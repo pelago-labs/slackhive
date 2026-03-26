@@ -10,7 +10,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, createContext } from 'react';
-import type { Agent } from '@slack-agent-team/shared';
+import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 
 const STATUS_DOT: Record<string, string> = {
@@ -28,7 +28,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
   const [collapsed, setCollapsed] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [branding, setBranding] = useState({ appName: 'AI Teams', tagline: 'Claude Code Platform', logoUrl: '' });
+  const [branding, setBranding] = useState({ appName: 'SlackHive', tagline: 'Claude Code Platform', logoUrl: '' });
   const { username, role, canEdit, logout } = useAuth();
   const w = isMobile ? 0 : (collapsed ? W_CLOSED : W_OPEN);
 

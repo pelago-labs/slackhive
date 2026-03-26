@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentPermissions, upsertPermissions, publishAgentEvent } from '@/lib/db';
-import type { UpdatePermissionsRequest } from '@slack-agent-team/shared';
+import type { UpdatePermissionsRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };

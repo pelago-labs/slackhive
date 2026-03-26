@@ -1,5 +1,5 @@
 -- =============================================================================
--- Slack Claude Code Agent Team — Database Schema
+-- SlackHive — Database Schema
 -- PostgreSQL 16+
 --
 -- Tables:

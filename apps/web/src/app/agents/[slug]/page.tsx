@@ -11,7 +11,7 @@
 
 import React, { useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
-import type { Agent, Skill, McpServer, Memory, Permission } from '@slack-agent-team/shared';
+import type { Agent, Skill, McpServer, Memory, Permission } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 
 type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memory' | 'logs';

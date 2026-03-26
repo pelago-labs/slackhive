@@ -14,7 +14,7 @@
  */
 
 import type { App, KnownEventFromType } from '@slack/bolt';
-import type { Agent } from '@slack-agent-team/shared';
+import type { Agent } from '@slackhive/shared';
 import type { ClaudeHandler } from './claude-handler';
 import { agentLogger } from './logger';
 import type { Logger } from 'winston';

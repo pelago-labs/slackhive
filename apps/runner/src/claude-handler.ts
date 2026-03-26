@@ -17,7 +17,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { Agent, McpServer, Permission } from '@slack-agent-team/shared';
+import type { Agent, McpServer, Permission } from '@slackhive/shared';
 import {
   getSession,
   upsertSession,

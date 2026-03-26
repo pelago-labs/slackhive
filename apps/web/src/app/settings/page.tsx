@@ -21,7 +21,7 @@ interface User {
 }
 
 const DEFAULTS: Record<string, string> = {
-  appName: 'AI Teams',
+  appName: 'SlackHive',
   tagline: 'Claude Code Platform',
   logoUrl: '',
   dashboardTitle: 'Welcome to Silicon Valley',

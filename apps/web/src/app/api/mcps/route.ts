@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllMcpServers, createMcpServer } from '@/lib/db';
-import type { UpsertMcpServerRequest } from '@slack-agent-team/shared';
+import type { UpsertMcpServerRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
 
 /**

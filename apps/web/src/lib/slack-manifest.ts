@@ -8,8 +8,8 @@
  * @module web/lib/slack-manifest
  */
 
-import type { SlackAppManifest } from '@slack-agent-team/shared';
-import { DEFAULT_SLACK_BOT_SCOPES, BOSS_ADDITIONAL_SCOPES } from '@slack-agent-team/shared';
+import type { SlackAppManifest } from '@slackhive/shared';
+import { DEFAULT_SLACK_BOT_SCOPES, BOSS_ADDITIONAL_SCOPES } from '@slackhive/shared';
 
 /**
  * Generates a complete Slack app manifest for an agent.

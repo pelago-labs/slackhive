@@ -16,7 +16,7 @@ import {
   upsertPermissions,
   publishAgentEvent,
 } from '@/lib/db';
-import type { CreateAgentRequest } from '@slack-agent-team/shared';
+import type { CreateAgentRequest } from '@slackhive/shared';
 import { SKILL_TEMPLATES } from '@/lib/skill-templates';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
 import { guardAdmin } from '@/lib/api-guard';

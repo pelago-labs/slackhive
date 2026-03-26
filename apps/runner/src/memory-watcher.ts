@@ -27,7 +27,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Agent, Memory } from '@slack-agent-team/shared';
+import type { Agent, Memory } from '@slackhive/shared';
 import { upsertMemorySafe } from './db';
 import { agentLogger } from './logger';
 import { getAgentWorkDir } from './compile-claude-md';

@@ -1,5 +1,5 @@
 {
-  "name": "@slack-agent-team/runner",
+  "name": "@slackhive/runner",
   "version": "0.1.0",
   "private": true,
   "description": "Agent runner service — manages all Claude Code Slack bot instances",
@@ -13,7 +13,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
     "@anthropic-ai/claude-code": "^2.1.59",
     "@slack/bolt": "^4.4.0",
-    "@slack-agent-team/shared": "*",
+    "@slackhive/shared": "*",
     "dotenv": "^16.6.0",
     "pg": "^8.11.0",
     "redis": "^4.6.0",

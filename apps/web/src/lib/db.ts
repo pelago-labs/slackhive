@@ -25,8 +25,8 @@ import type {
   UpsertMcpServerRequest,
   CreateAgentRequest,
   UpdateAgentRequest,
-} from '@slack-agent-team/shared';
-import { AGENT_EVENTS_CHANNEL } from '@slack-agent-team/shared';
+} from '@slackhive/shared';
+import { AGENT_EVENTS_CHANNEL } from '@slackhive/shared';
 
 // =============================================================================
 // Connection pool

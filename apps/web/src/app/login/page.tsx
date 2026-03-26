@@ -74,7 +74,7 @@ export default function LoginPage() {
             </svg>
           </div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-            AI Teams
+            SlackHive
           </h1>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             Sign in to continue

@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import type { Agent } from '@slack-agent-team/shared';
+import type { Agent } from '@slackhive/shared';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 

@@ -18,7 +18,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Agent, Skill, Memory } from '@slack-agent-team/shared';
+import type { Agent, Skill, Memory } from '@slackhive/shared';
 import { getAgentSkills, getAgentMemories } from './db';
 import { logger } from './logger';
 

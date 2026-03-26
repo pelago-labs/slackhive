@@ -18,7 +18,7 @@ import type {
   Memory,
   Session,
   AgentStatus,
-} from '@slack-agent-team/shared';
+} from '@slackhive/shared';
 
 /** Singleton Postgres connection pool. */
 let pool: Pool | null = null;
