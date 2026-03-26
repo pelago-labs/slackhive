@@ -62,10 +62,7 @@ function Main({ children, isMobile, onHamburger }: { children: React.ReactNode; 
   const { width } = useContext(SidebarContext);
   return (
     <main style={{
-      flex: 1,
       marginLeft: isMobile ? 0 : width,
-      minHeight: '100vh',
-      overflow: 'auto',
       transition: 'margin-left 0.25s cubic-bezier(0.16,1,0.3,1)',
     }}>
       {/* Mobile hamburger */}

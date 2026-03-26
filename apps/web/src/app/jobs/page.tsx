@@ -11,6 +11,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { Portal } from '@/lib/portal';
 
 interface JobRun {
   id: string;
@@ -116,7 +117,7 @@ export default function JobsPage() {
   const openCreate = () => { setEditingJob(null); setShowForm(true); };
 
   return (
-    <div className="fade-up" style={{ maxWidth: 800, padding: '36px 40px' }}>
+    <div className="fade-up" style={{ padding: '36px 40px' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
@@ -381,16 +382,20 @@ function JobFormModal({ job, onClose, onSaved }: {
   };
 
   return (
+    <Portal>
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.4)',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      zIndex: 9999, padding: '40px 16px',
+      overflowY: 'auto',
       backdropFilter: 'blur(2px)',
     }}>
       <div style={{
         background: '#fff', borderRadius: 14, border: '1px solid var(--border)',
-        padding: 28, width: 480, boxShadow: 'var(--shadow-lg)',
+        padding: 28, width: 480, maxWidth: '100%', boxShadow: 'var(--shadow-lg)',
         display: 'flex', flexDirection: 'column', gap: 16,
-        maxHeight: '90vh', overflow: 'auto',
+        flexShrink: 0,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
@@ -483,6 +488,7 @@ function JobFormModal({ job, onClose, onSaved }: {
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
