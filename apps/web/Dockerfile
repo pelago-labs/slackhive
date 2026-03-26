@@ -23,7 +23,7 @@ WORKDIR /app/apps/web
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/packages/shared /app/packages/shared
 COPY --from=builder /app/apps/web/.next ./.next
-RUN mkdir -p ./public
+COPY --from=builder /app/apps/web/public ./public
 COPY --from=builder /app/apps/web/package.json ./
 COPY --from=builder /app/apps/web/next.config.js ./
 COPY --from=builder /app/package.json /app/
