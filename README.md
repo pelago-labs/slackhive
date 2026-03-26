@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🐝 SlackHive
+<img src="apps/web/public/logo.svg" alt="SlackHive" width="80" />
+
+# SlackHive
 
 ### Build, deploy, and orchestrate teams of Claude Code AI agents on Slack
 

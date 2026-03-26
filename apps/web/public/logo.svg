@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <style>
+      .bg { fill: #1A1918; }
+      .line { fill: none; stroke: #EBE6E0; stroke-width: 32; stroke-linecap: round; stroke-linejoin: round; }
+      .prompt-accent { fill: none; stroke: #D97757; stroke-width: 32; stroke-linecap: round; stroke-linejoin: round; }
+      .cursor { fill: #D97757; }
+    </style>
+  </defs>
+  <rect class="bg" width="512" height="512" rx="112" />
+  <path class="line" d="M 200 140 L 200 372" />
+  <path class="line" d="M 312 140 L 312 372" />
+  <path class="line" d="M 140 200 L 372 200" />
+  <path class="prompt-accent" d="M 100 280 L 140 312 L 100 344" />
+  <path class="line" d="M 180 312 L 280 312" />
+  <rect class="cursor" x="312" y="296" width="40" height="32" rx="6" />
+</svg>

@@ -79,24 +79,12 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
           justifyContent: collapsed ? 'center' : 'flex-start',
           gap: 10, minHeight: 56,
         }}>
-          <div style={{
-            width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-            background: branding.logoUrl ? 'transparent' : '#e5e5e5',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            overflow: 'hidden',
-          }}>
-            {branding.logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={branding.logoUrl} alt="Logo" style={{ width: 28, height: 28, objectFit: 'cover' }} />
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" fill="#a3a3a3"/>
-                <path d="M9 11h6a5 5 0 015 5v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2a5 5 0 015-5z" fill="#a3a3a3"/>
-                <circle cx="17" cy="6" r="3" fill="#d4d4d4" stroke="#e5e5e5" strokeWidth="1"/>
-                <path d="M15.5 6h3M17 4.5v3" stroke="#a3a3a3" strokeWidth="0.8" strokeLinecap="round"/>
-              </svg>
-            )}
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={branding.logoUrl || '/logo.svg'}
+            alt="Logo"
+            style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, objectFit: 'cover' }}
+          />
           {!collapsed && (
             <div>
               <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', letterSpacing: '-0.02em', whiteSpace: 'nowrap' }}>
