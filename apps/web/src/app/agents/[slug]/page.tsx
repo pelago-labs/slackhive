@@ -12,6 +12,7 @@
 import React, { useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
 import type { Agent, Skill, McpServer, Memory, Permission } from '@slackhive/shared';
+import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 
 type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memory' | 'logs';
@@ -1190,9 +1191,10 @@ function Modal({ title, children, onClose }: {
   title: string; children: React.ReactNode; onClose: () => void;
 }) {
   return (
+    <Portal>
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
       backdropFilter: 'blur(4px)',
     }}>
       <div style={{
@@ -1212,6 +1214,7 @@ function Modal({ title, children, onClose }: {
         {children}
       </div>
     </div>
+    </Portal>
   );
 }
 

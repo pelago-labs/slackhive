@@ -9,6 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 
 type Tab = 'general' | 'users';
@@ -37,7 +38,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('general');
 
   return (
-    <div className="fade-up" style={{ maxWidth: 680, padding: '36px 40px' }}>
+    <div className="fade-up" style={{ padding: '36px 40px' }}>
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>
@@ -278,9 +279,10 @@ function UsersTab() {
 
       {/* Create modal */}
       {showForm && (
+        <Portal>
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
           backdropFilter: 'blur(2px)',
         }}>
           <div style={{
@@ -323,6 +325,7 @@ function UsersTab() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </>
   );
