@@ -111,6 +111,18 @@ export async function init(opts: InitOptions): Promise<void> {
         process.exit(1);
       }
       console.log(chalk.green('  ✓') + ' Found ~/.claude credentials');
+      // Find claude binary
+      let claudeBinDefault = '/usr/local/bin/claude';
+      try {
+        const found = execSync('which claude', { encoding: 'utf-8' }).trim();
+        if (found) claudeBinDefault = found;
+      } catch { /* use default */ }
+      questions.push({
+        type: 'text',
+        name: 'claudeBin',
+        message: 'Path to claude binary',
+        initial: claudeBinDefault,
+      });
     }
 
     questions.push(
@@ -156,7 +168,8 @@ export async function init(opts: InitOptions): Promise<void> {
     if (authMode.mode === 'apikey') {
       envContent += `ANTHROPIC_API_KEY=${response.anthropicKey}\n`;
     } else {
-      envContent += `# Using Claude Code subscription — credentials from ~/.claude\n`;
+      envContent += `# Claude Code subscription — credentials from ~/.claude\n`;
+      envContent += `CLAUDE_BIN=${response.claudeBin}\n`;
     }
     envContent += `\nPOSTGRES_DB=slackhive\n`;
     envContent += `POSTGRES_USER=slackhive\n`;

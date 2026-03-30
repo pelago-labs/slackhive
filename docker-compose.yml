@@ -20,8 +20,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-agentteam}
       POSTGRES_USER: ${POSTGRES_USER:-agentteam}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentteam}
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./packages/shared/src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -39,8 +37,6 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: sh -c "redis-server --requirepass $$REDIS_PASSWORD"
-    ports:
-      - "6379:6379"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     healthcheck:
@@ -107,10 +103,10 @@ services:
       # Ephemeral per-agent working directories (CLAUDE.md + memory watch)
       - /tmp/agents:/tmp/agents
       # Mount host claude binary and config so agents use the host Claude Code subscription
-      - /home/admin/.local/share/claude/versions/2.1.81:/usr/local/bin/claude:ro
-      - /home/admin/.claude:/root/.claude
-      # Mount host home so MCP server paths (e.g. /home/admin/kaishen/...) resolve inside container
-      - /home/admin:/home/admin:ro
+      - ${CLAUDE_BIN:-/usr/local/bin/claude}:/usr/local/bin/claude:ro
+      - ${HOME}/.claude:/root/.claude
+      # Mount host home so MCP server paths resolve inside container
+      - ${HOME}:${HOME}:ro
 
 volumes:
   pgdata:
