@@ -89,6 +89,12 @@ export async function publishAgentEvent(event: AgentEvent): Promise<void> {
 // Row mappers
 // =============================================================================
 
+/**
+ * Maps a raw DB row to an {@link Agent} interface.
+ *
+ * @param {Record<string, unknown>} row - Raw row from the agents table.
+ * @returns {Agent} Typed agent object.
+ */
 function rowToAgent(row: Record<string, unknown>): Agent {
   return {
     id: row.id as string,
@@ -109,6 +115,12 @@ function rowToAgent(row: Record<string, unknown>): Agent {
   };
 }
 
+/**
+ * Maps a raw DB row to a {@link McpServer} interface.
+ *
+ * @param {Record<string, unknown>} row - Raw row from the mcp_servers table.
+ * @returns {McpServer} Typed MCP server object.
+ */
 function rowToMcpServer(row: Record<string, unknown>): McpServer {
   return {
     id: row.id as string,
@@ -121,6 +133,12 @@ function rowToMcpServer(row: Record<string, unknown>): McpServer {
   };
 }
 
+/**
+ * Maps a raw DB row to a {@link Skill} interface.
+ *
+ * @param {Record<string, unknown>} row - Raw row from the skills table.
+ * @returns {Skill} Typed skill object.
+ */
 function rowToSkill(row: Record<string, unknown>): Skill {
   return {
     id: row.id as string,
@@ -134,6 +152,12 @@ function rowToSkill(row: Record<string, unknown>): Skill {
   };
 }
 
+/**
+ * Maps a raw DB row to a {@link Memory} interface.
+ *
+ * @param {Record<string, unknown>} row - Raw row from the memories table.
+ * @returns {Memory} Typed memory object.
+ */
 function rowToMemory(row: Record<string, unknown>): Memory {
   return {
     id: row.id as string,
@@ -150,19 +174,33 @@ function rowToMemory(row: Record<string, unknown>): Memory {
 // Agent queries
 // =============================================================================
 
-/** Returns all agents ordered boss-first. */
+/**
+ * Returns all agents ordered boss-first, then alphabetically by name.
+ *
+ * @returns {Promise<Agent[]>} All registered agents.
+ */
 export async function getAllAgents(): Promise<Agent[]> {
   const r = await getPool().query('SELECT * FROM agents ORDER BY is_boss DESC, name ASC');
   return r.rows.map(rowToAgent);
 }
 
-/** Returns a single agent by ID. */
+/**
+ * Returns a single agent by UUID.
+ *
+ * @param {string} id - Agent UUID.
+ * @returns {Promise<Agent | null>} The agent, or null if not found.
+ */
 export async function getAgentById(id: string): Promise<Agent | null> {
   const r = await getPool().query('SELECT * FROM agents WHERE id = $1', [id]);
   return r.rows.length ? rowToAgent(r.rows[0]) : null;
 }
 
-/** Returns a single agent by slug. */
+/**
+ * Returns a single agent by its URL-safe slug.
+ *
+ * @param {string} slug - Agent slug (e.g. `data-analyst`).
+ * @returns {Promise<Agent | null>} The agent, or null if not found.
+ */
 export async function getAgentBySlug(slug: string): Promise<Agent | null> {
   const r = await getPool().query('SELECT * FROM agents WHERE slug = $1', [slug]);
   return r.rows.length ? rowToAgent(r.rows[0]) : null;
@@ -295,13 +333,22 @@ export async function upsertMemory(
 // MCP server queries
 // =============================================================================
 
-/** Returns all MCP servers in the global catalog. */
+/**
+ * Returns all MCP servers in the global catalog, ordered by name.
+ *
+ * @returns {Promise<McpServer[]>} All registered MCP servers.
+ */
 export async function getAllMcpServers(): Promise<McpServer[]> {
   const r = await getPool().query('SELECT * FROM mcp_servers ORDER BY name ASC');
   return r.rows.map(rowToMcpServer);
 }
 
-/** Returns all MCP servers assigned to an agent. */
+/**
+ * Returns all MCP servers currently assigned to an agent.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @returns {Promise<McpServer[]>} MCP servers assigned to this agent.
+ */
 export async function getAgentMcpServers(agentId: string): Promise<McpServer[]> {
   const r = await getPool().query(
     `SELECT m.* FROM mcp_servers m
@@ -358,18 +405,37 @@ export async function updateMcpServer(
   return r.rows.length ? rowToMcpServer(r.rows[0]) : null;
 }
 
-/** Returns a single MCP server by ID. */
+/**
+ * Returns a single MCP server by UUID.
+ *
+ * @param {string} id - MCP server UUID.
+ * @returns {Promise<McpServer | null>} The server, or null if not found.
+ */
 export async function getMcpServerById(id: string): Promise<McpServer | null> {
   const r = await getPool().query('SELECT * FROM mcp_servers WHERE id = $1', [id]);
   return r.rows.length ? rowToMcpServer(r.rows[0]) : null;
 }
 
-/** Deletes a MCP server from the catalog. */
+/**
+ * Deletes an MCP server from the global catalog.
+ * Any agent_mcps assignments are removed via CASCADE.
+ *
+ * @param {string} id - MCP server UUID.
+ * @returns {Promise<void>}
+ */
 export async function deleteMcpServer(id: string): Promise<void> {
   await getPool().query('DELETE FROM mcp_servers WHERE id = $1', [id]);
 }
 
-/** Assigns a set of MCP servers to an agent (replaces all existing assignments). */
+/**
+ * Atomically replaces all MCP server assignments for an agent.
+ * Deletes existing assignments and inserts the new set in a single transaction.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {string[]} mcpIds - UUIDs of MCP servers to assign.
+ * @returns {Promise<void>}
+ * @throws {Error} If the transaction fails; changes are rolled back automatically.
+ */
 export async function setAgentMcps(agentId: string, mcpIds: string[]): Promise<void> {
   const client = await getPool().connect();
   try {
@@ -394,7 +460,13 @@ export async function setAgentMcps(agentId: string, mcpIds: string[]): Promise<v
 // Skills queries
 // =============================================================================
 
-/** Returns all skills for an agent, ordered for CLAUDE.md compilation. */
+/**
+ * Returns all skills for an agent ordered for CLAUDE.md compilation:
+ * category ASC → sort_order ASC → filename ASC.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @returns {Promise<Skill[]>} Ordered skill files.
+ */
 export async function getAgentSkills(agentId: string): Promise<Skill[]> {
   const r = await getPool().query(
     'SELECT * FROM skills WHERE agent_id = $1 ORDER BY category, sort_order, filename',
@@ -403,7 +475,17 @@ export async function getAgentSkills(agentId: string): Promise<Skill[]> {
   return r.rows.map(rowToSkill);
 }
 
-/** Creates or updates a skill file. */
+/**
+ * Creates or updates a skill file for an agent.
+ * Conflicts on (agent_id, category, filename) update content and sort_order.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {string} category - Skill category directory (e.g. `'00-core'`).
+ * @param {string} filename - Skill filename (e.g. `'main.md'`).
+ * @param {string} content - Full markdown content of the skill.
+ * @param {number} [sortOrder=0] - Sort order within the category.
+ * @returns {Promise<Skill>} The upserted skill.
+ */
 export async function upsertSkill(
   agentId: string,
   category: string,
@@ -422,12 +504,22 @@ export async function upsertSkill(
   return rowToSkill(r.rows[0]);
 }
 
-/** Deletes a skill file. */
+/**
+ * Deletes a single skill by UUID.
+ *
+ * @param {string} id - Skill UUID.
+ * @returns {Promise<void>}
+ */
 export async function deleteSkill(id: string): Promise<void> {
   await getPool().query('DELETE FROM skills WHERE id = $1', [id]);
 }
 
-/** Deletes all skills for an agent. */
+/**
+ * Deletes all skill files for an agent. Used when replacing skills wholesale.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @returns {Promise<void>}
+ */
 export async function deleteSkillsByAgent(agentId: string): Promise<void> {
   await getPool().query('DELETE FROM skills WHERE agent_id = $1', [agentId]);
 }
@@ -436,7 +528,12 @@ export async function deleteSkillsByAgent(agentId: string): Promise<void> {
 // Permissions queries
 // =============================================================================
 
-/** Returns tool permissions for an agent. */
+/**
+ * Returns the tool allow/deny permissions for an agent.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @returns {Promise<Permission | null>} The permission record, or null if not configured.
+ */
 export async function getAgentPermissions(agentId: string): Promise<Permission | null> {
   const r = await getPool().query('SELECT * FROM permissions WHERE agent_id = $1', [agentId]);
   if (!r.rows.length) return null;
@@ -450,7 +547,15 @@ export async function getAgentPermissions(agentId: string): Promise<Permission |
   };
 }
 
-/** Creates or replaces tool permissions for an agent. */
+/**
+ * Creates or replaces tool permissions for an agent.
+ * Conflicts on agent_id update both arrays in place.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {string[]} allowedTools - Tools the agent is allowed to use.
+ * @param {string[]} deniedTools - Tools explicitly blocked for this agent.
+ * @returns {Promise<void>}
+ */
 export async function upsertPermissions(
   agentId: string,
   allowedTools: string[],
@@ -469,7 +574,12 @@ export async function upsertPermissions(
 // Memory queries
 // =============================================================================
 
-/** Returns all memories for an agent. */
+/**
+ * Returns all memory entries for an agent, ordered by type then creation time.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @returns {Promise<Memory[]>} All memory entries for this agent.
+ */
 export async function getAgentMemories(agentId: string): Promise<Memory[]> {
   const r = await getPool().query(
     'SELECT * FROM memories WHERE agent_id = $1 ORDER BY type, created_at',
@@ -478,7 +588,12 @@ export async function getAgentMemories(agentId: string): Promise<Memory[]> {
   return r.rows.map(rowToMemory);
 }
 
-/** Deletes a specific memory entry. */
+/**
+ * Deletes a memory entry by UUID.
+ *
+ * @param {string} id - Memory UUID.
+ * @returns {Promise<void>}
+ */
 export async function deleteMemory(id: string): Promise<void> {
   await getPool().query('DELETE FROM memories WHERE id = $1', [id]);
 }

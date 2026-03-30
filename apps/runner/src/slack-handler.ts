@@ -60,6 +60,19 @@ const MCP_TOOL_LABELS: Record<string, string> = {
   'mcp__mcp-server-openmetadata-PRD__get_data_quality_report': 'Getting data quality report',
 };
 
+/**
+ * Registers all Slack event handlers for a single agent's Bolt App.
+ *
+ * Handles:
+ * - `app_mention` — responds when mentioned in a channel
+ * - `message` — responds to direct messages
+ * - `member_joined_channel` — posts a welcome message when added to a channel
+ *
+ * @param {App} app - The Slack Bolt App instance for this agent.
+ * @param {Agent} agent - The agent configuration record.
+ * @param {ClaudeHandler} claudeHandler - The Claude SDK session manager.
+ * @returns {void}
+ */
 export function registerSlackHandlers(
   app: App,
   agent: Agent,
@@ -73,6 +86,19 @@ export function registerSlackHandlers(
   /** Track current emoji reaction per session to avoid duplicate add calls. */
   const currentReactions = new Map<string, string>();
 
+  /**
+   * Swaps the emoji reaction on a message without leaving duplicate reactions.
+   * Removes the current reaction (if any) before adding the new one.
+   * Failures are silently ignored as reactions are non-critical UI feedback.
+   *
+   * @param {WebClient} client - Slack Web API client.
+   * @param {string} channelId - Slack channel ID.
+   * @param {string} messageTs - Timestamp of the message to react to.
+   * @param {string} sessionKey - Session key used to track current reaction.
+   * @param {string} emoji - Emoji name to set (without colons).
+   * @returns {Promise<void>}
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function updateReaction(
     client: any,
     channelId: string,
@@ -452,6 +478,17 @@ function buildSlackTableBlock(parsed: { headers: string[]; rows: string[][]; ali
 // Other helpers
 // =============================================================================
 
+/**
+ * Builds a human-readable status string for the first tool_use block in a
+ * Claude assistant message. Used to keep the user informed while a tool runs.
+ *
+ * Returns a Slack mrkdwn string like `*Querying Redshift*\n\`\`\`sql\n...\n\`\`\``
+ * for known tools, `*Working...*` for unknown tools, or null if no tool block.
+ *
+ * @param {unknown[]} content - The `content` array from a Claude assistant message.
+ * @returns {string | null} Slack-formatted status text, or null if no tool was used.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formatToolStatus(content: any[]): string | null {
   for (const block of content) {
     if (block.type !== 'tool_use') continue;
@@ -470,6 +507,22 @@ function formatToolStatus(content: any[]): string | null {
   return null;
 }
 
+/**
+ * Builds the full prompt to send to Claude by prepending thread context.
+ *
+ * Fetches the preceding messages in the thread (up to MAX_THREAD_CONTEXT_MESSAGES)
+ * and prefixes them as `[Thread context]` so Claude can follow the conversation.
+ * Silently falls back to the bare user text if the Slack API call fails.
+ *
+ * @param {unknown} client - Slack Web API client.
+ * @param {string} channelId - Channel containing the thread.
+ * @param {string | undefined} threadTs - Thread timestamp, or undefined for non-thread DMs.
+ * @param {string} userText - The user's message with bot mentions stripped.
+ * @param {Agent} agent - The agent (used for speaker labelling in context).
+ * @param {Logger} log - Logger instance.
+ * @returns {Promise<string>} Prompt string ready for `claudeHandler.streamQuery`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function buildPrompt(
   client: any, channelId: string, threadTs: string | undefined,
   userText: string, agent: Agent, log: Logger
@@ -496,6 +549,13 @@ async function buildPrompt(
   return `${threadContext}${userText}`;
 }
 
+/**
+ * Removes `<@BOT_USER_ID>` mention tokens from a message string.
+ *
+ * @param {string} text - Raw Slack message text.
+ * @param {string} [botUserId] - The bot's Slack user ID. No-op if undefined.
+ * @returns {string} Text with all bot mention tokens stripped and trimmed.
+ */
 function stripBotMention(text: string, botUserId?: string): string {
   if (!botUserId) return text;
   return text.replace(new RegExp(`<@${botUserId}>\\s*`, 'g'), '').trim();

@@ -9,6 +9,7 @@
  */
 
 import { Pool, PoolClient } from 'pg';
+import { logger } from './logger';
 import type {
   Agent,
   McpServer,
@@ -45,7 +46,7 @@ export function getPool(): Pool {
     });
 
     pool.on('error', (err) => {
-      console.error('[DB] Unexpected pool error:', err);
+      logger.error('Unexpected pool error', { error: (err as Error).message });
     });
   }
   return pool;

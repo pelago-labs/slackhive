@@ -42,6 +42,12 @@ export class ClaudeHandler {
 
   private cleanupTimer: NodeJS.Timeout | null = null;
 
+  /**
+   * @param {Agent} agent - The agent configuration record.
+   * @param {McpServer[]} mcpServers - MCP servers assigned to this agent.
+   * @param {Permission | null} permissions - Tool allow/deny lists, or null for defaults.
+   * @param {string} workDir - Root working directory for this agent (e.g. `/tmp/agents/{slug}`).
+   */
   constructor(
     agent: Agent,
     mcpServers: McpServer[],
@@ -56,12 +62,24 @@ export class ClaudeHandler {
     this.log = agentLogger(agent.slug);
   }
 
+  /**
+   * Sets up the sessions directory and starts the periodic stale-session cleanup timer.
+   * Must be called once before any `streamQuery` calls.
+   *
+   * @returns {void}
+   */
   initialize(): void {
     fs.mkdirSync(this.sessionsDir, { recursive: true });
     this.cleanupTimer = setInterval(() => this.runSessionCleanup(), SESSION_CLEANUP_INTERVAL_MS);
     this.log.debug('ClaudeHandler initialized', { workDir: this.workDir, sessionsDir: this.sessionsDir });
   }
 
+  /**
+   * Stops the cleanup timer and clears the in-memory session cache.
+   * Called when the agent is stopped or reloaded.
+   *
+   * @returns {void}
+   */
   destroy(): void {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
@@ -70,6 +88,15 @@ export class ClaudeHandler {
     this.sessionCache.clear();
   }
 
+  /**
+   * Derives a deterministic session key from Slack identifiers.
+   * The key is used as both a DB lookup key and a working-directory name.
+   *
+   * @param {string} userId - Slack user ID (e.g. `U12345678`).
+   * @param {string} channelId - Slack channel or DM ID.
+   * @param {string} [threadTs] - Thread timestamp; omit for top-level DMs.
+   * @returns {string} Composite key: `{userId}-{channelId}-{threadTs|'direct'}`.
+   */
   getSessionKey(userId: string, channelId: string, threadTs?: string): string {
     return `${userId}-${channelId}-${threadTs ?? 'direct'}`;
   }
@@ -98,6 +125,22 @@ export class ClaudeHandler {
     return sessionDir;
   }
 
+  /**
+   * Streams a Claude Code SDK query for the given session and yields raw SDK messages.
+   *
+   * Session resumption: If a Claude session ID exists for this `sessionKey` (in-memory
+   * cache or persisted in DB), the query resumes that conversation. On a stale-session
+   * error the handler transparently retries once as a fresh session.
+   *
+   * Callers should check `abortController.signal.aborted` between yields and break early
+   * if the user has sent a new message (the Slack handler cancels in-flight requests this way).
+   *
+   * @param {string} prompt - The user message to send to Claude.
+   * @param {string} sessionKey - Session key from {@link getSessionKey}.
+   * @param {AbortController} [abortController] - Optional controller to cancel the stream.
+   * @yields {SDKMessage} Raw messages from the Claude Code SDK.
+   * @throws {Error} On unrecoverable SDK errors (re-thrown after logging).
+   */
   async *streamQuery(
     prompt: string,
     sessionKey: string,
@@ -171,6 +214,18 @@ export class ClaudeHandler {
     await upsertSession(this.agent.id, sessionKey, newSessionId ?? claudeSessionId);
   }
 
+  /**
+   * Builds the options object passed to the Claude Code SDK `query()` call.
+   *
+   * Merges agent permissions (allowed/denied tools) with MCP server prefixes
+   * so that only explicitly permitted tools are available to the agent.
+   * Default allowed tool is `['Read']` when no permissions are configured.
+   *
+   * @param {string} sessionWorkDir - Per-session working directory path.
+   * @param {string | undefined} claudeSessionId - Existing session ID to resume, or undefined for a new session.
+   * @param {AbortController} [abortController] - Optional abort controller injected into SDK options.
+   * @returns {Record<string, unknown>} Options object for `query({ prompt, options })`.
+   */
   private buildSdkOptions(
     sessionWorkDir: string,
     claudeSessionId: string | undefined,
@@ -208,6 +263,13 @@ export class ClaudeHandler {
     return options;
   }
 
+  /**
+   * Deletes sessions inactive longer than SESSION_MAX_AGE_MS from the DB
+   * and clears the in-memory cache so stale IDs are not accidentally reused.
+   * Runs on an interval set in {@link initialize}; failures are logged and swallowed.
+   *
+   * @returns {Promise<void>}
+   */
   private async runSessionCleanup(): Promise<void> {
     try {
       const deleted = await cleanupStaleSessions(this.agent.id, SESSION_MAX_AGE_MS);

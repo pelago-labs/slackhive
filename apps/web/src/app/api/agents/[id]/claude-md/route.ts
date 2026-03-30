@@ -1,7 +1,24 @@
+/**
+ * @fileoverview REST API routes for an agent's compiled CLAUDE.md.
+ *
+ * GET /api/agents/[id]/claude-md — Returns compiled CLAUDE.md (skills + memories).
+ * PUT /api/agents/[id]/claude-md — Replaces all skills with a single raw upload.
+ *
+ * @module web/api/agents/[id]/claude-md
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById, getAgentSkills, getAgentMemories, upsertSkill, deleteSkillsByAgent } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 
+/**
+ * GET /api/agents/[id]/claude-md
+ * Compiles all agent skills and memories into a single CLAUDE.md document.
+ *
+ * @param {NextRequest} _req
+ * @param {{ params: Promise<{ id: string }> }} ctx
+ * @returns {Promise<NextResponse>} Plain-text CLAUDE.md or 404.
+ */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
