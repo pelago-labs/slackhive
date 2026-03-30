@@ -165,7 +165,21 @@ export async function init(opts: InitOptions): Promise<void> {
   } else {
     console.log(chalk.bold.hex('#D97757')('  [3/4]') + chalk.bold(' Configure environment'));
     console.log('');
-    console.log(chalk.yellow('  ⚡ .env already exists — skipping configuration'));
+    // Check if existing .env is missing required keys
+    const envContents = existsSync(envPath) ? require('fs').readFileSync(envPath, 'utf-8') : '';
+    const missingKeys: string[] = [];
+    if (!envContents.includes('REDIS_PASSWORD=')) missingKeys.push('REDIS_PASSWORD');
+    if (!envContents.includes('AUTH_SECRET=')) missingKeys.push('AUTH_SECRET');
+    if (missingKeys.length > 0) {
+      console.log(chalk.yellow(`  ⚠ .env is missing: ${missingKeys.join(', ')} — patching...`));
+      let patch = '';
+      if (!envContents.includes('REDIS_PASSWORD=')) patch += `\nREDIS_PASSWORD=${randomSecret().slice(0, 16)}\n`;
+      if (!envContents.includes('AUTH_SECRET=')) patch += `AUTH_SECRET=${randomSecret()}\n`;
+      require('fs').appendFileSync(envPath, patch);
+      console.log(chalk.green('  ✓') + ' .env patched');
+    } else {
+      console.log(chalk.yellow('  ⚡ .env already exists — skipping configuration'));
+    }
     console.log('');
   }
 
@@ -252,10 +266,25 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
       }
     };
 
+    // Fallback animated spinner shown when no build lines are detected
+    const startTime = Date.now();
+    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let frameIdx = 0;
+    let lastActivity = Date.now();
+    const fallbackInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const idle = Date.now() - lastActivity > 3000;
+      if (idle) {
+        const frame = frames[frameIdx++ % frames.length];
+        process.stdout.write(`\r\x1b[K  ${chalk.hex('#D97757')(frame)} Building... ${chalk.gray(elapsed + 's elapsed')}`);
+      }
+    }, 100);
+
     let stdoutBuf = '';
     let stderrBuf = '';
 
     proc.stdout.on('data', (chunk: Buffer) => {
+      lastActivity = Date.now();
       stdoutBuf += chunk.toString();
       const lines = stdoutBuf.split('\n');
       stdoutBuf = lines.pop() ?? '';
@@ -263,6 +292,7 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
     });
 
     proc.stderr.on('data', (chunk: Buffer) => {
+      lastActivity = Date.now();
       stderrBuf += chunk.toString();
       const lines = stderrBuf.split('\n');
       stderrBuf = lines.pop() ?? '';
@@ -270,6 +300,7 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
     });
 
     proc.on('close', (code) => {
+      clearInterval(fallbackInterval);
       process.stdout.write('\r\x1b[K');
       if (code === 0) {
         console.log('  ' + chalk.green('✓') + ' All services started');
