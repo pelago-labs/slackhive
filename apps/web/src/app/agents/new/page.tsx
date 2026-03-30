@@ -225,7 +225,7 @@ export default function NewAgentWizard() {
                 }}
                 onMouseEnter={e => { if (!submitting) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-              >{submitting ? 'Creating…' : '🚀 Create Agent'}</button>
+              >{submitting ? 'Creating…' : 'Create Agent'}</button>
             )}
           </div>
         </div>

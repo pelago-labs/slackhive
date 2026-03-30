@@ -64,7 +64,7 @@ export async function init(opts: InitOptions): Promise<void> {
   console.log('');
 
   if (existsSync(dir)) {
-    console.log(chalk.yellow(`  ↳ Directory ${opts.dir} already exists — using existing`));
+    console.log(chalk.yellow(`  note: Directory ${opts.dir} already exists — using existing`));
   } else {
     const spinner = ora('  Cloning repository...').start();
     try {
@@ -111,7 +111,7 @@ export async function init(opts: InitOptions): Promise<void> {
     } else {
       const claudeDir = join(process.env.HOME || '~', '.claude');
       if (!existsSync(claudeDir)) {
-        console.log(chalk.yellow('\n  ⚠ ~/.claude not found. Run `claude login` first, then re-run `slackhive init`.'));
+        console.log(chalk.yellow('\n  warning: ~/.claude not found. Run `claude login` first, then re-run `slackhive init`.'));
         process.exit(1);
       }
       console.log(chalk.green('  ✓') + ' Found ~/.claude credentials');
@@ -171,14 +171,14 @@ export async function init(opts: InitOptions): Promise<void> {
     if (!envContents.includes('REDIS_PASSWORD=')) missingKeys.push('REDIS_PASSWORD');
     if (!envContents.includes('AUTH_SECRET=')) missingKeys.push('AUTH_SECRET');
     if (missingKeys.length > 0) {
-      console.log(chalk.yellow(`  ⚠ .env is missing: ${missingKeys.join(', ')} — patching...`));
+      console.log(chalk.yellow(`  warning: .env is missing: ${missingKeys.join(', ')} — patching...`));
       let patch = '';
       if (!envContents.includes('REDIS_PASSWORD=')) patch += `\nREDIS_PASSWORD=${randomSecret().slice(0, 16)}\n`;
       if (!envContents.includes('AUTH_SECRET=')) patch += `AUTH_SECRET=${randomSecret()}\n`;
       require('fs').appendFileSync(envPath, patch);
       console.log(chalk.green('  ✓') + ' .env patched');
     } else {
-      console.log(chalk.yellow('  ↳ .env already exists — skipping configuration'));
+      console.log(chalk.yellow('  note: .env already exists — skipping configuration'));
     }
     console.log('');
   }
@@ -194,7 +194,7 @@ export async function init(opts: InitOptions): Promise<void> {
       const dfOut = execSync('docker system df --format "{{.Size}}"', { encoding: 'utf-8' });
       void dfOut; // just checking it runs without error
     } catch {
-      console.log(chalk.yellow('  ↳ Could not check Docker disk usage — continuing anyway'));
+      console.log(chalk.yellow('  note: Could not check Docker disk usage — continuing anyway'));
     }
 
     // Pre-flight: warn if low disk space on host
@@ -202,7 +202,7 @@ export async function init(opts: InitOptions): Promise<void> {
       const df = execSync('df -k . | tail -1', { encoding: 'utf-8' }).trim();
       const available = parseInt(df.split(/\s+/)[3]);
       if (!isNaN(available) && available < 3 * 1024 * 1024) {
-        console.log(chalk.yellow(`  ↳ Warning: less than 3GB disk space available. Build may fail.`));
+        console.log(chalk.yellow(`  warning: less than 3GB disk space available. Build may fail.`));
         console.log('');
       }
     } catch { /* non-fatal */ }
@@ -232,8 +232,8 @@ export async function init(opts: InitOptions): Promise<void> {
   console.log('');
   console.log('  ' + chalk.bgHex('#D97757').black.bold('  SlackHive is ready!  '));
   console.log('');
-  console.log(`  ${chalk.bold('→ Open:')}   ${chalk.cyan('http://localhost:3001')}`);
-  console.log(`  ${chalk.bold('→ Dir:')}    ${chalk.gray(dir)}`);
+  console.log(`  ${chalk.bold('Open:')}   ${chalk.cyan('http://localhost:3001')}`);
+  console.log(`  ${chalk.bold('Dir:')}    ${chalk.gray(dir)}`);
   console.log('');
   console.log(chalk.gray('  Useful commands:'));
   console.log(chalk.gray('    slackhive start    — Start services'));
@@ -270,7 +270,7 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
 
       const stepMatch = stepPattern.exec(trimmed);
       if (stepMatch) {
-        const label = `  ${chalk.gray('▸')} ${chalk.dim(stepMatch[1])} ${stepMatch[2]}`;
+        const label = `  ${chalk.dim(stepMatch[1])} ${stepMatch[2]}`;
         if (label !== lastStep) {
           process.stdout.write('\r\x1b[K' + label.slice(0, process.stdout.columns - 2));
           lastStep = label;
@@ -350,7 +350,7 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
           console.log(chalk.gray('  Fix:   Check your internet connection and retry.'));
         } else if (allErrors.includes('memory') || allErrors.includes('oom')) {
           console.log(chalk.yellow('  Cause: Docker ran out of memory.'));
-          console.log(chalk.gray('  Fix:   Increase Docker Desktop memory in Settings → Resources (4GB+ recommended).'));
+          console.log(chalk.gray('  Fix:   Increase Docker Desktop memory in Settings Resources (4GB+ recommended).'));
         } else if (errorLines.length > 0) {
           console.log(chalk.gray('  Error details:'));
           errorLines.slice(-5).forEach(l => console.log(chalk.red('    ' + l)));

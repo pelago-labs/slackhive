@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import type { Agent } from '@slackhive/shared';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
+import { Bot } from 'lucide-react';
 
 const STATUS_COLOR: Record<string, string> = {
   running: '#059669',
@@ -352,9 +353,9 @@ function EmptyState() {
         width: 72, height: 72, borderRadius: 20,
         background: 'var(--surface-2)', border: '1px solid var(--border)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 32,
+        color: 'var(--muted)',
       }}>
-        🤖
+        <Bot size={32} />
       </div>
       <div>
         <p style={{

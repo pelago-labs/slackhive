@@ -12,6 +12,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Portal } from '@/lib/portal';
+import { Hash, MessageSquare } from 'lucide-react';
 
 interface JobRun {
   id: string;
@@ -190,8 +191,11 @@ export default function JobsPage() {
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', gap: 12 }}>
-                    <span>🕐 {cronToHuman(job.cronSchedule)}</span>
-                    <span>{job.targetType === 'dm' ? '💬 DM' : '📢 Channel'}: <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{job.targetId}</code></span>
+                    <span>{cronToHuman(job.cronSchedule)}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      {job.targetType === 'dm' ? <MessageSquare size={11} /> : <Hash size={11} />}
+                      {job.targetType === 'dm' ? 'DM' : 'Channel'}: <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{job.targetId}</code>
+                    </span>
                   </div>
                 </div>
 
@@ -457,7 +461,10 @@ function JobFormModal({ job, onClose, onSaved }: {
                 color: targetType === t ? 'var(--text)' : 'var(--muted)',
               }}>
                 <input type="radio" name="targetType" checked={targetType === t} onChange={() => setTargetType(t)} style={{ display: 'none' }} />
-                {t === 'channel' ? '📢 Channel' : '💬 DM'}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  {t === 'channel' ? <Hash size={13} /> : <MessageSquare size={13} />}
+                  {t === 'channel' ? 'Channel' : 'DM'}
+                </span>
               </label>
             ))}
           </div>

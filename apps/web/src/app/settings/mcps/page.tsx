@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react';
 import type { McpServer, McpServerType } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
+import { Settings } from 'lucide-react';
 
 interface McpFormState {
   name: string; type: McpServerType; description: string; enabled: boolean;
@@ -149,7 +150,7 @@ export default function McpSettingsPage() {
           border: '1px dashed var(--border)', borderRadius: 12, padding: '48px',
           textAlign: 'center', color: 'var(--subtle)',
         }}>
-          <div style={{ fontSize: 28, marginBottom: 10 }}>⚙️</div>
+          <div style={{ marginBottom: 10, color: 'var(--subtle)' }}><Settings size={28} /></div>
           <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No MCP servers yet</p>
           <p style={{ margin: '0 0 16px', fontSize: 13 }}>Add servers to the catalog to enable agent tools.</p>
           {canEdit && <button onClick={() => setShowForm(true)} style={{
