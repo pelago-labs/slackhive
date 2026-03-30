@@ -266,37 +266,40 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
       }
     };
 
-    // Fallback animated spinner shown when no build lines are detected
     const startTime = Date.now();
     const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     let frameIdx = 0;
-    let lastActivity = Date.now();
+    let currentStep = 'Building images';
     const fallbackInterval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const idle = Date.now() - lastActivity > 3000;
-      if (idle) {
-        const frame = frames[frameIdx++ % frames.length];
-        process.stdout.write(`\r\x1b[K  ${chalk.hex('#D97757')(frame)} Building... ${chalk.gray(elapsed + 's elapsed')}`);
-      }
-    }, 100);
+      const frame = frames[frameIdx++ % frames.length];
+      process.stdout.write(`\r\x1b[K  ${chalk.hex('#D97757')(frame)} ${currentStep} ${chalk.gray(elapsed + 's')}`);
+    }, 80);
 
     let stdoutBuf = '';
     let stderrBuf = '';
 
     proc.stdout.on('data', (chunk: Buffer) => {
-      lastActivity = Date.now();
       stdoutBuf += chunk.toString();
       const lines = stdoutBuf.split('\n');
       stdoutBuf = lines.pop() ?? '';
-      lines.forEach(processLine);
+      lines.forEach(line => {
+        processLine(line);
+        // Update current step label from build output
+        const m = /\[([^\]]+)\] (.+)/.exec(line.trim());
+        if (m) currentStep = `${m[1]} — ${m[2].slice(0, 40)}`;
+      });
     });
 
     proc.stderr.on('data', (chunk: Buffer) => {
-      lastActivity = Date.now();
       stderrBuf += chunk.toString();
       const lines = stderrBuf.split('\n');
       stderrBuf = lines.pop() ?? '';
-      lines.forEach(processLine);
+      lines.forEach(line => {
+        processLine(line);
+        const m = /\[([^\]]+)\] (.+)/.exec(line.trim());
+        if (m) currentStep = `${m[1]} — ${m[2].slice(0, 40)}`;
+      });
     });
 
     proc.on('close', (code) => {
