@@ -28,13 +28,12 @@ export async function init(opts: InitOptions): Promise<void> {
 
   const O = chalk.hex('#D97757').bold;
   const W = chalk.hex('#EBE6E0').bold;
-  const D = chalk.hex('#1A1918');
   console.log('');
-  console.log('  ' + D.bgHex('#1A1918')(W('  ┌───┬───┐  ')));
-  console.log('  ' + D.bgHex('#1A1918')(W('  │   │   │  ')));
-  console.log('  ' + D.bgHex('#1A1918')(W('  ├───┼───┤  ')));
-  console.log('  ' + D.bgHex('#1A1918')(O('  >') + W('──') + O('█') + W('    │  ')));
-  console.log('  ' + D.bgHex('#1A1918')(W('  └───┴───┘  ')));
+  console.log('  ' + W('  │     │  '));
+  console.log('  ' + W('──┼─────┼──'));
+  console.log('  ' + O(' >') + W('──') + O('█') + W('  │  '));
+  console.log('  ' + W('──┼─────┼──'));
+  console.log('  ' + W('  │     │  '));
   console.log('');
   console.log(chalk.bold('  SlackHive') + chalk.gray(' — AI agent teams on Slack'));
   console.log('');
