@@ -87,7 +87,7 @@ export async function init(opts: InitOptions): Promise<void> {
       message: 'How do you want to authenticate with Claude?',
       choices: [
         { title: 'API Key — pay-per-use via Anthropic API', value: 'apikey' },
-        { title: 'Subscription — Claude Max plan (run `claude login` first)', value: 'subscription' },
+        { title: 'Subscription — run `claude login` first', value: 'subscription' },
       ],
     });
 
