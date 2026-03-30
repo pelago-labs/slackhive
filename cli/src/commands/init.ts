@@ -278,6 +278,7 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
 
     let stdoutBuf = '';
     let stderrBuf = '';
+    const errorLines: string[] = [];
 
     proc.stdout.on('data', (chunk: Buffer) => {
       stdoutBuf += chunk.toString();
@@ -299,6 +300,7 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
         processLine(line);
         const m = /\[([^\]]+)\] (.+)/.exec(line.trim());
         if (m) currentStep = `${m[1]} — ${m[2].slice(0, 40)}`;
+        if (/error/i.test(line) && line.trim()) errorLines.push(line.trim());
       });
     });
 
@@ -310,8 +312,14 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
         resolve();
       } else {
         console.log('  ' + chalk.red('✗') + ' Failed to start services');
-        console.log(chalk.gray(`  Try manually: cd ${displayDir} && docker compose up -d --build`));
-        reject(new Error(`docker compose exited with code ${code}`));
+        if (errorLines.length > 0) {
+          console.log('');
+          console.log(chalk.gray('  Error details:'));
+          errorLines.slice(-5).forEach(l => console.log(chalk.red('  ' + l)));
+        }
+        console.log('');
+        console.log(chalk.gray(`  To retry: cd ${displayDir} && docker compose up -d --build`));
+        resolve(); // don't reject — let init finish gracefully
       }
     });
   });
