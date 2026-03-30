@@ -39,7 +39,7 @@ export async function init(opts: InitOptions): Promise<void> {
 
   // ── Check prerequisites ────────────────────────────────────────────────────
   const checks = [
-    { name: 'Docker', cmd: 'docker --version' },
+    { name: 'Docker', cmd: 'docker info' },
     { name: 'Docker Compose', cmd: 'docker compose version' },
     { name: 'Git', cmd: 'git --version' },
   ];
@@ -49,7 +49,11 @@ export async function init(opts: InitOptions): Promise<void> {
       execSync(check.cmd, { stdio: 'ignore' });
       console.log(chalk.green('  ✓') + ` ${check.name} found`);
     } catch {
-      console.log(chalk.red(`  ✗ ${check.name} not found. Please install it first.`));
+      if (check.name === 'Docker') {
+        console.log(chalk.red('  ✗ Docker daemon is not running. Please start Docker Desktop and try again.'));
+      } else {
+        console.log(chalk.red(`  ✗ ${check.name} not found. Please install it first.`));
+      }
       process.exit(1);
     }
   }
