@@ -189,6 +189,24 @@ export async function init(opts: InitOptions): Promise<void> {
     console.log(chalk.gray('  This takes 3–5 minutes on first run while Docker builds images.'));
     console.log('');
 
+    // Pre-flight: check Docker has enough disk space (need ~3GB)
+    try {
+      const dfOut = execSync('docker system df --format "{{.Size}}"', { encoding: 'utf-8' });
+      void dfOut; // just checking it runs without error
+    } catch {
+      console.log(chalk.yellow('  ↳ Could not check Docker disk usage — continuing anyway'));
+    }
+
+    // Pre-flight: warn if low disk space on host
+    try {
+      const df = execSync('df -k . | tail -1', { encoding: 'utf-8' }).trim();
+      const available = parseInt(df.split(/\s+/)[3]);
+      if (!isNaN(available) && available < 3 * 1024 * 1024) {
+        console.log(chalk.yellow(`  ↳ Warning: less than 3GB disk space available. Build may fail.`));
+        console.log('');
+      }
+    } catch { /* non-fatal */ }
+
     await runDockerBuild(dir, opts.dir);
 
     // Wait for web UI
@@ -312,11 +330,32 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
         resolve();
       } else {
         console.log('  ' + chalk.red('✗') + ' Failed to start services');
-        if (errorLines.length > 0) {
-          console.log('');
+        console.log('');
+
+        // Classify the error and give actionable guidance
+        const allErrors = errorLines.join('\n').toLowerCase();
+        if (allErrors.includes('no space left') || allErrors.includes('disk full')) {
+          console.log(chalk.yellow('  Cause: Docker is out of disk space.'));
+          console.log(chalk.gray('  Fix:   Run `docker system prune -a` to free space, then retry.'));
+        } else if (allErrors.includes('port is already allocated') || allErrors.includes('address already in use')) {
+          const portMatch = /bind for .+:(\d+)/.exec(allErrors);
+          const port = portMatch ? portMatch[1] : 'a required port';
+          console.log(chalk.yellow(`  Cause: Port ${port} is already in use by another process.`));
+          console.log(chalk.gray(`  Fix:   Stop the process using port ${port}, then retry.`));
+        } else if (allErrors.includes('permission denied') || allErrors.includes('unauthorized')) {
+          console.log(chalk.yellow('  Cause: Docker permission denied.'));
+          console.log(chalk.gray('  Fix:   Make sure Docker Desktop is running and you are logged in.'));
+        } else if (allErrors.includes('network') || allErrors.includes('timeout') || allErrors.includes('pull')) {
+          console.log(chalk.yellow('  Cause: Network error while pulling Docker images.'));
+          console.log(chalk.gray('  Fix:   Check your internet connection and retry.'));
+        } else if (allErrors.includes('memory') || allErrors.includes('oom')) {
+          console.log(chalk.yellow('  Cause: Docker ran out of memory.'));
+          console.log(chalk.gray('  Fix:   Increase Docker Desktop memory in Settings → Resources (4GB+ recommended).'));
+        } else if (errorLines.length > 0) {
           console.log(chalk.gray('  Error details:'));
-          errorLines.slice(-5).forEach(l => console.log(chalk.red('  ' + l)));
+          errorLines.slice(-5).forEach(l => console.log(chalk.red('    ' + l)));
         }
+
         console.log('');
         console.log(chalk.gray(`  To retry: cd ${displayDir} && docker compose up -d --build`));
         resolve(); // don't reject — let init finish gracefully
