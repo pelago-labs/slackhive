@@ -325,8 +325,8 @@ function UsersTab() {
                   <option value="editor">editor</option>
                   <option value="viewer">viewer</option>
                 </select>
-                {/* Agent write access toggle — only for editor/viewer */}
-                {u.role !== 'admin' && (
+                {/* Agent write access — only meaningful for editors */}
+                {u.role === 'editor' && (
                   <button
                     onClick={() => toggleExpand(u.id)}
                     style={{
@@ -337,6 +337,13 @@ function UsersTab() {
                       fontFamily: 'var(--font-sans)',
                     }}
                   >Agent Access</button>
+                )}
+                {u.role === 'viewer' && (
+                  <span title="Viewers are read-only — write access grants only apply to editors" style={{
+                    fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 6,
+                    border: '1px solid var(--border)', color: 'var(--subtle)',
+                    background: 'var(--surface-2)', opacity: 0.5,
+                  }}>Agent Access</span>
                 )}
                 <button onClick={() => remove(u.id, u.username)} style={{
                   background: 'none', border: 'none', color: '#dc2626',

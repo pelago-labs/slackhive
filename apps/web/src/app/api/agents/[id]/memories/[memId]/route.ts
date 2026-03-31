@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteMemory } from '@/lib/db';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAgentWrite } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string; memId: string }> };
 
@@ -19,10 +19,10 @@ type RouteParams = { params: Promise<{ id: string; memId: string }> };
  * @returns {Promise<NextResponse>} 204 No Content or error.
  */
 export async function DELETE(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
-  const denied = guardAdmin(req);
-  if (denied) return denied;
   try {
-    const { memId } = await params;
+    const { id, memId } = await params;
+    const denied = await guardAgentWrite(req, id);
+    if (denied) return denied;
     await deleteMemory(memId);
     return new NextResponse(null, { status: 204 });
   } catch (err) {

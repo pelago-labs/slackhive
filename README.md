@@ -82,7 +82,7 @@ The Boss reads the message, checks its team registry, and delegates to the right
 | 📐 **Collapsible Sidebar** | Clean sidebar with live agent roster, status dots, and collapse toggle |
 | 📱 **Responsive Design** | Mobile-friendly layout with hamburger menu, overlay sidebar, fluid grids |
 | 🔒 **Auth & RBAC** | Login page, superadmin via env vars, 4 roles (superadmin/admin/editor/viewer) |
-| 👥 **User Management** | Create users with admin, editor, or viewer roles from Settings |
+| 👥 **User Management** | Create users, change roles, and assign per-agent write access from Settings |
 | 🏢 **Agent Hierarchy** | Multi-boss support — agents can report to multiple bosses, each boss manages its own team |
 | ⏰ **Scheduled Jobs** | Cron-based recurring tasks executed by the boss agent, with run history |
 
@@ -424,19 +424,25 @@ SlackHive ships with a simple but effective auth system — no external auth pro
 
 ### Roles
 
-| Role | View | Create/edit agents | Manage jobs | Settings | Manage users |
-|------|------|-------------------|-------------|----------|-------------|
-| **Superadmin** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Admin** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Editor** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Role | View all agents | Edit agents | Manage jobs | Settings | Manage users |
+|------|----------------|-------------|-------------|----------|-------------|
+| **Superadmin** | ✅ | ✅ all | ✅ | ✅ | ✅ |
+| **Admin** | ✅ | ✅ all | ✅ | ✅ | ✅ |
+| **Editor** | ✅ | ✅ own + granted | ✅ | ✅ | ❌ |
 | **Viewer** | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 - **Superadmin**: configured via env vars, never stored in DB
-- **Admin**: full access — can create users with any role
-- **Editor**: can create/edit agents, jobs, MCPs, skills, settings — but cannot manage users
+- **Admin**: full access — can create users, change roles, and grant per-agent write access
+- **Editor**: read all agents by default; write access on own created agents and any agents an admin explicitly grants. Role can be changed by admin.
 - **Viewer**: read-only access to everything
 
-All permissions are enforced server-side via API route guards, not just hidden in the UI.
+### Per-agent write access
+
+Admins can grant editors write access to specific agents from **Settings → Users → Agent Access**. Each editor gets a checklist of agents — checking one grants them full edit rights (skills, CLAUDE.md, permissions, MCPs, history restore) for that agent.
+
+Editors always have write access to agents they created themselves.
+
+All permissions are enforced server-side via API route guards — not just hidden in the UI.
 
 ---
 

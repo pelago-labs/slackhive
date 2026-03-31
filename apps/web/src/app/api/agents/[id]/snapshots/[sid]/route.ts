@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSnapshotById, deleteSnapshot } from '@/lib/db';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAgentWrite } from '@/lib/api-guard';
 
 /**
  * GET /api/agents/[id]/snapshots/[sid]
@@ -41,10 +41,10 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; sid: string }> }
 ): Promise<NextResponse> {
-  const denied = guardAdmin(request);
-  if (denied) return denied;
   try {
-    const { sid } = await params;
+    const { id, sid } = await params;
+    const denied = await guardAgentWrite(request, id);
+    if (denied) return denied;
     await deleteSnapshot(sid);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
