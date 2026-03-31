@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentMemories, upsertMemory } from '@/lib/db';
 import type { UpsertMemoryRequest } from '@slackhive/shared';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAgentWrite } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -40,10 +40,10 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
  * @returns {Promise<NextResponse>} The upserted Memory or error.
  */
 export async function POST(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
-  const denied = guardAdmin(req);
-  if (denied) return denied;
   try {
     const { id } = await params;
+    const denied = await guardAgentWrite(req, id);
+    if (denied) return denied;
     const body = (await req.json()) as UpsertMemoryRequest;
     if (!body.type || !body.name || !body.content) {
       return NextResponse.json({ error: 'type, name, content are required' }, { status: 400 });
