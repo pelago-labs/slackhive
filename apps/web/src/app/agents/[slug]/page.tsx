@@ -1419,18 +1419,41 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   const [fullSnapshot, setFullSnapshot] = useState<AgentSnapshot | null>(null);
   const [compareId, setCompareId] = useState<string>('__current__');
   const [compareSnapshot, setCompareSnapshot] = useState<AgentSnapshot | null>(null);
+  // Live current state — fetched once and used as the "Current state" comparison target
+  const [liveSnapshot, setLiveSnapshot] = useState<AgentSnapshot | null>(null);
   const [allMcps, setAllMcps]     = useState<McpServer[]>([]);
   const [restoring, setRestoring] = useState(false);
   const [msg, setMsg]             = useState('');
 
-  // Load snapshot list + MCP catalog
+  // Load snapshot list + MCP catalog + current live state
   useEffect(() => {
     Promise.all([
       fetch(`/api/agents/${agentId}/snapshots`).then(r => r.json()),
       fetch('/api/mcps').then(r => r.json()),
-    ]).then(([snaps, mcps]) => {
+      fetch(`/api/agents/${agentId}/skills`).then(r => r.json()),
+      fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()),
+      fetch(`/api/agents/${agentId}/mcps`).then(r => r.json()),
+    ]).then(([snaps, mcps, skills, perms, agentMcps]) => {
       setSnapshots(snaps);
       setAllMcps(mcps);
+      // Build a pseudo-snapshot representing the current live state
+      setLiveSnapshot({
+        id: '__current__',
+        agentId,
+        trigger: 'manual',
+        createdBy: 'current',
+        skillsJson: skills.map((s: Skill) => ({
+          category: s.category,
+          filename: s.filename,
+          content: s.content,
+          sort_order: s.sortOrder,
+        })),
+        allowedTools: perms?.allowedTools ?? [],
+        deniedTools:  perms?.deniedTools  ?? [],
+        mcpIds: (agentMcps as McpServer[]).map(m => m.id),
+        compiledMd: '',
+        createdAt: new Date(),
+      });
       setLoading(false);
     });
   }, [agentId]);
@@ -1490,8 +1513,8 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
     return `${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // Build "current state" pseudo-snapshot for diff comparison
-  const currentAsSnapshot: AgentSnapshot | null = compareId === '__current__' ? null : compareSnapshot;
+  // Build comparison target: live state or a selected historical snapshot
+  const currentAsSnapshot: AgentSnapshot | null = compareId === '__current__' ? liveSnapshot : compareSnapshot;
 
   if (loading) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading history…</p>;
 
