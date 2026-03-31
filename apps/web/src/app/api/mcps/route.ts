@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAllMcpServers, createMcpServer } from '@/lib/db';
 import type { UpsertMcpServerRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
+import { maskMcpServer } from '@/lib/mcp-mask';
 
 /**
  * GET /api/mcps
@@ -24,7 +25,7 @@ import { guardAdmin } from '@/lib/api-guard';
 export async function GET(): Promise<NextResponse> {
   try {
     const servers = await getAllMcpServers();
-    return NextResponse.json(servers);
+    return NextResponse.json(servers.map(maskMcpServer));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

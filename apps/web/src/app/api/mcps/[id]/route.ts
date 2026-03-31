@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMcpServerById, updateMcpServer, deleteMcpServer } from '@/lib/db';
 import type { UpsertMcpServerRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
+import { maskMcpServer, mergeMcpConfig } from '@/lib/mcp-mask';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -20,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
     const { id } = await params;
     const server = await getMcpServerById(id);
     if (!server) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json(server);
+    return NextResponse.json(maskMcpServer(server));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
@@ -32,9 +33,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
   try {
     const { id } = await params;
     const body = (await req.json()) as Partial<UpsertMcpServerRequest>;
+    // If config is being updated, merge masked values with existing secrets
+    if (body.config) {
+      const existing = await getMcpServerById(id);
+      if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      body.config = mergeMcpConfig(existing.config, body.config);
+    }
     const updated = await updateMcpServer(id, body);
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json(updated);
+    return NextResponse.json(maskMcpServer(updated));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
