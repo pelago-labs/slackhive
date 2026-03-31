@@ -1,6 +1,6 @@
 {
   "name": "slackhive",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "CLI to install and manage SlackHive — AI agent teams on Slack",
   "bin": {
     "slackhive": "./dist/index.js"
@@ -38,6 +38,7 @@
     "node": ">=18.0.0"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ]
 }
