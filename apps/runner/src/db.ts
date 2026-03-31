@@ -281,6 +281,55 @@ export async function getAgentSkills(agentId: string): Promise<Skill[]> {
   return result.rows.map(rowToSkill);
 }
 
+/**
+ * Upserts a skill for an agent.
+ * Conflicts on (agent_id, category, filename) update content and sort_order.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {string} category - Skill category directory (e.g. `'99-corrections'`).
+ * @param {string} filename - Skill filename (e.g. `'corrections.md'`).
+ * @param {string} content - Full markdown content of the skill.
+ * @param {number} [sortOrder=0] - Sort order within the category.
+ * @returns {Promise<Skill>} The upserted skill.
+ */
+export async function upsertSkill(
+  agentId: string,
+  category: string,
+  filename: string,
+  content: string,
+  sortOrder = 0
+): Promise<Skill> {
+  const result = await getPool().query(
+    `INSERT INTO skills (agent_id, category, filename, content, sort_order)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (agent_id, category, filename)
+     DO UPDATE SET content = EXCLUDED.content, sort_order = EXCLUDED.sort_order, updated_at = now()
+     RETURNING *`,
+    [agentId, category, filename, content, sortOrder]
+  );
+  return rowToSkill(result.rows[0]);
+}
+
+/**
+ * Deletes a skill by agent_id, category, and filename.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {string} category - Skill category directory.
+ * @param {string} filename - Skill filename.
+ * @returns {Promise<boolean>} True if a row was deleted.
+ */
+export async function deleteSkill(
+  agentId: string,
+  category: string,
+  filename: string,
+): Promise<boolean> {
+  const result = await getPool().query(
+    'DELETE FROM skills WHERE agent_id = $1 AND category = $2 AND filename = $3',
+    [agentId, category, filename]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 // =============================================================================
 // Permissions queries
 // =============================================================================
