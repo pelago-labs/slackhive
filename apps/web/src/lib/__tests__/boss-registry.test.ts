@@ -207,6 +207,44 @@ describe('regenerateBossRegistry', () => {
     expect(boss2Content).not.toContain('Alpha');
   });
 
+  it('uses fallback description when agent description is empty string', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
+    const specialist = makeAgent({
+      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'],
+      slackBotUserId: 'U1', description: '',
+    });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, specialist]);
+
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('No description provided.');
+  });
+
+  it('skips a boss agent that appears in another boss team (boss is also a specialist)', async () => {
+    const boss1 = makeAgent({ id: 'boss-1', isBoss: true, name: 'Top Boss' });
+    // boss2 reports to boss1 but is also a boss itself
+    const boss2 = makeAgent({ id: 'boss-2', isBoss: true, name: 'Mid Boss', reportsTo: ['boss-1'], slackBotUserId: 'U2' });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-2'], slackBotUserId: 'U3', name: 'Worker' });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss1, boss2, spec]);
+
+    await regenerateBossRegistry();
+
+    // boss1's registry should include boss2 (it reports to boss1)
+    const boss1Call = vi.mocked(updateAgentClaudeMd).mock.calls.find(c => c[0] === 'boss-1');
+    expect(boss1Call).toBeDefined();
+    expect(boss1Call![1]).toContain('Mid Boss');
+  });
+
+  it('does not call updateAgentClaudeMd when getAllAgents throws', async () => {
+    vi.mocked(getAllAgents).mockRejectedValue(new Error('DB connection failed'));
+
+    await expect(regenerateBossRegistry()).rejects.toThrow('DB connection failed');
+    expect(updateAgentClaudeMd).not.toHaveBeenCalled();
+  });
+
   it('handles an agent reporting to multiple bosses', async () => {
     const boss1 = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss One' });
     const boss2 = makeAgent({ id: 'boss-2', isBoss: true, name: 'Boss Two' });

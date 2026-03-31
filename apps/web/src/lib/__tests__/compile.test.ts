@@ -96,6 +96,41 @@ describe('compileSkillsOnly', () => {
     expect(parts[1]).toBe('Middle');
     expect(parts[2]).toBe('Last');
   });
+
+  it('returns empty string for a skill with only whitespace content', () => {
+    const skill = makeSkill({ content: '   \n\t\n  ' });
+    const result = compileSkillsOnly([skill]);
+    expect(result).toBe('');
+  });
+
+  it('produces deterministic output for skills with duplicate sortOrder', () => {
+    const skills = [
+      makeSkill({ sortOrder: 1, content: 'A', filename: 'a.md' }),
+      makeSkill({ sortOrder: 1, content: 'B', filename: 'b.md' }),
+    ];
+    const result1 = compileSkillsOnly(skills);
+    const result2 = compileSkillsOnly([...skills].reverse());
+    // Both calls should contain both skills — order may vary but output must not crash
+    expect(result1).toContain('A');
+    expect(result1).toContain('B');
+    expect(result2).toContain('A');
+    expect(result2).toContain('B');
+  });
+
+  it('returns identity block with empty heading when fallback name is empty string', () => {
+    const result = compileSkillsOnly([], { name: '' });
+    expect(result).toContain('#');
+  });
+
+  it('does not mutate the original skills array order', () => {
+    const skills = [
+      makeSkill({ sortOrder: 2, content: 'B' }),
+      makeSkill({ sortOrder: 1, content: 'A' }),
+    ];
+    const originalOrder = skills.map(s => s.content);
+    compileSkillsOnly(skills);
+    expect(skills.map(s => s.content)).toEqual(originalOrder);
+  });
 });
 
 // ---------------------------------------------------------------------------

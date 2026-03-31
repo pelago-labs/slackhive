@@ -46,7 +46,7 @@ async function regenerateSingleBossRegistry(boss: Agent, agents: Agent[]): Promi
 
   const lines = teamAgents.map(a => {
     const mention = a.slackBotUserId ? `<@${a.slackBotUserId}>` : `@${a.slug}`;
-    return `- **${a.name}** (${mention}) — ${a.description ?? 'No description provided.'}`;
+    return `- **${a.name}** (${mention}) — ${a.description || 'No description provided.'}`;
   });
 
   const registryContent = `# ${boss.name} — Team Orchestrator

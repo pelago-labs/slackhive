@@ -62,6 +62,33 @@ describe('lineDiff', () => {
     expect(result.filter(l => l.type === 'add').map(l => l.line)).toEqual(['new1', 'new2']);
   });
 
+  it('treats lines with only whitespace differences as different', () => {
+    const result = lineDiff('hello', 'hello ');
+    expect(result).toContainEqual({ type: 'remove', line: 'hello' });
+    expect(result).toContainEqual({ type: 'add', line: 'hello ' });
+  });
+
+  it('treats lines differing only by indentation as different', () => {
+    const result = lineDiff('  indented', 'indented');
+    expect(result).toContainEqual({ type: 'remove', line: '  indented' });
+    expect(result).toContainEqual({ type: 'add', line: 'indented' });
+  });
+
+  it('handles Windows CRLF by treating \\r as part of the line content', () => {
+    // lineDiff splits on \n only; \r stays attached to the line
+    const result = lineDiff('line1\r\nline2', 'line1\nline2');
+    const removeLines = result.filter(l => l.type === 'remove').map(l => l.line);
+    const addLines = result.filter(l => l.type === 'add').map(l => l.line);
+    expect(removeLines).toContain('line1\r');
+    expect(addLines).toContain('line1');
+  });
+
+  it('handles a single line with no newlines', () => {
+    const result = lineDiff('old', 'new');
+    expect(result).toContainEqual({ type: 'remove', line: 'old' });
+    expect(result).toContainEqual({ type: 'add', line: 'new' });
+  });
+
   it('handles multiline: first same, middle change, last same', () => {
     const oldText = 'line1\noriginal\nline3';
     const newText = 'line1\nchanged\nline3';
