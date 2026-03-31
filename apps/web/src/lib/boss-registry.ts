@@ -1,18 +1,22 @@
 /**
  * @fileoverview Boss agent team registry regeneration.
  *
- * Regenerates the Boss agent's team registry skill whenever the agent roster
+ * Regenerates each boss agent's team registry skill whenever the agent roster
  * changes (agent created, updated, or deleted). The registry lists every
- * non-boss agent with their Slack user ID and description so Boss knows
- * who to delegate to.
+ * specialist agent that reports to a given boss, with their Slack user ID and
+ * description, so the boss knows who to delegate to.
+ *
+ * Multiple boss agents are supported. Each boss gets its own registry built
+ * from the agents whose `reportsTo` array includes that boss's ID.
  *
  * @module web/lib/boss-registry
  */
 
+import type { Agent } from '@slackhive/shared';
 import { getAllAgents, upsertSkill, publishAgentEvent } from '@/lib/db';
 
 /**
- * Regenerates the Boss agent's team registry skill from the current agent list.
+ * Regenerates team registry skills for all boss agents.
  * Silently no-ops if no boss agent exists.
  *
  * Call this after any agent create / update / delete operation.
@@ -21,10 +25,23 @@ import { getAllAgents, upsertSkill, publishAgentEvent } from '@/lib/db';
  */
 export async function regenerateBossRegistry(): Promise<void> {
   const agents = await getAllAgents();
-  const boss = agents.find(a => a.isBoss);
-  if (!boss) return;
+  const bosses = agents.filter(a => a.isBoss);
+  if (bosses.length === 0) return;
 
-  const teamAgents = agents.filter(a => !a.isBoss && a.slackBotUserId);
+  for (const boss of bosses) {
+    await regenerateSingleBossRegistry(boss, agents);
+  }
+}
+
+/**
+ * Regenerates the registry skill for one boss agent.
+ *
+ * @param {Agent} boss - The boss agent to regenerate for.
+ * @param {Agent[]} agents - All agents in the platform.
+ * @returns {Promise<void>}
+ */
+async function regenerateSingleBossRegistry(boss: Agent, agents: Agent[]): Promise<void> {
+  const teamAgents = agents.filter(a => a.reportsTo.includes(boss.id) && a.slackBotUserId);
   if (teamAgents.length === 0) return;
 
   const lines = teamAgents.map(a => {
@@ -32,9 +49,9 @@ export async function regenerateBossRegistry(): Promise<void> {
     return `- **${a.name}** (${mention}) — ${a.description ?? 'No description provided.'}`;
   });
 
-  const registryContent = `# BOSS — Team Orchestrator
+  const registryContent = `# ${boss.name} — Team Orchestrator
 
-You are BOSS, the orchestrating agent for this team.
+You are ${boss.name}, the orchestrating agent for this team.
 
 ## Your Role
 - Receive requests from users in Slack

@@ -109,7 +109,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     model: row.model as string,
     status: row.status as AgentStatus,
     isBoss: row.is_boss as boolean,
-    reportsTo: (row.reports_to as string) ?? null,
+    reportsTo: (row.reports_to as string[]) ?? [],
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
@@ -222,7 +222,7 @@ export async function createAgent(req: CreateAgentRequest): Promise<Agent> {
     [
       req.slug, req.name, req.persona ?? null, req.description ?? null,
       req.slackBotToken, req.slackAppToken, req.slackSigningSecret,
-      req.model ?? 'claude-opus-4-6', req.isBoss ?? false, req.reportsTo ?? null,
+      req.model ?? 'claude-opus-4-6', req.isBoss ?? false, req.reportsTo ?? [],
     ]
   );
   return rowToAgent(r.rows[0]);

@@ -106,13 +106,13 @@ export interface Agent {
   /** Current runtime status of the agent's Slack bot process. */
   status: AgentStatus;
   /**
-   * Whether this is the boss agent.
-   * There should only be one boss agent per platform instance.
-   * The boss knows all other agents and delegates by @mentioning them in threads.
+   * Whether this is a boss agent.
+   * Multiple boss agents are supported; each manages its own team of specialists.
+   * A boss agent's CLAUDE.md registry is auto-generated from agents that report to it.
    */
   isBoss: boolean;
-  /** UUID of the boss agent this agent reports to. Null if this agent IS the boss. */
-  reportsTo: string | null;
+  /** UUIDs of boss agents this agent reports to. Empty array if this agent is a boss. */
+  reportsTo: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -414,8 +414,8 @@ export interface CreateAgentRequest {
   slackSigningSecret: string;
   model?: string;
   isBoss?: boolean;
-  /** UUID of the boss agent this agent reports to. */
-  reportsTo?: string | null;
+  /** UUIDs of boss agents this agent reports to. */
+  reportsTo?: string[];
   /** IDs of MCP servers from the catalog to assign to this agent. */
   mcpServerIds?: string[];
   /** Skill template to bootstrap: blank | data-analyst | writer | developer */

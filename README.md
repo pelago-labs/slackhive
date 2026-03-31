@@ -68,7 +68,7 @@ The Boss reads the message, checks its team registry, and delegates to the right
 
 | Feature | Description |
 |---------|-------------|
-| 🧙 **Onboarding Wizard** | 5-step guided flow: identity → Slack app → permissions → MCPs → skills |
+| 🧙 **Onboarding Wizard** | Guided flow: identity → Slack app → tokens → MCPs & skills (skipped for boss) → review |
 | 📝 **Skill Editor** | In-browser editor for agent markdown skills with file tree and categories |
 | 🔐 **Tool Permissions** | Per-agent allowlist/denylist for Claude Code SDK tools |
 | 📊 **Live Logs** | SSE-streamed Docker log output per agent with level filters and search |
@@ -79,7 +79,7 @@ The Boss reads the message, checks its team registry, and delegates to the right
 | 📱 **Responsive Design** | Mobile-friendly layout with hamburger menu, overlay sidebar, fluid grids |
 | 🔒 **Auth & RBAC** | Login page, superadmin via env vars, 4 roles (superadmin/admin/editor/viewer) |
 | 👥 **User Management** | Create users with admin, editor, or viewer roles from Settings |
-| 🏢 **Agent Hierarchy** | "Reports to" field — agents report to the boss, only one boss allowed |
+| 🏢 **Agent Hierarchy** | Multi-boss support — agents can report to multiple bosses, each boss manages its own team |
 | ⏰ **Scheduled Jobs** | Cron-based recurring tasks executed by the boss agent, with run history |
 
 ### Agent Capabilities
@@ -89,9 +89,9 @@ The Boss reads the message, checks its team registry, and delegates to the right
 - **MCP tool integration** — stdio, SSE, and HTTP transports supported
 - **Customizable personas** — each agent has its own personality and behavior
 - **Skill system** — modular markdown files organized by category with sort ordering
-- **Auto-generated boss registry** — team roster updated automatically on agent changes
+- **Auto-generated boss registry** — each boss gets a team roster compiled from agents that report to it
 - **Memory system injected into CLAUDE.md** — agents know how to write and organize memories
-- **Agent hierarchy** — `reports_to` field tracks which boss each agent reports to
+- **Multi-boss hierarchy** — `reports_to` is a UUID array; an agent can report to multiple bosses
 
 ---
 
@@ -293,10 +293,10 @@ slackhive update
 
 ## 🤖 Creating Your First Agent
 
-Click **New Agent** from the dashboard and follow the 5-step wizard:
+Click **New Agent** from the dashboard and follow the wizard:
 
 ### Step 1 — Identity
-Set the agent's name, slug (e.g., `data-bot`), persona, and description. The description is used by the Boss for delegation decisions.
+Set the agent's name, slug (e.g., `data-bot`), persona, and description. Toggle **Boss** if this agent should orchestrate others — boss agents skip the MCPs & Skills step since their `CLAUDE.md` is auto-generated. For specialist agents, select which boss(es) they report to.
 
 ### Step 2 — Slack App Setup
 The platform generates a `slack-app-manifest.json`. Create a Slack app from this manifest:
@@ -321,9 +321,9 @@ The agent starts automatically and connects to Slack.
 
 ---
 
-## 👑 Boss Agent
+## 👑 Boss Agents
 
-Create one agent with the **Boss** toggle enabled. Its `CLAUDE.md` automatically includes a live team registry:
+Create one or more agents with the **Boss** toggle enabled. Each boss gets its own `CLAUDE.md` team registry listing the agents that report to it:
 
 ```markdown
 ## Your Team
@@ -332,7 +332,9 @@ Create one agent with the **Boss** toggle enabled. Its `CLAUDE.md` automatically
 - **Writer** (<@U87654321>) — Content generation, Slack summaries, announcements
 ```
 
-The registry **auto-regenerates** whenever you add, update, or delete an agent — no manual maintenance needed.
+The registry **auto-regenerates** for every boss whenever you add, update, or delete an agent — no manual maintenance needed.
+
+You can have **multiple boss agents** for different domains or teams. When creating a specialist agent, check the bosses it should report to — it will appear in each selected boss's registry. A specialist can report to more than one boss.
 
 ```
 User:     @boss help me analyze last week's bookings
@@ -518,7 +520,7 @@ We're actively building and these are on the horizon:
 
 - [ ] **Local model support** — plug in local LLMs via Claude Code's model routing when available
 - [ ] **Agent-to-agent conversations** — agents can directly message each other, not just through Boss
-- [ ] **Scheduled tasks** — cron-based agent actions (daily reports, weekly summaries)
+- [x] **Scheduled tasks** — cron-based agent actions (daily reports, weekly summaries)
 - [ ] **Multi-workspace support** — one platform instance serving multiple Slack workspaces
 - [ ] **Analytics dashboard** — message volume, response times, memory growth per agent
 - [ ] **Webhook triggers** — trigger agent actions from external events (GitHub, Jira, PagerDuty)

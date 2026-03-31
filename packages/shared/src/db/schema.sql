@@ -35,7 +35,8 @@ CREATE TABLE agents (
   status               TEXT        NOT NULL DEFAULT 'stopped'
                                    CHECK (status IN ('running', 'stopped', 'error')),
   is_boss              BOOLEAN     NOT NULL DEFAULT false,
-  reports_to           UUID        REFERENCES agents(id) ON DELETE SET NULL,
+  -- Array of boss agent UUIDs this agent reports to. Empty = top-level boss.
+  reports_to           UUID[]      NOT NULL DEFAULT '{}',
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
