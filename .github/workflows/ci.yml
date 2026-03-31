@@ -62,8 +62,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: cd packages/shared && npm run build
-      - name: Run unit tests
+      - name: Run web unit tests
         run: cd apps/web && npm test
+      - name: Run runner unit tests
+        run: cd apps/runner && npm test
 
   check-tests:
     name: Test Coverage Check

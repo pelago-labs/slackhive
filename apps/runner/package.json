@@ -7,7 +7,10 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
@@ -15,16 +18,17 @@
     "@slack/bolt": "^4.4.0",
     "@slackhive/shared": "*",
     "dotenv": "^16.6.0",
+    "node-cron": "^3.0.3",
     "pg": "^8.11.0",
     "redis": "^4.6.0",
     "tsx": "^4.20.3",
-    "node-cron": "^3.0.3",
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "@types/node-cron": "^3.0.11",
     "@types/node": "^20.0.0",
+    "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.11.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.2"
   }
 }
