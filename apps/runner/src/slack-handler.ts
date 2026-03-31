@@ -16,6 +16,7 @@
 import type { App, KnownEventFromType } from '@slack/bolt';
 import type { Agent } from '@slackhive/shared';
 import type { ClaudeHandler } from './claude-handler';
+import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
 import type { Logger } from 'winston';
 
@@ -79,6 +80,7 @@ export function registerSlackHandlers(
   claudeHandler: ClaudeHandler
 ): void {
   const log = agentLogger(agent.slug);
+  const correctionHandler = new CorrectionHandler(agent);
 
   /** Track in-flight abort controllers per session so new messages cancel old ones. */
   const activeControllers = new Map<string, AbortController>();
@@ -119,7 +121,7 @@ export function registerSlackHandlers(
 
   app.event('app_mention', async ({ event, client }) => {
     await handleMessage({
-      app, agent, claudeHandler, client, log,
+      app, agent, claudeHandler, correctionHandler, client, log,
       activeControllers, currentReactions, updateReaction,
       userId: event.user ?? 'unknown',
       channelId: event.channel,
@@ -134,7 +136,7 @@ export function registerSlackHandlers(
     if (!('channel' in msg) || !msg.channel?.startsWith('D')) return;
     if (!('text' in msg) || !('user' in msg)) return;
     await handleMessage({
-      app, agent, claudeHandler, client, log,
+      app, agent, claudeHandler, correctionHandler, client, log,
       activeControllers, currentReactions, updateReaction,
       userId: (msg as any).user,
       channelId: (msg as any).channel,
@@ -163,6 +165,7 @@ interface HandleMessageOpts {
   app: App;
   agent: Agent;
   claudeHandler: ClaudeHandler;
+  correctionHandler: CorrectionHandler;
   client: any;
   log: Logger;
   activeControllers: Map<string, AbortController>;
@@ -176,11 +179,22 @@ interface HandleMessageOpts {
 }
 
 async function handleMessage(opts: HandleMessageOpts): Promise<void> {
-  const { app, agent, claudeHandler, client, log, activeControllers, currentReactions, updateReaction,
+  const { app, agent, claudeHandler, correctionHandler, client, log, activeControllers, currentReactions, updateReaction,
     userId, channelId, threadTs, messageTs, rawText } = opts;
 
   const userText = stripBotMention(rawText, agent.slackBotUserId).trim();
   if (!userText) return;
+
+  // Route correction/help commands before normal processing
+  // Commands use agent slug prefix: {slug}:correct, {slug}:corrections, {slug}:help
+  if (correctionHandler.isCommand(userText)) {
+    await correctionHandler.handle(
+      { userId, channelId, threadTs, messageTs },
+      userText,
+      client,
+    );
+    return;
+  }
 
   const sessionKey = claudeHandler.getSessionKey(userId, channelId, threadTs);
 
@@ -231,13 +245,25 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
         } else if (textContent) {
           // Text-only assistant message — send immediately
           sentMessages.push(textContent);
-          const payload = buildMessagePayload(textContent, false);
-          await client.chat.postMessage({
-            channel: channelId,
-            thread_ts: threadTs,
-            text: payload.text,
-            ...(payload.blocks && { blocks: payload.blocks }),
-          });
+
+          // Extract code blocks for file upload, send text without them
+          const { textWithoutCode, codeBlocks } = extractCodeBlocks(textContent);
+          const displayText = codeBlocks.length > 0 ? textWithoutCode.trim() : textContent;
+
+          if (displayText) {
+            const payload = buildMessagePayload(displayText, false);
+            await client.chat.postMessage({
+              channel: channelId,
+              thread_ts: threadTs,
+              text: payload.text,
+              ...(payload.blocks && { blocks: payload.blocks }),
+            });
+          }
+
+          // Upload code blocks as downloadable file snippets
+          if (codeBlocks.length > 0) {
+            await uploadCodeSnippets(client, codeBlocks, channelId, threadTs);
+          }
         }
       } else if (message.type === 'user') {
         // Capture tool result text for fallback
@@ -264,13 +290,25 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
           const finalResult = (message as any).result as string | undefined;
           if (finalResult && !sentMessages.includes(finalResult)) {
             sentMessages.push(finalResult);
-            const payload = buildMessagePayload(finalResult, true);
-            await client.chat.postMessage({
-              channel: channelId,
-              thread_ts: threadTs,
-              text: payload.text,
-              ...(payload.blocks && { blocks: payload.blocks }),
-            });
+
+            // Extract code blocks for file upload
+            const { textWithoutCode, codeBlocks } = extractCodeBlocks(finalResult);
+            const displayText = codeBlocks.length > 0 ? textWithoutCode.trim() : finalResult;
+
+            if (displayText) {
+              const payload = buildMessagePayload(displayText, true);
+              await client.chat.postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text: payload.text,
+                ...(payload.blocks && { blocks: payload.blocks }),
+              });
+            }
+
+            // Upload code blocks as downloadable file snippets
+            if (codeBlocks.length > 0) {
+              await uploadCodeSnippets(client, codeBlocks, channelId, threadTs);
+            }
           }
         }
       }
@@ -474,6 +512,74 @@ export function buildSlackTableBlock(parsed: { headers: string[]; rows: string[]
     rows: [buildRow(parsed.headers), ...parsed.rows.slice(0, 99).map(r => buildRow(r))],
     column_settings: parsed.alignments.slice(0, 20).map(a => ({ align: a })),
   };
+}
+
+// =============================================================================
+// Code snippet uploads
+// =============================================================================
+
+/**
+ * Strips all non-ASCII characters from code content.
+ * Prevents invisible Unicode characters from breaking copy-pasted queries.
+ *
+ * Ported from nlq-claude-slack-bot/src/slack-handler.ts:890
+ */
+function sanitizeCodeContent(code: string): string {
+  return code.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
+}
+
+/**
+ * Extracts fenced code blocks from text, returning text without code blocks
+ * and the extracted blocks separately.
+ *
+ * Ported from nlq-claude-slack-bot/src/slack-handler.ts:898
+ */
+function extractCodeBlocks(text: string): { textWithoutCode: string; codeBlocks: { lang: string; code: string }[] } {
+  const codeBlocks: { lang: string; code: string }[] = [];
+  const textWithoutCode = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    codeBlocks.push({ lang: lang || 'sql', code: code.trim() });
+    return '';
+  });
+  return { textWithoutCode, codeBlocks };
+}
+
+/**
+ * Uploads code blocks as Slack file snippets for clean copy-paste.
+ * Sanitizes content to remove invisible Unicode characters.
+ *
+ * Ported from nlq-claude-slack-bot/src/slack-handler.ts:910
+ *
+ * @param client - Slack Web API client
+ * @param codeBlocks - Extracted code blocks with language and content
+ * @param channelId - Channel to upload to
+ * @param threadTs - Thread timestamp for threading the upload
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function uploadCodeSnippets(
+  client: any,
+  codeBlocks: { lang: string; code: string }[],
+  channelId: string,
+  threadTs?: string,
+): Promise<void> {
+  for (let i = 0; i < codeBlocks.length; i++) {
+    const { lang, code } = codeBlocks[i];
+    const sanitized = sanitizeCodeContent(code);
+    const extension = lang === 'sql' ? 'sql' : (lang || 'txt');
+    const name = codeBlocks.length === 1
+      ? `query.${extension}`
+      : `query_${i + 1}.${extension}`;
+    try {
+      await client.filesUploadV2({
+        channel_id: channelId,
+        thread_ts: threadTs,
+        content: sanitized,
+        filename: name,
+        title: name,
+      });
+    } catch {
+      // Non-fatal — code is still visible inline in the message
+    }
+  }
 }
 
 // =============================================================================
