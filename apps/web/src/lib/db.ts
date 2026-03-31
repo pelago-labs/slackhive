@@ -113,6 +113,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     status: row.status as AgentStatus,
     isBoss: row.is_boss as boolean,
     reportsTo: (row.reports_to as string[]) ?? [],
+    claudeMd: (row.claude_md as string) ?? '',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
@@ -274,6 +275,21 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
     values
   );
   return r.rows.length ? rowToAgent(r.rows[0]) : null;
+}
+
+/**
+ * Replaces the CLAUDE.md content for an agent.
+ * This is the main instruction/identity file, separate from skills.
+ *
+ * @param {string} id - Agent UUID.
+ * @param {string} content - New CLAUDE.md content.
+ * @returns {Promise<void>}
+ */
+export async function updateAgentClaudeMd(id: string, content: string): Promise<void> {
+  await getPool().query(
+    'UPDATE agents SET claude_md = $1, updated_at = now() WHERE id = $2',
+    [content, id]
+  );
 }
 
 /**

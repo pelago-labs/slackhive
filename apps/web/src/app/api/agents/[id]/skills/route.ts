@@ -12,7 +12,7 @@ import { getAgentById, getAgentSkills, upsertSkill, publishAgentEvent, getAgentP
 import type { UpsertSkillRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
-import { compileSkillsOnly, skillToSnapshotSkill } from '@/lib/compile';
+import { skillToSnapshotSkill } from '@/lib/compile';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       perms?.allowedTools ?? [],
       perms?.deniedTools ?? [],
       mcps.map(m => m.id),
-      compileSkillsOnly(currentSkills, agent ?? undefined),
+      agent?.claudeMd ?? '',
     ).catch(() => {});
 
     const skill = await upsertSkill(id, body.category, body.filename, body.content, body.sortOrder ?? 0);

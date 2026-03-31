@@ -477,6 +477,7 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
                 <div
                   key={s.id}
                   onClick={() => select(s)}
+                  className="skill-row"
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
@@ -485,20 +486,26 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
                     color: selected?.id === s.id ? 'var(--accent)' : 'var(--muted)',
                     transition: 'background 0.12s, color 0.12s',
                   }}
-                  onMouseEnter={e => { if (selected?.id !== s.id) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
-                  onMouseLeave={e => { if (selected?.id !== s.id) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                  onMouseEnter={e => {
+                    if (selected?.id !== s.id) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)';
+                    const btn = (e.currentTarget as HTMLElement).querySelector('.delete-btn') as HTMLElement | null;
+                    if (btn) btn.style.opacity = '1';
+                  }}
+                  onMouseLeave={e => {
+                    if (selected?.id !== s.id) (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    const btn = (e.currentTarget as HTMLElement).querySelector('.delete-btn') as HTMLElement | null;
+                    if (btn) btn.style.opacity = '0';
+                  }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.filename}</span>
                   {canEdit && <button
                     onClick={e => { e.stopPropagation(); remove(s); }}
+                    className="delete-btn"
                     style={{
                       background: 'none', border: 'none', cursor: 'pointer',
                       color: '#ef4444', fontSize: 14, opacity: 0, transition: 'opacity 0.12s',
-                      fontFamily: 'var(--font-sans)', lineHeight: 1, padding: '0 2px',
+                      fontFamily: 'var(--font-sans)', lineHeight: 1, padding: '0 2px', flexShrink: 0,
                     }}
-                    onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                    onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
-                    className="delete-btn"
                   >×</button>}
                 </div>
               ))}
@@ -1397,6 +1404,7 @@ const TRIGGER_COLORS: Record<string, { bg: string; color: string }> = {
   skills:      { bg: 'rgba(59,130,246,0.12)',  color: '#3b82f6' },
   permissions: { bg: 'rgba(234,179,8,0.12)',   color: '#ca8a04' },
   mcps:        { bg: 'rgba(168,85,247,0.12)',  color: '#a855f7' },
+  'claude-md': { bg: 'rgba(236,72,153,0.12)',  color: '#ec4899' },
   manual:      { bg: 'rgba(22,163,74,0.12)',   color: '#16a34a' },
 };
 
@@ -1433,8 +1441,9 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
       fetch(`/api/agents/${agentId}/skills`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/mcps`).then(r => r.json()),
-    ]).then(([snaps, mcps, skills, perms, agentMcps]) => {
-      setSnapshots(snaps);
+      fetch(`/api/agents/${agentId}/claude-md`).then(r => r.text()),
+    ]).then(([snaps, mcps, skills, perms, agentMcps, claudeMd]) => {
+      setSnapshots(Array.isArray(snaps) ? snaps : []);
       setAllMcps(mcps);
       // Build a pseudo-snapshot representing the current live state
       setLiveSnapshot({
@@ -1451,7 +1460,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
         allowedTools: perms?.allowedTools ?? [],
         deniedTools:  perms?.deniedTools  ?? [],
         mcpIds: (agentMcps as McpServer[]).map(m => m.id),
-        compiledMd: '',
+        compiledMd: claudeMd ?? '',
         createdAt: new Date(),
       });
       setLoading(false);
@@ -1628,17 +1637,34 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} />
           </section>
 
-          {/* Compiled CLAUDE.md viewer */}
+          {/* CLAUDE.md diff */}
           <section>
             <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              CLAUDE.md at this snapshot
+              CLAUDE.md
             </h3>
-            <pre style={{
-              margin: 0, padding: '14px', borderRadius: 8, fontSize: 11.5,
-              fontFamily: 'var(--font-mono)', background: 'var(--surface-2)',
-              border: '1px solid var(--border)', overflow: 'auto', maxHeight: 400,
-              color: 'var(--text)', lineHeight: 1.65,
-            }}>{fullSnapshot.compiledMd || '(empty)'}</pre>
+            {(() => {
+              const diff = lineDiff(fullSnapshot.compiledMd || '', currentAsSnapshot?.compiledMd || '');
+              const changed = diff.some(l => l.type !== 'same');
+              if (!changed) return <p style={{ fontSize: 12, color: 'var(--subtle)', margin: 0 }}>No changes to CLAUDE.md</p>;
+              return (
+                <pre style={{
+                  margin: 0, padding: '14px', borderRadius: 8, fontSize: 11.5,
+                  fontFamily: 'var(--font-mono)', background: 'var(--surface-2)',
+                  border: '1px solid var(--border)', overflow: 'auto', maxHeight: 400,
+                  color: 'var(--text)', lineHeight: 1.65,
+                }}>
+                  {diff.map((l, i) => (
+                    <div key={i} style={{
+                      background: l.type === 'add' ? 'rgba(34,197,94,0.12)' : l.type === 'remove' ? 'rgba(239,68,68,0.12)' : 'transparent',
+                      color: l.type === 'add' ? '#22c55e' : l.type === 'remove' ? '#ef4444' : 'inherit',
+                      padding: '0 4px',
+                    }}>
+                      {l.type === 'add' ? '+ ' : l.type === 'remove' ? '- ' : '  '}{l.line}
+                    </div>
+                  ))}
+                </pre>
+              );
+            })()}
           </section>
         </div>
       ) : (

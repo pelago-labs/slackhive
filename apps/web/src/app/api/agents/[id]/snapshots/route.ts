@@ -18,7 +18,7 @@ import {
 } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
-import { compileSkillsOnly, skillToSnapshotSkill } from '@/lib/compile';
+import { skillToSnapshotSkill } from '@/lib/compile';
 
 /**
  * GET /api/agents/[id]/snapshots
@@ -74,7 +74,7 @@ export async function POST(
       perms?.allowedTools ?? [],
       perms?.deniedTools ?? [],
       mcps.map(m => m.id),
-      compileSkillsOnly(skills, agent),
+      agent?.claudeMd ?? '',
     );
 
     return NextResponse.json(snapshot, { status: 201 });

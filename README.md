@@ -76,7 +76,9 @@ The Boss reads the message, checks its team registry, and delegates to the right
 | 📊 **Live Logs** | SSE-streamed Docker log output per agent with level filters and search |
 | ⚙️ **Settings** | Configurable branding (app name, logo, tagline), dashboard title, user management |
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories grouped by type |
-| 📄 **CLAUDE.md Viewer** | Read and edit the compiled system prompt sent to each agent |
+| 📄 **CLAUDE.md Editor** | Dedicated editor for the agent's main instruction file — separate from skills |
+| 🛠 **Slash Command Skills** | Skills are written to `.claude/commands/` as real Claude Code slash commands (e.g. `/sql-rules`) |
+| 🕓 **Version Control** | Every save auto-snapshots the agent state; browse history with line-level diff, restore any point |
 | 📐 **Collapsible Sidebar** | Clean sidebar with live agent roster, status dots, and collapse toggle |
 | 📱 **Responsive Design** | Mobile-friendly layout with hamburger menu, overlay sidebar, fluid grids |
 | 🔒 **Auth & RBAC** | Login page, superadmin via env vars, 4 roles (superadmin/admin/editor/viewer) |
@@ -90,7 +92,9 @@ The Boss reads the message, checks its team registry, and delegates to the right
 - **Streaming responses** — tool use labels, progress indicators, and rich formatted output
 - **MCP tool integration** — stdio, SSE, and HTTP transports supported
 - **Customizable personas** — each agent has its own personality and behavior
-- **Skill system** — modular markdown files organized by category with sort ordering
+- **Skill system** — modular markdown files deployed as Claude Code slash commands in `.claude/commands/`
+- **Separate CLAUDE.md** — agent identity/instructions stored independently from skills; boss registries auto-generated
+- **Full version control** — auto-snapshot on every change (skills, CLAUDE.md, permissions, MCPs); line-level diff view; one-click restore
 - **Auto-generated boss registry** — each boss gets a team roster compiled from agents that report to it
 - **Memory system injected into CLAUDE.md** — agents know how to write and organize memories
 - **Multi-boss hierarchy** — `reports_to` is a UUID array; an agent can report to multiple bosses
@@ -317,7 +321,7 @@ Configure which Claude Code SDK tools the agent can use. Quick-add buttons for c
 Select MCP servers from the platform catalog to give your agent access to external tools (databases, APIs, etc.).
 
 ### Step 5 — Skills
-Choose a starter template or start blank. Skills are modular markdown files that compose the agent's `CLAUDE.md` system prompt.
+Choose a starter template or start blank. Skills are individual markdown files deployed as Claude Code slash commands in `.claude/commands/` — invokable inside the agent's session as `/skill-name`. The **CLAUDE.md** tab holds the agent's main identity/instruction file separately.
 
 The agent starts automatically and connects to Slack.
 
@@ -528,6 +532,8 @@ We're actively building and these are on the horizon:
 - [ ] **Webhook triggers** — trigger agent actions from external events (GitHub, Jira, PagerDuty)
 - [ ] **Custom tool builder** — define simple tools in the UI without writing an MCP server
 - [ ] **Agent templates marketplace** — share and import pre-configured agent setups
+- [x] **Version control** — auto-snapshot on every change with diff view and one-click restore
+- [x] **Separate CLAUDE.md + skills** — CLAUDE.md is agent identity; skills are real Claude Code slash commands
 - [ ] **Conversation history UI** — browse past conversations and their outcomes in the web UI
 - [ ] **RAG integration** — connect agents to document stores for knowledge retrieval
 

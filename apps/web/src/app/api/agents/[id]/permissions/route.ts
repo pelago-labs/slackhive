@@ -12,7 +12,7 @@ import { getAgentById, getAgentSkills, getAgentPermissions, getAgentMcpServers, 
 import type { UpdatePermissionsRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
-import { compileSkillsOnly, skillToSnapshotSkill } from '@/lib/compile';
+import { skillToSnapshotSkill } from '@/lib/compile';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -62,7 +62,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
       perms?.allowedTools ?? [],
       perms?.deniedTools ?? [],
       mcps.map(m => m.id),
-      compileSkillsOnly(currentSkills, agent ?? undefined),
+      agent?.claudeMd ?? '',
     ).catch(() => {});
 
     await upsertPermissions(id, body.allowedTools ?? [], body.deniedTools ?? []);

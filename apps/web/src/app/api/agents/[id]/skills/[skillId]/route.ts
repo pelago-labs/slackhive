@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { deleteSkill, publishAgentEvent, getAgentById, getAgentSkills, getAgentPermissions, getAgentMcpServers, createSnapshot } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
-import { compileSkillsOnly, skillToSnapshotSkill } from '@/lib/compile';
+import { skillToSnapshotSkill } from '@/lib/compile';
 
 type RouteParams = { params: Promise<{ id: string; skillId: string }> };
 
@@ -40,7 +40,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams): Promise
       perms?.allowedTools ?? [],
       perms?.deniedTools ?? [],
       mcps.map(m => m.id),
-      compileSkillsOnly(currentSkills, agent ?? undefined),
+      agent?.claudeMd ?? '',
     ).catch(() => {});
 
     await deleteSkill(skillId);

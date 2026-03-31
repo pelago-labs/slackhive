@@ -113,6 +113,12 @@ export interface Agent {
   isBoss: boolean;
   /** UUIDs of boss agents this agent reports to. Empty array if this agent is a boss. */
   reportsTo: string[];
+  /**
+   * The agent's main CLAUDE.md instruction file content.
+   * Written to the session working directory on each session start.
+   * Skills are written separately to .claude/commands/ as slash commands.
+   */
+  claudeMd: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -575,7 +581,7 @@ export interface SnapshotSkill {
 }
 
 /** What triggered the snapshot creation. */
-export type SnapshotTrigger = 'skills' | 'permissions' | 'mcps' | 'manual';
+export type SnapshotTrigger = 'skills' | 'permissions' | 'mcps' | 'claude-md' | 'manual';
 
 /**
  * A point-in-time snapshot of an agent's full configuration.

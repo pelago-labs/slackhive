@@ -1,17 +1,24 @@
 /**
- * @fileoverview CLAUDE.md compiler for the runner service.
+ * @fileoverview Agent workspace compiler for the runner service.
  *
- * Compiles an agent's skills and memories from the database into a single
- * CLAUDE.md file written to a temporary working directory. This file is
- * passed to the Claude Code SDK as the agent's system prompt via the `cwd`
- * option with `settingSources: ['project']`.
+ * Writes two things to the agent's temporary working directory:
  *
- * Compilation order:
- *   1. Skills, sorted by category (ASC) then sort_order (ASC)
- *   2. Memories section (grouped by type: feedback → user → project → reference)
+ *   1. CLAUDE.md — the agent's main instruction/identity file.
+ *      Source: agents.claude_md column (or auto-generated for boss agents).
+ *      Memories are appended at the end.
  *
- * The output directory is `/tmp/agents/{slug}/`. It is recreated on every
- * agent start or reload. The database is always the source of truth.
+ *   2. .claude/commands/{filename} — Claude Code slash commands.
+ *      Source: skills table rows for this agent.
+ *      Each skill becomes an invokable /<filename> command.
+ *
+ * Directory layout:
+ *   /tmp/agents/{slug}/
+ *     CLAUDE.md                   ← identity + memories
+ *     .claude/
+ *       commands/
+ *         {filename}.md           ← one file per skill
+ *       memory/
+ *         {type}_{name}.md        ← materialized memory files
  *
  * @module runner/compile-claude-md
  */
@@ -28,7 +35,6 @@ const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? '/tmp/agents';
 /**
  * Memory system instructions injected into every agent's CLAUDE.md.
  * Tells the agent to persist learned facts to .claude/memory/ in its cwd.
- * The runner watches this directory and syncs to the database.
  */
 const MEMORY_SYSTEM_SECTION = `# Memory System
 
@@ -90,76 +96,40 @@ export function getClaudeMdPath(slug: string): string {
 }
 
 /**
- * Compiles an agent's skills and memories from the database into a CLAUDE.md
- * file in the agent's temporary working directory.
+ * Compiles the agent workspace: writes CLAUDE.md and skill command files.
  *
- * This is the core function that enables:
- * - Agent identity and behavior (from skills)
- * - Learned knowledge from past interactions (from memories)
+ * - CLAUDE.md = agent.claudeMd (identity/instructions) + memory system + memories
+ * - .claude/commands/{filename}.md = one file per skill (Claude Code slash commands)
+ *
+ * For boss agents, CLAUDE.md is auto-generated from the team registry instead of
+ * agent.claudeMd (the boss-registry.ts module sets this before calling compileClaudeMd).
  *
  * @param {Agent} agent - The agent to compile for.
- * @returns {Promise<string>} The path to the temporary working directory
- *   (i.e., the `cwd` to pass to the Claude Code SDK).
+ * @param {string} [overrideClaudeMd] - Optional override for CLAUDE.md content (used by boss registry).
+ * @returns {Promise<string>} The path to the agent's working directory (pass as cwd to SDK).
  * @throws {Error} If writing to the filesystem fails.
- *
- * @example
- * const cwd = await compileClaudeMd(agent);
- * // Pass cwd to Claude Code SDK options
  */
-export async function compileClaudeMd(agent: Agent): Promise<string> {
+export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): Promise<string> {
   const workDir = getAgentWorkDir(agent.slug);
   const claudeMdPath = getClaudeMdPath(agent.slug);
 
-  // Ensure workspace directory exists (recreate on each start)
   fs.mkdirSync(workDir, { recursive: true });
 
-  // Load skills and memories from DB
   const [skills, memories] = await Promise.all([
     getAgentSkills(agent.id),
     getAgentMemories(agent.id),
   ]);
 
-  logger.info('Compiling CLAUDE.md', {
+  logger.info('Compiling agent workspace', {
     agent: agent.slug,
     skills: skills.length,
     memories: memories.length,
   });
 
-  const sections: string[] = [];
-
   // -------------------------------------------------------------------------
-  // Section 1: Skills
-  // Skills define the agent's identity, knowledge, workflow, and capabilities.
-  // They are ordered by category then sort_order — this mirrors the original
-  // build-claude-md.ts pattern from nlq-claude-slack-bot.
+  // 1. Write CLAUDE.md (identity + memory system + memories)
   // -------------------------------------------------------------------------
-  if (skills.length > 0) {
-    sections.push(compileSkillsSection(skills));
-  } else {
-    // Minimal fallback if no skills are defined yet
-    sections.push(compileDefaultIdentity(agent));
-  }
-
-  // -------------------------------------------------------------------------
-  // Section 2: Auto-memory system
-  // Instructs the agent to persist learned facts to .claude/memory/ in its cwd.
-  // The runner watches this directory and upserts records to the DB, so memory
-  // survives across restarts.
-  // -------------------------------------------------------------------------
-  sections.push(MEMORY_SYSTEM_SECTION);
-
-  // -------------------------------------------------------------------------
-  // Section 3: Memories
-  // Memories are what the agent has learned from past interactions.
-  // They are appended after skills so they can override or refine behavior.
-  // Grouped by type for readability: feedback → user → project → reference
-  // -------------------------------------------------------------------------
-  if (memories.length > 0) {
-    sections.push(compileMemoriesSection(memories));
-  }
-
-  const claudeMdContent = sections.join('\n\n---\n\n');
-
+  const claudeMdContent = buildClaudeMd(agent, memories, overrideClaudeMd);
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
   logger.debug('CLAUDE.md written', {
@@ -168,13 +138,49 @@ export async function compileClaudeMd(agent: Agent): Promise<string> {
     bytes: Buffer.byteLength(claudeMdContent, 'utf-8'),
   });
 
-  // Propagate updated CLAUDE.md to all existing per-session directories
+  // -------------------------------------------------------------------------
+  // 2. Write skills as .claude/commands/{filename}.md
+  // -------------------------------------------------------------------------
+  const commandsDir = path.join(workDir, '.claude', 'commands');
+  fs.mkdirSync(commandsDir, { recursive: true });
+
+  // Remove old command files before rewriting (handles deleted skills)
+  for (const existing of fs.readdirSync(commandsDir)) {
+    fs.rmSync(path.join(commandsDir, existing), { force: true });
+  }
+
+  for (const skill of skills) {
+    const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
+    fs.writeFileSync(path.join(commandsDir, filename), skill.content, 'utf-8');
+  }
+
+  logger.debug('Skill commands written', {
+    agent: agent.slug,
+    commands: skills.map(s => s.filename),
+    dir: commandsDir,
+  });
+
+  // -------------------------------------------------------------------------
+  // 3. Propagate updates to all existing per-session directories
+  // -------------------------------------------------------------------------
   const sessionsDir = path.join(workDir, 'sessions');
   if (fs.existsSync(sessionsDir)) {
     for (const entry of fs.readdirSync(sessionsDir)) {
-      const sessionClaudeMd = path.join(sessionsDir, entry, 'CLAUDE.md');
-      if (fs.existsSync(path.join(sessionsDir, entry))) {
-        fs.writeFileSync(sessionClaudeMd, claudeMdContent, 'utf-8');
+      const sessionDir = path.join(sessionsDir, entry);
+      if (!fs.statSync(sessionDir).isDirectory()) continue;
+
+      // Update CLAUDE.md
+      fs.writeFileSync(path.join(sessionDir, 'CLAUDE.md'), claudeMdContent, 'utf-8');
+
+      // Update .claude/commands/
+      const sessionCommandsDir = path.join(sessionDir, '.claude', 'commands');
+      fs.mkdirSync(sessionCommandsDir, { recursive: true });
+      for (const existing of fs.readdirSync(sessionCommandsDir)) {
+        fs.rmSync(path.join(sessionCommandsDir, existing), { force: true });
+      }
+      for (const skill of skills) {
+        const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
+        fs.writeFileSync(path.join(sessionCommandsDir, filename), skill.content, 'utf-8');
       }
     }
   }
@@ -184,10 +190,6 @@ export async function compileClaudeMd(agent: Agent): Promise<string> {
 
 /**
  * Materializes memory files from the database to the agent's temp workspace.
- *
- * Memory files are written to `/tmp/agents/{slug}/.claude/memory/` so the
- * Claude Code SDK can read and update them directly during conversations.
- * The runner watches this directory to detect new or updated memories.
  *
  * @param {Agent} agent - The agent to materialize memories for.
  * @param {Memory[]} memories - Memory entries from the database.
@@ -215,37 +217,41 @@ export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
 // =============================================================================
 
 /**
- * Compiles all skill files into a concatenated string for CLAUDE.md.
- * Each skill is separated by a newline for readability.
- *
- * @param {Skill[]} skills - Ordered skill records from the database.
- * @returns {string} Compiled skills content.
- */
-function compileSkillsSection(skills: Skill[]): string {
-  // Sort purely by global sort_order (matches skill.config.json assembly order)
-  return [...skills]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((s) => s.content.trim().replace(/^<!--\s*skill:.*?-->\s*\n?/, '').trim())
-    .join('\n\n');
-}
-
-/**
- * Generates a minimal default identity section when no skills are defined.
+ * Builds the CLAUDE.md content for an agent.
+ * Structure: identity → memory system instructions → learned memories.
  *
  * @param {Agent} agent - The agent.
- * @returns {string} Default identity markdown.
+ * @param {Memory[]} memories - Learned memories to append.
+ * @param {string} [overrideClaudeMd] - Override for identity content (boss registry use).
+ * @returns {string} Full CLAUDE.md content.
  */
-function compileDefaultIdentity(agent: Agent): string {
-  const lines = [`# ${agent.name}`];
-  if (agent.persona) lines.push('', agent.persona);
-  if (agent.description) lines.push('', agent.description);
-  return lines.join('\n');
+function buildClaudeMd(agent: Agent, memories: Memory[], overrideClaudeMd?: string): string {
+  const sections: string[] = [];
+
+  // Identity / instructions
+  const identity = overrideClaudeMd ?? agent.claudeMd;
+  if (identity.trim()) {
+    sections.push(identity.trim());
+  } else {
+    const lines = [`# ${agent.name}`];
+    if (agent.persona) lines.push('', agent.persona);
+    if (agent.description) lines.push('', agent.description);
+    sections.push(lines.join('\n'));
+  }
+
+  // Memory system instructions
+  sections.push(MEMORY_SYSTEM_SECTION);
+
+  // Learned memories
+  if (memories.length > 0) {
+    sections.push(compileMemoriesSection(memories));
+  }
+
+  return sections.join('\n\n---\n\n');
 }
 
 /**
- * Compiles memory entries into a structured CLAUDE.md section.
- * Memories are grouped by type and formatted to give the agent clear
- * context about what it has learned from past interactions.
+ * Compiles memory entries into a structured section for CLAUDE.md.
  *
  * @param {Memory[]} memories - Memory entries from the database.
  * @returns {string} Compiled memories section.
@@ -280,7 +286,6 @@ function compileMemoriesSection(memories: Memory[]): string {
 
 /**
  * Sanitizes a string for use as a filename.
- * Replaces non-alphanumeric characters with underscores and lowercases.
  *
  * @param {string} name - Raw name string.
  * @returns {string} Filesystem-safe filename fragment.

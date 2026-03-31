@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById, getAgentSkills, getAgentPermissions, getAgentMcpServers, setAgentMcps, publishAgentEvent, createSnapshot } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
-import { compileSkillsOnly, skillToSnapshotSkill } from '@/lib/compile';
+import { skillToSnapshotSkill } from '@/lib/compile';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -61,7 +61,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
       perms?.allowedTools ?? [],
       perms?.deniedTools ?? [],
       currentMcps.map(m => m.id),
-      compileSkillsOnly(currentSkills, agent ?? undefined),
+      agent?.claudeMd ?? '',
     ).catch(() => {});
 
     await setAgentMcps(id, mcpIds ?? []);
