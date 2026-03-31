@@ -1,0 +1,74 @@
+# GitHub Actions CI — Build & type-check on every push/PR
+# Docs: https://docs.github.com/en/actions/use-cases-and-examples/building-and-testing/building-and-testing-nodejs
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: cd packages/shared && npm run build
+
+      - name: Type-check web
+        run: cd apps/web && npx tsc --noEmit
+
+      - name: Build web
+        run: cd apps/web && npm run build
+        env:
+          # Required by Next.js build — use dummy values for CI
+          POSTGRES_URL: postgresql://user:pass@localhost:5432/slackhive
+          REDIS_URL: redis://localhost:6379
+          SESSION_SECRET: ci-secret-not-used
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: admin
+
+      - name: Type-check runner
+        run: cd apps/runner && npx tsc --noEmit
+
+      - name: Type-check cli
+        run: cd cli && npx tsc --noEmit
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint web
+        run: cd apps/web && npm run lint || true
+
+      - name: Lint runner
+        run: cd apps/runner && npm run lint || true
