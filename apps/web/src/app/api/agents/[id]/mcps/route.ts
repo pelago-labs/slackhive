@@ -8,8 +8,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentMcpServers, setAgentMcps, publishAgentEvent } from '@/lib/db';
+import { getAgentById, getAgentSkills, getAgentPermissions, getAgentMcpServers, setAgentMcps, publishAgentEvent, createSnapshot } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
+import { compileSkillsOnly, skillToSnapshotSkill } from '@/lib/compile';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -44,6 +46,24 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
   try {
     const { id } = await params;
     const { mcpIds } = (await req.json()) as { mcpIds: string[] };
+
+    // Snapshot before mutation
+    const session = getSessionFromRequest(req);
+    const [agent, currentSkills, perms, currentMcps] = await Promise.all([
+      getAgentById(id),
+      getAgentSkills(id),
+      getAgentPermissions(id),
+      getAgentMcpServers(id),
+    ]);
+    await createSnapshot(
+      id, 'mcps', session?.username ?? 'system', null,
+      currentSkills.map(skillToSnapshotSkill),
+      perms?.allowedTools ?? [],
+      perms?.deniedTools ?? [],
+      currentMcps.map(m => m.id),
+      compileSkillsOnly(currentSkills, agent ?? undefined),
+    ).catch(() => {});
+
     await setAgentMcps(id, mcpIds ?? []);
     await publishAgentEvent({ type: 'reload', agentId: id });
     return NextResponse.json({ ok: true });

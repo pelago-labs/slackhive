@@ -8,8 +8,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentById, getAgentSkills, getAgentMemories, upsertSkill, deleteSkillsByAgent } from '@/lib/db';
+import { getAgentById, getAgentSkills, getAgentMemories, upsertSkill, deleteSkillsByAgent, createSnapshot, getAgentPermissions, getAgentMcpServers } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
+import { compileSkillsOnly, skillToSnapshotSkill } from '@/lib/compile';
 
 /**
  * GET /api/agents/[id]/claude-md
@@ -33,15 +35,7 @@ export async function GET(
   ]);
 
   const sections: string[] = [];
-
-  if (skills.length > 0) {
-    const skillParts = [...skills]
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map(s => s.content.trim().replace(/^<!--\s*skill:.*?-->\s*\n?/, '').trim());
-    sections.push(skillParts.join('\n\n'));
-  } else {
-    sections.push(`# ${agent.name}\n\n${agent.description ?? ''}\n\nPersona: ${agent.persona ?? 'A helpful assistant.'}`);
-  }
+  sections.push(compileSkillsOnly(skills, agent));
 
   if (memories.length > 0) {
     const order = ['feedback', 'user', 'project', 'reference'];
@@ -79,6 +73,22 @@ export async function PUT(
 
   const content = await req.text();
   if (!content.trim()) return new NextResponse('Empty content', { status: 400 });
+
+  // Snapshot current state before replacing all skills
+  const session = getSessionFromRequest(req);
+  const [currentSkills, currentPerms, currentMcps] = await Promise.all([
+    getAgentSkills(id),
+    getAgentPermissions(id),
+    getAgentMcpServers(id),
+  ]);
+  await createSnapshot(
+    id, 'skills', session?.username ?? 'system', null,
+    currentSkills.map(skillToSnapshotSkill),
+    currentPerms?.allowedTools ?? [],
+    currentPerms?.deniedTools ?? [],
+    currentMcps.map(m => m.id),
+    compileSkillsOnly(currentSkills, agent),
+  ).catch(() => {});
 
   await deleteSkillsByAgent(id);
   await upsertSkill(id, '00-core', 'main.md', content, 0);
