@@ -113,6 +113,12 @@ export interface Agent {
   isBoss: boolean;
   /** UUIDs of boss agents this agent reports to. Empty array if this agent is a boss. */
   reportsTo: string[];
+  /**
+   * The agent's main CLAUDE.md instruction file content.
+   * Written to the session working directory on each session start.
+   * Skills are written separately to .claude/commands/ as slash commands.
+   */
+  claudeMd: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -557,4 +563,53 @@ export interface UpdateJobRequest {
   targetType?: JobTargetType;
   targetId?: string;
   enabled?: boolean;
+}
+
+// =============================================================================
+// Version Control — Agent Snapshots
+// =============================================================================
+
+/**
+ * A single skill entry stored inside an agent snapshot.
+ * UUID is omitted — re-generated via upsertSkill on restore.
+ */
+export interface SnapshotSkill {
+  category: string;
+  filename: string;
+  content: string;
+  sort_order: number;
+}
+
+/** What triggered the snapshot creation. */
+export type SnapshotTrigger = 'skills' | 'permissions' | 'mcps' | 'claude-md' | 'manual';
+
+/**
+ * A point-in-time snapshot of an agent's full configuration.
+ * Immutable — never updated after creation.
+ *
+ * - `skillsJson` — full skills array at snapshot time
+ * - `compiledMd` — skills-only CLAUDE.md (no memories section)
+ * - `createdBy` — username of the person whose save triggered this snapshot
+ */
+export interface AgentSnapshot {
+  id: string;
+  agentId: string;
+  label?: string;
+  trigger: SnapshotTrigger;
+  /** Username of the person who triggered the snapshot (from session). */
+  createdBy: string;
+  skillsJson: SnapshotSkill[];
+  allowedTools: string[];
+  deniedTools: string[];
+  mcpIds: string[];
+  compiledMd: string;
+  createdAt: Date;
+}
+
+/**
+ * Request body for creating a manual snapshot.
+ * Used in POST /api/agents/[id]/snapshots.
+ */
+export interface CreateSnapshotRequest {
+  label?: string;
 }

@@ -13,7 +13,7 @@
  */
 
 import type { Agent } from '@slackhive/shared';
-import { getAllAgents, upsertSkill, publishAgentEvent } from '@/lib/db';
+import { getAllAgents, updateAgentClaudeMd, publishAgentEvent } from '@/lib/db';
 
 /**
  * Regenerates team registry skills for all boss agents.
@@ -77,6 +77,6 @@ When you know who should handle the request, reply:
 
 Then @mention that agent in the thread so they have full context.`;
 
-  await upsertSkill(boss.id, '00-core', 'identity.md', registryContent, 0);
+  await updateAgentClaudeMd(boss.id, registryContent);
   await publishAgentEvent({ type: 'reload', agentId: boss.id });
 }

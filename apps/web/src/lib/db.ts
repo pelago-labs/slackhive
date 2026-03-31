@@ -29,6 +29,9 @@ import type {
   UpsertMcpServerRequest,
   CreateAgentRequest,
   UpdateAgentRequest,
+  AgentSnapshot,
+  SnapshotSkill,
+  SnapshotTrigger,
 } from '@slackhive/shared';
 import { AGENT_EVENTS_CHANNEL } from '@slackhive/shared';
 
@@ -110,6 +113,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     status: row.status as AgentStatus,
     isBoss: row.is_boss as boolean,
     reportsTo: (row.reports_to as string[]) ?? [],
+    claudeMd: (row.claude_md as string) ?? '',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
@@ -271,6 +275,21 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
     values
   );
   return r.rows.length ? rowToAgent(r.rows[0]) : null;
+}
+
+/**
+ * Replaces the CLAUDE.md content for an agent.
+ * This is the main instruction/identity file, separate from skills.
+ *
+ * @param {string} id - Agent UUID.
+ * @param {string} content - New CLAUDE.md content.
+ * @returns {Promise<void>}
+ */
+export async function updateAgentClaudeMd(id: string, content: string): Promise<void> {
+  await getPool().query(
+    'UPDATE agents SET claude_md = $1, updated_at = now() WHERE id = $2',
+    [content, id]
+  );
 }
 
 /**
@@ -835,4 +854,132 @@ export async function getJobRuns(jobId: string, limit = 20, offset = 0): Promise
     [jobId, limit, offset]
   );
   return r.rows.map(rowToJobRun);
+}
+
+// =============================================================================
+// Agent Snapshots — version control
+// =============================================================================
+
+/**
+ * Maps a raw DB row to an {@link AgentSnapshot}.
+ *
+ * @param {Record<string, unknown>} row - Raw row from agent_snapshots.
+ * @returns {AgentSnapshot}
+ */
+function rowToSnapshot(row: Record<string, unknown>): AgentSnapshot {
+  return {
+    id:           row.id as string,
+    agentId:      row.agent_id as string,
+    label:        row.label as string | undefined,
+    trigger:      row.trigger as SnapshotTrigger,
+    createdBy:    row.created_by as string,
+    skillsJson:   (row.skills_json as SnapshotSkill[]) ?? [],
+    allowedTools: (row.allowed_tools as string[]) ?? [],
+    deniedTools:  (row.denied_tools as string[]) ?? [],
+    mcpIds:       (row.mcp_ids as string[]) ?? [],
+    compiledMd:   row.compiled_md as string,
+    createdAt:    row.created_at as Date,
+  };
+}
+
+/**
+ * Creates a new snapshot for an agent.
+ *
+ * Auto-snapshots (trigger !== 'manual') are capped at 50 per agent —
+ * the oldest ones beyond that cap are purged in the same transaction.
+ * Manual snapshots are never auto-purged.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {SnapshotTrigger} trigger - What caused this snapshot.
+ * @param {string} createdBy - Username of the person who triggered the change.
+ * @param {string | null} label - Optional label (used for manual snapshots).
+ * @param {SnapshotSkill[]} skills - Skills array at snapshot time.
+ * @param {string[]} allowedTools - Allowed tools at snapshot time.
+ * @param {string[]} deniedTools - Denied tools at snapshot time.
+ * @param {string[]} mcpIds - MCP server UUIDs at snapshot time.
+ * @param {string} compiledMd - Skills-only compiled CLAUDE.md.
+ * @returns {Promise<AgentSnapshot>} The created snapshot.
+ */
+export async function createSnapshot(
+  agentId: string,
+  trigger: SnapshotTrigger,
+  createdBy: string,
+  label: string | null,
+  skills: SnapshotSkill[],
+  allowedTools: string[],
+  deniedTools: string[],
+  mcpIds: string[],
+  compiledMd: string,
+): Promise<AgentSnapshot> {
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+
+    const insertResult = await client.query(
+      `INSERT INTO agent_snapshots
+         (agent_id, label, trigger, created_by, skills_json,
+          allowed_tools, denied_tools, mcp_ids, compiled_md)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING *`,
+      [agentId, label, trigger, createdBy, JSON.stringify(skills),
+       allowedTools, deniedTools, mcpIds, compiledMd]
+    );
+
+    // Purge oldest auto-snapshots beyond cap=50 for this agent
+    await client.query(
+      `DELETE FROM agent_snapshots
+       WHERE id IN (
+         SELECT id FROM agent_snapshots
+         WHERE agent_id = $1 AND trigger != 'manual'
+         ORDER BY created_at DESC
+         OFFSET 50
+       )`,
+      [agentId]
+    );
+
+    await client.query('COMMIT');
+    return rowToSnapshot(insertResult.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Returns snapshots for an agent, newest first.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {number} limit - Max results (default 100).
+ * @param {number} offset - Offset for pagination (default 0).
+ * @returns {Promise<AgentSnapshot[]>}
+ */
+export async function listSnapshots(agentId: string, limit = 100, offset = 0): Promise<AgentSnapshot[]> {
+  const r = await getPool().query(
+    'SELECT * FROM agent_snapshots WHERE agent_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+    [agentId, limit, offset]
+  );
+  return r.rows.map(rowToSnapshot);
+}
+
+/**
+ * Returns a single snapshot by UUID.
+ *
+ * @param {string} id - Snapshot UUID.
+ * @returns {Promise<AgentSnapshot | null>}
+ */
+export async function getSnapshotById(id: string): Promise<AgentSnapshot | null> {
+  const r = await getPool().query('SELECT * FROM agent_snapshots WHERE id = $1', [id]);
+  return r.rows.length ? rowToSnapshot(r.rows[0]) : null;
+}
+
+/**
+ * Deletes a snapshot by UUID.
+ *
+ * @param {string} id - Snapshot UUID.
+ * @returns {Promise<void>}
+ */
+export async function deleteSnapshot(id: string): Promise<void> {
+  await getPool().query('DELETE FROM agent_snapshots WHERE id = $1', [id]);
 }

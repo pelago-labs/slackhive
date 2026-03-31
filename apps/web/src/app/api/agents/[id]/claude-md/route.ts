@@ -1,19 +1,26 @@
 /**
- * @fileoverview REST API routes for an agent's compiled CLAUDE.md.
+ * @fileoverview REST API routes for an agent's CLAUDE.md instruction file.
  *
- * GET /api/agents/[id]/claude-md — Returns compiled CLAUDE.md (skills + memories).
- * PUT /api/agents/[id]/claude-md — Replaces all skills with a single raw upload.
+ * CLAUDE.md is the agent's main identity/instruction file, stored as
+ * agents.claude_md in the database. It is separate from skills — skills
+ * are Claude Code slash commands written to .claude/commands/ at runtime.
+ *
+ * GET /api/agents/[id]/claude-md — Returns the stored CLAUDE.md content
+ *                                  with memories appended (read-only view).
+ * PUT /api/agents/[id]/claude-md — Updates agents.claude_md directly.
  *
  * @module web/api/agents/[id]/claude-md
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentById, getAgentSkills, getAgentMemories, upsertSkill, deleteSkillsByAgent } from '@/lib/db';
+import { getAgentById, getAgentMemories, updateAgentClaudeMd, publishAgentEvent, getAgentSkills, getAgentPermissions, getAgentMcpServers, createSnapshot } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
+import { skillToSnapshotSkill } from '@/lib/compile';
 
 /**
  * GET /api/agents/[id]/claude-md
- * Compiles all agent skills and memories into a single CLAUDE.md document.
+ * Returns the agent's CLAUDE.md content with memories appended.
  *
  * @param {NextRequest} _req
  * @param {{ params: Promise<{ id: string }> }} ctx
@@ -27,20 +34,18 @@ export async function GET(
   const agent = await getAgentById(id);
   if (!agent) return new NextResponse('Not found', { status: 404 });
 
-  const [skills, memories] = await Promise.all([
-    getAgentSkills(id),
-    getAgentMemories(id),
-  ]);
+  const memories = await getAgentMemories(id);
 
   const sections: string[] = [];
 
-  if (skills.length > 0) {
-    const skillParts = [...skills]
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map(s => s.content.trim().replace(/^<!--\s*skill:.*?-->\s*\n?/, '').trim());
-    sections.push(skillParts.join('\n\n'));
+  if (agent.claudeMd.trim()) {
+    sections.push(agent.claudeMd.trim());
   } else {
-    sections.push(`# ${agent.name}\n\n${agent.description ?? ''}\n\nPersona: ${agent.persona ?? 'A helpful assistant.'}`);
+    // Fallback: minimal identity block if claude_md not yet set
+    const lines = [`# ${agent.name}`];
+    if (agent.persona) lines.push('', agent.persona);
+    if (agent.description) lines.push('', agent.description);
+    sections.push(lines.join('\n'));
   }
 
   if (memories.length > 0) {
@@ -56,16 +61,20 @@ export async function GET(
     sections.push(`# Agent Memory\n\n${memParts.join('\n\n')}`);
   }
 
-  const content = sections.join('\n\n');
-  return new NextResponse(content, {
+  return new NextResponse(sections.join('\n\n'), {
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });
 }
 
 /**
  * PUT /api/agents/[id]/claude-md
- * Replaces all agent skills with a single raw CLAUDE.md skill.
+ * Saves the CLAUDE.md content to agents.claude_md.
+ * Does NOT touch skills — skills are managed separately via /api/agents/[id]/skills.
  * Body: raw text/plain content.
+ *
+ * @param {NextRequest} req
+ * @param {{ params: Promise<{ id: string }> }} ctx
+ * @returns {Promise<NextResponse>} 204 No Content or error.
  */
 export async function PUT(
   req: NextRequest,
@@ -80,8 +89,23 @@ export async function PUT(
   const content = await req.text();
   if (!content.trim()) return new NextResponse('Empty content', { status: 400 });
 
-  await deleteSkillsByAgent(id);
-  await upsertSkill(id, '00-core', 'main.md', content, 0);
+  // Snapshot current state before overwriting
+  const session = getSessionFromRequest(req);
+  const [currentSkills, currentPerms, currentMcps] = await Promise.all([
+    getAgentSkills(id),
+    getAgentPermissions(id),
+    getAgentMcpServers(id),
+  ]);
+  await createSnapshot(
+    id, 'claude-md', session?.username ?? 'system', null,
+    currentSkills.map(skillToSnapshotSkill),
+    currentPerms?.allowedTools ?? [],
+    currentPerms?.deniedTools ?? [],
+    currentMcps.map(m => m.id),
+    agent.claudeMd,
+  ).catch(() => {});
 
+  await updateAgentClaudeMd(id, content);
+  await publishAgentEvent({ type: 'reload', agentId: id });
   return new NextResponse(null, { status: 204 });
 }

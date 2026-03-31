@@ -8,9 +8,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentSkills, upsertSkill, publishAgentEvent } from '@/lib/db';
+import { getAgentById, getAgentSkills, upsertSkill, publishAgentEvent, getAgentPermissions, getAgentMcpServers, createSnapshot } from '@/lib/db';
 import type { UpsertSkillRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
+import { skillToSnapshotSkill } from '@/lib/compile';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -48,6 +50,24 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     if (!body.category || !body.filename || body.content === undefined) {
       return NextResponse.json({ error: 'category, filename, content are required' }, { status: 400 });
     }
+
+    // Snapshot current state before mutation
+    const session = getSessionFromRequest(req);
+    const [agent, currentSkills, perms, mcps] = await Promise.all([
+      getAgentById(id),
+      getAgentSkills(id),
+      getAgentPermissions(id),
+      getAgentMcpServers(id),
+    ]);
+    await createSnapshot(
+      id, 'skills', session?.username ?? 'system', null,
+      currentSkills.map(skillToSnapshotSkill),
+      perms?.allowedTools ?? [],
+      perms?.deniedTools ?? [],
+      mcps.map(m => m.id),
+      agent?.claudeMd ?? '',
+    ).catch(() => {});
+
     const skill = await upsertSkill(id, body.category, body.filename, body.content, body.sortOrder ?? 0);
     await publishAgentEvent({ type: 'reload', agentId: id });
     return NextResponse.json(skill, { status: 201 });
