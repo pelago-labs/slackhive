@@ -7,7 +7,7 @@ FROM base AS deps
 COPY package.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/runner/package.json ./apps/runner/
-RUN npm install
+RUN npm install --workspace=apps/runner --workspace=packages/shared --include-workspace-root
 
 # Build
 FROM deps AS builder
