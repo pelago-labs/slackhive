@@ -326,7 +326,7 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
  * @param {boolean} isFinal - Whether this is the final message.
  * @returns {{ text: string; blocks?: any[] }} Slack-ready payload.
  */
-function buildMessagePayload(text: string, isFinal: boolean): { text: string; blocks?: any[] } {
+export function buildMessagePayload(text: string, isFinal: boolean): { text: string; blocks?: any[] } {
   const extracted = extractFirstMarkdownTable(text);
 
   if (!extracted) {
@@ -369,11 +369,13 @@ function buildMessagePayload(text: string, isFinal: boolean): { text: string; bl
  * - __italic__ → _italic_
  * - Auto-wraps bare markdown tables in code blocks
  */
-function formatMessage(text: string, _isFinal: boolean): string {
+export function formatMessage(text: string, _isFinal: boolean): string {
   const codeBlocks: string[] = [];
+  // Use a placeholder that cannot be matched by the __italic__ regex.
+  // \x00 is not present in normal text and breaks the /__([^_]+)__/ pattern.
   let formatted = text.replace(/```[\s\S]*?```/g, (match) => {
     codeBlocks.push(match);
-    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+    return `\x00CB${codeBlocks.length - 1}\x00`;
   });
 
   // Auto-wrap bare markdown tables in code blocks
@@ -388,7 +390,7 @@ function formatMessage(text: string, _isFinal: boolean): string {
   formatted = formatted.replace(/__([^_]+)__/g, '_$1_');
 
   // Restore code blocks (strip language hints)
-  formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (_, index) => {
+  formatted = formatted.replace(/\x00CB(\d+)\x00/g, (_, index) => {
     const block = codeBlocks[parseInt(index)];
     return block.replace(/^```\w+\n/, '```\n');
   });
@@ -397,7 +399,7 @@ function formatMessage(text: string, _isFinal: boolean): string {
 }
 
 /** Splits text into ≤3000-char chunks for Slack section blocks. */
-function splitTextForBlocks(text: string): string[] {
+export function splitTextForBlocks(text: string): string[] {
   const MAX = 3000;
   if (text.length <= MAX) return [text];
   const chunks: string[] = [];
@@ -412,11 +414,11 @@ function splitTextForBlocks(text: string): string[] {
   return chunks;
 }
 
-function isSeparatorLine(line: string): boolean {
+export function isSeparatorLine(line: string): boolean {
   return /^\s*\|?[-:\s|]+\|?\s*$/.test(line) && line.includes('-');
 }
 
-function extractFirstMarkdownTable(text: string): { before: string; tableLines: string[]; after: string } | null {
+export function extractFirstMarkdownTable(text: string): { before: string; tableLines: string[]; after: string } | null {
   const codeBlockTableRe = /```(?:\w*)\n((?:[ \t]*.+\|.+[ \t]*\n?){2,})```/;
   const bareTableRe = /(?:^|\n)((?:[ \t]*\|.+\|[ \t]*(?:\n|$)){2,})/;
   const loosePipeRe = /(?:^|\n)((?:[ \t]*\S.+\|.+(?:\n|$)){2,})/;
@@ -442,7 +444,7 @@ function extractFirstMarkdownTable(text: string): { before: string; tableLines: 
   return null;
 }
 
-function parseMarkdownTable(lines: string[]): { headers: string[]; rows: string[][]; alignments: ('left' | 'center' | 'right')[] } {
+export function parseMarkdownTable(lines: string[]): { headers: string[]; rows: string[][]; alignments: ('left' | 'center' | 'right')[] } {
   const splitRow = (line: string): string[] =>
     line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
 
@@ -464,7 +466,7 @@ function parseMarkdownTable(lines: string[]): { headers: string[]; rows: string[
   return { headers, rows, alignments };
 }
 
-function buildSlackTableBlock(parsed: { headers: string[]; rows: string[][]; alignments: ('left' | 'center' | 'right')[] }): Record<string, any> {
+export function buildSlackTableBlock(parsed: { headers: string[]; rows: string[][]; alignments: ('left' | 'center' | 'right')[] }): Record<string, any> {
   const buildRow = (cells: string[]) =>
     parsed.headers.map((_, i) => ({ type: 'raw_text', text: (cells[i] || '').toString() }));
   return {
@@ -489,7 +491,7 @@ function buildSlackTableBlock(parsed: { headers: string[]; rows: string[][]; ali
  * @returns {string | null} Slack-formatted status text, or null if no tool was used.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function formatToolStatus(content: any[]): string | null {
+export function formatToolStatus(content: any[]): string | null {
   for (const block of content) {
     if (block.type !== 'tool_use') continue;
     const label = MCP_TOOL_LABELS[block.name];
@@ -556,7 +558,7 @@ async function buildPrompt(
  * @param {string} [botUserId] - The bot's Slack user ID. No-op if undefined.
  * @returns {string} Text with all bot mention tokens stripped and trimmed.
  */
-function stripBotMention(text: string, botUserId?: string): string {
+export function stripBotMention(text: string, botUserId?: string): string {
   if (!botUserId) return text;
   return text.replace(new RegExp(`<@${botUserId}>\\s*`, 'g'), '').trim();
 }
