@@ -112,11 +112,26 @@ export class ClaudeHandler {
 
     if (!fs.existsSync(sessionDir)) {
       fs.mkdirSync(sessionDir, { recursive: true });
-      // Copy CLAUDE.md (agent skills) into the session dir so the SDK picks it up
+
+      // Copy CLAUDE.md into the session dir so the SDK reads it as project instructions
       const agentClaudeMd = path.join(this.workDir, 'CLAUDE.md');
       if (fs.existsSync(agentClaudeMd)) {
         fs.copyFileSync(agentClaudeMd, path.join(sessionDir, 'CLAUDE.md'));
       }
+
+      // Copy .claude/commands/ (skill slash commands) into the session dir
+      const agentCommandsDir = path.join(this.workDir, '.claude', 'commands');
+      if (fs.existsSync(agentCommandsDir)) {
+        const sessionCommandsDir = path.join(sessionDir, '.claude', 'commands');
+        fs.mkdirSync(sessionCommandsDir, { recursive: true });
+        for (const file of fs.readdirSync(agentCommandsDir)) {
+          fs.copyFileSync(
+            path.join(agentCommandsDir, file),
+            path.join(sessionCommandsDir, file)
+          );
+        }
+      }
+
       // Create memory dir for per-thread memory files
       fs.mkdirSync(path.join(sessionDir, '.claude', 'memory'), { recursive: true });
       this.log.debug('Session work dir created', { sessionKey, sessionDir });

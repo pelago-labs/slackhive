@@ -8,9 +8,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentPermissions, upsertPermissions, publishAgentEvent } from '@/lib/db';
+import { getAgentById, getAgentSkills, getAgentPermissions, getAgentMcpServers, upsertPermissions, publishAgentEvent, createSnapshot } from '@/lib/db';
 import type { UpdatePermissionsRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
+import { skillToSnapshotSkill } from '@/lib/compile';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -45,6 +47,24 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
   try {
     const { id } = await params;
     const body = (await req.json()) as UpdatePermissionsRequest;
+
+    // Snapshot before mutation
+    const session = getSessionFromRequest(req);
+    const [agent, currentSkills, perms, mcps] = await Promise.all([
+      getAgentById(id),
+      getAgentSkills(id),
+      getAgentPermissions(id),
+      getAgentMcpServers(id),
+    ]);
+    await createSnapshot(
+      id, 'permissions', session?.username ?? 'system', null,
+      currentSkills.map(skillToSnapshotSkill),
+      perms?.allowedTools ?? [],
+      perms?.deniedTools ?? [],
+      mcps.map(m => m.id),
+      agent?.claudeMd ?? '',
+    ).catch(() => {});
+
     await upsertPermissions(id, body.allowedTools ?? [], body.deniedTools ?? []);
     await publishAgentEvent({ type: 'reload', agentId: id });
     return NextResponse.json({ ok: true });
