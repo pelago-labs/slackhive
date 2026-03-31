@@ -65,6 +65,49 @@ jobs:
       - name: Run unit tests
         run: cd apps/web && npm test
 
+  check-tests:
+    name: Test Coverage Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check that source changes include tests
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.event.pull_request.head.sha }}
+
+          # Files changed in this PR
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD")
+
+          # Source files changed (lib/ and api routes, excluding test files)
+          SRC_CHANGED=$(echo "$CHANGED" | grep -E '^apps/web/src/(lib|app/api)/' | grep -v '__tests__' || true)
+
+          # Test files changed
+          TEST_CHANGED=$(echo "$CHANGED" | grep '__tests__' || true)
+
+          echo "=== Source files changed ==="
+          echo "${SRC_CHANGED:-none}"
+          echo ""
+          echo "=== Test files changed ==="
+          echo "${TEST_CHANGED:-none}"
+
+          if [ -n "$SRC_CHANGED" ] && [ -z "$TEST_CHANGED" ]; then
+            echo ""
+            echo "⚠️  WARNING: Source files were changed but no test files were added or updated."
+            echo "Please add tests for new logic in apps/web/src/lib/__tests__/"
+            echo ""
+            echo "If tests are genuinely not applicable (docs-only, pure UI tweak, config change),"
+            echo "add a note in the PR description under the 'Tests' section."
+            # Exit 1 to fail the check — reviewers can override by merging anyway
+            exit 1
+          fi
+
+          echo "✅ Test files present for source changes."
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
