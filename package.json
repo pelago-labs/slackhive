@@ -5,7 +5,8 @@
   "description": "Open-source platform for managing teams of Claude Code Slack agents with a boss agent orchestrator",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "cli"
   ],
   "scripts": {
     "dev": "sh scripts/dev.sh",
@@ -14,5 +15,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.89",
+    "@anthropic-ai/claude-code": "^2.1.89"
+  }
 }

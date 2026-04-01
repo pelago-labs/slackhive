@@ -58,4 +58,4 @@ program
   .description('Pull latest changes and rebuild')
   .action(update);
 
-program.parse();
+program.parse(process.argv);
