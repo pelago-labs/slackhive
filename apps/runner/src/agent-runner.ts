@@ -20,7 +20,7 @@
  * @module runner/agent-runner
  */
 
-import { App } from '@slack/bolt';
+import { App, LogLevel } from '@slack/bolt';
 import { createClient, type RedisClientType } from 'redis';
 import type { Agent } from '@slackhive/shared';
 import { AGENT_EVENTS_CHANNEL, type AgentEvent } from '@slackhive/shared';
@@ -217,7 +217,7 @@ export class AgentRunner {
       appToken: agent.slackAppToken,
       signingSecret: agent.slackSigningSecret,
       socketMode: true,
-      logLevel: process.env.LOG_LEVEL === 'debug' ? 'debug' : 'warn',
+      logLevel: process.env.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.WARN,
     });
 
     // Register all Slack event listeners

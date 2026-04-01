@@ -91,6 +91,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     isBoss: row.is_boss as boolean,
     reportsTo: (row.reports_to as string[]) ?? [],
     claudeMd: (row.claude_md as string) ?? '',
+    createdBy: (row.created_by as string) ?? 'system',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
