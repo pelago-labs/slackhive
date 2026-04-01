@@ -247,7 +247,7 @@ export class ClaudeHandler {
     abortController?: AbortController
   ): Record<string, unknown> {
     const options: Record<string, unknown> = {
-      permissionMode: 'default',
+      permissionMode: 'bypassPermissions',
       settingSources: ['project'],
       cwd: sessionWorkDir,
       abortController: abortController ?? new AbortController(),
