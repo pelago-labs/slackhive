@@ -21,8 +21,20 @@ export interface McpStdioConfig {
   command: string;
   /** Arguments to pass to the command. */
   args?: string[];
-  /** Environment variables to inject into the subprocess. */
+  /** Inline environment variables to inject into the subprocess. Values are masked in API responses. */
   env?: Record<string, string>;
+  /**
+   * Maps subprocess env var name → key in the platform env_vars store.
+   * Resolved by the runner at agent start time. Not masked — these are key names, not secrets.
+   * Example: { "DATABASE_URL": "REDSHIFT_DATABASE_URL" }
+   */
+  envRefs?: Record<string, string>;
+  /**
+   * Inline TypeScript source code for this MCP server.
+   * When present, the runner writes this to disk and executes it with `tsx`.
+   * command/args are ignored when tsSource is set.
+   */
+  tsSource?: string;
 }
 
 /**
@@ -148,6 +160,16 @@ export interface McpServer {
   /** Whether this server is available for agents to use. */
   enabled: boolean;
   createdAt: Date;
+}
+
+/**
+ * A named secret stored in the platform env_vars table.
+ * Values are write-only — never returned via the API after creation.
+ */
+export interface EnvVar {
+  key: string;
+  description?: string;
+  updatedAt: Date;
 }
 
 /**

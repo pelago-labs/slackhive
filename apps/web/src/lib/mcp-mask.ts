@@ -28,6 +28,7 @@ export function maskMcpConfig(config: McpServerConfig): McpServerConfig {
     for (const key of Object.keys(c.env as Record<string, string>)) {
       masked[key] = MASK;
     }
+    // envRefs and tsSource are not secrets — pass through unchanged
     return { ...c, env: masked } as McpServerConfig;
   }
   if (c.headers && typeof c.headers === 'object') {

@@ -156,6 +156,7 @@ export async function init(opts: InitOptions): Promise<void> {
     envContent += `\nADMIN_USERNAME=${response.adminUsername}\n`;
     envContent += `ADMIN_PASSWORD=${response.adminPassword}\n`;
     envContent += `AUTH_SECRET=${randomSecret()}\n`;
+    envContent += `ENV_SECRET_KEY=${randomSecret()}\n`;
     envContent += `\nNODE_ENV=production\n`;
 
     writeFileSync(envPath, envContent);
@@ -170,11 +171,13 @@ export async function init(opts: InitOptions): Promise<void> {
     const missingKeys: string[] = [];
     if (!envContents.includes('REDIS_PASSWORD=')) missingKeys.push('REDIS_PASSWORD');
     if (!envContents.includes('AUTH_SECRET=')) missingKeys.push('AUTH_SECRET');
+    if (!envContents.includes('ENV_SECRET_KEY=')) missingKeys.push('ENV_SECRET_KEY');
     if (missingKeys.length > 0) {
       console.log(chalk.yellow(`  warning: .env is missing: ${missingKeys.join(', ')} — patching...`));
       let patch = '';
       if (!envContents.includes('REDIS_PASSWORD=')) patch += `\nREDIS_PASSWORD=${randomSecret().slice(0, 16)}\n`;
       if (!envContents.includes('AUTH_SECRET=')) patch += `AUTH_SECRET=${randomSecret()}\n`;
+      if (!envContents.includes('ENV_SECRET_KEY=')) patch += `ENV_SECRET_KEY=${randomSecret()}\n`;
       require('fs').appendFileSync(envPath, patch);
       console.log(chalk.green('  ✓') + ' .env patched');
     } else {

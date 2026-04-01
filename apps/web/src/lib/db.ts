@@ -1050,3 +1050,77 @@ export async function getSnapshotById(id: string): Promise<AgentSnapshot | null>
 export async function deleteSnapshot(id: string): Promise<void> {
   await getPool().query('DELETE FROM agent_snapshots WHERE id = $1', [id]);
 }
+
+// =============================================================================
+// Env Vars
+// Platform-level secret store. Values are encrypted at rest using pgcrypto
+// symmetric encryption with ENV_SECRET_KEY from the environment.
+// Values are write-only — never returned by the web API.
+// The runner decrypts values at agent start time using the same key.
+// =============================================================================
+
+/** The symmetric encryption key for env var values. Must be set in .env. */
+function getEnvSecretKey(): string {
+  const key = process.env.ENV_SECRET_KEY;
+  if (!key) throw new Error('ENV_SECRET_KEY is not set — required for env var encryption');
+  return key;
+}
+
+/**
+ * Returns all env var keys + metadata. Values are never included.
+ *
+ * @returns {Promise<Array<{ key: string; description?: string; updatedAt: Date }>>}
+ */
+export async function getAllEnvVars(): Promise<Array<{ key: string; description?: string; updatedAt: Date }>> {
+  const r = await getPool().query('SELECT key, description, updated_at FROM env_vars ORDER BY key');
+  return r.rows.map(row => ({
+    key: row.key,
+    description: row.description ?? undefined,
+    updatedAt: row.updated_at as Date,
+  }));
+}
+
+/**
+ * Upserts an env var. Value is encrypted using pgcrypto before storage.
+ *
+ * @param {string} key - Env var key (e.g. "REDSHIFT_DATABASE_URL").
+ * @param {string} value - Secret value (encrypted before storage).
+ * @param {string} [description] - Optional human-readable description.
+ * @returns {Promise<void>}
+ */
+export async function setEnvVar(key: string, value: string, description?: string): Promise<void> {
+  const encKey = getEnvSecretKey();
+  await getPool().query(
+    `INSERT INTO env_vars (key, value, description)
+     VALUES ($1, pgp_sym_encrypt($2, $3), $4)
+     ON CONFLICT (key) DO UPDATE SET
+       value = pgp_sym_encrypt(EXCLUDED.value, $3),
+       description = COALESCE(EXCLUDED.description, env_vars.description),
+       updated_at = now()`,
+    [key, value, encKey, description ?? null],
+  );
+}
+
+/**
+ * Updates only the description of an existing env var (value unchanged).
+ *
+ * @param {string} key - Env var key.
+ * @param {string} description - New description.
+ * @returns {Promise<void>}
+ */
+export async function updateEnvVarDescription(key: string, description: string): Promise<void> {
+  await getPool().query(
+    'UPDATE env_vars SET description = $2, updated_at = now() WHERE key = $1',
+    [key, description],
+  );
+}
+
+/**
+ * Deletes an env var by key.
+ *
+ * @param {string} key - Env var key to delete.
+ * @returns {Promise<void>}
+ */
+export async function deleteEnvVar(key: string): Promise<void> {
+  await getPool().query('DELETE FROM env_vars WHERE key = $1', [key]);
+}

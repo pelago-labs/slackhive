@@ -15,9 +15,10 @@
  */
 
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { Agent, McpServer, Permission } from '@slackhive/shared';
+import type { Agent, McpServer, McpServerConfig, McpStdioConfig, Permission } from '@slackhive/shared';
 import {
   getSession,
   upsertSession,
@@ -36,6 +37,7 @@ export class ClaudeHandler {
   private readonly workDir: string;
   private readonly sessionsDir: string;
   private readonly log: Logger;
+  private readonly envVarValues: Record<string, string>;
 
   /** In-memory cache: sessionKey → Claude session ID */
   private sessionCache: Map<string, string> = new Map();
@@ -47,12 +49,14 @@ export class ClaudeHandler {
    * @param {McpServer[]} mcpServers - MCP servers assigned to this agent.
    * @param {Permission | null} permissions - Tool allow/deny lists, or null for defaults.
    * @param {string} workDir - Root working directory for this agent (e.g. `/tmp/agents/{slug}`).
+   * @param {Record<string, string>} envVarValues - Platform env vars for resolving MCP envRefs.
    */
   constructor(
     agent: Agent,
     mcpServers: McpServer[],
     permissions: Permission | null,
-    workDir: string
+    workDir: string,
+    envVarValues: Record<string, string> = {}
   ) {
     this.agent = agent;
     this.mcpServers = mcpServers;
@@ -60,6 +64,7 @@ export class ClaudeHandler {
     this.workDir = workDir;
     this.sessionsDir = path.join(workDir, 'sessions');
     this.log = agentLogger(agent.slug);
+    this.envVarValues = envVarValues;
   }
 
   /**
@@ -230,6 +235,61 @@ export class ClaudeHandler {
   }
 
   /**
+   * Resolves a raw MCP server config from the DB into one ready for the SDK:
+   * - Merges envRefs (references to platform env vars) into the env object
+   * - For inline TypeScript MCPs (tsSource): writes the source to disk and
+   *   rewrites config to use `tsx <scriptPath>`
+   *
+   * @param {string} serverName - MCP server name, used for the script filename.
+   * @param {McpServerConfig} config - Raw config from the DB.
+   * @returns {McpServerConfig} Resolved config safe to pass to the SDK.
+   */
+  private resolveServerConfig(serverName: string, config: McpServerConfig): McpServerConfig {
+    const c = config as McpStdioConfig & Record<string, unknown>;
+
+    // Handle inline TypeScript source
+    if (c.tsSource) {
+      const scriptDir = path.join(this.workDir, '.mcp-scripts');
+      const scriptPath = path.join(scriptDir, `${serverName}.ts`);
+      // Write synchronously so it's available immediately when the SDK spawns the process
+      fs.mkdirSync(scriptDir, { recursive: true });
+      fs.writeFileSync(scriptPath, c.tsSource as string, 'utf8');
+      const resolvedEnv = this.resolveEnvRefs(c);
+      const resolved: McpStdioConfig = { command: 'tsx', args: [scriptPath] };
+      if (Object.keys(resolvedEnv).length > 0) resolved.env = resolvedEnv;
+      return resolved as McpServerConfig;
+    }
+
+    // Resolve envRefs for regular stdio configs
+    if (c.envRefs && Object.keys(c.envRefs as object).length > 0) {
+      const resolvedEnv = this.resolveEnvRefs(c);
+      const { envRefs: _, tsSource: __, ...rest } = c;
+      const resolved = { ...rest };
+      if (Object.keys(resolvedEnv).length > 0) resolved.env = resolvedEnv;
+      return resolved as McpServerConfig;
+    }
+
+    return config;
+  }
+
+  /**
+   * Merges inline env with resolved envRefs into a single env object.
+   */
+  private resolveEnvRefs(c: McpStdioConfig & Record<string, unknown>): Record<string, string> {
+    const merged: Record<string, string> = { ...(c.env ?? {}) };
+    const refs = (c.envRefs ?? {}) as Record<string, string>;
+    for (const [subKey, storeKey] of Object.entries(refs)) {
+      const val = this.envVarValues[storeKey];
+      if (val !== undefined) {
+        merged[subKey] = val;
+      } else {
+        this.log.warn('MCP envRef not found in env vars store', { serverName: 'unknown', storeKey, subKey });
+      }
+    }
+    return merged;
+  }
+
+  /**
    * Builds the options object passed to the Claude Code SDK `query()` call.
    *
    * Merges agent permissions (allowed/denied tools) with MCP server prefixes
@@ -266,7 +326,7 @@ export class ClaudeHandler {
 
     if (this.mcpServers.length > 0) {
       options.mcpServers = Object.fromEntries(
-        this.mcpServers.map((server) => [server.name, server.config])
+        this.mcpServers.map((server) => [server.name, this.resolveServerConfig(server.name, server.config)])
       );
       this.log.debug('MCP servers configured', { servers: this.mcpServers.map((s) => s.name) });
     }

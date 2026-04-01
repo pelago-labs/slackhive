@@ -239,3 +239,22 @@ CREATE TRIGGER skills_updated_at
 CREATE TRIGGER memories_updated_at
   BEFORE UPDATE ON memories
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- -----------------------------------------------------------------------------
+-- env_vars
+-- Platform-level key-value store for secrets (DB URLs, API keys, etc.).
+-- Values are stored plaintext but are NEVER returned via the API — write-only.
+-- MCP stdio configs can reference keys here via config.envRefs instead of
+-- embedding raw values inline.
+-- -----------------------------------------------------------------------------
+CREATE TABLE env_vars (
+  key         TEXT        PRIMARY KEY,
+  value       TEXT        NOT NULL,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER env_vars_updated_at
+  BEFORE UPDATE ON env_vars
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
