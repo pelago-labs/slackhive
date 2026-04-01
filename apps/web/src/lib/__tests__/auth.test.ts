@@ -213,7 +213,7 @@ describe('authenticateUser', () => {
     vi.mocked(getUserByUsername).mockResolvedValue({
       id: 'u1', username: 'bob', role: 'editor',
       passwordHash: '$2b$10$invalidhashthatisnevervalid123456789012',
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
     });
     const result = await authenticateUser('bob', 'wrongpass');
     expect(result).toBeNull();

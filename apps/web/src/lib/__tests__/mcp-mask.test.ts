@@ -153,7 +153,7 @@ describe('mergeMcpConfig', () => {
   it('adds a new key introduced in the PATCH', () => {
     const existing = { command: 'node', args: [], env: { SECRET: 'real' } };
     const incoming = { command: 'node', args: [], env: { SECRET: '********', NEW_KEY: 'new-val' } };
-    const result = mergeMcpConfig(existing, incoming) as typeof existing;
+    const result = mergeMcpConfig(existing, incoming) as { command: string; args: string[]; env: Record<string, string> };
     expect(result.env.SECRET).toBe('real');
     expect(result.env.NEW_KEY).toBe('new-val');
   });
