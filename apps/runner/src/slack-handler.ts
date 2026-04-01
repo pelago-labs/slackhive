@@ -251,13 +251,14 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
           const displayText = codeBlocks.length > 0 ? textWithoutCode.trim() : textContent;
 
           if (displayText) {
-            const payload = buildMessagePayload(displayText, false);
-            await client.chat.postMessage({
-              channel: channelId,
-              thread_ts: threadTs,
-              text: payload.text,
-              ...(payload.blocks && { blocks: payload.blocks }),
-            });
+            for (const payload of buildMessagePayloads(displayText, false)) {
+              await client.chat.postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text: payload.text,
+                ...(payload.blocks && { blocks: payload.blocks }),
+              });
+            }
           }
 
           // Upload code blocks as downloadable file snippets
@@ -296,13 +297,14 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
             const displayText = codeBlocks.length > 0 ? textWithoutCode.trim() : finalResult;
 
             if (displayText) {
-              const payload = buildMessagePayload(displayText, true);
-              await client.chat.postMessage({
-                channel: channelId,
-                thread_ts: threadTs,
-                text: payload.text,
-                ...(payload.blocks && { blocks: payload.blocks }),
-              });
+              for (const payload of buildMessagePayloads(displayText, true)) {
+                await client.chat.postMessage({
+                  channel: channelId,
+                  thread_ts: threadTs,
+                  text: payload.text,
+                  ...(payload.blocks && { blocks: payload.blocks }),
+                });
+              }
             }
 
             // Upload code blocks as downloadable file snippets
@@ -320,13 +322,14 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
       log.info('No messages sent, using fallback', {
         source: lastAssistantText ? 'lastAssistantText' : lastToolResultText ? 'lastToolResultText' : 'default',
       });
-      const payload = buildMessagePayload(fallback, true);
-      await client.chat.postMessage({
-        channel: channelId,
-        thread_ts: threadTs,
-        text: payload.text,
-        ...(payload.blocks && { blocks: payload.blocks }),
-      });
+      for (const payload of buildMessagePayloads(fallback, true)) {
+        await client.chat.postMessage({
+          channel: channelId,
+          thread_ts: threadTs,
+          text: payload.text,
+          ...(payload.blocks && { blocks: payload.blocks }),
+        });
+      }
     }
 
     // Update status message to Done and set ✅ reaction
@@ -357,45 +360,51 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
 // =============================================================================
 
 /**
- * Builds a Slack message payload. If text contains a markdown table, converts
- * it to a native Slack table block. Otherwise returns formatted plain text.
+ * Builds one or more Slack message payloads from Claude's response text.
+ * Each markdown table gets its own payload because Slack only supports
+ * one native table block per message.
  *
  * @param {string} text - Raw text from Claude.
  * @param {boolean} isFinal - Whether this is the final message.
- * @returns {{ text: string; blocks?: any[] }} Slack-ready payload.
+ * @returns {{ text: string; blocks?: any[] }[]} Array of Slack-ready payloads.
  */
-export function buildMessagePayload(text: string, isFinal: boolean): { text: string; blocks?: any[] } {
-  const extracted = extractFirstMarkdownTable(text);
+export function buildMessagePayloads(text: string, isFinal: boolean): { text: string; blocks?: any[] }[] {
+  const payloads: { text: string; blocks?: any[] }[] = [];
+  let remaining = text;
 
-  if (!extracted) {
-    return { text: formatMessage(text, isFinal) };
-  }
+  while (remaining.trim()) {
+    const extracted = extractFirstMarkdownTable(remaining);
 
-  const parsed = parseMarkdownTable(extracted.tableLines);
-  if (parsed.headers.length === 0) {
-    return { text: formatMessage(text, isFinal) };
-  }
-
-  const tableBlock = buildSlackTableBlock(parsed);
-  const blocks: any[] = [];
-
-  const beforeText = formatMessage(extracted.before.trim(), false);
-  if (beforeText) {
-    for (const chunk of splitTextForBlocks(beforeText)) {
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk } });
+    if (!extracted) {
+      payloads.push({ text: formatMessage(remaining, isFinal) });
+      break;
     }
-  }
 
-  blocks.push(tableBlock);
-
-  const afterText = formatMessage(extracted.after.trim(), isFinal);
-  if (afterText) {
-    for (const chunk of splitTextForBlocks(afterText)) {
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk } });
+    const parsed = parseMarkdownTable(extracted.tableLines);
+    if (parsed.headers.length === 0) {
+      payloads.push({ text: formatMessage(remaining, isFinal) });
+      break;
     }
+
+    const blocks: any[] = [];
+    const beforeText = formatMessage(extracted.before.trim(), false);
+    if (beforeText) {
+      for (const chunk of splitTextForBlocks(beforeText)) {
+        blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk } });
+      }
+    }
+    blocks.push(buildSlackTableBlock(parsed));
+
+    const fallback = formatMessage(
+      extracted.before.trim() + '\n' + extracted.tableLines.join('\n'),
+      false,
+    );
+    payloads.push({ text: fallback, blocks });
+
+    remaining = extracted.after;
   }
 
-  return { text: formatMessage(text, isFinal), blocks };
+  return payloads.length > 0 ? payloads : [{ text: formatMessage(text, isFinal) }];
 }
 
 /**
