@@ -15,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
     "@anthropic-ai/claude-code": "^2.1.59",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@slack/bolt": "^4.4.0",
     "@slackhive/shared": "*",
     "dotenv": "^16.6.0",
