@@ -2,8 +2,8 @@
 
 /**
  * @fileoverview Settings → MCP Catalog page.
- * Global MCP server catalog — add, edit, enable/disable, delete.
- * Supports stdio, SSE, and HTTP transport types.
+ * Global MCP server catalog — add, edit, enable/disable, delete, test.
+ * Supports stdio, SSE, HTTP, and inline TypeScript transports.
  *
  * @module web/settings/mcps/page
  */
@@ -13,34 +13,59 @@ import type { McpServer, McpServerType } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { Settings } from 'lucide-react';
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+/** UI transport type — 'typescript' is sent to the API as 'stdio' with tsSource */
+type UiTransportType = McpServerType | 'typescript';
+
+interface EnvEntry {
+  key: string;
+  mode: 'value' | 'ref';
+  val: string; // raw value (mode=value) or env_vars key name (mode=ref)
+}
+
 interface McpFormState {
-  name: string; type: McpServerType; description: string; enabled: boolean;
-  command: string; args: string; env: string;
-  url: string; headers: string;
+  name: string;
+  uiType: UiTransportType;
+  description: string;
+  enabled: boolean;
+  // stdio fields
+  command: string;
+  args: string;
+  envEntries: EnvEntry[];
+  // typescript field
+  tsSource: string;
+  // sse/http fields
+  url: string;
+  headers: string;
 }
 
 const DEFAULT_FORM: McpFormState = {
-  name: '', type: 'stdio', description: '', enabled: true,
-  command: '', args: '', env: '{}',
+  name: '', uiType: 'stdio', description: '', enabled: true,
+  command: '', args: '', envEntries: [],
+  tsSource: '// MCP server TypeScript source\n// See: https://modelcontextprotocol.io/docs\n',
   url: '', headers: '{}',
 };
 
-/**
- * MCP Catalog settings page.
- *
- * @returns {JSX.Element}
- */
+// ─── Page ────────────────────────────────────────────────────────────────────
+
 export default function McpSettingsPage() {
   const { canEdit } = useAuth();
-  const [servers, setServers]     = useState<McpServer[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [form, setForm]           = useState<McpFormState>(DEFAULT_FORM);
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [showForm, setShowForm]   = useState(false);
+  const [servers, setServers]       = useState<McpServer[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [form, setForm]             = useState<McpFormState>(DEFAULT_FORM);
+  const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState('');
+  const [editingId, setEditingId]   = useState<string | null>(null);
+  const [showForm, setShowForm]     = useState(false);
+  const [envVarKeys, setEnvVarKeys] = useState<string[]>([]);
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message?: string; error?: string } | 'testing'>>({});
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    // Load available env var keys for the ref dropdown
+    fetch('/api/env-vars').then(r => r.json()).then((rows: { key: string }[]) => setEnvVarKeys(rows.map(r => r.key))).catch(() => {});
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -50,17 +75,43 @@ export default function McpSettingsPage() {
     } finally { setLoading(false); }
   };
 
+  // ─── Config builder ─────────────────────────────────────────────────────────
+
   const buildConfig = (f: McpFormState): object => {
-    if (f.type === 'stdio') {
-      const cfg: Record<string, unknown> = { command: f.command };
-      if (f.args.trim()) cfg.args = f.args.split(',').map(a => a.trim()).filter(Boolean);
-      try { const env = JSON.parse(f.env); if (Object.keys(env).length > 0) cfg.env = env; } catch { /* ok */ }
+    if (f.uiType === 'typescript') {
+      const env = entriesToEnv(f.envEntries);
+      const envRefs = entriesToRefs(f.envEntries);
+      const cfg: Record<string, unknown> = { command: 'tsx', tsSource: f.tsSource };
+      if (Object.keys(env).length > 0) cfg.env = env;
+      if (Object.keys(envRefs).length > 0) cfg.envRefs = envRefs;
       return cfg;
     }
+    if (f.uiType === 'stdio') {
+      const cfg: Record<string, unknown> = { command: f.command };
+      if (f.args.trim()) cfg.args = f.args.split(',').map(a => a.trim()).filter(Boolean);
+      const env = entriesToEnv(f.envEntries);
+      const envRefs = entriesToRefs(f.envEntries);
+      if (Object.keys(env).length > 0) cfg.env = env;
+      if (Object.keys(envRefs).length > 0) cfg.envRefs = envRefs;
+      return cfg;
+    }
+    // sse / http
     const cfg: Record<string, unknown> = { url: f.url };
     try { const h = JSON.parse(f.headers); if (Object.keys(h).length > 0) cfg.headers = h; } catch { /* ok */ }
     return cfg;
   };
+
+  const entriesToEnv = (entries: EnvEntry[]) =>
+    Object.fromEntries(entries.filter(e => e.mode === 'value' && e.key).map(e => [e.key, e.val]));
+
+  const entriesToRefs = (entries: EnvEntry[]) =>
+    Object.fromEntries(entries.filter(e => e.mode === 'ref' && e.key && e.val).map(e => [e.key, e.val]));
+
+  // API type is always 'stdio' for typescript
+  const apiType = (uiType: UiTransportType): McpServerType =>
+    uiType === 'typescript' ? 'stdio' : uiType;
+
+  // ─── Handlers ───────────────────────────────────────────────────────────────
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +120,13 @@ export default function McpSettingsPage() {
       const r = await fetch(editingId ? `/api/mcps/${editingId}` : '/api/mcps', {
         method: editingId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, type: form.type, description: form.description || undefined, enabled: form.enabled, config: buildConfig(form) }),
+        body: JSON.stringify({
+          name: form.name,
+          type: apiType(form.uiType),
+          description: form.description || undefined,
+          enabled: form.enabled,
+          config: buildConfig(form),
+        }),
       });
       if (!r.ok) { const b = await r.json(); throw new Error(b.error ?? 'Failed'); }
       resetForm(); await load();
@@ -91,14 +148,37 @@ export default function McpSettingsPage() {
     load();
   };
 
+  const handleTest = async (server: McpServer) => {
+    setTestResults(prev => ({ ...prev, [server.id]: 'testing' }));
+    try {
+      const r = await fetch(`/api/mcps/${server.id}/test`, { method: 'POST' });
+      const result = await r.json() as { ok: boolean; message?: string; error?: string };
+      setTestResults(prev => ({ ...prev, [server.id]: result }));
+    } catch {
+      setTestResults(prev => ({ ...prev, [server.id]: { ok: false, error: 'Request failed' } }));
+    }
+  };
+
   const handleEdit = (server: McpServer) => {
     const cfg = server.config as unknown as Record<string, unknown>;
+    const isTs = typeof cfg.tsSource === 'string';
+    const envObj = (cfg.env as Record<string, string>) ?? {};
+    const envRefsObj = (cfg.envRefs as Record<string, string>) ?? {};
+
+    const envEntries: EnvEntry[] = [
+      ...Object.entries(envObj).map(([k, v]) => ({ key: k, mode: 'value' as const, val: v })),
+      ...Object.entries(envRefsObj).map(([k, v]) => ({ key: k, mode: 'ref' as const, val: v })),
+    ];
+
     setForm({
-      name: server.name, type: server.type,
-      description: server.description ?? '', enabled: server.enabled,
+      name: server.name,
+      uiType: isTs ? 'typescript' : server.type,
+      description: server.description ?? '',
+      enabled: server.enabled,
       command: (cfg.command as string) ?? '',
       args: Array.isArray(cfg.args) ? (cfg.args as string[]).join(', ') : '',
-      env: cfg.env ? JSON.stringify(cfg.env, null, 2) : '{}',
+      envEntries,
+      tsSource: isTs ? (cfg.tsSource as string) : DEFAULT_FORM.tsSource,
       url: (cfg.url as string) ?? '',
       headers: cfg.headers ? JSON.stringify(cfg.headers, null, 2) : '{}',
     });
@@ -106,11 +186,18 @@ export default function McpSettingsPage() {
     setShowForm(true);
   };
 
-  const resetForm = () => {
-    setForm(DEFAULT_FORM); setEditingId(null); setShowForm(false); setError('');
-  };
+  const resetForm = () => { setForm(DEFAULT_FORM); setEditingId(null); setShowForm(false); setError(''); };
 
   const f = (key: keyof McpFormState, val: unknown) => setForm(prev => ({ ...prev, [key]: val }));
+
+  // ─── Env entry helpers ──────────────────────────────────────────────────────
+
+  const addEnvEntry = () => setForm(prev => ({ ...prev, envEntries: [...prev.envEntries, { key: '', mode: 'value', val: '' }] }));
+  const removeEnvEntry = (i: number) => setForm(prev => ({ ...prev, envEntries: prev.envEntries.filter((_, idx) => idx !== i) }));
+  const updateEnvEntry = (i: number, patch: Partial<EnvEntry>) =>
+    setForm(prev => ({ ...prev, envEntries: prev.envEntries.map((e, idx) => idx === i ? { ...e, ...patch } : e) }));
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ padding: '32px 36px', maxWidth: 860 }} className="fade-up">
@@ -168,6 +255,8 @@ export default function McpSettingsPage() {
               onEdit={() => handleEdit(server)}
               onDelete={() => handleDelete(server.id)}
               onToggle={() => handleToggle(server)}
+              onTest={() => handleTest(server)}
+              testResult={testResults[server.id]}
               canEdit={canEdit}
             />
           ))}
@@ -208,8 +297,9 @@ export default function McpSettingsPage() {
                 </small>
               </FField>
               <FField label="Transport Type">
-                <select value={form.type} onChange={e => f('type', e.target.value as McpServerType)} {...inputStyle()}>
+                <select value={form.uiType} onChange={e => f('uiType', e.target.value as UiTransportType)} {...inputStyle()}>
                   <option value="stdio">stdio — local subprocess</option>
+                  <option value="typescript">TypeScript — inline script</option>
                   <option value="sse">SSE — remote Server-Sent Events</option>
                   <option value="http">HTTP — remote HTTP transport</option>
                 </select>
@@ -221,7 +311,8 @@ export default function McpSettingsPage() {
                 placeholder="What does this MCP server provide?" {...inputStyle()} />
             </FField>
 
-            {form.type === 'stdio' ? (
+            {/* stdio fields */}
+            {form.uiType === 'stdio' && (
               <>
                 <FField label="Command *" style={{ marginBottom: 14 }}>
                   <input value={form.command} onChange={e => f('command', e.target.value)}
@@ -231,12 +322,26 @@ export default function McpSettingsPage() {
                   <input value={form.args} onChange={e => f('args', e.target.value)}
                     placeholder="/path/to/server.js, --port, 3000" {...inputStyle('var(--font-mono)')} />
                 </FField>
-                <FField label="Environment Variables (JSON)" style={{ marginBottom: 14 }}>
-                  <textarea value={form.env} onChange={e => f('env', e.target.value)}
-                    rows={4} placeholder={'{\n  "DATABASE_URL": "postgresql://..."\n}'} {...inputStyle('var(--font-mono)')} />
-                </FField>
+                <EnvEntriesEditor entries={form.envEntries} envVarKeys={envVarKeys}
+                  onAdd={addEnvEntry} onRemove={removeEnvEntry} onUpdate={updateEnvEntry} />
               </>
-            ) : (
+            )}
+
+            {/* TypeScript inline script */}
+            {form.uiType === 'typescript' && (
+              <>
+                <FField label="TypeScript Source *" style={{ marginBottom: 14 }}
+                  hint="The runner saves this to disk and executes it with tsx. Must implement the MCP stdio protocol.">
+                  <textarea value={form.tsSource} onChange={e => f('tsSource', e.target.value)}
+                    rows={14} required {...inputStyle('var(--font-mono)')} />
+                </FField>
+                <EnvEntriesEditor entries={form.envEntries} envVarKeys={envVarKeys}
+                  onAdd={addEnvEntry} onRemove={removeEnvEntry} onUpdate={updateEnvEntry} />
+              </>
+            )}
+
+            {/* SSE / HTTP fields */}
+            {(form.uiType === 'sse' || form.uiType === 'http') && (
               <>
                 <FField label="URL *" style={{ marginBottom: 14 }}>
                   <input value={form.url} onChange={e => f('url', e.target.value)}
@@ -278,64 +383,188 @@ export default function McpSettingsPage() {
   );
 }
 
+// ─── Env entries editor ───────────────────────────────────────────────────────
+
+function EnvEntriesEditor({
+  entries, envVarKeys, onAdd, onRemove, onUpdate,
+}: {
+  entries: EnvEntry[];
+  envVarKeys: string[];
+  onAdd: () => void;
+  onRemove: (i: number) => void;
+  onUpdate: (i: number, patch: Partial<EnvEntry>) => void;
+}) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>Environment Variables</label>
+        <button type="button" onClick={onAdd} style={{
+          background: 'none', border: '1px solid var(--border)', borderRadius: 5,
+          color: 'var(--muted)', fontSize: 11, padding: '2px 10px', cursor: 'pointer',
+          fontFamily: 'var(--font-sans)',
+        }}>+ Add</button>
+      </div>
+
+      {entries.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--subtle)', margin: 0, fontStyle: 'italic' }}>
+          No env vars — click + Add to inject variables into the subprocess.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {entries.map((entry, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto', gap: 6, alignItems: 'center' }}>
+              {/* Key */}
+              <input
+                value={entry.key}
+                onChange={e => onUpdate(i, { key: e.target.value })}
+                placeholder="KEY_NAME"
+                style={{
+                  background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
+                  padding: '6px 9px', color: 'var(--text)', fontSize: 12.5,
+                  fontFamily: 'var(--font-mono)', outline: 'none',
+                }}
+              />
+              {/* Mode toggle */}
+              <select
+                value={entry.mode}
+                onChange={e => onUpdate(i, { mode: e.target.value as 'value' | 'ref', val: '' })}
+                style={{
+                  background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
+                  padding: '6px 8px', color: 'var(--muted)', fontSize: 11.5,
+                  fontFamily: 'var(--font-sans)', cursor: 'pointer', outline: 'none',
+                }}
+              >
+                <option value="value">Custom value</option>
+                <option value="ref">From env vars</option>
+              </select>
+              {/* Value or ref picker */}
+              {entry.mode === 'value' ? (
+                <input
+                  type="password"
+                  value={entry.val}
+                  onChange={e => onUpdate(i, { val: e.target.value })}
+                  placeholder={entry.val === '********' ? 'Current value hidden' : 'Enter value'}
+                  style={{
+                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
+                    padding: '6px 9px', color: 'var(--text)', fontSize: 12.5,
+                    fontFamily: 'var(--font-mono)', outline: 'none',
+                  }}
+                />
+              ) : (
+                <select
+                  value={entry.val}
+                  onChange={e => onUpdate(i, { val: e.target.value })}
+                  style={{
+                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
+                    padding: '6px 9px', color: entry.val ? 'var(--text)' : 'var(--subtle)', fontSize: 12.5,
+                    fontFamily: 'var(--font-mono)', outline: 'none', cursor: 'pointer',
+                  }}
+                >
+                  <option value="">— pick env var —</option>
+                  {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
+                  {envVarKeys.length === 0 && <option disabled>No env vars — add in Settings → Env Vars</option>}
+                </select>
+              )}
+              {/* Remove */}
+              <button type="button" onClick={() => onRemove(i)} style={{
+                background: 'none', border: 'none', color: '#ef4444', fontSize: 14,
+                cursor: 'pointer', padding: '4px 6px', lineHeight: 1,
+              }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Server row ───────────────────────────────────────────────────────────────
 
 function ServerRow({
-  server, isLast, onEdit, onDelete, onToggle, canEdit,
+  server, isLast, onEdit, onDelete, onToggle, onTest, testResult, canEdit,
 }: {
   server: McpServer; isLast: boolean;
-  onEdit: () => void; onDelete: () => void; onToggle: () => void;
+  onEdit: () => void; onDelete: () => void; onToggle: () => void; onTest: () => void;
+  testResult?: { ok: boolean; message?: string; error?: string } | 'testing';
   canEdit: boolean;
 }) {
   const cfg = server.config as unknown as Record<string, unknown>;
+  const isTs = typeof cfg.tsSource === 'string';
   const preview = server.type === 'stdio'
-    ? `${cfg.command} ${Array.isArray(cfg.args) ? (cfg.args as string[]).join(' ') : ''}`.trim()
+    ? isTs
+      ? '[TypeScript inline script]'
+      : `${cfg.command} ${Array.isArray(cfg.args) ? (cfg.args as string[]).join(' ') : ''}`.trim()
     : String(cfg.url ?? '');
+
+  const envCount = Object.keys((cfg.env as object) ?? {}).length + Object.keys((cfg.envRefs as object) ?? {}).length;
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px',
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
-      transition: 'background 0.12s',
       opacity: server.enabled ? 1 : 0.55,
-    }}
-      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}
-      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-    >
-      {/* Type badge */}
-      <span style={{
-        fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 500,
-        background: 'var(--border)', color: 'var(--muted)',
-        padding: '2px 8px', borderRadius: 5, flexShrink: 0, letterSpacing: '0.02em',
-      }}>{server.type}</span>
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px',
+        transition: 'background 0.12s',
+      }}
+        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}
+        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+      >
+        {/* Type badge */}
+        <span style={{
+          fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 500,
+          background: 'var(--border)', color: 'var(--muted)',
+          padding: '2px 8px', borderRadius: 5, flexShrink: 0, letterSpacing: '0.02em',
+        }}>{isTs ? 'ts' : server.type}</span>
 
-      {/* Info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{server.name}</span>
-          {!server.enabled && (
-            <span style={{ fontSize: 10.5, color: 'var(--subtle)', background: 'var(--border)', padding: '1px 6px', borderRadius: 4 }}>
-              disabled
-            </span>
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{server.name}</span>
+            {!server.enabled && (
+              <span style={{ fontSize: 10.5, color: 'var(--subtle)', background: 'var(--border)', padding: '1px 6px', borderRadius: 4 }}>
+                disabled
+              </span>
+            )}
+            {envCount > 0 && (
+              <span style={{ fontSize: 10.5, color: 'var(--muted)', background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--border)' }}>
+                {envCount} env var{envCount !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          {server.description && (
+            <p style={{ margin: '1px 0 0', fontSize: 12, color: 'var(--muted)' }}>{server.description}</p>
           )}
+          <p style={{
+            margin: '2px 0 0', fontSize: 11.5, color: 'var(--subtle)',
+            fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{preview}</p>
         </div>
-        {server.description && (
-          <p style={{ margin: '1px 0 0', fontSize: 12, color: 'var(--muted)' }}>{server.description}</p>
-        )}
-        <p style={{
-          margin: '2px 0 0', fontSize: 11.5, color: 'var(--subtle)',
-          fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>{preview}</p>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+          <ActionBtn onClick={onTest} color="var(--muted)" disabled={false}>
+            {testResult === 'testing' ? 'Testing…' : 'Test'}
+          </ActionBtn>
+          <ActionBtn onClick={onToggle} color="var(--muted)" disabled={!canEdit}>
+            {server.enabled ? 'Disable' : 'Enable'}
+          </ActionBtn>
+          {canEdit && <ActionBtn onClick={onEdit} color="var(--accent)">Edit</ActionBtn>}
+          {canEdit && <ActionBtn onClick={onDelete} color="#ef4444">Delete</ActionBtn>}
+        </div>
       </div>
 
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-        <ActionBtn onClick={onToggle} color="var(--muted)" disabled={!canEdit}>
-          {server.enabled ? 'Disable' : 'Enable'}
-        </ActionBtn>
-        {canEdit && <ActionBtn onClick={onEdit} color="var(--accent)">Edit</ActionBtn>}
-        {canEdit && <ActionBtn onClick={onDelete} color="#ef4444">Delete</ActionBtn>}
-      </div>
+      {/* Test result banner */}
+      {testResult && testResult !== 'testing' && (
+        <div style={{
+          margin: '0 16px 10px', padding: '8px 12px', borderRadius: 7, fontSize: 12,
+          background: testResult.ok ? 'rgba(5,150,105,0.08)' : 'rgba(239,68,68,0.08)',
+          border: `1px solid ${testResult.ok ? 'rgba(5,150,105,0.25)' : 'rgba(239,68,68,0.25)'}`,
+          color: testResult.ok ? '#059669' : '#ef4444',
+        }}>
+          {testResult.ok ? '✓ ' : '✗ '}{testResult.ok ? testResult.message : testResult.error}
+        </div>
+      )}
     </div>
   );
 }

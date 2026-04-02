@@ -203,6 +203,14 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
             </svg>
           }>MCP Catalog</NavItem>
 
+          <NavItem href="/settings/env-vars" active={pathname === '/settings/env-vars'} collapsed={collapsed} icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="5" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M5 5V4a3 3 0 016 0v1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              <circle cx="8" cy="9" r="1.2" fill="currentColor"/>
+            </svg>
+          }>Env Vars</NavItem>
+
           <NavItem href="/jobs" active={pathname === '/jobs'} collapsed={collapsed} icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/>

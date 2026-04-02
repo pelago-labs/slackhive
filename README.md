@@ -61,7 +61,9 @@ The Boss reads the message, checks its team registry, and delegates to the right
 |---------|-------------|
 | 👑 **Boss Agent** | Orchestrator bot that knows every specialist and delegates by @mention in threads |
 | 🧠 **Agent Memory** | Agents learn from every conversation — memories auto-synced to Postgres |
-| 🔌 **MCP Server Catalog** | Add tool servers once, assign to any agent — Redshift, GitHub, custom APIs |
+| 🔌 **MCP Server Catalog** | Add tool servers once, assign to any agent — Redshift, GitHub, custom APIs. Test connectivity with one click |
+| 🔐 **Encrypted Env Vars** | Platform-level secret store — values encrypted at rest (pgcrypto), never exposed via API; MCPs reference keys by name |
+| 📝 **Inline TypeScript MCPs** | Paste TypeScript source directly into the UI — runner compiles and executes with `tsx`, no file paths needed |
 | 🧵 **Thread Context** | Tagged agents fetch full thread history — zero context loss in handoffs |
 | 💾 **Session Persistence** | Slack thread ↔ Claude session mapping survives restarts |
 | 🔁 **Hot Reload** | Edit anything in the UI → agent picks up changes in seconds via Redis pub/sub |
@@ -90,7 +92,9 @@ The Boss reads the message, checks its team registry, and delegates to the right
 
 - **Slack Block Kit formatting** — markdown tables rendered as native Slack table blocks, headings, code blocks
 - **Streaming responses** — tool use labels, progress indicators, and rich formatted output
-- **MCP tool integration** — stdio, SSE, and HTTP transports supported
+- **MCP tool integration** — stdio, SSE, and HTTP transports supported; persistent MCP process manager keeps servers alive across queries
+- **Encrypted environment variables** — `ENV_SECRET_KEY`-based pgcrypto encryption; MCP configs reference store keys via `envRefs` instead of embedding raw secrets
+- **Inline TypeScript MCPs** — paste TS source in the UI; runner writes to disk and executes with `tsx` + `NODE_PATH` resolution
 - **Customizable personas** — each agent has its own personality and behavior
 - **Skill system** — modular markdown files deployed as Claude Code slash commands in `.claude/commands/`
 - **Separate CLAUDE.md** — agent identity/instructions stored independently from skills; boss registries auto-generated
@@ -132,7 +136,7 @@ The Boss reads the message, checks its team registry, and delegates to the right
 │  │  PostgreSQL 16                                      │    │
 │  │                                                     │    │
 │  │  agents · skills · memories · permissions           │    │
-│  │  mcp_servers · agent_mcps · sessions                │    │
+│  │  mcp_servers · agent_mcps · sessions · env_vars     │    │
 │  │  settings · users · scheduled_jobs · job_runs       │    │
 │  │  agent_snapshots · agent_access                     │    │
 │  └─────────────────────────────────────────────────────┘    │
@@ -188,7 +192,10 @@ ANTHROPIC_API_KEY=sk-ant-...
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=changeme
 POSTGRES_PASSWORD=slackhive
+ENV_SECRET_KEY=<generate with: openssl rand -hex 32>
 ```
+
+> `ENV_SECRET_KEY` is required for the encrypted env vars store. The `slackhive init` CLI generates this automatically.
 
 #### 2. Start everything
 
@@ -225,6 +232,46 @@ After installing with `npm install -g slackhive`:
 | `slackhive status` | Show running containers |
 | `slackhive logs` | Tail runner logs |
 | `slackhive update` | Pull latest changes and rebuild |
+
+---
+
+## 🔐 Encrypted Environment Variables
+
+SlackHive includes a platform-level secret store for values that MCP servers need (API keys, database URLs, etc.). Values are encrypted at rest using pgcrypto with a key you control.
+
+### Setup
+
+Add `ENV_SECRET_KEY` to your `.env` (the `slackhive init` CLI generates this automatically):
+
+```env
+ENV_SECRET_KEY=$(openssl rand -hex 32)
+```
+
+For existing installs, run the migration:
+
+```bash
+docker exec -i slackhive-postgres-1 psql -U <db_user> -d <db_name> < packages/shared/src/db/migrate-env-vars.sql
+```
+
+### Usage
+
+1. Open **Env Vars** in the sidebar
+2. Add a key (e.g. `REDSHIFT_DATABASE_URL`) and its value — stored encrypted, never returned via API
+3. In your MCP server config, use **Env Refs** to map the store key to the env var the process needs:
+   ```json
+   { "envRefs": { "DATABASE_URL": "REDSHIFT_DATABASE_URL" } }
+   ```
+4. The runner resolves and injects the decrypted value at agent start time
+
+---
+
+## 📝 Inline TypeScript MCPs
+
+Instead of deploying a separate MCP server binary, you can paste TypeScript source directly into the UI. The runner writes it to disk and executes it with `tsx`.
+
+**Use case**: internal MCP servers that you don't want to expose as file paths in config.
+
+In the MCP editor, select **TypeScript inline script** as the transport and paste your source. The runner handles compilation and execution — no `command` or `args` needed.
 
 ---
 

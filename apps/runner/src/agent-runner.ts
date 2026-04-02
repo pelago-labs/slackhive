@@ -30,10 +30,11 @@ import {
   getAgentById,
   getAgentMcpServers,
   getAgentPermissions,
+  getAgentMemories,
+  getAllEnvVarValues,
   updateAgentStatus,
 } from './db';
 import { compileClaudeMd, materializeMemoryFiles } from './compile-claude-md';
-import { getAgentMemories } from './db';
 import { ClaudeHandler } from './claude-handler';
 import { MemoryWatcher } from './memory-watcher';
 import { registerSlackHandlers } from './slack-handler';
@@ -191,10 +192,11 @@ export class AgentRunner {
     logger.info('Starting agent', { agent: agent.slug });
 
     // Load configuration from DB
-    const [mcpServers, permissions, memories] = await Promise.all([
+    const [mcpServers, permissions, memories, envVarValues] = await Promise.all([
       getAgentMcpServers(agent.id),
       getAgentPermissions(agent.id),
       getAgentMemories(agent.id),
+      getAllEnvVarValues(),
     ]);
 
     // Compile CLAUDE.md (skills + memories → temp workspace)
@@ -204,7 +206,7 @@ export class AgentRunner {
     materializeMemoryFiles(agent, memories);
 
     // Create Claude Code SDK handler
-    const claudeHandler = new ClaudeHandler(agent, mcpServers, permissions, workDir);
+    const claudeHandler = new ClaudeHandler(agent, mcpServers, permissions, workDir, envVarValues);
     claudeHandler.initialize();
 
     // Create memory watcher (persists SDK memory writes back to DB)

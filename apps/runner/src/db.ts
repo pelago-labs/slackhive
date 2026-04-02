@@ -513,3 +513,26 @@ export async function updateJobRun(
     [status, output ?? null, error ?? null, runId]
   );
 }
+
+// =============================================================================
+// Env Vars
+// =============================================================================
+
+/**
+ * Returns all env vars as a key→value map. Used by the runner to resolve
+ * envRefs in MCP stdio configs at agent start time.
+ *
+ * @returns {Promise<Record<string, string>>}
+ */
+export async function getAllEnvVarValues(): Promise<Record<string, string>> {
+  const encKey = process.env.ENV_SECRET_KEY;
+  if (!encKey) {
+    logger.warn('ENV_SECRET_KEY not set — env var refs will not resolve');
+    return {};
+  }
+  const r = await getPool().query(
+    'SELECT key, pgp_sym_decrypt(value::bytea, $1::text)::text AS value FROM env_vars',
+    [encKey],
+  );
+  return Object.fromEntries(r.rows.map((row: { key: string; value: string }) => [row.key, row.value]));
+}
