@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Agent runner service — manages all Claude Code Slack bot instances",
+  "license": "MIT",
   "main": "dist/index.js",
   "scripts": {
     "start": "tsx src/index.ts",
