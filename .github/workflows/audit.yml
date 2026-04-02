@@ -1,0 +1,159 @@
+# Dependency vulnerability audit — runs on every PR and weekly on main.
+# If vulnerabilities are found on the weekly schedule, auto-creates a fix PR.
+
+name: Security Audit
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday at 08:00 UTC
+    - cron: '0 8 * * 1'
+
+jobs:
+  audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run audit
+        id: audit
+        run: |
+          set +e
+          npm audit --json > audit.json 2>&1
+          EXIT_CODE=$?
+          set -e
+
+          VULN_COUNT=$(node -e "
+            const r = require('./audit.json');
+            const m = r.metadata?.vulnerabilities ?? {};
+            console.log((m.critical||0) + (m.high||0) + (m.moderate||0) + (m.low||0));
+          " 2>/dev/null || echo "0")
+
+          echo "vuln_count=$VULN_COUNT" >> "$GITHUB_OUTPUT"
+          echo "audit_exit=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          if [ "$VULN_COUNT" -gt 0 ]; then
+            echo "### Security Audit" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Found **$VULN_COUNT** vulnerabilit$([ $VULN_COUNT -eq 1 ] && echo 'y' || echo 'ies')." >> "$GITHUB_STEP_SUMMARY"
+            node -e "
+              const r = require('./audit.json');
+              const v = r.metadata?.vulnerabilities ?? {};
+              const lines = [];
+              if (v.critical) lines.push('- Critical: ' + v.critical);
+              if (v.high)     lines.push('- High: '     + v.high);
+              if (v.moderate) lines.push('- Moderate: ' + v.moderate);
+              if (v.low)      lines.push('- Low: '      + v.low);
+              console.log(lines.join('\n'));
+            " >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          else
+            echo "### Security Audit" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "No vulnerabilities found." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Fail on PR if critical or high vulnerabilities exist
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CRITICAL=$(node -e "const r=require('./audit.json'); console.log(r.metadata?.vulnerabilities?.critical||0)" 2>/dev/null || echo "0")
+            HIGH=$(node -e "const r=require('./audit.json'); console.log(r.metadata?.vulnerabilities?.high||0)" 2>/dev/null || echo "0")
+            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "❌ Critical or high severity vulnerabilities found — blocking merge."
+              exit 1
+            fi
+          fi
+
+  auto-fix:
+    name: Auto-fix vulnerabilities
+    runs-on: ubuntu-latest
+    # Only run on the weekly schedule, not on PRs
+    if: github.event_name == 'schedule'
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for vulnerabilities
+        id: check
+        run: |
+          VULN_COUNT=$(npm audit --json 2>/dev/null | node -e "
+            let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
+              try { const r=JSON.parse(d); const v=r.metadata?.vulnerabilities??{}; console.log((v.critical||0)+(v.high||0)+(v.moderate||0)+(v.low||0)); }
+              catch { console.log(0); }
+            });
+          " || echo "0")
+          echo "vuln_count=$VULN_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Apply audit fix
+        if: steps.check.outputs.vuln_count != '0'
+        run: npm audit fix
+
+      - name: Check for changes
+        if: steps.check.outputs.vuln_count != '0'
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create fix PR
+        if: steps.check.outputs.vuln_count != '0' && steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="fix/npm-audit-$(date +%Y-%m-%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add package-lock.json
+          git commit -m "fix: apply npm audit fix for dependency vulnerabilities"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "fix: npm audit — dependency vulnerability fixes ($(date +%Y-%m-%d))" \
+            --body "$(cat <<'EOF'
+## Automated vulnerability fix
+
+This PR was created automatically by the weekly security audit workflow.
+
+### What changed
+\`npm audit fix\` was applied to resolve known vulnerabilities in \`package-lock.json\`.
+
+### Review checklist
+- [ ] Check the \`package-lock.json\` diff for unexpected version changes
+- [ ] Run \`npm audit\` locally to confirm 0 vulnerabilities after merge
+- [ ] Verify the build and tests still pass (CI will run automatically)
+
+> Generated by the **Security Audit** workflow.
+EOF
+)"
