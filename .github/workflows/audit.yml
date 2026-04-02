@@ -9,6 +9,7 @@ on:
   schedule:
     # Every Monday at 08:00 UTC
     - cron: '0 8 * * 1'
+  workflow_dispatch:
 
 jobs:
   audit:
