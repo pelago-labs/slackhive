@@ -1067,6 +1067,18 @@ function getEnvSecretKey(): string {
 }
 
 /**
+ * Returns decrypted env var values keyed by name. For internal use only — never expose via API.
+ */
+export async function getEnvVarValues(): Promise<Record<string, string>> {
+  const encKey = getEnvSecretKey();
+  const r = await getPool().query(
+    'SELECT key, pgp_sym_decrypt(value::bytea, $1::text)::text AS value FROM env_vars',
+    [encKey],
+  );
+  return Object.fromEntries(r.rows.map((row: { key: string; value: string }) => [row.key, row.value]));
+}
+
+/**
  * Returns all env var keys + metadata. Values are never included.
  *
  * @returns {Promise<Array<{ key: string; description?: string; updatedAt: Date }>>}

@@ -14,14 +14,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getMcpServerById, getAllEnvVars } from '@/lib/db';
+import { getMcpServerById, getEnvVarValues } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 import { spawn } from 'child_process';
+import { writeFile, unlink, mkdir } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import type { McpStdioConfig, McpSseConfig } from '@slackhive/shared';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 30_000;
 
 /**
  * POST /api/mcps/[id]/test
@@ -71,26 +74,33 @@ async function testStdioMcp(
   cfg: McpStdioConfig,
   name: string
 ): Promise<{ ok: boolean; message?: string; error?: string; tools?: string[] }> {
-  // Resolve envRefs
-  const envVarRows = await getAllEnvVars();
-  // getAllEnvVars only returns keys — for test we need values, so query directly
-  // We'll pass whatever inline env we have; envRefs resolution requires DB values
-  // which aren't available here (web app doesn't expose values). Skip refs for test.
   const resolvedEnv: Record<string, string> = { ...(cfg.env ?? {}) };
-
-  const command = cfg.tsSource ? 'tsx' : cfg.command;
-  const args = cfg.tsSource
-    ? [] // can't test inline TS without writing to disk (runner does that)
-    : (cfg.args ?? []);
-
-  if (cfg.tsSource && args.length === 0) {
-    return {
-      ok: false,
-      error: 'Inline TypeScript MCPs can only be tested after the agent runner saves the script to disk. Start an agent that uses this MCP and verify the tool appears.',
-    };
+  if (cfg.envRefs && Object.keys(cfg.envRefs).length > 0) {
+    try {
+      const envVarValues = await getEnvVarValues();
+      for (const [subKey, storeKey] of Object.entries(cfg.envRefs)) {
+        if (envVarValues[storeKey] !== undefined) resolvedEnv[subKey] = envVarValues[storeKey];
+      }
+    } catch { /* ENV_SECRET_KEY not set — skip */ }
   }
 
-  void envVarRows; // acknowledged — see comment above
+  let command: string;
+  let args: string[];
+  let tmpScript: string | null = null;
+
+  if (cfg.tsSource) {
+    const dir = join(tmpdir(), 'slackhive-mcp-test');
+    await mkdir(dir, { recursive: true });
+    tmpScript = join(dir, `test-${Date.now()}.ts`);
+    await writeFile(tmpScript, cfg.tsSource, 'utf8');
+    command = 'tsx';
+    args = [tmpScript];
+  } else {
+    command = cfg.command;
+    args = cfg.args ?? [];
+  }
+
+  const cleanup = () => { if (tmpScript) unlink(tmpScript).catch(() => {}); };
 
   return new Promise((resolve) => {
     let stdout = '';
@@ -101,18 +111,18 @@ async function testStdioMcp(
       if (!settled) {
         settled = true;
         proc.kill();
+        cleanup();
         resolve({ ok: false, error: `Timed out after ${TIMEOUT_MS / 1000}s — process did not respond` });
       }
     }, TIMEOUT_MS);
 
     const proc = spawn(command, args, {
-      env: { ...process.env, ...resolvedEnv },
+      env: { ...process.env, NODE_PATH: '/app/node_modules', ...resolvedEnv },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
 
-    // Send MCP initialize request
     const initRequest = JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
@@ -128,7 +138,6 @@ async function testStdioMcp(
 
     proc.stdout.on('data', (d: Buffer) => {
       stdout += d.toString();
-      // Try to parse the first complete JSON response
       const lines = stdout.split('\n').filter(l => l.trim());
       for (const line of lines) {
         try {
@@ -138,11 +147,11 @@ async function testStdioMcp(
             if (!settled) {
               settled = true;
               proc.kill();
+              cleanup();
               if (msg.error) {
                 resolve({ ok: false, error: msg.error.message ?? 'MCP error' });
               } else {
                 const serverName = msg.result?.serverInfo?.name ?? name;
-                // Request tools/list after init
                 resolve({ ok: true, message: `Connected to "${serverName}" successfully` });
               }
             }
@@ -157,6 +166,7 @@ async function testStdioMcp(
       clearTimeout(timer);
       if (!settled) {
         settled = true;
+        cleanup();
         resolve({ ok: false, error: `Failed to start: ${err.message}${stderr ? ` — ${stderr.trim()}` : ''}` });
       }
     });
@@ -165,6 +175,7 @@ async function testStdioMcp(
       clearTimeout(timer);
       if (!settled) {
         settled = true;
+        cleanup();
         resolve({
           ok: false,
           error: `Process exited with code ${code}${stderr ? ` — ${stderr.trim()}` : ''}`,

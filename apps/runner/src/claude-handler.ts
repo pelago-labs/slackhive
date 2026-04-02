@@ -25,6 +25,7 @@ import {
   cleanupStaleSessions,
 } from './db';
 import { agentLogger } from './logger';
+import { McpProcessManager } from './mcp-process-manager.js';
 import type { Logger } from 'winston';
 
 const SESSION_MAX_AGE_MS = 30 * 60 * 1_000;
@@ -38,6 +39,7 @@ export class ClaudeHandler {
   private readonly sessionsDir: string;
   private readonly log: Logger;
   private readonly envVarValues: Record<string, string>;
+  private readonly mcpManager: McpProcessManager;
 
   /** In-memory cache: sessionKey → Claude session ID */
   private sessionCache: Map<string, string> = new Map();
@@ -65,6 +67,10 @@ export class ClaudeHandler {
     this.sessionsDir = path.join(workDir, 'sessions');
     this.log = agentLogger(agent.slug);
     this.envVarValues = envVarValues;
+    // Allocate a stable port range per agent (14000 + slot * 50)
+    const slugHash = agent.slug.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    const basePort = 14000 + (slugHash % 200) * 50;
+    this.mcpManager = new McpProcessManager(agent.slug, workDir, basePort);
   }
 
   /**
@@ -77,6 +83,26 @@ export class ClaudeHandler {
     fs.mkdirSync(this.sessionsDir, { recursive: true });
     this.cleanupTimer = setInterval(() => this.runSessionCleanup(), SESSION_CLEANUP_INTERVAL_MS);
     this.log.debug('ClaudeHandler initialized', { workDir: this.workDir, sessionsDir: this.sessionsDir });
+    // Start persistent MCP proxies for all stdio servers
+    this.startMcpProxies().catch((err) =>
+      this.log.error('Failed to start MCP proxies', { error: (err as Error).message })
+    );
+  }
+
+  private async startMcpProxies(): Promise<void> {
+    const stdioServers = this.mcpServers.filter(
+      (s) => s.type === 'stdio' || (!('url' in (s.config as object)) && ('command' in (s.config as object)))
+    );
+    await Promise.all(
+      stdioServers.map((s) =>
+        this.mcpManager
+          .startServer(s.name, s.config as McpStdioConfig, this.envVarValues)
+          .catch((err) => this.log.error('MCP proxy start failed', { server: s.name, error: (err as Error).message }))
+      )
+    );
+    this.log.info('Agent started', {
+      mcpServers: this.mcpServers.map((s) => s.name),
+    });
   }
 
   /**
@@ -91,6 +117,7 @@ export class ClaudeHandler {
       this.cleanupTimer = null;
     }
     this.sessionCache.clear();
+    this.mcpManager.stopAll().catch(() => {});
   }
 
   /**
@@ -215,7 +242,7 @@ export class ClaudeHandler {
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         // Retry once on stale session — only if we haven't already retried
-        if (!retried && claudeSessionId && (errMsg.includes('No conversation found') || errMsg.includes('session'))) {
+        if (!retried && claudeSessionId && (errMsg.includes('No conversation found') || errMsg.includes('session') || errMsg.includes('exited with code 1'))) {
           this.log.warn('Stale session, retrying as new', { sessionKey, staleSessionId: claudeSessionId });
           this.sessionCache.delete(sessionKey);
           claudeSessionId = undefined;
@@ -247,20 +274,19 @@ export class ClaudeHandler {
   private resolveServerConfig(serverName: string, config: McpServerConfig): McpServerConfig {
     const c = config as McpStdioConfig & Record<string, unknown>;
 
-    // Handle inline TypeScript source
     if (c.tsSource) {
       const scriptDir = path.join(this.workDir, '.mcp-scripts');
       const scriptPath = path.join(scriptDir, `${serverName}.ts`);
-      // Write synchronously so it's available immediately when the SDK spawns the process
       fs.mkdirSync(scriptDir, { recursive: true });
       fs.writeFileSync(scriptPath, c.tsSource as string, 'utf8');
       const resolvedEnv = this.resolveEnvRefs(c);
-      const resolved: McpStdioConfig = { command: 'tsx', args: [scriptPath] };
-      if (Object.keys(resolvedEnv).length > 0) resolved.env = resolvedEnv;
-      return resolved as McpServerConfig;
+      return {
+        command: '/app/node_modules/.bin/tsx',
+        args: [scriptPath],
+        env: { NODE_PATH: '/app/node_modules', ...resolvedEnv },
+      } as McpServerConfig;
     }
 
-    // Resolve envRefs for regular stdio configs
     if (c.envRefs && Object.keys(c.envRefs as object).length > 0) {
       const resolvedEnv = this.resolveEnvRefs(c);
       const { envRefs: _, tsSource: __, ...rest } = c;
@@ -307,7 +333,7 @@ export class ClaudeHandler {
     abortController?: AbortController
   ): Record<string, unknown> {
     const options: Record<string, unknown> = {
-      permissionMode: 'default',
+      permissionMode: 'acceptEdits',
       settingSources: ['project'],
       cwd: sessionWorkDir,
       abortController: abortController ?? new AbortController(),

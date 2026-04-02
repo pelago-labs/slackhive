@@ -531,7 +531,7 @@ export async function getAllEnvVarValues(): Promise<Record<string, string>> {
     return {};
   }
   const r = await getPool().query(
-    'SELECT key, pgp_sym_decrypt(value, $1)::text AS value FROM env_vars',
+    'SELECT key, pgp_sym_decrypt(value::bytea, $1::text)::text AS value FROM env_vars',
     [encKey],
   );
   return Object.fromEntries(r.rows.map((row: { key: string; value: string }) => [row.key, row.value]));

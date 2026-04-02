@@ -188,6 +188,64 @@ describe('mergeMcpConfig', () => {
   });
 });
 
+// ─── maskMcpConfig — envRefs and tsSource pass-through ───────────────────────
+
+describe('maskMcpConfig — envRefs and tsSource are not secrets', () => {
+  it('passes envRefs through unchanged when masking env values', () => {
+    const config = {
+      command: 'tsx',
+      args: ['server.ts'],
+      env: { EXTRA: 'val' },
+      envRefs: { DATABASE_URL: 'REDSHIFT_DATABASE_URL' },
+    };
+    const result = maskMcpConfig(config) as typeof config;
+    expect(result.envRefs).toEqual({ DATABASE_URL: 'REDSHIFT_DATABASE_URL' });
+    expect(result.env.EXTRA).toBe('********');
+  });
+
+  it('passes tsSource through unchanged when masking env values', () => {
+    const config = {
+      command: 'tsx',
+      args: ['server.ts'],
+      env: { SECRET: 'val' },
+      tsSource: 'import { Server } from "@modelcontextprotocol/sdk/server/index.js";',
+    };
+    const result = maskMcpConfig(config) as typeof config;
+    expect(result.tsSource).toBe(config.tsSource);
+    expect(result.env.SECRET).toBe('********');
+  });
+
+  it('passes envRefs and tsSource through even with no inline env', () => {
+    const config = {
+      command: 'tsx',
+      args: [],
+      envRefs: { DB: 'MY_DB_URL' },
+      tsSource: '// inline source',
+    };
+    const result = maskMcpConfig(config) as typeof config;
+    expect(result.envRefs).toEqual({ DB: 'MY_DB_URL' });
+    expect(result.tsSource).toBe('// inline source');
+  });
+});
+
+// ─── mergeMcpConfig — envRefs handling ────────────────────────────────────────
+
+describe('mergeMcpConfig — envRefs are config fields, not secrets', () => {
+  it('replaces envRefs with incoming value', () => {
+    const existing = { command: 'tsx', args: [], envRefs: { DB: 'OLD_KEY' } };
+    const incoming = { command: 'tsx', args: [], envRefs: { DB: 'NEW_KEY' } };
+    const result = mergeMcpConfig(existing, incoming) as typeof existing;
+    expect(result.envRefs).toEqual({ DB: 'NEW_KEY' });
+  });
+
+  it('removes envRefs when incoming omits them', () => {
+    const existing = { command: 'tsx', args: [], envRefs: { DB: 'SOME_KEY' } };
+    const incoming = { command: 'tsx', args: [] };
+    const result = mergeMcpConfig(existing, incoming) as Record<string, unknown>;
+    expect(result.envRefs).toBeUndefined();
+  });
+});
+
 // ─── mergeMcpConfig — header branch gaps (lines 81-84) ───────────────────────
 
 describe('mergeMcpConfig — header key deletion and new key for sse/http', () => {
