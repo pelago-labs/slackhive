@@ -1104,9 +1104,9 @@ export async function setEnvVar(key: string, value: string, description?: string
   const encKey = getEnvSecretKey();
   await getPool().query(
     `INSERT INTO env_vars (key, value, description)
-     VALUES ($1, pgp_sym_encrypt($2, $3), $4)
+     VALUES ($1, pgp_sym_encrypt($2, $3, 'cipher-algo=aes256'), $4)
      ON CONFLICT (key) DO UPDATE SET
-       value = pgp_sym_encrypt(EXCLUDED.value, $3),
+       value = pgp_sym_encrypt(EXCLUDED.value, $3, 'cipher-algo=aes256'),
        description = COALESCE(EXCLUDED.description, env_vars.description),
        updated_at = now()`,
     [key, value, encKey, description ?? null],
