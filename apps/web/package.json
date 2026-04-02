@@ -13,7 +13,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@datadog/datadog-api-client": "^1.41.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "@notionhq/client": "^5.0.0",
     "@monaco-editor/react": "^4.6.0",
     "@slackhive/shared": "*",
     "bcryptjs": "^2.4.3",
