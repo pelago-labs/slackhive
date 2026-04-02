@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@monaco-editor/react": "^4.6.0",
     "@slackhive/shared": "*",
     "bcryptjs": "^2.4.3",
@@ -22,8 +23,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "redis": "^4.6.0",
-    "tailwind-merge": "^2.6.0",
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -31,11 +31,11 @@
     "@types/pg": "^8.11.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^3.2.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.1",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.3.0",
-    "vitest": "^4.1.2"
+    "vitest": "^3.2.4"
   }
 }
