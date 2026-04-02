@@ -1,7 +1,7 @@
 /**
  * @fileoverview Slack event handler for a single agent's Bolt App.
  *
- * Key behaviours ported from the kaishen claude-code-slack-bot:
+ * Key behaviours:
  * - Abort/cancel: new message in same thread cancels the in-flight request
  * - Tool status: shows friendly "Querying Redshift…" live in the status message
  * - Fallback text: uses lastAssistantText if no messages were sent during stream
@@ -356,7 +356,7 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
 }
 
 // =============================================================================
-// Message formatting (ported from kaishen claude-code-slack-bot)
+// Message formatting
 // =============================================================================
 
 /**
