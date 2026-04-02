@@ -14,6 +14,8 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?logo=docker&logoColor=white)](https://docs.docker.com/compose)
 [![Claude Code SDK](https://img.shields.io/badge/Claude_Code-SDK-cc785c?logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/agent-sdk)
 [![Slack](https://img.shields.io/badge/Slack-Bolt-4A154B?logo=slack&logoColor=white)](https://api.slack.com/bolt)
+[![Security Audit](https://github.com/amansrivastava17/slackhive/actions/workflows/audit.yml/badge.svg)](https://github.com/amansrivastava17/slackhive/actions/workflows/audit.yml)
+[![Dependencies](https://img.shields.io/badge/dependencies-up%20to%20date-brightgreen?logo=dependabot)](https://github.com/amansrivastava17/slackhive/security/dependabot)
 
 [Quick Start](#-quick-start) · [Features](#-features) · [Architecture](#-architecture) · [Documentation](#-creating-your-first-agent) · [Contributing](#-contributing)
 
@@ -628,6 +630,36 @@ If you find this project useful, please consider giving it a star — it helps o
     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=amansrivastava17/slackhive&type=Date" width="600" />
   </picture>
 </a>
+
+---
+
+## 🔒 Security
+
+### Vulnerability Policy
+
+SlackHive takes supply chain security seriously:
+
+- **`npm audit`** runs on every PR — critical/high vulnerabilities block merge
+- **Weekly automated fix PRs** are created by the [Security Audit workflow](https://github.com/amansrivastava17/slackhive/actions/workflows/audit.yml) if new vulnerabilities are detected
+- **Dependabot** monitors all npm dependencies daily and opens update PRs automatically
+- All workspace packages are licensed MIT — no copyleft or proprietary transitive dependencies
+
+### Reporting a Vulnerability
+
+Please **do not** open a public GitHub issue for security vulnerabilities.
+
+Email **[aman@amansrivastava.dev](mailto:aman@amansrivastava.dev)** with:
+- A description of the vulnerability
+- Steps to reproduce
+- Potential impact
+
+We aim to respond within 48 hours and issue a fix within 7 days for confirmed issues.
+
+### Secrets & Credentials
+
+- Agent tokens and MCP credentials are **never committed** — use `.env` (gitignored)
+- MCP server secrets should be stored in **Encrypted Env Vars** (Settings → Env Vars) and referenced via `envRefs` in MCP configs — values are AES-256 encrypted at rest
+- SQL migration files (which may contain instance-specific data) are **gitignored** — only `schema.sql` is tracked
 
 ---
 
