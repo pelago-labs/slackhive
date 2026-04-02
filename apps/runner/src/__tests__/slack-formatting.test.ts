@@ -3,7 +3,7 @@
  *
  * Covers: formatMessage, stripBotMention, splitTextForBlocks, isSeparatorLine,
  * extractFirstMarkdownTable, parseMarkdownTable, buildSlackTableBlock,
- * buildMessagePayload, and formatToolStatus.
+ * buildMessagePayloads, and formatToolStatus.
  *
  * No Slack API or database connection required — all pure functions.
  *
@@ -19,7 +19,7 @@ import {
   extractFirstMarkdownTable,
   parseMarkdownTable,
   buildSlackTableBlock,
-  buildMessagePayload,
+  buildMessagePayloads,
   formatToolStatus,
 } from '../slack-handler';
 
@@ -291,39 +291,41 @@ describe('buildSlackTableBlock', () => {
   });
 });
 
-// ─── buildMessagePayload ──────────────────────────────────────────────────────
+// ─── buildMessagePayloads ─────────────────────────────────────────────────────
 
-describe('buildMessagePayload', () => {
+describe('buildMessagePayloads', () => {
   it('returns text-only payload for plain text', () => {
-    const payload = buildMessagePayload('Hello world', false);
-    expect(payload.text).toBeTruthy();
-    expect(payload.blocks).toBeUndefined();
+    const payloads = buildMessagePayloads('Hello world', false);
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].text).toBeTruthy();
+    expect(payloads[0].blocks).toBeUndefined();
   });
 
   it('returns blocks payload when text contains a table', () => {
     const text = 'Results:\n| A | B |\n| --- | --- |\n| 1 | 2 |\nDone.';
-    const payload = buildMessagePayload(text, true);
-    expect(payload.blocks).toBeDefined();
-    expect(payload.blocks!.some((b: any) => b.type === 'table')).toBe(true);
+    const payloads = buildMessagePayloads(text, true);
+    const tablePayload = payloads.find(p => p.blocks?.some((b: any) => b.type === 'table'));
+    expect(tablePayload).toBeDefined();
   });
 
   it('includes before-text section block when text precedes table', () => {
     const text = 'Here are results:\n| A | B |\n| --- | --- |\n| 1 | 2 |';
-    const payload = buildMessagePayload(text, true);
-    const sections = payload.blocks!.filter((b: any) => b.type === 'section');
+    const payloads = buildMessagePayloads(text, true);
+    const tablePayload = payloads.find(p => p.blocks?.some((b: any) => b.type === 'table'));
+    const sections = tablePayload!.blocks!.filter((b: any) => b.type === 'section');
     expect(sections.some((s: any) => s.text.text.includes('Here are results'))).toBe(true);
   });
 
-  it('includes after-text section block when text follows table', () => {
-    const text = '| A | B |\n| --- | --- |\n| 1 | 2 |\nSummary here.';
-    const payload = buildMessagePayload(text, true);
-    const sections = payload.blocks!.filter((b: any) => b.type === 'section');
-    expect(sections.some((s: any) => s.text.text.includes('Summary here'))).toBe(true);
+  it('splits multiple tables into separate payloads', () => {
+    const text = 'Table 1:\n| A | B |\n| --- | --- |\n| 1 | 2 |\nTable 2:\n| C | D |\n| --- | --- |\n| 3 | 4 |';
+    const payloads = buildMessagePayloads(text, true);
+    const tablePayloads = payloads.filter(p => p.blocks?.some((b: any) => b.type === 'table'));
+    expect(tablePayloads.length).toBe(2);
   });
 
   it('applies formatMessage to text field', () => {
-    const payload = buildMessagePayload('**bold** text', false);
-    expect(payload.text).toContain('*bold*');
+    const payloads = buildMessagePayloads('**bold** text', false);
+    expect(payloads[0].text).toContain('*bold*');
   });
 });
 
@@ -454,24 +456,24 @@ describe('formatToolStatus — edge cases', () => {
   });
 });
 
-describe('buildMessagePayload — edge cases', () => {
+describe('buildMessagePayloads — edge cases', () => {
   it('returns plain text payload when table has no headers', () => {
     // A "table" with only separator row — invalid
     const text = 'some text\n| --- | --- |\nmore text';
-    const payload = buildMessagePayload(text, false);
+    const payloads = buildMessagePayloads(text, false);
     // Should not crash, returns text payload
-    expect(payload.text).toBeTruthy();
+    expect(payloads[0].text).toBeTruthy();
   });
 
   it('handles empty string input', () => {
-    const payload = buildMessagePayload('', false);
-    expect(payload.text).toBeDefined();
+    const payloads = buildMessagePayloads('', false);
+    expect(payloads[0].text).toBeDefined();
   });
 
   it('handles very long text without table', () => {
     const longText = 'word '.repeat(2000);
-    const payload = buildMessagePayload(longText, false);
-    expect(payload.text).toBeTruthy();
-    expect(payload.blocks).toBeUndefined();
+    const payloads = buildMessagePayloads(longText, false);
+    expect(payloads[0].text).toBeTruthy();
+    expect(payloads[0].blocks).toBeUndefined();
   });
 });
