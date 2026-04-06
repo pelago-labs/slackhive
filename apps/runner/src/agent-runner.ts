@@ -30,6 +30,7 @@ import {
   getAgentById,
   getAgentMcpServers,
   getAgentPermissions,
+  getAgentRestrictions,
   getAgentMemories,
   getAllEnvVarValues,
   updateAgentStatus,
@@ -192,9 +193,10 @@ export class AgentRunner {
     logger.info('Starting agent', { agent: agent.slug });
 
     // Load configuration from DB
-    const [mcpServers, permissions, memories, envVarValues] = await Promise.all([
+    const [mcpServers, permissions, restrictions, memories, envVarValues] = await Promise.all([
       getAgentMcpServers(agent.id),
       getAgentPermissions(agent.id),
+      getAgentRestrictions(agent.id),
       getAgentMemories(agent.id),
       getAllEnvVarValues(),
     ]);
@@ -223,7 +225,7 @@ export class AgentRunner {
     });
 
     // Register all Slack event listeners
-    registerSlackHandlers(app, agent, claudeHandler);
+    registerSlackHandlers(app, agent, claudeHandler, restrictions);
 
     // Start the Bolt App
     await app.start();

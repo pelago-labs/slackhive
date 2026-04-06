@@ -11,7 +11,7 @@
 
 import React, { useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
-import type { Agent, Skill, McpServer, Memory, Permission, AgentSnapshot } from '@slackhive/shared';
+import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import { lineDiff, type DiffLine } from '@/lib/diff';
@@ -216,6 +216,28 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
   const [manifest, setManifest]       = useState('');
   const [showManifest, setShowManifest] = useState(false);
 
+  // Channel restrictions state
+  const [allowedChannels, setAllowedChannels] = useState('');
+  const [restrictSaving, setRestrictSaving]   = useState(false);
+  const [restrictMsg, setRestrictMsg]         = useState('');
+
+  useEffect(() => {
+    fetch(`/api/agents/${agent.id}/restrictions`)
+      .then(r => r.json())
+      .then((d: Restriction) => setAllowedChannels((d.allowedChannels ?? []).join('\n')));
+  }, [agent.id]);
+
+  const saveRestrictions = async () => {
+    setRestrictSaving(true);
+    await fetch(`/api/agents/${agent.id}/restrictions`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allowedChannels: allowedChannels.split('\n').map(s => s.trim()).filter(Boolean) }),
+    });
+    setRestrictSaving(false);
+    setRestrictMsg('Saved — changes take effect on next reload');
+    setTimeout(() => setRestrictMsg(''), 3000);
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -272,6 +294,34 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
             <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>auto-set by runner on connect</span>
           </div>
         )}
+      </Section>
+
+      <Section title="Allowed Channels">
+        <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+          Restrict this bot to specific Slack channels. Enter one Slack channel ID per line (e.g. <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>C01234ABCDE</code>).
+          If empty, the bot responds in all channels it's invited to.
+          When invited to a non-allowed channel, it will post a notice and leave automatically.
+          Bot-initiated messages from scheduled jobs are not affected.
+        </p>
+        <textarea
+          value={allowedChannels}
+          onChange={e => setAllowedChannels(e.target.value)}
+          rows={4}
+          readOnly={!canEdit}
+          placeholder={'C01234ABCDE\nC09876ZYXWV'}
+          style={{
+            width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
+            fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7,
+            outline: 'none', resize: 'vertical', boxSizing: 'border-box',
+          }}
+          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+          onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+        />
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
+          {canEdit && <PrimaryBtn onClick={saveRestrictions} loading={restrictSaving}>Save Restrictions</PrimaryBtn>}
+          {restrictMsg && <span style={{ fontSize: 12, color: '#16a34a' }}>{restrictMsg}</span>}
+        </div>
       </Section>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -1447,6 +1497,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
         deniedTools:  perms?.deniedTools  ?? [],
         mcpIds: (agentMcps as McpServer[]).map(m => m.id),
         compiledMd: claudeMd ?? '',
+        allowedChannels: [],
         createdAt: new Date(),
       });
       setLoading(false);

@@ -247,6 +247,20 @@ export interface Permission {
 }
 
 /**
+ * Per-agent channel restrictions.
+ * If allowedChannels is non-empty, the bot only responds in those channels.
+ * Empty allowedChannels means unrestricted (responds everywhere).
+ * Bot-initiated outbound DMs (scheduled jobs) bypass this restriction entirely.
+ */
+export interface Restriction {
+  id: string;
+  agentId: string;
+  /** Slack channel IDs the bot is allowed to respond in. Empty = unrestricted. */
+  allowedChannels: string[];
+  updatedAt: Date;
+}
+
+/**
  * A memory entry for an agent.
  *
  * Memory is the primary mechanism by which agents learn from interactions.
@@ -489,6 +503,14 @@ export interface UpdatePermissionsRequest {
 }
 
 /**
+ * Request body for updating an agent's channel restrictions.
+ * Used in PUT /api/agents/[id]/restrictions.
+ */
+export interface UpdateRestrictionsRequest {
+  allowedChannels: string[];
+}
+
+/**
  * Request body for creating or updating a skill file.
  * Used in PUT /api/agents/[id]/skills/[category]/[filename].
  */
@@ -606,7 +628,7 @@ export interface SnapshotSkill {
 }
 
 /** What triggered the snapshot creation. */
-export type SnapshotTrigger = 'skills' | 'permissions' | 'mcps' | 'claude-md' | 'manual';
+export type SnapshotTrigger = 'skills' | 'permissions' | 'mcps' | 'claude-md' | 'restrictions' | 'manual';
 
 /**
  * A point-in-time snapshot of an agent's full configuration.
@@ -628,6 +650,7 @@ export interface AgentSnapshot {
   deniedTools: string[];
   mcpIds: string[];
   compiledMd: string;
+  allowedChannels: string[];
   createdAt: Date;
 }
 

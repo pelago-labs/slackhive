@@ -228,21 +228,22 @@ CREATE TABLE IF NOT EXISTS agent_access (
 -- agent_snapshots
 -- Point-in-time snapshots of an agent's full configuration (skills, tools, MCPs).
 -- Created automatically on each config change and manually by users.
--- Auto-snapshots (trigger != 'manual') are capped at 50 per agent.
+-- Auto-snapshots (trigger != 'manual') are capped at 10 per agent.
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS agent_snapshots (
   id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id      UUID          NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   label         TEXT,                         -- human label for manual snapshots
-  trigger       TEXT          NOT NULL        -- 'manual' | 'skill_change' | 'tools_change' | 'mcp_change'
-                              CHECK (trigger IN ('manual', 'skill_change', 'tools_change', 'mcp_change')),
+  trigger       TEXT          NOT NULL        -- 'manual' | 'skill_change' | 'tools_change' | 'mcp_change' | 'restrictions'
+                              CHECK (trigger IN ('manual', 'skill_change', 'tools_change', 'mcp_change', 'restrictions', 'skills', 'permissions', 'mcps', 'claude-md')),
   created_by    TEXT          NOT NULL,       -- username who triggered the change
   skills_json   JSONB         NOT NULL DEFAULT '[]',
   allowed_tools TEXT[]        NOT NULL DEFAULT '{}',
   denied_tools  TEXT[]        NOT NULL DEFAULT '{}',
-  mcp_ids       UUID[]        NOT NULL DEFAULT '{}',
-  compiled_md   TEXT          NOT NULL DEFAULT '',
-  created_at    TIMESTAMPTZ   NOT NULL DEFAULT now()
+  mcp_ids          UUID[]        NOT NULL DEFAULT '{}',
+  compiled_md      TEXT          NOT NULL DEFAULT '',
+  allowed_channels TEXT[]        NOT NULL DEFAULT '{}',
+  created_at       TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
 -- -----------------------------------------------------------------------------
@@ -324,4 +325,24 @@ CREATE TABLE env_vars (
 
 CREATE TRIGGER env_vars_updated_at
   BEFORE UPDATE ON env_vars
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- -----------------------------------------------------------------------------
+-- agent_restrictions
+-- Per-agent channel allowlist.
+-- If allowed_channels is non-empty, the bot only responds in those channels.
+-- Empty array = unrestricted (responds in all channels).
+-- Bot-initiated outbound DMs (scheduled jobs) bypass this entirely.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agent_restrictions (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id         UUID        NOT NULL REFERENCES agents(id) ON DELETE CASCADE UNIQUE,
+  allowed_channels TEXT[]      NOT NULL DEFAULT '{}',
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_restrictions_agent ON agent_restrictions(agent_id);
+
+CREATE TRIGGER agent_restrictions_updated_at
+  BEFORE UPDATE ON agent_restrictions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
