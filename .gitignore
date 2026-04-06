@@ -46,3 +46,6 @@ Thumbs.db
 .claude/
 cli/.npmrc
 CLAUDE.md
+
+# Design docs
+design.md

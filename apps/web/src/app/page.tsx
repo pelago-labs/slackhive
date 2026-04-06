@@ -138,10 +138,10 @@ function StatCard({ label, value, color, sub }: {
   return (
     <div className="fade-up" style={{
       background: '#fff',
-      border: '1px solid var(--border)',
-      borderRadius: 12,
-      padding: '18px 20px',
-      boxShadow: 'var(--shadow-sm)',
+      border: 'none',
+      borderRadius: 'var(--radius-lg)',
+      padding: '20px 24px',
+      boxShadow: 'var(--shadow-card)',
     }}>
       <div style={{
         fontSize: 11, fontWeight: 600, letterSpacing: '0.05em',
@@ -177,26 +177,24 @@ function AgentCard({ agent }: { agent: Agent }) {
       style={{
         display: 'block', textDecoration: 'none',
         background: '#fff',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
-        padding: '20px 22px',
-        boxShadow: 'var(--shadow-sm)',
-        transition: 'box-shadow 0.2s, transform 0.2s, border-color 0.2s',
+        border: 'none',
+        borderRadius: 'var(--radius-lg)',
+        padding: '22px 24px',
+        boxShadow: 'var(--shadow-card)',
+        transition: 'box-shadow 0.2s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1)',
         cursor: 'pointer',
         position: 'relative',
         overflow: 'hidden',
       }}
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = 'var(--shadow-md)';
-        el.style.transform = 'translateY(-2px)';
-        el.style.borderColor = 'var(--border-2)';
+        el.style.boxShadow = 'var(--shadow-hover)';
+        el.style.transform = 'translateY(-3px)';
       }}
       onMouseLeave={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = 'var(--shadow-sm)';
+        el.style.boxShadow = 'var(--shadow-card)';
         el.style.transform = 'translateY(0)';
-        el.style.borderColor = 'var(--border)';
       }}
     >
       {/* Boss accent */}
@@ -311,9 +309,9 @@ function SkeletonGrid() {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
       {[1, 2, 3].map(i => (
         <div key={i} style={{
-          background: '#fff', border: '1px solid var(--border)',
-          borderRadius: 12, padding: '20px 22px',
-          boxShadow: 'var(--shadow-sm)',
+          background: '#fff', border: 'none',
+          borderRadius: 'var(--radius-lg)', padding: '22px 24px',
+          boxShadow: 'var(--shadow-card)',
           opacity: 1 - (i - 1) * 0.2,
         }}>
           <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>

@@ -3,7 +3,7 @@
 /**
  * @fileoverview 5-step agent onboarding wizard.
  *
- * Steps: Identity → Slack App → Tokens → MCPs & Skills → Review
+ * Steps: Name & Role → Slack App → Credentials → Tools → Review
  *
  * Route: /agents/new
  * @module web/app/agents/new
@@ -76,8 +76,8 @@ export default function NewAgentWizard() {
   // Boss agents skip the MCPs & Skills step (their CLAUDE.md is auto-generated)
   const totalSteps = state.isBoss ? 4 : 5;
   const stepLabels = state.isBoss
-    ? ['Identity', 'Slack App', 'Tokens', 'Review']
-    : ['Identity', 'Slack App', 'Tokens', 'MCPs & Skills', 'Review'];
+    ? ['Name & Role', 'Slack App', 'Credentials', 'Review']
+    : ['Name & Role', 'Slack App', 'Credentials', 'Tools', 'Review'];
 
   const next = () => setStep(s => Math.min(s + 1, totalSteps - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
@@ -120,7 +120,7 @@ export default function NewAgentWizard() {
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, display: 'flex', padding: '40px 36px', gap: 40, maxWidth: 900, margin: '0 auto', width: '100%' }}>
+      <div style={{ flex: 1, display: 'flex', padding: '40px 36px', gap: 36, maxWidth: 860, width: '100%' }}>
 
         {/* ── Left: step nav ───────────────────────────────────────────── */}
         <div style={{ width: 180, flexShrink: 0 }}>
@@ -164,8 +164,10 @@ export default function NewAgentWizard() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 14, padding: '32px',
+              background: 'var(--surface)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '32px',
+              boxShadow: 'var(--shadow-card)',
             }}
             className="fade-up"
             key={step}
@@ -190,8 +192,8 @@ export default function NewAgentWizard() {
               onClick={back} disabled={step === 0}
               style={{
                 background: 'transparent', color: step === 0 ? 'var(--subtle)' : 'var(--muted)',
-                border: '1px solid var(--border)', borderRadius: 8,
-                padding: '9px 20px', fontSize: 13, cursor: step === 0 ? 'not-allowed' : 'pointer',
+                border: '1.5px solid var(--border)', borderRadius: 'var(--radius)',
+                padding: '10px 20px', fontSize: 14, fontWeight: 500, cursor: step === 0 ? 'not-allowed' : 'pointer',
                 fontFamily: 'var(--font-sans)', transition: 'border-color 0.15s, color 0.15s',
               }}
               onMouseEnter={e => { if (step > 0) { (e.currentTarget as HTMLElement).style.color = 'var(--text)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; } }}
@@ -203,27 +205,31 @@ export default function NewAgentWizard() {
                 onClick={next} disabled={!canNext()}
                 style={{
                   background: canNext() ? 'var(--accent)' : 'var(--border)',
-                  color: '#fff', border: 'none', borderRadius: 8,
-                  padding: '9px 24px', fontSize: 13, fontWeight: 500,
+                  color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+                  padding: '10px 24px', fontSize: 14, fontWeight: 600,
                   cursor: canNext() ? 'pointer' : 'not-allowed',
-                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
+                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
+                  boxShadow: canNext() ? 'var(--shadow-sm)' : 'none',
+                  letterSpacing: '-0.01em',
                 }}
-                onMouseEnter={e => { if (canNext()) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-              >Next →</button>
+                onMouseEnter={e => { if (canNext()) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; } }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
+              >Continue →</button>
             ) : (
               <button
                 onClick={submit}
                 disabled={submitting || !state.slackBotToken || !state.slackAppToken || !state.slackSigningSecret}
                 style={{
                   background: submitting ? 'var(--border)' : '#16a34a',
-                  color: '#fff', border: 'none', borderRadius: 8,
-                  padding: '9px 24px', fontSize: 13, fontWeight: 600,
+                  color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+                  padding: '10px 24px', fontSize: 14, fontWeight: 600,
                   cursor: submitting ? 'not-allowed' : 'pointer',
-                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
+                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
+                  boxShadow: !submitting ? 'var(--shadow-sm)' : 'none',
+                  letterSpacing: '-0.01em',
                 }}
-                onMouseEnter={e => { if (!submitting) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+                onMouseEnter={e => { if (!submitting) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; } }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
               >{submitting ? 'Creating…' : 'Create Agent'}</button>
             )}
           </div>
@@ -251,7 +257,7 @@ function Step1Identity({ state, update, bosses }: {
 
   return (
     <div>
-      <StepHeader step={1} title="Agent Identity" desc="Define who this agent is and what it specializes in." />
+      <StepHeader step={1} title="Name your agent" desc="Give it a name and decide if it leads a team or works as a specialist." />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
         <Field label="Agent Name *" value={state.name} placeholder="e.g. GILFOYLE"
           onChange={v => update({ name: v, slug: autoSlug(v) })} />
@@ -370,23 +376,23 @@ function Step2SlackApp({ state }: { state: WizardState }) {
 
   return (
     <div>
-      <StepHeader step={2} title="Create Slack App" desc="Use this manifest to create a new Slack app. Takes about 2 minutes." />
+      <StepHeader step={2} title="Create a Slack app" desc="Copy the manifest below and paste it into Slack to create the app in ~2 minutes." />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
         {[
-          { n: 1, text: <>Go to <strong style={{ color: 'var(--text)' }}>api.slack.com/apps</strong> → <strong style={{ color: 'var(--text)' }}>Create New App</strong></> },
-          { n: 2, text: <>Choose <strong style={{ color: 'var(--text)' }}>From an app manifest</strong> and select your workspace</> },
-          { n: 3, text: <>Paste the JSON manifest below and click <strong style={{ color: 'var(--text)' }}>Next → Create</strong></> },
-          { n: 4, text: <>Go to <strong style={{ color: 'var(--text)' }}>Install App</strong> → Install to workspace. Then collect tokens in the next step.</> },
+          { n: 1, text: <>Open <strong style={{ color: 'var(--text)' }}>api.slack.com/apps</strong> → <strong style={{ color: 'var(--text)' }}>Create New App</strong> → <strong style={{ color: 'var(--text)' }}>From a manifest</strong></> },
+          { n: 2, text: <>Select your workspace, paste the manifest below, click <strong style={{ color: 'var(--text)' }}>Create</strong></> },
+          { n: 3, text: <><strong style={{ color: 'var(--text)' }}>Install to workspace</strong> — you&apos;ll grab the tokens in the next step</> },
         ].map(({ n, text }) => (
           <div key={n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
             <div style={{
               width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-              background: 'rgba(59,130,246,0.15)', color: 'var(--accent)',
+              background: 'var(--surface-2)', color: 'var(--text)',
+              border: '1px solid var(--border)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 11, fontWeight: 700,
             }}>{n}</div>
-            <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, paddingTop: 2 }}>{text}</span>
+            <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, paddingTop: 2 }}>{text}</span>
           </div>
         ))}
       </div>
@@ -421,25 +427,16 @@ function Step2SlackApp({ state }: { state: WizardState }) {
 function Step3Tokens({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
   return (
     <div>
-      <StepHeader step={3} title="Slack Credentials" desc="Find these in your Slack app settings after installing to workspace." />
+      <StepHeader step={3} title="Paste your tokens" desc="All three are in your Slack app settings — takes under a minute." />
 
       <div style={{
-        background: '#eff6ff', border: '1px solid #bfdbfe',
-        borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 12, color: '#1e40af',
-        lineHeight: 1.85,
+        background: 'var(--surface-2)', border: '1px solid var(--border)',
+        borderRadius: 'var(--radius)', padding: '14px 16px', marginBottom: 20, fontSize: 12.5, color: 'var(--muted)',
+        lineHeight: 1.9,
       }}>
-        <div>
-          <strong>Bot Token (xoxb-…)</strong> →{' '}
-          <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>api.slack.com/apps</a>
-          {' '}→ your app → <strong>OAuth &amp; Permissions</strong> → <em>Bot User OAuth Token</em>
-        </div>
-        <div>
-          <strong>App-Level Token (xapp-…)</strong> → <strong>Basic Information</strong> → <em>App-Level Tokens</em> → Generate with scope{' '}
-          <code style={{ fontFamily: 'var(--font-mono)', background: '#dbeafe', padding: '0 4px', borderRadius: 3 }}>connections:write</code>
-        </div>
-        <div>
-          <strong>Signing Secret</strong> → <strong>Basic Information</strong> → <em>App Credentials</em> → Signing Secret
-        </div>
+        <div><strong style={{ color: 'var(--text)' }}>Bot Token (xoxb-…)</strong> — OAuth &amp; Permissions → Bot User OAuth Token</div>
+        <div><strong style={{ color: 'var(--text)' }}>App-Level Token (xapp-…)</strong> — Basic Information → App-Level Tokens → scope <code style={{ fontFamily: 'var(--font-mono)', background: 'var(--surface-3)', padding: '0 5px', borderRadius: 4 }}>connections:write</code></div>
+        <div><strong style={{ color: 'var(--text)' }}>Signing Secret</strong> — Basic Information → App Credentials</div>
       </div>
 
       <Field label="Bot Token *" value={state.slackBotToken} placeholder="xoxb-..."
@@ -466,7 +463,7 @@ function Step4McpsSkills({
 
   return (
     <div>
-      <StepHeader step={4} title="MCPs & Skills" desc="Choose MCP servers and a starting skill template." />
+      <StepHeader step={4} title="Tools & Skills" desc="Attach MCP servers and pick a starting skill template. You can change these anytime." />
 
       {/* MCP list */}
       <div style={{ marginBottom: 22 }}>
@@ -557,7 +554,7 @@ function Step5Review({ state, catalog, agents }: { state: WizardState; catalog: 
 
   return (
     <div>
-      <StepHeader step={state.isBoss ? 4 : 5} title="Review & Create" desc="Everything looks good? Hit Create Agent to launch." />
+      <StepHeader step={state.isBoss ? 4 : 5} title="Looks good?" desc="Review the details below, then hit Create Agent to launch." />
 
       <div style={{
         background: 'var(--surface-2)', border: '1px solid var(--border)',
@@ -596,10 +593,10 @@ function Step5Review({ state, catalog, agents }: { state: WizardState; catalog: 
 
       <div style={{
         background: '#f0fdf4', border: '1px solid #bbf7d0',
-        borderRadius: 8, padding: '12px 14px', fontSize: 12.5, color: '#15803d', lineHeight: 1.6,
+        borderRadius: 'var(--radius)', padding: '14px 16px', fontSize: 13, color: '#15803d', lineHeight: 1.65,
       }}>
-        After creation, the runner will automatically pick up the new agent and connect it to Slack via Socket Mode.
-        You can manage skills, MCPs, and permissions from the agent detail page.
+        Once created, the runner picks up the agent automatically and connects to Slack.
+        Manage skills, MCPs, and channel permissions from the agent detail page.
       </div>
     </div>
   );
@@ -632,15 +629,15 @@ function Field({ label, value, onChange, placeholder, hint, type = 'text' }: {
       </label>
       <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
         style={{
-          width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 12px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
+          width: '100%', background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }
@@ -656,15 +653,15 @@ function TextArea({ label, value, onChange, placeholder, hint, rows = 3 }: {
       </label>
       <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
         style={{
-          width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 12px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+          width: '100%', background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
           transition: 'border-color 0.15s', lineHeight: 1.55,
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }
