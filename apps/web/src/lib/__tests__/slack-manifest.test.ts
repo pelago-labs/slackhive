@@ -67,11 +67,13 @@ describe('generateSlackManifest', () => {
     expect(m.settings.socket_mode_enabled).toBe(true);
   });
 
-  it('subscribes to app_mention, message.im, and member_joined_channel events', () => {
+  it('subscribes to all required bot events', () => {
     const m = generateSlackManifest({ name: 'Bot' });
     const events = m.settings.event_subscriptions.bot_events;
     expect(events).toContain('app_mention');
     expect(events).toContain('message.im');
+    expect(events).toContain('message.channels');
+    expect(events).toContain('message.groups');
     expect(events).toContain('member_joined_channel');
   });
 
