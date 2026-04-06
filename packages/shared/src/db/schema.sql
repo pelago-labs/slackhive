@@ -209,6 +209,27 @@ CREATE TABLE IF NOT EXISTS job_runs (
 CREATE INDEX IF NOT EXISTS idx_job_runs_job ON job_runs(job_id, started_at DESC);
 
 -- -----------------------------------------------------------------------------
+-- agent_snapshots
+-- Point-in-time snapshots of an agent's full configuration (skills, tools, MCPs).
+-- Created automatically on each config change and manually by users.
+-- Auto-snapshots (trigger != 'manual') are capped at 50 per agent.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agent_snapshots (
+  id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id      UUID          NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  label         TEXT,                         -- human label for manual snapshots
+  trigger       TEXT          NOT NULL        -- 'manual' | 'skill_change' | 'tools_change' | 'mcp_change'
+                              CHECK (trigger IN ('manual', 'skill_change', 'tools_change', 'mcp_change')),
+  created_by    TEXT          NOT NULL,       -- username who triggered the change
+  skills_json   JSONB         NOT NULL DEFAULT '[]',
+  allowed_tools TEXT[]        NOT NULL DEFAULT '{}',
+  denied_tools  TEXT[]        NOT NULL DEFAULT '{}',
+  mcp_ids       UUID[]        NOT NULL DEFAULT '{}',
+  compiled_md   TEXT          NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
+-- -----------------------------------------------------------------------------
 -- Indexes
 -- -----------------------------------------------------------------------------
 
