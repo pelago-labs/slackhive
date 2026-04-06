@@ -409,6 +409,7 @@ export const DEFAULT_SLACK_BOT_SCOPES: string[] = [
   'chat:write',
   'chat:write.public',
   'files:read',
+  'files:write',
   'groups:history',
   'groups:read',
   'im:history',

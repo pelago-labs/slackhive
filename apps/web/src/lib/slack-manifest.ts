@@ -68,6 +68,8 @@ export function generateSlackManifest(opts: {
       event_subscriptions: {
         bot_events: [
           'app_mention',
+          'message.channels',
+          'message.groups',
           'message.im',
           'member_joined_channel',
         ],
