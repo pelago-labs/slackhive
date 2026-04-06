@@ -19,6 +19,7 @@ import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
 import type { Logger } from 'winston';
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
 const MAX_THREAD_CONTEXT_MESSAGES = 20;
 const MAX_THREAD_CONTEXT_CHARS = 8_000;
@@ -128,13 +129,14 @@ export function registerSlackHandlers(
       threadTs: event.thread_ts ?? event.ts,
       messageTs: event.ts,
       rawText: event.text ?? '',
+      files: (event as any).files ?? [],
     });
   });
 
   app.message(async ({ message, client }) => {
     const msg = message as KnownEventFromType<'message'>;
     if (!('channel' in msg) || !msg.channel?.startsWith('D')) return;
-    if (!('text' in msg) || !('user' in msg)) return;
+    if (!('user' in msg)) return;
     await handleMessage({
       app, agent, claudeHandler, correctionHandler, client, log,
       activeControllers, currentReactions, updateReaction,
@@ -143,6 +145,7 @@ export function registerSlackHandlers(
       threadTs: (msg as any).thread_ts,
       messageTs: (msg as any).ts,
       rawText: (msg as any).text ?? '',
+      files: (msg as any).files ?? [],
     });
   });
 
@@ -161,6 +164,16 @@ export function registerSlackHandlers(
 // Core message handler
 // =============================================================================
 
+export interface SlackFile {
+  id: string;
+  name?: string;
+  title?: string;
+  mimetype?: string;
+  filetype?: string;
+  url_private_download?: string;
+  size?: number;
+}
+
 interface HandleMessageOpts {
   app: App;
   agent: Agent;
@@ -176,14 +189,15 @@ interface HandleMessageOpts {
   threadTs?: string;
   messageTs: string;
   rawText: string;
+  files?: SlackFile[];
 }
 
 async function handleMessage(opts: HandleMessageOpts): Promise<void> {
   const { app, agent, claudeHandler, correctionHandler, client, log, activeControllers, currentReactions, updateReaction,
-    userId, channelId, threadTs, messageTs, rawText } = opts;
+    userId, channelId, threadTs, messageTs, rawText, files } = opts;
 
   const userText = stripBotMention(rawText, agent.slackBotUserId).trim();
-  if (!userText) return;
+  if (!userText && (!files || files.length === 0)) return;
 
   // Route correction/help commands before normal processing
   // Commands use agent slug prefix: {slug}:correct, {slug}:corrections, {slug}:help
@@ -217,7 +231,7 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
     return;
   }
 
-  const prompt = await buildPrompt(client, channelId, threadTs, userText, agent, log);
+  const prompt = await buildPrompt(client, channelId, threadTs, userText, agent, log, files);
 
   let sentMessages: string[] = [];
   let lastAssistantText: string | null = null;
@@ -637,33 +651,169 @@ export function formatToolStatus(content: any[]): string | null {
  * @param {string} userText - The user's message with bot mentions stripped.
  * @param {Agent} agent - The agent (used for speaker labelling in context).
  * @param {Logger} log - Logger instance.
- * @returns {Promise<string>} Prompt string ready for `claudeHandler.streamQuery`.
+ * @param {SlackFile[]} [files] - Files attached to the message.
+ * @returns {Promise<string | ContentBlockParam[]>} Prompt for `claudeHandler.streamQuery`.
  */
+
+/** Max bytes to read from a single text file (512 KB). */
+const MAX_TEXT_FILE_BYTES = 512 * 1024;
+/** Max bytes to download for image/PDF files (20 MB). */
+const MAX_BINARY_FILE_BYTES = 20 * 1024 * 1024;
+
+const TEXT_MIMETYPES = new Set([
+  'text/plain', 'text/csv', 'text/html', 'text/xml', 'text/markdown',
+  'text/x-python', 'text/x-script.python', 'text/javascript',
+  'application/json', 'application/xml', 'application/x-yaml',
+  'application/x-ndjson', 'application/sql',
+]);
+
+const TEXT_FILETYPES = new Set([
+  'text', 'csv', 'json', 'yaml', 'xml', 'html', 'markdown', 'md',
+  'python', 'py', 'javascript', 'js', 'typescript', 'ts', 'go',
+  'ruby', 'rb', 'java', 'kotlin', 'swift', 'cpp', 'c', 'rust',
+  'sh', 'bash', 'zsh', 'sql', 'r', 'scala', 'php', 'toml', 'ini',
+  'conf', 'cfg', 'env', 'diff', 'patch', 'log',
+]);
+
+const IMAGE_MIMETYPES: Record<string, 'image/jpeg' | 'image/png' | 'image/webp'> = {
+  'image/jpeg': 'image/jpeg',
+  'image/jpg': 'image/jpeg',
+  'image/png': 'image/png',
+  'image/webp': 'image/webp',
+};
+
+const IMAGE_FILETYPES: Record<string, 'image/jpeg' | 'image/png' | 'image/webp'> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
+
+export function getFileKind(file: SlackFile): 'text' | 'image' | 'pdf' | 'unsupported' {
+  const mt = file.mimetype ?? '';
+  const ft = (file.filetype ?? '').toLowerCase();
+  if (mt === 'application/pdf' || ft === 'pdf') return 'pdf';
+  if (mt in IMAGE_MIMETYPES || ft in IMAGE_FILETYPES) return 'image';
+  if (TEXT_MIMETYPES.has(mt) || mt.startsWith('text/') || TEXT_FILETYPES.has(ft)) return 'text';
+  return 'unsupported';
+}
+
+async function fetchSlackFile(client: any, url: string): Promise<ArrayBuffer> {
+  const token: string = (client as any).token ?? (client as any)._token ?? '';
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.arrayBuffer();
+}
+
+export async function downloadFile(
+  client: any,
+  file: SlackFile,
+  log: Logger
+): Promise<{ kind: 'text'; content: string } | { kind: 'block'; block: ContentBlockParam } | null> {
+  const kind = getFileKind(file);
+  if (kind === 'unsupported') {
+    log.debug('Skipping unsupported file type', { name: file.name, mimetype: file.mimetype, filetype: file.filetype });
+    return null;
+  }
+  if (!file.url_private_download) return null;
+
+  const label = file.name ?? file.title ?? file.id;
+
+  try {
+    if (kind === 'text') {
+      if (file.size && file.size > MAX_TEXT_FILE_BYTES) {
+        log.warn('Text file too large, truncating', { name: file.name, size: file.size });
+      }
+      const buffer = await fetchSlackFile(client, file.url_private_download);
+      let text = new TextDecoder().decode(buffer.slice(0, MAX_TEXT_FILE_BYTES));
+      if (buffer.byteLength > MAX_TEXT_FILE_BYTES) text += '\n[... truncated at 512 KB ...]';
+      return { kind: 'text', content: `[File: ${label}]\n${text}` };
+    }
+
+    if (file.size && file.size > MAX_BINARY_FILE_BYTES) {
+      log.warn('Binary file too large to send to Claude', { name: file.name, size: file.size });
+      return { kind: 'text', content: `[File "${label}" is too large to process (${Math.round((file.size ?? 0) / 1024 / 1024)} MB, limit 20 MB)]` };
+    }
+
+    const buffer = await fetchSlackFile(client, file.url_private_download);
+    const base64 = Buffer.from(buffer).toString('base64');
+
+    if (kind === 'image') {
+      const mt = file.mimetype ?? '';
+      const ft = (file.filetype ?? '').toLowerCase();
+      const mediaType = IMAGE_MIMETYPES[mt] ?? IMAGE_FILETYPES[ft] ?? 'image/jpeg';
+      return {
+        kind: 'block',
+        block: {
+          type: 'image',
+          source: { type: 'base64', media_type: mediaType, data: base64 },
+        } as ContentBlockParam,
+      };
+    }
+
+    return {
+      kind: 'block',
+      block: {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+        title: label,
+      } as ContentBlockParam,
+    };
+  } catch (err) {
+    log.warn('Error downloading file', { name: file.name, error: err });
+    return null;
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function buildPrompt(
   client: any, channelId: string, threadTs: string | undefined,
-  userText: string, agent: Agent, log: Logger
-): Promise<string> {
-  if (!threadTs) return userText;
-
+  userText: string, agent: Agent, log: Logger,
+  files?: SlackFile[]
+): Promise<string | ContentBlockParam[]> {
+  // Fetch thread context
   let threadContext = '';
-  try {
-    const replies = await client.conversations.replies({ channel: channelId, ts: threadTs, limit: MAX_THREAD_CONTEXT_MESSAGES });
-    const messages: any[] = replies.messages ?? [];
-    const contextMessages = messages.slice(0, -1);
-    if (contextMessages.length > 0) {
-      let context = contextMessages.map((m: any) => {
-        const speaker = m.bot_id ? `Assistant (${agent.name})` : 'User';
-        return `${speaker}: ${stripBotMention(m.text ?? '', agent.slackBotUserId)}`;
-      }).join('\n');
-      if (context.length > MAX_THREAD_CONTEXT_CHARS) context = '...' + context.slice(-MAX_THREAD_CONTEXT_CHARS);
-      threadContext = `[Thread context]\n${context}\n\n`;
+  if (threadTs) {
+    try {
+      const replies = await client.conversations.replies({ channel: channelId, ts: threadTs, limit: MAX_THREAD_CONTEXT_MESSAGES });
+      const messages: any[] = replies.messages ?? [];
+      const contextMessages = messages.slice(0, -1);
+      if (contextMessages.length > 0) {
+        let context = contextMessages.map((m: any) => {
+          const speaker = m.bot_id ? `Assistant (${agent.name})` : 'User';
+          return `${speaker}: ${stripBotMention(m.text ?? '', agent.slackBotUserId)}`;
+        }).join('\n');
+        if (context.length > MAX_THREAD_CONTEXT_CHARS) context = '...' + context.slice(-MAX_THREAD_CONTEXT_CHARS);
+        threadContext = `[Thread context]\n${context}\n\n`;
+      }
+    } catch (err) {
+      log.warn('Failed to fetch thread context', { error: err });
     }
-  } catch (err) {
-    log.warn('Failed to fetch thread context', { error: err });
   }
 
-  return `${threadContext}${userText}`;
+  // Download files — split into text chunks and binary blocks
+  const textChunks: string[] = [];
+  const binaryBlocks: ContentBlockParam[] = [];
+
+  if (files && files.length > 0) {
+    const results = await Promise.all(files.map(f => downloadFile(client, f, log)));
+    for (const result of results) {
+      if (!result) continue;
+      if (result.kind === 'text') textChunks.push(result.content);
+      else binaryBlocks.push(result.block);
+    }
+  }
+
+  const textPrompt = `${threadContext}${textChunks.length > 0 ? textChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
+
+  if (binaryBlocks.length > 0) {
+    const blocks: ContentBlockParam[] = [];
+    if (textPrompt) blocks.push({ type: 'text', text: textPrompt });
+    blocks.push(...binaryBlocks);
+    return blocks;
+  }
+
+  return textPrompt;
 }
 
 /**

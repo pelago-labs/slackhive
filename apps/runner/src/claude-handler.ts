@@ -17,7 +17,8 @@
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
-import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 import type { Agent, McpServer, McpServerConfig, McpStdioConfig, Permission } from '@slackhive/shared';
 import {
   getSession,
@@ -189,7 +190,7 @@ export class ClaudeHandler {
    * @throws {Error} On unrecoverable SDK errors (re-thrown after logging).
    */
   async *streamQuery(
-    prompt: string,
+    prompt: string | ContentBlockParam[],
     sessionKey: string,
     abortController?: AbortController
   ): AsyncGenerator<SDKMessage, void, unknown> {
@@ -215,11 +216,22 @@ export class ClaudeHandler {
 
     let newSessionId: string | undefined;
 
+    // Wrap array content into an AsyncIterable<SDKUserMessage> for multimodal prompts
+    const sdkPrompt: string | AsyncIterable<SDKUserMessage> = Array.isArray(prompt)
+      ? (async function* () {
+          yield {
+            type: 'user' as const,
+            message: { role: 'user' as const, content: prompt },
+            parent_tool_use_id: null,
+          };
+        })()
+      : prompt;
+
     // Stream directly for real-time progressive updates.
     // If the session is stale, we catch the error before any messages are yielded
     // and transparently retry as a fresh session.
     const stream = async function* (opts: Record<string, unknown>): AsyncGenerator<SDKMessage> {
-      yield* query({ prompt, options: opts });
+      yield* query({ prompt: sdkPrompt, options: opts });
     };
 
     let activeOptions = options;
