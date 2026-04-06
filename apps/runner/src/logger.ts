@@ -24,12 +24,11 @@ const isDev = process.env.NODE_ENV !== 'production';
  */
 export const logger = winston.createLogger({
   level: process.env.LOG_LEVEL ?? (isDev ? 'debug' : 'info'),
-  format: combine(
-    timestamp(),
-    isDev ? combine(colorize(), simple()) : json()
-  ),
+  format: isDev
+    ? combine(timestamp(), colorize(), simple())
+    : combine(timestamp(), json()),
   transports: [
-    new winston.transports.Console(),
+    new winston.transports.Console({ stderrLevels: ['error', 'warn'] }),
   ],
 });
 
