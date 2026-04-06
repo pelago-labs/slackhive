@@ -89,6 +89,8 @@ The Boss reads the message, checks its team registry, and delegates to the right
 | 👥 **User Management** | Create users, change roles, and assign per-agent write access from Settings |
 | 🏢 **Agent Hierarchy** | Multi-boss support — agents can report to multiple bosses, each boss manages its own team |
 | ⏰ **Scheduled Jobs** | Cron-based recurring tasks executed by the boss agent, with run history |
+| 🔒 **MCP Secret Masking** | MCP server env vars and headers are masked in API responses — secrets never exposed to the client |
+| 🧪 **Test Suite** | 220+ unit tests across web + runner with Vitest; CI runs on every push and PR |
 
 ### Agent Capabilities
 
