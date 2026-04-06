@@ -265,25 +265,30 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               maxWidth: 480, width: '90%',
               boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
             }} onClick={e => e.stopPropagation()}>
-              <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
                 Import agent config
               </h3>
-              <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--muted)' }}>
-                Review the changes before applying.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+
+              {/* Danger warning — shown first */}
+              <div style={{
+                display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
+                background: '#fff1f2', border: '1.5px solid #fecdd3', borderRadius: 8,
+              }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
+                    This will overwrite current CLAUDE.md and skills
+                  </div>
+                  <div style={{ fontSize: 12, color: '#9f1239' }}>
+                    Existing CLAUDE.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                 {importPreview.agentSlug && <InfoRow label="Source agent" value={`@${importPreview.agentSlug}`} />}
                 {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
                 <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
-                <div style={{
-                  display: 'flex', gap: 8, padding: '10px 12px',
-                  background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8,
-                }}>
-                  <span style={{ fontSize: 13 }}>⚠️</span>
-                  <span style={{ fontSize: 12.5, color: '#92400e' }}>
-                    CLAUDE.md will be <strong>overwritten</strong>. A snapshot is created automatically.
-                  </span>
-                </div>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <PrimaryBtn onClick={applyImport} loading={importing}>Apply Import</PrimaryBtn>
