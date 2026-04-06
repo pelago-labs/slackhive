@@ -28,7 +28,7 @@ export const logger = winston.createLogger({
     ? combine(timestamp(), colorize(), simple())
     : combine(timestamp(), json()),
   transports: [
-    new winston.transports.Console({ stderrLevels: ['error', 'warn'] }),
+    new winston.transports.Console(),
   ],
 });
 
