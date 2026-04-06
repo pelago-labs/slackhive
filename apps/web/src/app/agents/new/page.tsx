@@ -9,7 +9,8 @@
  * @module web/app/agents/new
  */
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Agent, McpServer } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
@@ -376,46 +377,69 @@ function Step2SlackApp({ state }: { state: WizardState }) {
 
   return (
     <div>
-      <StepHeader step={2} title="Create a Slack app" desc="Copy the manifest below and paste it into Slack to create the app in ~2 minutes." />
+      <StepHeader step={2} title="Create a Slack app" desc="Paste this manifest into Slack — it configures everything automatically in about 2 minutes." />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-        {[
-          { n: 1, text: <>Open <strong style={{ color: 'var(--text)' }}>api.slack.com/apps</strong> → <strong style={{ color: 'var(--text)' }}>Create New App</strong> → <strong style={{ color: 'var(--text)' }}>From a manifest</strong></> },
-          { n: 2, text: <>Select your workspace, paste the manifest below, click <strong style={{ color: 'var(--text)' }}>Create</strong></> },
-          { n: 3, text: <><strong style={{ color: 'var(--text)' }}>Install to workspace</strong> — you&apos;ll grab the tokens in the next step</> },
-        ].map(({ n, text }) => (
-          <div key={n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-            <div style={{
-              width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-              background: 'var(--surface-2)', color: 'var(--text)',
-              border: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 11, fontWeight: 700,
-            }}>{n}</div>
-            <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, paddingTop: 2 }}>{text}</span>
+      {/* Steps */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginBottom: 20 }}>
+        {([
+          {
+            n: 1,
+            title: 'Open api.slack.com/apps',
+            body: <>Click <Kbd>Create New App</Kbd> → <Kbd>From a manifest</Kbd> and select your workspace.</>,
+          },
+          {
+            n: 2,
+            title: 'Paste the manifest',
+            body: <>Switch to the <Kbd>JSON</Kbd> tab, paste the manifest below, click <Kbd>Next</Kbd> → <Kbd>Create</Kbd>.</>,
+          },
+          {
+            n: 3,
+            title: 'Install to workspace',
+            body: <>In the sidebar go to <Kbd>Install App</Kbd> → <Kbd>Install to Workspace</Kbd> → Allow. This generates your Bot Token — it won&apos;t appear until you install.</>,
+          },
+        ] as { n: number; title: string; body: React.ReactNode }[]).map(({ n, title, body }, i, arr) => (
+          <div key={n} style={{ display: 'flex', gap: 0 }}>
+            {/* Connector line + dot */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 32, flexShrink: 0 }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--accent)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700, zIndex: 1,
+              }}>{n}</div>
+              {i < arr.length - 1 && (
+                <div style={{ width: 2, flex: 1, background: 'var(--border)', minHeight: 20, marginTop: 4 }} />
+              )}
+            </div>
+            {/* Content */}
+            <div style={{ paddingLeft: 14, paddingBottom: i < arr.length - 1 ? 20 : 0, paddingTop: 3 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>{title}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.65 }}>{body}</div>
+            </div>
           </div>
         ))}
       </div>
 
-      <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      {/* Manifest block */}
+      <div style={{ background: 'var(--surface-2)', border: '1.5px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)',
+          padding: '10px 16px', borderBottom: '1px solid var(--border)',
         }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
             {state.name || 'agent'}-manifest.json
           </span>
           <button onClick={copy} style={{
-            background: copied ? '#dcfce7' : 'none',
-            color: copied ? '#16a34a' : 'var(--accent)',
-            border: 'none', cursor: 'pointer', fontSize: 12,
-            fontFamily: 'var(--font-sans)', padding: '2px 8px', borderRadius: 4,
+            background: copied ? '#dcfce7' : 'var(--accent)',
+            color: copied ? '#16a34a' : '#fff',
+            border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            fontFamily: 'var(--font-sans)', padding: '5px 12px', borderRadius: 6,
             transition: 'all 0.15s',
-          }}>{copied ? '✓ Copied' : 'Copy'}</button>
+          }}>{copied ? '✓ Copied!' : 'Copy manifest'}</button>
         </div>
         <pre style={{
           margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)',
-          fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 280, lineHeight: 1.6,
+          fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 260, lineHeight: 1.6,
         }}>{manifest}</pre>
       </div>
     </div>
@@ -427,25 +451,303 @@ function Step2SlackApp({ state }: { state: WizardState }) {
 function Step3Tokens({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
   return (
     <div>
-      <StepHeader step={3} title="Paste your tokens" desc="All three are in your Slack app settings — takes under a minute." />
+      <StepHeader step={3} title="Add your tokens" desc="Three values from your Slack app — paste each one below." />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <TokenCard
+          label="Bot Token"
+          prefix="xoxb-"
+          path={['OAuth & Permissions', 'Bot User OAuth Token']}
+          screenshot={<BotTokenScreenshot />}
+          placeholder="xoxb-..."
+          value={state.slackBotToken}
+          onChange={v => update({ slackBotToken: v })}
+        />
+        <TokenCard
+          label="App-Level Token"
+          prefix="xapp-"
+          path={['Basic Information', 'App-Level Tokens']}
+          note={<>Click <strong>Generate Token and Scopes</strong>, add scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'rgba(59,130,246,0.08)', color: 'var(--accent)', padding: '1px 6px', borderRadius: 4 }}>connections:write</code>, then generate.</>}
+          screenshot={<AppTokenScreenshot />}
+          placeholder="xapp-..."
+          value={state.slackAppToken}
+          onChange={v => update({ slackAppToken: v })}
+        />
+        <TokenCard
+          label="Signing Secret"
+          prefix=""
+          path={['Basic Information', 'App Credentials', 'Signing Secret']}
+          screenshot={<SigningSecretScreenshot />}
+          placeholder="abc123def..."
+          value={state.slackSigningSecret}
+          onChange={v => update({ slackSigningSecret: v })}
+        />
+      </div>
+    </div>
+  );
+}
 
-      <div style={{
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius)', padding: '14px 16px', marginBottom: 20, fontSize: 12.5, color: 'var(--muted)',
-        lineHeight: 1.9,
-      }}>
-        <div><strong style={{ color: 'var(--text)' }}>Bot Token (xoxb-…)</strong> — OAuth &amp; Permissions → Bot User OAuth Token</div>
-        <div><strong style={{ color: 'var(--text)' }}>App-Level Token (xapp-…)</strong> — Basic Information → App-Level Tokens → scope <code style={{ fontFamily: 'var(--font-mono)', background: 'var(--surface-3)', padding: '0 5px', borderRadius: 4 }}>connections:write</code></div>
-        <div><strong style={{ color: 'var(--text)' }}>Signing Secret</strong> — Basic Information → App Credentials</div>
+// ─── Token card ───────────────────────────────────────────────────────────────
+
+function TokenCard({ label, prefix, path, note, screenshot, placeholder, value, onChange }: {
+  label: string; prefix: string;
+  path: string[];
+  note?: React.ReactNode;
+  screenshot?: React.ReactNode;
+  placeholder: string; value: string; onChange: (v: string) => void;
+}) {
+  const [show, setShow] = useState(false);
+  const [showScreenshot, setShowScreenshot] = useState(false);
+  const isDirty = value.length > 0;
+  const isValid = prefix ? value.startsWith(prefix) : value.length >= 8;
+
+  return (
+    <div style={{
+      borderRadius: 'var(--radius)',
+      border: `1.5px solid ${isDirty ? (isValid ? '#86efac' : '#fca5a5') : 'var(--border)'}`,
+      background: '#fff',
+      overflow: 'hidden',
+      transition: 'border-color 0.2s',
+    }}>
+      {/* Header: label + breadcrumb */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', flexShrink: 0 }}>{label}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+            {path.map((p, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && <span style={{ fontSize: 11, color: 'var(--border-2)' }}>›</span>}
+                <span style={{
+                  fontSize: 11.5, whiteSpace: 'nowrap',
+                  color: i === path.length - 1 ? 'var(--muted)' : 'var(--subtle)',
+                  fontWeight: i === path.length - 1 ? 500 : 400,
+                }}>{p}</span>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {screenshot && (
+            <button
+              type="button"
+              onClick={() => setShowScreenshot(s => !s)}
+              style={{
+                background: showScreenshot ? 'var(--surface-2)' : 'none',
+                border: '1px solid var(--border)', borderRadius: 5,
+                padding: '3px 8px', cursor: 'pointer',
+                color: 'var(--muted)', fontSize: 11, fontWeight: 500,
+                fontFamily: 'var(--font-sans)', transition: 'all 0.15s',
+              }}
+            >{showScreenshot ? 'Hide guide' : 'Where?'}</button>
+          )}
+          {isDirty && (
+            <span style={{ fontSize: 12, fontWeight: 700, color: isValid ? '#16a34a' : '#ef4444' }}>
+              {isValid ? '✓' : '✗'}
+            </span>
+          )}
+        </div>
       </div>
 
-      <Field label="Bot Token *" value={state.slackBotToken} placeholder="xoxb-..."
-        type="password" onChange={v => update({ slackBotToken: v })} />
-      <Field label="App-Level Token *" value={state.slackAppToken} placeholder="xapp-..."
-        type="password" onChange={v => update({ slackAppToken: v })} />
-      <Field label="Signing Secret *" value={state.slackSigningSecret} placeholder="abc123def..."
-        type="password" onChange={v => update({ slackSigningSecret: v })} />
+      {/* Screenshot guide */}
+      {showScreenshot && screenshot && (
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+          {screenshot}
+        </div>
+      )}
+
+      {/* Note */}
+      {note && (
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', background: 'var(--surface-2)', lineHeight: 1.6 }}>
+          {note}
+        </div>
+      )}
+
+      {/* Input */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 4px 0 16px', gap: 6 }}>
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{
+            flex: 1, background: 'transparent', border: 'none',
+            padding: '12px 0', color: 'var(--text)',
+            fontSize: 13, fontFamily: value ? 'var(--font-mono)' : 'var(--font-sans)',
+            outline: 'none',
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => setShow(s => !s)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--subtle)', fontSize: 12, padding: '8px',
+            fontFamily: 'var(--font-sans)', lineHeight: 1,
+          }}
+        >{show ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+      </div>
     </div>
+  );
+}
+
+// ─── Slack UI screenshot mockups ──────────────────────────────────────────────
+
+const slackStyles = {
+  wrap: {
+    borderRadius: 8, overflow: 'hidden', border: '1px solid #e0e0e0',
+    fontFamily: 'Lato, -apple-system, sans-serif', fontSize: 12,
+  } as React.CSSProperties,
+  chrome: {
+    background: '#f1f1f1', padding: '6px 10px',
+    borderBottom: '1px solid #ddd', display: 'flex', alignItems: 'center', gap: 8,
+  } as React.CSSProperties,
+  urlBar: {
+    flex: 1, background: '#fff', border: '1px solid #ddd', borderRadius: 4,
+    padding: '3px 8px', fontSize: 10.5, color: '#555',
+    fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  body: { background: '#fff', padding: '14px 16px' } as React.CSSProperties,
+  sectionTitle: { fontSize: 12, fontWeight: 700, color: '#1d1c1d', marginBottom: 10 } as React.CSSProperties,
+  row: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 5,
+  } as React.CSSProperties,
+  label: { fontSize: 11.5, color: '#616061' } as React.CSSProperties,
+  token: { fontSize: 11, fontFamily: 'monospace', color: '#1d1c1d', letterSpacing: 1 } as React.CSSProperties,
+  greenBtn: {
+    background: '#007a5a', color: '#fff', border: 'none', borderRadius: 4,
+    padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'default',
+    boxShadow: '0 0 0 3px rgba(0,122,90,0.25)',
+  } as React.CSSProperties,
+  badge: {
+    background: '#e8f5f0', color: '#007a5a', border: '1px solid #b8dfd4',
+    borderRadius: 3, padding: '1px 6px', fontSize: 10.5, fontWeight: 600,
+  } as React.CSSProperties,
+  highlight: {
+    outline: '2.5px solid #007a5a', outlineOffset: 2, borderRadius: 4,
+  } as React.CSSProperties,
+};
+
+function ChromeBar({ url }: { url: string }) {
+  return (
+    <div style={slackStyles.chrome}>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {['#ff5f57','#febc2e','#28c840'].map(c => (
+          <div key={c} style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
+        ))}
+      </div>
+      <div style={slackStyles.urlBar}>{url}</div>
+    </div>
+  );
+}
+
+function SlackLayout({ url, activeNav, children }: { url: string; activeNav: string; children: React.ReactNode }) {
+  const navItems = ['Basic Information', 'Socket Mode', 'Install App', 'OAuth & Permissions', 'Event Subscriptions', 'App Manifest'];
+  return (
+    <div style={slackStyles.wrap}>
+      <ChromeBar url={url} />
+      <div style={{ display: 'flex', background: '#fff' }}>
+        {/* Sidebar */}
+        <div style={{ width: 148, background: '#f8f8f8', borderRight: '1px solid #e0e0e0', padding: '10px 0', flexShrink: 0 }}>
+          {navItems.map(item => (
+            <div key={item} style={{
+              padding: '5px 12px', fontSize: 11, cursor: 'default',
+              background: item === activeNav ? '#e8e8e8' : 'transparent',
+              color: item === activeNav ? '#1d1c1d' : '#616061',
+              fontWeight: item === activeNav ? 700 : 400,
+              borderLeft: item === activeNav ? '2px solid #007a5a' : '2px solid transparent',
+            }}>{item}</div>
+          ))}
+        </div>
+        {/* Content */}
+        <div style={{ flex: 1, padding: '14px 16px', minWidth: 0 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function BotTokenScreenshot() {
+  return (
+    <SlackLayout url="api.slack.com/apps/A.../oauth" activeNav="OAuth & Permissions">
+      {/* Install notice */}
+      <div style={{ background: '#fff8e6', border: '1px solid #f5c842', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontSize: 11, color: '#7a5c00', lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+        <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>Token only appears after <strong>Install to Workspace</strong> (sidebar → Install App)</span>
+      </div>
+      <div style={slackStyles.sectionTitle}>OAuth Tokens</div>
+      <div style={{ border: '1px solid #e8e8e8', borderRadius: 5, overflow: 'hidden' }}>
+        <div style={{ padding: '8px 10px', background: '#fafafa', borderBottom: '1px solid #e8e8e8' }}>
+          <div style={{ fontSize: 11, color: '#616061', marginBottom: 1 }}>Bot User OAuth Token</div>
+          <div style={{ ...slackStyles.token, fontSize: 10.5 }}>xoxb-••••••••••••-••••••••••••-••••••••••••</div>
+          <div style={{ fontSize: 10, color: '#616061', marginTop: 2 }}>Access Level: Workspace</div>
+        </div>
+        <div style={{ padding: '7px 10px', display: 'flex', justifyContent: 'flex-end' }}>
+          <button style={{ ...slackStyles.greenBtn, ...slackStyles.highlight }}>Copy</button>
+        </div>
+      </div>
+    </SlackLayout>
+  );
+}
+
+function AppTokenScreenshot() {
+  return (
+    <SlackLayout url="api.slack.com/apps/A.../general" activeNav="Basic Information">
+      <div style={slackStyles.sectionTitle}>App-Level Tokens</div>
+      <div style={{ fontSize: 11, color: '#616061', marginBottom: 10, lineHeight: 1.5 }}>
+        App-level tokens represent your app across organizations.
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <button style={{ ...slackStyles.greenBtn, ...slackStyles.highlight }}>Generate Token and Scopes</button>
+      </div>
+      <div style={{ border: '1px solid #e8e8e8', borderRadius: 5, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#1d1c1d', marginBottom: 4 }}>SlackHive</div>
+          <span style={slackStyles.badge}>connections:write</span>
+        </div>
+        <div style={slackStyles.token}>xapp-••••••••••••</div>
+      </div>
+    </SlackLayout>
+  );
+}
+
+function SigningSecretScreenshot() {
+  return (
+    <SlackLayout url="api.slack.com/apps/A.../general" activeNav="Basic Information">
+      <div style={slackStyles.sectionTitle}>App Credentials</div>
+      <div style={{ fontSize: 11, color: '#616061', marginBottom: 10, lineHeight: 1.5 }}>
+        These credentials allow your app to access the Slack API. Keep them secret.
+      </div>
+      {[
+        { label: 'App ID', value: 'A0AN••••••9', mono: true },
+        { label: 'Client ID', value: '9186••••••••••••••••', mono: true },
+        { label: 'Client Secret', value: '••••••••••', mono: true },
+      ].map(row => (
+        <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0', fontSize: 11, color: '#616061' }}>
+          <span>{row.label}</span>
+          <span style={{ fontFamily: 'monospace', color: '#1d1c1d' }}>{row.value}</span>
+        </div>
+      ))}
+      {/* Signing Secret highlighted */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', marginTop: 6, border: '1px solid #e8e8e8', borderRadius: 5, ...slackStyles.highlight }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#1d1c1d', marginBottom: 2 }}>Signing Secret</div>
+          <div style={slackStyles.token}>••••••••••••••••••••••••</div>
+        </div>
+        <button style={slackStyles.greenBtn}>Show</button>
+      </div>
+    </SlackLayout>
+  );
+}
+
+// ─── Kbd helper ───────────────────────────────────────────────────────────────
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd style={{
+      display: 'inline-block', fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 600,
+      background: 'var(--surface-3)', color: 'var(--text)',
+      border: '1px solid var(--border)', borderRadius: 5,
+      padding: '1px 7px', lineHeight: 1.7, whiteSpace: 'nowrap',
+    }}>{children}</kbd>
   );
 }
 

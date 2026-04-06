@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS scheduled_jobs (
   id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id      UUID        NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   name          TEXT        NOT NULL,
   prompt        TEXT        NOT NULL,
   cron_schedule TEXT        NOT NULL,

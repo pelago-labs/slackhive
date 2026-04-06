@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use } from 'react';
+import { Brain, Camera, Clock, History } from 'lucide-react';
 import Link from 'next/link';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
@@ -42,6 +43,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const { slug } = use(params);
   const { role, canManageUsers } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
+  const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [canEdit, setCanEdit] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
@@ -51,6 +53,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
     fetch('/api/agents')
       .then(r => r.json())
       .then((agents: Agent[]) => {
+        setAllAgents(agents);
         const found = agents.find(a => a.slug === slug) ?? null;
         setAgent(found);
         if (found) {
@@ -186,7 +189,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} />}
+        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} />}
         {tab === 'skills'      && <SkillsTab      agentId={agent.id} canEdit={canEdit} />}
         {tab === 'claude-md'   && <ClaudeMdTab    agentId={agent.id} canEdit={canEdit} />}
         {tab === 'mcps'        && <McpsTab        agentId={agent.id} canEdit={canEdit} />}
@@ -201,7 +204,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
   const [form, setForm] = useState({
     name:               agent.name,
     description:        agent.description ?? '',
@@ -210,6 +213,8 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
     slackBotToken:      agent.slackBotToken,
     slackAppToken:      agent.slackAppToken,
     slackSigningSecret: agent.slackSigningSecret,
+    isBoss:             agent.isBoss,
+    reportsTo:          agent.reportsTo ?? [] as string[],
   });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg]       = useState('');
@@ -263,6 +268,95 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
         <TextArea label="Persona" value={form.persona}
           onChange={v => setForm(f => ({ ...f, persona: v }))}
           hint="Injected into CLAUDE.md — who is this agent?" rows={4} readOnly={!canEdit} />
+      </Section>
+
+      <Section title="Role & Hierarchy">
+        {/* Boss toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks</div>
+          </div>
+          <button
+            disabled={!canEdit}
+            onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none',
+              background: form.isBoss ? '#d97706' : 'var(--border-2)',
+              cursor: canEdit ? 'pointer' : 'default',
+              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: 3, left: form.isBoss ? 23 : 3,
+              width: 18, height: 18, borderRadius: '50%', background: '#fff',
+              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+          </button>
+        </div>
+
+        {/* Reports To — only show for non-boss agents */}
+        {!form.isBoss && (() => {
+          const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
+          if (bosses.length === 0) return (
+            <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>
+              No boss agents available. Create a boss agent first.
+            </div>
+          );
+          return (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {bosses.map(boss => {
+                  const checked = form.reportsTo.includes(boss.id);
+                  return (
+                    <label key={boss.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '8px 12px', borderRadius: 8,
+                      border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
+                      background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
+                      cursor: canEdit ? 'pointer' : 'default',
+                      transition: 'all 0.15s',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!canEdit}
+                        onChange={() => setForm(f => ({
+                          ...f,
+                          reportsTo: checked
+                            ? f.reportsTo.filter(id => id !== boss.id)
+                            : [...f.reportsTo, boss.id],
+                        }))}
+                        style={{ accentColor: '#d97706', width: 14, height: 14 }}
+                      />
+                      <div style={{
+                        width: 24, height: 24, borderRadius: 6, background: '#171717',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 600, color: '#fff', flexShrink: 0,
+                      }}>
+                        {boss.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{boss.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>@{boss.slug}</div>
+                      </div>
+                      {checked && (
+                        <span style={{
+                          marginLeft: 'auto', fontSize: 10, fontWeight: 600,
+                          color: '#d97706', letterSpacing: '0.04em', textTransform: 'uppercase',
+                        }}>Reports to</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>
+                An agent can report to multiple bosses.
+              </div>
+            </div>
+          );
+        })()}
       </Section>
 
       <Section title="Slack Credentials">
@@ -865,12 +959,15 @@ function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
 
   if (memories.length === 0) {
     return (
-      <div className="fade-up" style={{ textAlign: 'center', paddingTop: 80, color: 'var(--muted)' }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>🧠</div>
-        <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+      <div className="fade-up" style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        paddingTop: 80, color: 'var(--muted)',
+      }}>
+        <Brain size={36} style={{ marginBottom: 12, color: 'var(--border-2)' }} />
+        <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
           No memories yet
         </p>
-        <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 300, margin: '0 auto' }}>
+        <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 300, margin: '0', textAlign: 'center' }}>
           The agent will automatically accumulate memories as it interacts in Slack.
         </p>
       </div>
@@ -1636,7 +1733,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             boxShadow: 'var(--shadow-card)', padding: '28px 20px',
             textAlign: 'center',
           }}>
-            <div style={{ fontSize: 22, marginBottom: 10 }}>📸</div>
+            <Camera size={22} style={{ marginBottom: 10, color: 'var(--border-2)' }} />
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No snapshots yet</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
               Snapshots are saved automatically when you change skills, MCPs, or permissions.
@@ -1812,7 +1909,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
           background: '#fff', borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-card)', gap: 10, padding: 40,
         }}>
-          <div style={{ fontSize: 32 }}>🕐</div>
+          <History size={32} style={{ color: 'var(--border-2)' }} />
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Select a snapshot</div>
           <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 260, lineHeight: 1.6 }}>
             Click any snapshot on the left to view what changed at that point in time.

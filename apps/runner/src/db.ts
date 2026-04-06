@@ -89,6 +89,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     slackBotUserId: row.slack_bot_user_id as string | undefined,
     model: row.model as string,
     status: row.status as AgentStatus,
+    enabled: row.enabled !== false,
     isBoss: row.is_boss as boolean,
     reportsTo: (row.reports_to as string[]) ?? [],
     claudeMd: (row.claude_md as string) ?? '',
@@ -546,6 +547,7 @@ export async function getAllEnabledJobs(): Promise<ScheduledJob[]> {
   const r = await getPool().query('SELECT * FROM scheduled_jobs WHERE enabled = true');
   return r.rows.map(row => ({
     id: row.id,
+    agentId: row.agent_id,
     name: row.name,
     prompt: row.prompt,
     cronSchedule: row.cron_schedule,

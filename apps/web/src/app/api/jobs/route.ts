@@ -32,8 +32,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   if (denied) return denied;
 
   const body = await req.json();
-  if (!body.name || !body.prompt || !body.cronSchedule || !body.targetId) {
-    return NextResponse.json({ error: 'name, prompt, cronSchedule, and targetId are required' }, { status: 400 });
+  if (!body.name || !body.prompt || !body.cronSchedule || !body.targetId || !body.agentId) {
+    return NextResponse.json({ error: 'agentId, name, prompt, cronSchedule, and targetId are required' }, { status: 400 });
   }
 
   const job = await createJob(body);

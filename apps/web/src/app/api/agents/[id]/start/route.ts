@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentById, updateAgentStatus, publishAgentEvent } from '@/lib/db';
+import { getAgentById, updateAgentStatus, updateAgentEnabled, publishAgentEvent } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -27,6 +27,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     if (!agent) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     await publishAgentEvent({ type: 'start', agentId: id });
     await updateAgentStatus(id, 'running');
+    await updateAgentEnabled(id, true);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
