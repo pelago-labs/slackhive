@@ -19,6 +19,14 @@ import { lineDiff, type DiffLine } from '@/lib/diff';
 
 type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memory' | 'logs' | 'history';
 
+interface AgentExportPayload {
+  version: number;
+  exportedAt?: string;
+  agentSlug?: string;
+  claudeMd: string;
+  skills: { category: string; filename: string; content: string; sortOrder: number }[];
+}
+
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',     label: 'Overview'     },
   { id: 'skills',       label: 'Skills'       },
@@ -220,6 +228,11 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
   const [msg, setMsg]       = useState('');
   const [manifest, setManifest]       = useState('');
   const [showManifest, setShowManifest] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<AgentExportPayload | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Channel restrictions state
   const [allowedChannels, setAllowedChannels] = useState('');
@@ -252,6 +265,72 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
     const r = await fetch(`/api/agents/${agent.id}/manifest`);
     setManifest(JSON.stringify(await r.json(), null, 2));
     setShowManifest(true);
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const [skillsRes, mdRes] = await Promise.all([
+        fetch(`/api/agents/${agent.id}/skills`),
+        fetch(`/api/agents/${agent.id}/claude-md`),
+      ]);
+      const skills: Skill[] = await skillsRes.json();
+      const claudeMd = await mdRes.text();
+      const payload: AgentExportPayload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        agentSlug: agent.slug,
+        claudeMd,
+        skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${agent.slug}-export.json`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setImportError('');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (typeof data.claudeMd !== 'string' || !Array.isArray(data.skills)) {
+          setImportError('Invalid export file — missing claudeMd or skills'); return;
+        }
+        setImportPreview(data);
+      } catch {
+        setImportError('Could not parse file — must be valid JSON');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const applyImport = async () => {
+    if (!importPreview) return;
+    setImporting(true);
+    try {
+      await fetch(`/api/agents/${agent.id}/claude-md`, {
+        method: 'PUT', headers: { 'Content-Type': 'text/plain' },
+        body: importPreview.claudeMd,
+      });
+      await Promise.all(importPreview.skills.map(s =>
+        fetch(`/api/agents/${agent.id}/skills`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(s),
+        })
+      ));
+      const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
+      onUpdate(updated);
+      setImportPreview(null);
+      setMsg('Imported successfully');
+      setTimeout(() => setMsg(''), 3000);
+    } finally { setImporting(false); }
   };
 
   return (
@@ -407,11 +486,72 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
         />
       </Section>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
         <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
         {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
       </div>
+
+      {/* Import / Export */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, marginTop: 14,
+        paddingTop: 14, borderTop: '1px solid var(--border)',
+      }}>
+        <GhostBtn onClick={handleExport} loading={exporting}>Export config</GhostBtn>
+        {canEdit && (
+          <GhostBtn onClick={() => fileInputRef.current?.click()}>Import config</GhostBtn>
+        )}
+        {importError && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{importError}</span>}
+        <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+      </div>
+
+      {/* Import confirmation modal */}
+      {importPreview && (
+        <Portal>
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }} onClick={() => setImportPreview(null)}>
+            <div style={{
+              background: '#fff', borderRadius: 14, padding: '28px 32px',
+              maxWidth: 480, width: '90%',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+            }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+                Import agent config
+              </h3>
+              <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--muted)' }}>
+                Review the changes before applying.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+                {importPreview.agentSlug && (
+                  <InfoRow label="Source agent" value={`@${importPreview.agentSlug}`} />
+                )}
+                {importPreview.exportedAt && (
+                  <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />
+                )}
+                <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
+                <div style={{
+                  display: 'flex', gap: 8, padding: '10px 12px',
+                  background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8,
+                }}>
+                  <span style={{ fontSize: 13 }}>⚠️</span>
+                  <span style={{ fontSize: 12.5, color: '#92400e' }}>
+                    CLAUDE.md will be <strong>overwritten</strong>. This cannot be undone (a snapshot is created automatically).
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <PrimaryBtn onClick={applyImport} loading={importing}>Apply Import</PrimaryBtn>
+                <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
 
       {showManifest && (
         <div style={{
@@ -1318,17 +1458,27 @@ function PrimaryBtn({ children, onClick, loading }: {
   );
 }
 
-function GhostBtn({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function GhostBtn({ children, onClick, loading }: { children: React.ReactNode; onClick?: () => void; loading?: boolean }) {
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} disabled={loading} style={{
       background: 'transparent', color: 'var(--muted)',
       border: '1.5px solid var(--border-2)', borderRadius: 'var(--radius)',
-      padding: '10px 20px', fontSize: 14, fontWeight: 500, fontFamily: 'var(--font-sans)', cursor: 'pointer',
+      padding: '10px 20px', fontSize: 14, fontWeight: 500, fontFamily: 'var(--font-sans)',
+      cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
       transition: 'border-color 0.15s, color 0.15s',
     }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+      onMouseEnter={e => { if (!loading) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
-    >{children}</button>
+    >{loading ? '…' : children}</button>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+      <span style={{ color: 'var(--muted)' }}>{label}</span>
+      <span style={{ color: 'var(--text)', fontWeight: 500 }}>{value}</span>
+    </div>
   );
 }
 
