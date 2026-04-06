@@ -9,13 +9,21 @@
  * @module web/app/agents/new
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Agent, McpServer } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 
 // ─── State ────────────────────────────────────────────────────────────────────
+
+interface AgentExportPayload {
+  version: number;
+  exportedAt?: string;
+  agentSlug?: string;
+  claudeMd: string;
+  skills: { category: string; filename: string; content: string; sortOrder: number }[];
+}
 
 interface WizardState {
   name: string; slug: string; description: string; persona: string;
@@ -24,6 +32,7 @@ interface WizardState {
   slackBotToken: string; slackAppToken: string; slackSigningSecret: string;
   mcpServerIds: string[];
   skillTemplate: 'blank' | 'data-analyst' | 'writer' | 'developer';
+  importPayload: AgentExportPayload | null;
 }
 
 const INITIAL: WizardState = {
@@ -31,7 +40,7 @@ const INITIAL: WizardState = {
   model: 'claude-opus-4-6', isBoss: false,
   reportsToIds: [],
   slackBotToken: '', slackAppToken: '', slackSigningSecret: '',
-  mcpServerIds: [], skillTemplate: 'blank',
+  mcpServerIds: [], skillTemplate: 'blank', importPayload: null,
 };
 
 const MODELS = [
@@ -101,6 +110,21 @@ export default function NewAgentWizard() {
       });
       const data = await r.json();
       if (!r.ok) { setError(data.error ?? 'Failed to create agent'); return; }
+
+      // Apply imported config if provided
+      if (state.importPayload) {
+        const { claudeMd, skills } = state.importPayload;
+        await fetch(`/api/agents/${data.id}/claude-md`, {
+          method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: claudeMd,
+        });
+        await Promise.all(skills.map(s =>
+          fetch(`/api/agents/${data.id}/skills`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(s),
+          })
+        ));
+      }
+
       router.push(`/agents/${data.slug}`);
     } finally { setSubmitting(false); }
   };
@@ -177,7 +201,7 @@ export default function NewAgentWizard() {
             {step === 1 && <Step2SlackApp state={state} />}
             {step === 2 && <Step3Tokens state={state} update={update} />}
             {step === 3 && !state.isBoss && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
-            {((step === 3 && state.isBoss) || step === 4) && <Step5Review state={state} catalog={catalog} agents={agents} />}
+            {((step === 3 && state.isBoss) || step === 4) && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
           </div>
 
           {error && (
@@ -361,6 +385,115 @@ function Step1Identity({ state, update, bosses }: {
           )}
         </div>
       )}
+
+      {/* Import config */}
+    </div>
+  );
+}
+
+// ─── Import config picker ─────────────────────────────────────────────────────
+
+function ImportConfigPicker({ value, onChange }: {
+  value: AgentExportPayload | null;
+  onChange: (p: AgentExportPayload | null) => void;
+}) {
+  const [error, setError] = useState('');
+  const ref = useRef<HTMLInputElement>(null);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setError('');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (typeof data.claudeMd !== 'string' || !Array.isArray(data.skills)) {
+          setError('Invalid file — must contain claudeMd (string) and skills (array)'); return;
+        }
+        if (typeof data.version !== 'number') {
+          setError('Invalid file — missing version field'); return;
+        }
+        onChange(data);
+      } catch {
+        setError('Could not parse file — must be valid JSON');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div style={{
+      marginTop: 20, padding: '14px 16px', borderRadius: 10,
+      border: `1.5px dashed ${value ? 'var(--accent)' : 'var(--border-2)'}`,
+      background: value ? 'rgba(59,130,246,0.03)' : 'var(--surface)',
+      transition: 'all 0.2s',
+    }}>
+      {!value ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>
+              Import from existing config
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Optionally load CLAUDE.md + skills from a previously exported agent
+            </div>
+            {error && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 4 }}>{error}</div>}
+          </div>
+          <button
+            type="button"
+            onClick={() => ref.current?.click()}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '7px 14px', borderRadius: 7,
+              border: '1.5px solid var(--border-2)', background: '#fff',
+              fontSize: 12.5, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M8 2v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Choose file
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+              background: 'rgba(59,130,246,0.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z" stroke="var(--accent)" strokeWidth="1.4" strokeLinejoin="round"/>
+                <path d="M9 2v4h4" stroke="var(--accent)" strokeWidth="1.4" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
+                {value.agentSlug ? `@${value.agentSlug}` : 'Config file loaded'}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
+                {value.exportedAt && ` · ${new Date(value.exportedAt).toLocaleDateString()}`}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { onChange(null); setError(''); }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 11.5, color: 'var(--muted)', padding: '4px 8px', borderRadius: 5,
+            }}
+          >Remove</button>
+        </div>
+      )}
+      <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
     </div>
   );
 }
@@ -843,7 +976,7 @@ function Step4McpsSkills({
 
 // ─── Step 5: Review ───────────────────────────────────────────────────────────
 
-function Step5Review({ state, catalog, agents }: { state: WizardState; catalog: McpServer[]; agents: Agent[] }) {
+function Step5Review({ state, update, catalog, agents }: { state: WizardState; update: (p: Partial<WizardState>) => void; catalog: McpServer[]; agents: Agent[] }) {
   const assignedBosses = agents.filter(a => state.reportsToIds.includes(a.id));
   const assignedMcps = catalog.filter(m => state.mcpServerIds.includes(m.id));
   const template = TEMPLATES.find(t => t.value === state.skillTemplate)?.label ?? state.skillTemplate;
@@ -893,9 +1026,15 @@ function Step5Review({ state, catalog, agents }: { state: WizardState; catalog: 
         ))}
       </div>
 
+      <ImportConfigPicker
+        value={state.importPayload}
+        onChange={payload => update({ importPayload: payload })}
+      />
+
       <div style={{
         background: '#f0fdf4', border: '1px solid #bbf7d0',
         borderRadius: 'var(--radius)', padding: '14px 16px', fontSize: 13, color: '#15803d', lineHeight: 1.65,
+        marginTop: 14,
       }}>
         Once created, the runner picks up the agent automatically and connects to Slack.
         Manage skills, MCPs, and channel permissions from the agent detail page.
