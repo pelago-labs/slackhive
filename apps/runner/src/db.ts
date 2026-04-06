@@ -17,6 +17,7 @@ import type {
   ScheduledJob,
   Skill,
   Permission,
+  Restriction,
   Memory,
   Session,
   AgentStatus,
@@ -346,6 +347,33 @@ export async function getAgentPermissions(agentId: string): Promise<Permission |
     [agentId]
   );
   return result.rows.length > 0 ? rowToPermission(result.rows[0]) : null;
+}
+
+// =============================================================================
+// Restrictions queries
+// =============================================================================
+
+function rowToRestriction(row: Record<string, unknown>): Restriction {
+  return {
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    allowedChannels: (row.allowed_channels as string[]) ?? [],
+    updatedAt: row.updated_at as Date,
+  };
+}
+
+/**
+ * Fetches the channel restrictions for an agent.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @returns {Promise<Restriction | null>} The restriction record, or null if not configured.
+ */
+export async function getAgentRestrictions(agentId: string): Promise<Restriction | null> {
+  const result = await getPool().query(
+    'SELECT * FROM agent_restrictions WHERE agent_id = $1',
+    [agentId]
+  );
+  return result.rows.length > 0 ? rowToRestriction(result.rows[0]) : null;
 }
 
 // =============================================================================

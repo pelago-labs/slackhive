@@ -32,6 +32,7 @@ import type {
   AgentSnapshot,
   SnapshotSkill,
   SnapshotTrigger,
+  Restriction,
 } from '@slackhive/shared';
 import { AGENT_EVENTS_CHANNEL } from '@slackhive/shared';
 
@@ -592,6 +593,48 @@ export async function upsertPermissions(
 }
 
 // =============================================================================
+// Restrictions queries
+// =============================================================================
+
+/**
+ * Returns the channel restrictions for an agent.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @returns {Promise<Restriction | null>} The restriction record, or null if not configured.
+ */
+export async function getAgentRestrictions(agentId: string): Promise<Restriction | null> {
+  const r = await getPool().query('SELECT * FROM agent_restrictions WHERE agent_id = $1', [agentId]);
+  if (!r.rows.length) return null;
+  const row = r.rows[0];
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    allowedChannels: (row.allowed_channels as string[]) ?? [],
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Creates or replaces channel restrictions for an agent.
+ *
+ * @param {string} agentId - Agent UUID.
+ * @param {string[]} allowedChannels - Channel IDs the bot is allowed to respond in.
+ * @returns {Promise<void>}
+ */
+export async function upsertRestrictions(
+  agentId: string,
+  allowedChannels: string[],
+): Promise<void> {
+  await getPool().query(
+    `INSERT INTO agent_restrictions (agent_id, allowed_channels)
+     VALUES ($1, $2)
+     ON CONFLICT (agent_id)
+     DO UPDATE SET allowed_channels = $2, updated_at = now()`,
+    [agentId, allowedChannels]
+  );
+}
+
+// =============================================================================
 // Memory queries
 // =============================================================================
 
@@ -943,16 +986,17 @@ function rowToSnapshot(row: Record<string, unknown>): AgentSnapshot {
     skillsJson:   (row.skills_json as SnapshotSkill[]) ?? [],
     allowedTools: (row.allowed_tools as string[]) ?? [],
     deniedTools:  (row.denied_tools as string[]) ?? [],
-    mcpIds:       (row.mcp_ids as string[]) ?? [],
-    compiledMd:   row.compiled_md as string,
-    createdAt:    row.created_at as Date,
+    mcpIds:          (row.mcp_ids as string[]) ?? [],
+    compiledMd:      row.compiled_md as string,
+    allowedChannels: (row.allowed_channels as string[]) ?? [],
+    createdAt:       row.created_at as Date,
   };
 }
 
 /**
  * Creates a new snapshot for an agent.
  *
- * Auto-snapshots (trigger !== 'manual') are capped at 50 per agent —
+ * Auto-snapshots (trigger !== 'manual') are capped at 10 per agent —
  * the oldest ones beyond that cap are purged in the same transaction.
  * Manual snapshots are never auto-purged.
  *
@@ -977,6 +1021,7 @@ export async function createSnapshot(
   deniedTools: string[],
   mcpIds: string[],
   compiledMd: string,
+  allowedChannels: string[] = [],
 ): Promise<AgentSnapshot> {
   const client = await getPool().connect();
   try {
@@ -985,21 +1030,21 @@ export async function createSnapshot(
     const insertResult = await client.query(
       `INSERT INTO agent_snapshots
          (agent_id, label, trigger, created_by, skills_json,
-          allowed_tools, denied_tools, mcp_ids, compiled_md)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          allowed_tools, denied_tools, mcp_ids, compiled_md, allowed_channels)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [agentId, label, trigger, createdBy, JSON.stringify(skills),
-       allowedTools, deniedTools, mcpIds, compiledMd]
+       allowedTools, deniedTools, mcpIds, compiledMd, allowedChannels]
     );
 
-    // Purge oldest auto-snapshots beyond cap=50 for this agent
+    // Purge oldest auto-snapshots beyond cap=10 for this agent
     await client.query(
       `DELETE FROM agent_snapshots
        WHERE id IN (
          SELECT id FROM agent_snapshots
          WHERE agent_id = $1 AND trigger != 'manual'
          ORDER BY created_at DESC
-         OFFSET 50
+         OFFSET 10
        )`,
       [agentId]
     );

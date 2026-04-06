@@ -14,7 +14,7 @@
  */
 
 import type { App, KnownEventFromType } from '@slack/bolt';
-import type { Agent } from '@slackhive/shared';
+import type { Agent, Restriction } from '@slackhive/shared';
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
@@ -78,7 +78,8 @@ const MCP_TOOL_LABELS: Record<string, string> = {
 export function registerSlackHandlers(
   app: App,
   agent: Agent,
-  claudeHandler: ClaudeHandler
+  claudeHandler: ClaudeHandler,
+  restrictions: Restriction | null = null,
 ): void {
   const log = agentLogger(agent.slug);
   const correctionHandler = new CorrectionHandler(agent);
@@ -130,6 +131,7 @@ export function registerSlackHandlers(
       messageTs: event.ts,
       rawText: event.text ?? '',
       files: (event as any).files ?? [],
+      restrictions,
     });
   });
 
@@ -146,11 +148,23 @@ export function registerSlackHandlers(
       messageTs: (msg as any).ts,
       rawText: (msg as any).text ?? '',
       files: (msg as any).files ?? [],
+      restrictions,
     });
   });
 
   app.event('member_joined_channel', async ({ event, client }) => {
     if (!agent.slackBotUserId || event.user !== agent.slackBotUserId) return;
+    // If the bot joined a restricted channel, post a notice and leave
+    if (isChannelRestricted(event.channel, restrictions)) {
+      try {
+        await client.chat.postMessage({
+          channel: event.channel,
+          text: `Sorry, I'm only configured to operate in specific channels. Please contact an admin if you'd like to add me here.`,
+        });
+        await client.conversations.leave({ channel: event.channel });
+      } catch { /* non-fatal */ }
+      return;
+    }
     try {
       await client.chat.postMessage({
         channel: event.channel,
@@ -174,6 +188,19 @@ export interface SlackFile {
   size?: number;
 }
 
+/**
+ * Returns true if the channel is blocked by the agent's restrictions.
+ * If restrictions is null or allowedChannels is empty, the channel is allowed.
+ *
+ * @param {string} channelId - Slack channel ID of the incoming message.
+ * @param {Restriction | null} restrictions - Agent's restriction config.
+ * @returns {boolean} True if the message should be silently ignored.
+ */
+export function isChannelRestricted(channelId: string, restrictions: Restriction | null): boolean {
+  if (!restrictions || restrictions.allowedChannels.length === 0) return false;
+  return !restrictions.allowedChannels.includes(channelId);
+}
+
 interface HandleMessageOpts {
   app: App;
   agent: Agent;
@@ -190,14 +217,18 @@ interface HandleMessageOpts {
   messageTs: string;
   rawText: string;
   files?: SlackFile[];
+  restrictions: Restriction | null;
 }
 
 async function handleMessage(opts: HandleMessageOpts): Promise<void> {
   const { app, agent, claudeHandler, correctionHandler, client, log, activeControllers, currentReactions, updateReaction,
-    userId, channelId, threadTs, messageTs, rawText, files } = opts;
+    userId, channelId, threadTs, messageTs, rawText, files, restrictions } = opts;
 
   const userText = stripBotMention(rawText, agent.slackBotUserId).trim();
   if (!userText && (!files || files.length === 0)) return;
+
+  // Silently ignore messages from channels not in the allowed list
+  if (isChannelRestricted(channelId, restrictions)) return;
 
   // Route correction/help commands before normal processing
   // Commands use agent slug prefix: {slug}:correct, {slug}:corrections, {slug}:help
