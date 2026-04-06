@@ -37,6 +37,10 @@ CREATE TABLE agents (
   is_boss              BOOLEAN     NOT NULL DEFAULT false,
   -- Array of boss agent UUIDs this agent reports to. Empty = top-level boss.
   reports_to           UUID[]      NOT NULL DEFAULT '{}',
+  -- Compiled CLAUDE.md content (skills + memories). Written to disk at startup.
+  claude_md            TEXT        NOT NULL DEFAULT '',
+  -- Username of the platform user who created this agent.
+  created_by           TEXT        NOT NULL DEFAULT 'system',
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -209,13 +213,76 @@ CREATE TABLE IF NOT EXISTS job_runs (
 CREATE INDEX IF NOT EXISTS idx_job_runs_job ON job_runs(job_id, started_at DESC);
 
 -- -----------------------------------------------------------------------------
+-- agent_access
+-- Explicit per-user write access grants for agents.
+-- Admins and superadmins bypass this table entirely.
+-- Editors can only modify agents they created or have been explicitly granted.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agent_access (
+  agent_id   UUID  NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  user_id    UUID  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (agent_id, user_id)
+);
+
+-- -----------------------------------------------------------------------------
+-- agent_snapshots
+-- Point-in-time snapshots of an agent's full configuration (skills, tools, MCPs).
+-- Created automatically on each config change and manually by users.
+-- Auto-snapshots (trigger != 'manual') are capped at 50 per agent.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agent_snapshots (
+  id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id      UUID          NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  label         TEXT,                         -- human label for manual snapshots
+  trigger       TEXT          NOT NULL        -- 'manual' | 'skill_change' | 'tools_change' | 'mcp_change'
+                              CHECK (trigger IN ('manual', 'skill_change', 'tools_change', 'mcp_change')),
+  created_by    TEXT          NOT NULL,       -- username who triggered the change
+  skills_json   JSONB         NOT NULL DEFAULT '[]',
+  allowed_tools TEXT[]        NOT NULL DEFAULT '{}',
+  denied_tools  TEXT[]        NOT NULL DEFAULT '{}',
+  mcp_ids       UUID[]        NOT NULL DEFAULT '{}',
+  compiled_md   TEXT          NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
+-- -----------------------------------------------------------------------------
 -- Indexes
 -- -----------------------------------------------------------------------------
-CREATE INDEX idx_sessions_agent_key  ON sessions(agent_id, session_key);
-CREATE INDEX idx_sessions_activity   ON sessions(last_activity);
-CREATE INDEX idx_skills_agent_order  ON skills(agent_id, category, sort_order);
-CREATE INDEX idx_memories_agent_type ON memories(agent_id, type);
-CREATE INDEX idx_agent_mcps_agent    ON agent_mcps(agent_id);
+
+-- sessions: lookup by agent+key (hot path — every Slack message), and cleanup by activity
+CREATE INDEX idx_sessions_agent_key      ON sessions(agent_id, session_key);
+CREATE INDEX idx_sessions_activity       ON sessions(last_activity);
+-- sessions: list all sessions for an agent ordered by recency (web UI)
+CREATE INDEX idx_sessions_agent_activity ON sessions(agent_id, last_activity DESC);
+
+-- skills: compile CLAUDE.md in order
+CREATE INDEX idx_skills_agent_order      ON skills(agent_id, category, sort_order);
+
+-- memories: fetch by agent+type, and lookup by agent+name for upsert
+CREATE INDEX idx_memories_agent_type     ON memories(agent_id, type);
+CREATE INDEX idx_memories_agent_name     ON memories(agent_id, name);
+
+-- agent_mcps: load MCP servers for an agent at startup
+CREATE INDEX idx_agent_mcps_agent        ON agent_mcps(agent_id);
+
+-- agents: list page sorts by is_boss + name/created_at
+CREATE INDEX idx_agents_boss_name        ON agents(is_boss DESC, name ASC);
+CREATE INDEX idx_agents_boss_created     ON agents(is_boss DESC, created_at ASC);
+
+-- mcp_servers: filter enabled servers (runner startup + agent assignment)
+CREATE INDEX idx_mcp_servers_enabled     ON mcp_servers(enabled) WHERE enabled = true;
+
+-- scheduled_jobs: runner polls only enabled jobs
+CREATE INDEX idx_scheduled_jobs_enabled  ON scheduled_jobs(enabled) WHERE enabled = true;
+
+-- agent_snapshots: list snapshots per agent ordered by recency
+CREATE INDEX idx_snapshots_agent_created ON agent_snapshots(agent_id, created_at DESC);
+
+-- agent_access: permission checks and access list per agent
+CREATE INDEX idx_agent_access_agent      ON agent_access(agent_id);
+
+-- users: list page sorts by created_at
+CREATE INDEX idx_users_created           ON users(created_at);
 
 -- -----------------------------------------------------------------------------
 -- Triggers: auto-update updated_at
