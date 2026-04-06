@@ -426,7 +426,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
 
   if (compact) {
     return (
-      <div onClick={e => e.preventDefault()}>
+      <div>
         {!value ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div>
@@ -434,7 +434,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
               <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>Load CLAUDE.md + skills from an exported agent</div>
               {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 3 }}>{error}</div>}
             </div>
-            <button type="button" onClick={e => { e.stopPropagation(); ref.current?.click(); }} style={{
+            <button type="button" onClick={() => ref.current?.click()} style={{
               display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
               padding: '6px 12px', borderRadius: 6,
               border: '1px solid var(--border-2)', background: '#fff',
@@ -456,7 +456,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
                 {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
               </div>
             </div>
-            <button type="button" onClick={e => { e.stopPropagation(); onChange(null); setError(''); }} style={{
+            <button type="button" onClick={() => { onChange(null); setError(''); }} style={{
               background: 'none', border: 'none', cursor: 'pointer',
               fontSize: 11.5, color: 'var(--muted)', padding: '3px 6px',
             }}>Remove</button>
@@ -1010,21 +1010,20 @@ function Step4McpsSkills({
           {(() => {
             const active = !!state.importPayload;
             return (
-              <label style={{
+              <div style={{
                 padding: '12px 14px',
                 border: `1px solid ${active ? '#8b5cf6' : 'var(--border)'}`,
-                borderRadius: 8, cursor: 'pointer',
+                borderRadius: 8,
                 background: active ? 'rgba(139,92,246,0.08)' : 'transparent',
                 transition: 'all 0.15s',
                 gridColumn: 'span 2',
               }}>
-                <input type="radio" name="template" checked={active} onChange={() => {}} style={{ display: 'none' }} />
                 <ImportConfigPicker
                   value={state.importPayload}
                   onChange={payload => update({ importPayload: payload })}
                   compact
                 />
-              </label>
+              </div>
             );
           })()}
         </div>
