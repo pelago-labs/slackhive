@@ -37,6 +37,10 @@ CREATE TABLE agents (
   is_boss              BOOLEAN     NOT NULL DEFAULT false,
   -- Array of boss agent UUIDs this agent reports to. Empty = top-level boss.
   reports_to           UUID[]      NOT NULL DEFAULT '{}',
+  -- Compiled CLAUDE.md content (skills + memories). Written to disk at startup.
+  claude_md            TEXT        NOT NULL DEFAULT '',
+  -- Username of the platform user who created this agent.
+  created_by           TEXT        NOT NULL DEFAULT 'system',
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -207,6 +211,18 @@ CREATE TABLE IF NOT EXISTS job_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_runs_job ON job_runs(job_id, started_at DESC);
+
+-- -----------------------------------------------------------------------------
+-- agent_access
+-- Explicit per-user write access grants for agents.
+-- Admins and superadmins bypass this table entirely.
+-- Editors can only modify agents they created or have been explicitly granted.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agent_access (
+  agent_id   UUID  NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  user_id    UUID  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (agent_id, user_id)
+);
 
 -- -----------------------------------------------------------------------------
 -- agent_snapshots
