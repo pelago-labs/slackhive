@@ -1069,10 +1069,11 @@ export async function createSnapshot(
  */
 export async function listSnapshots(agentId: string, limit = 100, offset = 0): Promise<AgentSnapshot[]> {
   const r = await getPool().query(
-    'SELECT * FROM agent_snapshots WHERE agent_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+    `SELECT id, agent_id, trigger, created_by, label, allowed_tools, denied_tools, mcp_ids, allowed_channels, created_at
+     FROM agent_snapshots WHERE agent_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
     [agentId, limit, offset]
   );
-  return r.rows.map(rowToSnapshot);
+  return r.rows.map(row => rowToSnapshot({ ...row, skills_json: [], compiled_md: '' }));
 }
 
 /**

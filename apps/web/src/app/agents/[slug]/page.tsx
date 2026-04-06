@@ -21,9 +21,9 @@ type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memor
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',     label: 'Overview'     },
   { id: 'skills',       label: 'Skills'       },
-  { id: 'claude-md',    label: 'CLAUDE.md'    },
-  { id: 'mcps',         label: 'MCPs'         },
-  { id: 'permissions',  label: 'Permissions'  },
+  { id: 'claude-md',    label: 'System Prompt' },
+  { id: 'mcps',         label: 'MCPs'          },
+  { id: 'permissions',  label: 'Tools'         },
   { id: 'memory',       label: 'Memory'       },
   { id: 'logs',         label: 'Logs'         },
   { id: 'history',      label: 'History'      },
@@ -87,7 +87,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '20px 36px 0',
+        padding: '28px 40px 0',
         borderBottom: '1px solid var(--border)',
         paddingBottom: 0,
         flexWrap: 'wrap', gap: 12,
@@ -1135,14 +1135,14 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{
-      marginBottom: 22, paddingBottom: 22,
+      marginBottom: 32, paddingBottom: 28,
       borderBottom: '1px solid var(--border)',
     }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em',
-        textTransform: 'uppercase', marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em',
+        textTransform: 'uppercase', marginBottom: 16 }}>
         {title}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{children}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
     </div>
   );
 }
@@ -1163,15 +1163,15 @@ function Field({ label, value, onChange, hint, type = 'text', readOnly }: {
       <input
         type={type} value={value} onChange={e => onChange(e.target.value)} readOnly={readOnly}
         style={{
-          width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
+          width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }
@@ -1188,15 +1188,15 @@ function TextArea({ label, value, onChange, hint, rows = 3, readOnly }: {
       <textarea
         value={value} onChange={e => onChange(e.target.value)} rows={rows} readOnly={readOnly}
         style={{
-          width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+          width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }
@@ -1207,13 +1207,16 @@ function PrimaryBtn({ children, onClick, loading }: {
   return (
     <button onClick={onClick} disabled={loading} style={{
       background: loading ? 'var(--border)' : 'var(--accent)',
-      color: '#fff', border: 'none', borderRadius: 7,
-      padding: '8px 18px', fontSize: 13, fontWeight: 500,
+      color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+      padding: '10px 22px', fontSize: 14, fontWeight: 600,
+      letterSpacing: '-0.01em',
       cursor: loading ? 'not-allowed' : 'pointer',
-      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
+      fontFamily: 'var(--font-sans)',
+      boxShadow: loading ? 'none' : 'var(--shadow-sm)',
+      transition: 'opacity 0.15s, transform 0.15s, box-shadow 0.15s',
     }}
-      onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+      onMouseEnter={e => { if (!loading) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; }}
     >{loading ? 'Saving…' : children}</button>
   );
 }
@@ -1222,12 +1225,12 @@ function GhostBtn({ children, onClick }: { children: React.ReactNode; onClick?: 
   return (
     <button onClick={onClick} style={{
       background: 'transparent', color: 'var(--muted)',
-      border: '1px solid var(--border)', borderRadius: 7,
-      padding: '8px 18px', fontSize: 13, fontFamily: 'var(--font-sans)', cursor: 'pointer',
+      border: '1.5px solid var(--border-2)', borderRadius: 'var(--radius)',
+      padding: '10px 20px', fontSize: 14, fontWeight: 500, fontFamily: 'var(--font-sans)', cursor: 'pointer',
       transition: 'border-color 0.15s, color 0.15s',
     }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
     >{children}</button>
   );
 }
@@ -1239,12 +1242,12 @@ function Btn({ children, onClick, color, textColor }: {
   return (
     <button onClick={onClick} style={{
       background: color ?? 'var(--border)', color: textColor ?? '#fff',
-      border: 'none', borderRadius: 7, padding: '7px 16px',
-      fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
-      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
+      border: 'none', borderRadius: 'var(--radius)', padding: '8px 18px',
+      fontSize: 13, fontWeight: 600, cursor: 'pointer',
+      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
     }}
-      onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
-      onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
     >{children}</button>
   );
 }
@@ -1260,10 +1263,10 @@ function Modal({ title, children, onClose }: {
       backdropFilter: 'blur(4px)',
     }}>
       <div style={{
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        borderRadius: 14, padding: '24px', width: 420,
-        boxShadow: '0 0 0 1px rgba(255,255,255,0.04)',
-        display: 'flex', flexDirection: 'column', gap: 14,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-lg)', padding: '28px', width: 440,
+        boxShadow: 'var(--shadow-modal)',
+        display: 'flex', flexDirection: 'column', gap: 16,
         maxHeight: '90vh', overflow: 'auto',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1434,12 +1437,16 @@ const TRIGGER_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 function TriggerBadge({ trigger }: { trigger: string }) {
-  const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--border)', color: 'var(--muted)' };
+  const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--surface-2)', color: 'var(--muted)' };
+  const label: Record<string, string> = {
+    skills: 'Skills', permissions: 'Tools', mcps: 'MCPs',
+    'claude-md': 'System Prompt', manual: 'Manual', restrictions: 'Channels',
+  };
   return (
     <span style={{
-      fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-      background: c.bg, color: c.color, textTransform: 'uppercase', letterSpacing: '0.05em',
-    }}>{trigger}</span>
+      fontSize: 10.5, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+      background: c.bg, color: c.color, letterSpacing: '0.03em',
+    }}>{label[trigger] ?? trigger}</span>
   );
 }
 
@@ -1456,21 +1463,30 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   const [liveSnapshot, setLiveSnapshot] = useState<AgentSnapshot | null>(null);
   const [allMcps, setAllMcps]     = useState<McpServer[]>([]);
   const [restoring, setRestoring] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [msg, setMsg]             = useState('');
 
-  // Load snapshot list + MCP catalog + current live state
+  // Load snapshot list + MCP catalog (fast path — no live state on mount)
   useEffect(() => {
     Promise.all([
       fetch(`/api/agents/${agentId}/snapshots`).then(r => r.json()),
       fetch('/api/mcps').then(r => r.json()),
+    ]).then(([snaps, mcps]) => {
+      setSnapshots(Array.isArray(snaps) ? snaps : []);
+      setAllMcps(mcps);
+      setLoading(false);
+    });
+  }, [agentId]);
+
+  // Lazy-load live state only when user picks "Compare with current"
+  useEffect(() => {
+    if (compareId !== '__current__' || liveSnapshot) return;
+    Promise.all([
       fetch(`/api/agents/${agentId}/skills`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/mcps`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/claude-md`).then(r => r.text()),
-    ]).then(([snaps, mcps, skills, perms, agentMcps, claudeMd]) => {
-      setSnapshots(Array.isArray(snaps) ? snaps : []);
-      setAllMcps(mcps);
-      // Build a pseudo-snapshot representing the current live state
+    ]).then(([skills, perms, agentMcps, claudeMd]) => {
       setLiveSnapshot({
         id: '__current__',
         agentId,
@@ -1489,16 +1505,18 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
         allowedChannels: [],
         createdAt: new Date(),
       });
-      setLoading(false);
     });
-  }, [agentId]);
+  }, [agentId, compareId, liveSnapshot]);
 
   // Load full snapshot when selected
   useEffect(() => {
     if (!selectedId) { setFullSnapshot(null); return; }
+    setFullSnapshot(null);
+    setLoadingDetail(true);
     fetch(`/api/agents/${agentId}/snapshots/${selectedId}`)
       .then(r => r.json())
-      .then(setFullSnapshot);
+      .then(snap => { setFullSnapshot(snap); setLoadingDetail(false); })
+      .catch(() => setLoadingDetail(false));
   }, [agentId, selectedId]);
 
   // Load compare snapshot when compareId changes
@@ -1551,155 +1569,254 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   // Build comparison target: live state or a selected historical snapshot
   const currentAsSnapshot: AgentSnapshot | null = compareId === '__current__' ? liveSnapshot : compareSnapshot;
 
-  if (loading) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading history…</p>;
+  if (loading) return (
+    <div style={{ display: 'flex', gap: 20, minHeight: 500 }}>
+      <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ width: 70, height: 13, borderRadius: 5, background: 'var(--surface-2)' }} />
+          <div style={{ width: 110, height: 30, borderRadius: 8, background: 'var(--surface-2)' }} />
+        </div>
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} style={{
+            background: '#fff', borderRadius: 'var(--radius)', padding: '14px 16px',
+            boxShadow: 'var(--shadow-card)', opacity: 1 - (i - 1) * 0.2,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ width: 70, height: 18, borderRadius: 6, background: 'var(--surface-2)' }} />
+              <div style={{ width: 50, height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
+            </div>
+            <div style={{ width: '55%', height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ flex: 1, background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ fontSize: 13, color: 'var(--subtle)' }}>Loading history…</div>
+      </div>
+    </div>
+  );
 
   return (
-    <div style={{ display: 'flex', gap: 24, minHeight: 500 }}>
+    <div style={{ display: 'flex', gap: 20, minHeight: 500, alignItems: 'flex-start' }}>
 
       {/* ── Left: snapshot list ────────────────────────────────────────────── */}
-      <div style={{ width: 320, flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}</span>
+      <div style={{ width: 280, flexShrink: 0 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+            color: 'var(--subtle)', textTransform: 'uppercase',
+          }}>
+            {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
+          </span>
           {canEdit && (
             <button onClick={handleCreateManual} style={{
-              background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6,
-              padding: '6px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-            }}>Save snapshot</button>
+              background: 'var(--accent)', color: '#fff', border: 'none',
+              borderRadius: 'var(--radius-sm)', padding: '7px 13px',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              fontFamily: 'var(--font-sans)', letterSpacing: '-0.01em',
+              boxShadow: 'var(--shadow-sm)', transition: 'opacity 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+            >+ Snapshot</button>
           )}
         </div>
 
-        {msg && <p style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 10 }}>{msg}</p>}
+        {msg && (
+          <div style={{
+            fontSize: 12, color: '#16a34a', background: '#f0fdf4',
+            border: '1px solid #bbf7d0', borderRadius: 8,
+            padding: '8px 12px', marginBottom: 10,
+          }}>{msg}</div>
+        )}
 
         {snapshots.length === 0 ? (
           <div style={{
-            border: '1px dashed var(--border)', borderRadius: 8, padding: '20px 16px',
-            fontSize: 13, color: 'var(--subtle)', textAlign: 'center', lineHeight: 1.6,
+            background: '#fff', borderRadius: 'var(--radius)',
+            boxShadow: 'var(--shadow-card)', padding: '28px 20px',
+            textAlign: 'center',
           }}>
-            No snapshots yet. Snapshots are created automatically when skills, permissions, or MCPs are saved.
+            <div style={{ fontSize: 22, marginBottom: 10 }}>📸</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No snapshots yet</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+              Snapshots are saved automatically when you change skills, MCPs, or permissions.
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {snapshots.map(snap => (
-              <div
-                key={snap.id}
-                onClick={() => { setSelectedId(snap.id === selectedId ? null : snap.id); setCompareId('__current__'); setCompareSnapshot(null); }}
-                style={{
-                  border: `1px solid ${snap.id === selectedId ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 8, padding: '10px 12px', cursor: 'pointer',
-                  background: snap.id === selectedId ? 'rgba(59,130,246,0.06)' : 'var(--surface)',
-                  transition: 'border-color 0.15s, background 0.15s',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <TriggerBadge trigger={snap.trigger} />
-                  <span style={{ fontSize: 11, color: 'var(--subtle)' }}>by <strong style={{ color: 'var(--muted)' }}>{snap.createdBy}</strong></span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text)', marginBottom: 2 }}>{fmt(snap.createdAt)}</div>
-                {snap.label && <div style={{ fontSize: 11.5, color: 'var(--accent)', fontStyle: 'italic' }}>{snap.label}</div>}
-                {snap.id === selectedId && canEdit && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={() => handleRestore(snap)}
-                      disabled={restoring}
-                      style={{
-                        fontSize: 11.5, padding: '4px 10px', borderRadius: 5, cursor: 'pointer',
-                        background: '#16a34a', color: '#fff', border: 'none', fontFamily: 'var(--font-sans)',
-                      }}
-                    >{restoring ? 'Restoring…' : 'Restore'}</button>
-                    <button
-                      onClick={() => handleDelete(snap.id)}
-                      style={{
-                        fontSize: 11.5, padding: '4px 10px', borderRadius: 5, cursor: 'pointer',
-                        background: 'transparent', color: '#ef4444',
-                        border: '1px solid rgba(239,68,68,0.3)', fontFamily: 'var(--font-sans)',
-                      }}
-                    >Delete</button>
+            {snapshots.map(snap => {
+              const isSelected = snap.id === selectedId;
+              return (
+                <div
+                  key={snap.id}
+                  onClick={() => { setSelectedId(isSelected ? null : snap.id); setCompareId('__current__'); setCompareSnapshot(null); }}
+                  style={{
+                    background: '#fff',
+                    borderRadius: 'var(--radius)',
+                    boxShadow: isSelected ? '0 0 0 2px var(--accent), var(--shadow-card)' : 'var(--shadow-card)',
+                    padding: '13px 15px', cursor: 'pointer',
+                    transition: 'box-shadow 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}
+                  onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-card)'; }}
+                >
+                  {/* Top row: badge + author */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+                    <TriggerBadge trigger={snap.trigger} />
+                    <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-mono)' }}>{snap.createdBy}</span>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Timestamp */}
+                  <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)', marginBottom: snap.label ? 4 : 0 }}>
+                    {fmt(snap.createdAt)}
+                  </div>
+
+                  {/* Optional label */}
+                  {snap.label && (
+                    <div style={{
+                      fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic',
+                      marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{snap.label}</div>
+                  )}
+
+                  {/* Actions — only when selected */}
+                  {isSelected && canEdit && (
+                    <div style={{ display: 'flex', gap: 7, marginTop: 11, paddingTop: 11, borderTop: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => handleRestore(snap)}
+                        disabled={restoring}
+                        style={{
+                          flex: 1, fontSize: 12, padding: '6px 0', borderRadius: 6, cursor: restoring ? 'not-allowed' : 'pointer',
+                          background: '#16a34a', color: '#fff', border: 'none',
+                          fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
+                        }}
+                        onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
+                        onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                      >{restoring ? 'Restoring…' : 'Restore'}</button>
+                      <button
+                        onClick={() => handleDelete(snap.id)}
+                        style={{
+                          fontSize: 12, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                          background: 'transparent', color: 'var(--red)',
+                          border: '1.5px solid rgba(220,38,38,0.25)',
+                          fontFamily: 'var(--font-sans)', fontWeight: 500, transition: 'all 0.15s',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget.style.background = 'var(--red)'); (e.currentTarget.style.color = '#fff'); (e.currentTarget.style.borderColor = 'var(--red)'); }}
+                        onMouseLeave={e => { (e.currentTarget.style.background = 'transparent'); (e.currentTarget.style.color = 'var(--red)'); (e.currentTarget.style.borderColor = 'rgba(220,38,38,0.25)'); }}
+                      >Delete</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
       {/* ── Right: diff panel ─────────────────────────────────────────────── */}
-      {fullSnapshot ? (
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Compare selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Comparing snapshot →</span>
+      {loadingDetail ? (
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Compare bar skeleton */}
+          <div style={{ background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 90, height: 14, borderRadius: 4, background: 'var(--surface-2)' }} />
+            <div style={{ flex: 1, height: 34, borderRadius: 8, background: 'var(--surface-2)' }} />
+          </div>
+          {/* Section skeletons */}
+          {[120, 80, 60, 200].map((h, i) => (
+            <div key={i} style={{ background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', opacity: 1 - i * 0.15 }}>
+              <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ width: 70, height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
+              </div>
+              <div style={{ padding: '16px 18px' }}>
+                <div style={{ height: h, borderRadius: 6, background: 'var(--surface-2)' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : fullSnapshot ? (
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Compare bar */}
+          <div style={{
+            background: '#fff', borderRadius: 'var(--radius)',
+            boxShadow: 'var(--shadow-card)', padding: '14px 18px',
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
+              Compare with
+            </span>
             <select
               value={compareId}
               onChange={e => setCompareId(e.target.value)}
               style={{
-                fontSize: 12, padding: '5px 10px', borderRadius: 6,
-                border: '1px solid var(--border)', background: 'var(--surface-2)',
+                flex: 1, fontSize: 13, padding: '7px 12px', borderRadius: 8,
+                border: '1.5px solid var(--border)', background: 'var(--surface-2)',
                 color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none', cursor: 'pointer',
               }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
             >
               <option value="__current__">Current state</option>
               {snapshots.filter(s => s.id !== selectedId).map(s => (
-                <option key={s.id} value={s.id}>{fmt(s.createdAt)} — {s.trigger}{s.label ? ` (${s.label})` : ''}</option>
+                <option key={s.id} value={s.id}>{fmt(s.createdAt)} — {s.trigger}{s.label ? ` · ${s.label}` : ''}</option>
               ))}
             </select>
           </div>
 
-          {/* Skills diff */}
-          <section style={{ marginBottom: 24 }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Skills</h3>
-            <SkillDiff snapshot={fullSnapshot} current={currentAsSnapshot} />
-          </section>
-
-          {/* Permissions diff */}
-          <section style={{ marginBottom: 24 }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Permissions</h3>
-            <PermsDiff snapshot={fullSnapshot} current={currentAsSnapshot} />
-          </section>
-
-          {/* MCPs diff */}
-          <section style={{ marginBottom: 24 }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>MCPs</h3>
-            <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} />
-          </section>
-
-          {/* CLAUDE.md diff */}
-          <section>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              CLAUDE.md
-            </h3>
-            {(() => {
-              const diff = lineDiff(fullSnapshot.compiledMd || '', currentAsSnapshot?.compiledMd || '');
-              const changed = diff.some(l => l.type !== 'same');
-              if (!changed) return <p style={{ fontSize: 12, color: 'var(--subtle)', margin: 0 }}>No changes to CLAUDE.md</p>;
-              return (
-                <pre style={{
-                  margin: 0, padding: '14px', borderRadius: 8, fontSize: 11.5,
-                  fontFamily: 'var(--font-mono)', background: 'var(--surface-2)',
-                  border: '1px solid var(--border)', overflow: 'auto', maxHeight: 400,
-                  color: 'var(--text)', lineHeight: 1.65,
-                }}>
-                  {diff.map((l, i) => (
-                    <div key={i} style={{
-                      background: l.type === 'add' ? 'rgba(34,197,94,0.12)' : l.type === 'remove' ? 'rgba(239,68,68,0.12)' : 'transparent',
-                      color: l.type === 'add' ? '#22c55e' : l.type === 'remove' ? '#ef4444' : 'inherit',
-                      padding: '0 4px',
-                    }}>
-                      {l.type === 'add' ? '+ ' : l.type === 'remove' ? '- ' : '  '}{l.line}
-                    </div>
-                  ))}
-                </pre>
-              );
-            })()}
-          </section>
+          {/* Diff sections */}
+          {[
+            { title: 'Skills',       content: <SkillDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
+            { title: 'Tools',        content: <PermsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
+            { title: 'MCPs',         content: <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} /> },
+            { title: 'System Prompt', content: (() => {
+                const diff = lineDiff(fullSnapshot.compiledMd || '', currentAsSnapshot?.compiledMd || '');
+                const changed = diff.some(l => l.type !== 'same');
+                if (!changed) return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>No changes</p>;
+                return (
+                  <pre style={{
+                    margin: 0, padding: '14px 16px', borderRadius: 8, fontSize: 12,
+                    fontFamily: 'var(--font-mono)', background: 'var(--surface-2)',
+                    border: '1px solid var(--border)', overflow: 'auto', maxHeight: 380,
+                    color: 'var(--text)', lineHeight: 1.7,
+                  }}>
+                    {diff.map((l, i) => (
+                      <div key={i} style={{
+                        background: l.type === 'add' ? 'rgba(34,197,94,0.12)' : l.type === 'remove' ? 'rgba(239,68,68,0.10)' : 'transparent',
+                        color: l.type === 'add' ? '#16a34a' : l.type === 'remove' ? '#dc2626' : 'inherit',
+                        padding: '1px 6px', borderRadius: 3, marginBottom: 1,
+                      }}>
+                        {l.type === 'add' ? '+ ' : l.type === 'remove' ? '- ' : '  '}{l.line}
+                      </div>
+                    ))}
+                  </pre>
+                );
+              })(),
+            },
+          ].map(({ title, content }) => (
+            <div key={title} style={{
+              background: '#fff', borderRadius: 'var(--radius)',
+              boxShadow: 'var(--shadow-card)', overflow: 'hidden',
+            }}>
+              <div style={{
+                padding: '12px 18px', borderBottom: '1px solid var(--border)',
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+                color: 'var(--muted)', textTransform: 'uppercase',
+              }}>{title}</div>
+              <div style={{ padding: '16px 18px' }}>{content}</div>
+            </div>
+          ))}
         </div>
       ) : (
         <div style={{
-          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          border: '1px dashed var(--border)', borderRadius: 10,
-          color: 'var(--subtle)', fontSize: 13,
+          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          background: '#fff', borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow-card)', gap: 10, padding: 40,
         }}>
-          Select a snapshot to view the diff
+          <div style={{ fontSize: 32 }}>🕐</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Select a snapshot</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 260, lineHeight: 1.6 }}>
+            Click any snapshot on the left to view what changed at that point in time.
+          </div>
         </div>
       )}
     </div>

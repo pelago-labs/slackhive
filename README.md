@@ -90,6 +90,7 @@ The Boss reads the message, checks its team registry, and delegates to the right
 | 🏢 **Agent Hierarchy** | Multi-boss support — agents can report to multiple bosses, each boss manages its own team |
 | ⏰ **Scheduled Jobs** | Cron-based recurring tasks executed by the boss agent, with run history |
 | 🔒 **MCP Secret Masking** | MCP server env vars and headers are masked in API responses — secrets never exposed to the client |
+| 🚦 **Channel Restrictions** | Per-agent allowlist of Slack channels — bot only responds in listed channels; auto-leaves uninvited ones with a clear notice |
 | 🧪 **Test Suite** | 220+ unit tests across web + runner with Vitest; CI runs on every push and PR |
 
 ### Agent Capabilities
@@ -102,10 +103,11 @@ The Boss reads the message, checks its team registry, and delegates to the right
 - **Customizable personas** — each agent has its own personality and behavior
 - **Skill system** — modular markdown files deployed as Claude Code slash commands in `.claude/commands/`
 - **Separate CLAUDE.md** — agent identity/instructions stored independently from skills; boss registries auto-generated
-- **Full version control** — auto-snapshot on every change (skills, CLAUDE.md, permissions, MCPs); line-level diff view; one-click restore
+- **Full version control** — auto-snapshot on every change (skills, CLAUDE.md, permissions, MCPs); line-level diff view; one-click restore; capped at 10 snapshots per agent
 - **Auto-generated boss registry** — each boss gets a team roster compiled from agents that report to it
 - **Memory system injected into CLAUDE.md** — agents know how to write and organize memories
 - **Multi-boss hierarchy** — `reports_to` is a UUID array; an agent can report to multiple bosses
+- **Channel restrictions** — per-agent allowlist enforced at the message handler level; outbound job DMs bypass restrictions; bot auto-leaves non-allowed channels with an admin notice
 
 ---
 
@@ -142,7 +144,7 @@ The Boss reads the message, checks its team registry, and delegates to the right
 │  │  agents · skills · memories · permissions           │    │
 │  │  mcp_servers · agent_mcps · sessions · env_vars     │    │
 │  │  settings · users · scheduled_jobs · job_runs       │    │
-│  │  agent_snapshots · agent_access                     │    │
+│  │  agent_snapshots · agent_access · agent_restrictions  │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -351,29 +353,29 @@ slackhive update
 
 ## 🤖 Creating Your First Agent
 
-Click **New Agent** from the dashboard and follow the wizard:
+Click **New Agent** from the dashboard and follow the 5-step wizard:
 
-### Step 1 — Identity
-Set the agent's name, slug (e.g., `data-bot`), persona, and description. Toggle **Boss** if this agent should orchestrate others — boss agents skip the MCPs & Skills step since their `CLAUDE.md` is auto-generated. For specialist agents, select which boss(es) they report to.
+### Step 1 — Name & Role
+Set the agent's name (slug auto-generated), optional description, persona, and model. Toggle **Boss** if this agent orchestrates others — boss agents auto-generate their `CLAUDE.md` from the team registry and skip the Tools step. For specialist agents, select which boss(es) they report to.
 
-### Step 2 — Slack App Setup
-The platform generates a `slack-app-manifest.json`. Create a Slack app from this manifest:
+### Step 2 — Slack App
+The wizard generates a manifest JSON. In another tab:
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**
-2. Paste the generated JSON
-3. **Install to Workspace** → copy the **Bot Token** (`xoxb-...`)
-4. **Socket Mode** → Enable → generate the **App-Level Token** (`xapp-...`)
-5. **Basic Information** → copy the **Signing Secret**
-6. Paste all three back in the wizard
+2. Select your workspace, paste the manifest, click **Create**
+3. **Install to workspace** — you'll grab the tokens in the next step
 
-### Step 3 — Permissions
-Configure which Claude Code SDK tools the agent can use. Quick-add buttons for common tools like `Read`, `Write`, `Bash`, `WebFetch`.
+### Step 3 — Credentials
+Paste the three values from your Slack app settings:
+- **Bot Token (`xoxb-…`)** — OAuth & Permissions → Bot User OAuth Token
+- **App-Level Token (`xapp-…`)** — Basic Information → App-Level Tokens → scope `connections:write`
+- **Signing Secret** — Basic Information → App Credentials
 
-### Step 4 — MCPs
-Select MCP servers from the platform catalog to give your agent access to external tools (databases, APIs, etc.).
+### Step 4 — Tools
+Select MCP servers from the platform catalog and pick a starter skill template (Blank / Data Analyst / Writer / Developer). Both can be changed at any time from the agent detail page.
 
-### Step 5 — Skills
-Choose a starter template or start blank. Skills are individual markdown files deployed as Claude Code slash commands in `.claude/commands/` — invokable inside the agent's session as `/skill-name`. The **CLAUDE.md** tab holds the agent's main identity/instruction file separately.
+### Step 5 — Review
+Confirm the summary and click **Create Agent**. The runner picks it up automatically and connects to Slack.
 
 The agent starts automatically and connects to Slack.
 
@@ -461,6 +463,28 @@ The UI includes schedule presets (hourly, daily, weekdays, weekly) and shows cro
 | **Running** | Job is currently executing |
 | **Success** | Completed and result posted to Slack |
 | **Error** | Failed — boss not running, Claude error, or Slack API failure |
+
+---
+
+## 🚦 Channel Restrictions
+
+By default, a SlackHive agent will respond in any channel it's invited to. Channel restrictions let you lock each agent to a specific set of channels.
+
+### How it works
+
+1. Open **Agents → [name] → Overview** and scroll to **Allowed Channels**
+2. Enter one or more Slack channel IDs (e.g. `C12345678`) — find these in Slack by right-clicking the channel → **Copy link**, or from the channel URL
+3. Save — the agent now only responds in those channels
+
+When a channel list is set:
+- **Messages in unlisted channels are silently ignored** — the bot does not reply
+- **If the bot is invited to a non-allowed channel**, it posts a polite notice (`This agent is restricted to specific channels. Please contact an admin to request access.`) and immediately leaves
+- **Outbound job DMs are not affected** — scheduled jobs can still DM any user
+- **Empty list = unrestricted** — the bot responds everywhere (default behaviour)
+
+### Finding channel IDs
+
+In Slack: open the channel → right-click the channel name → **Copy link**. The ID is the `C…` segment at the end of the URL (e.g. `https://app.slack.com/client/T.../C12345678`).
 
 ---
 
@@ -585,6 +609,7 @@ We're actively building and these are on the horizon:
 - [ ] **Local model support** — plug in local LLMs via Claude Code's model routing when available
 - [ ] **Agent-to-agent conversations** — agents can directly message each other, not just through Boss
 - [x] **Scheduled tasks** — cron-based agent actions (daily reports, weekly summaries)
+- [x] **Channel restrictions** — per-agent channel allowlist; bot auto-leaves uninvited channels
 - [ ] **Multi-workspace support** — one platform instance serving multiple Slack workspaces
 - [ ] **Analytics dashboard** — message volume, response times, memory growth per agent
 - [ ] **Webhook triggers** — trigger agent actions from external events (GitHub, Jira, PagerDuty)
