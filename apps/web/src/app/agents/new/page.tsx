@@ -393,9 +393,10 @@ function Step1Identity({ state, update, bosses }: {
 
 // ─── Import config picker ─────────────────────────────────────────────────────
 
-function ImportConfigPicker({ value, onChange }: {
+function ImportConfigPicker({ value, onChange, compact }: {
   value: AgentExportPayload | null;
   onChange: (p: AgentExportPayload | null) => void;
+  compact?: boolean;
 }) {
   const [error, setError] = useState('');
   const ref = useRef<HTMLInputElement>(null);
@@ -423,11 +424,54 @@ function ImportConfigPicker({ value, onChange }: {
     reader.readAsText(file);
   };
 
+  if (compact) {
+    return (
+      <div onClick={e => e.preventDefault()}>
+        {!value ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 1 }}>Import config</div>
+              <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>Load CLAUDE.md + skills from an exported agent</div>
+              {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 3 }}>{error}</div>}
+            </div>
+            <button type="button" onClick={e => { e.stopPropagation(); ref.current?.click(); }} style={{
+              display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+              padding: '6px 12px', borderRadius: 6,
+              border: '1px solid var(--border-2)', background: '#fff',
+              fontSize: 12, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
+            }}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <path d="M8 2v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Choose file
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed' }}>
+                {value.agentSlug ? `@${value.agentSlug}` : 'Config loaded'}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
+              </div>
+            </div>
+            <button type="button" onClick={e => { e.stopPropagation(); onChange(null); setError(''); }} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 11.5, color: 'var(--muted)', padding: '3px 6px',
+            }}>Remove</button>
+          </div>
+        )}
+        <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
+      </div>
+    );
+  }
+
   return (
     <div style={{
       marginTop: 20, padding: '14px 16px', borderRadius: 10,
-      border: `1.5px dashed ${value ? 'var(--accent)' : 'var(--border-2)'}`,
-      background: value ? 'rgba(59,130,246,0.03)' : 'var(--surface)',
+      border: `1.5px dashed ${value ? '#8b5cf6' : 'var(--border-2)'}`,
+      background: value ? 'rgba(139,92,246,0.03)' : 'var(--surface)',
       transition: 'all 0.2s',
     }}>
       {!value ? (
@@ -437,21 +481,18 @@ function ImportConfigPicker({ value, onChange }: {
               Import from existing config
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Optionally load CLAUDE.md + skills from a previously exported agent
+              Load CLAUDE.md + skills from a previously exported agent
             </div>
             {error && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 4 }}>{error}</div>}
           </div>
-          <button
-            type="button"
-            onClick={() => ref.current?.click()}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-              padding: '7px 14px', borderRadius: 7,
-              border: '1.5px solid var(--border-2)', background: '#fff',
-              fontSize: 12.5, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+          <button type="button" onClick={() => ref.current?.click()} style={{
+            display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+            padding: '7px 14px', borderRadius: 7,
+            border: '1.5px solid var(--border-2)', background: '#fff',
+            fontSize: 12.5, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#8b5cf6'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -465,12 +506,12 @@ function ImportConfigPicker({ value, onChange }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-              background: 'rgba(59,130,246,0.1)',
+              background: 'rgba(139,92,246,0.1)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z" stroke="var(--accent)" strokeWidth="1.4" strokeLinejoin="round"/>
-                <path d="M9 2v4h4" stroke="var(--accent)" strokeWidth="1.4" strokeLinejoin="round"/>
+                <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z" stroke="#8b5cf6" strokeWidth="1.4" strokeLinejoin="round"/>
+                <path d="M9 2v4h4" stroke="#8b5cf6" strokeWidth="1.4" strokeLinejoin="round"/>
               </svg>
             </div>
             <div>
@@ -483,14 +524,10 @@ function ImportConfigPicker({ value, onChange }: {
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => { onChange(null); setError(''); }}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 11.5, color: 'var(--muted)', padding: '4px 8px', borderRadius: 5,
-            }}
-          >Remove</button>
+          <button type="button" onClick={() => { onChange(null); setError(''); }} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 11.5, color: 'var(--muted)', padding: '4px 8px', borderRadius: 5,
+          }}>Remove</button>
         </div>
       )}
       <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
@@ -950,7 +987,7 @@ function Step4McpsSkills({
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {TEMPLATES.map(t => {
-            const active = state.skillTemplate === t.value;
+            const active = state.skillTemplate === t.value && !state.importPayload;
             return (
               <label key={t.value} style={{
                 padding: '12px 14px', border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
@@ -959,7 +996,7 @@ function Step4McpsSkills({
                 transition: 'all 0.15s',
               }}>
                 <input type="radio" name="template" value={t.value} checked={active}
-                  onChange={() => update({ skillTemplate: t.value as WizardState['skillTemplate'] })}
+                  onChange={() => update({ skillTemplate: t.value as WizardState['skillTemplate'], importPayload: null })}
                   style={{ display: 'none' }} />
                 <div style={{ fontSize: 13, fontWeight: 600, color: active ? 'var(--accent)' : 'var(--text)', marginBottom: 2 }}>
                   {t.label}
@@ -968,6 +1005,28 @@ function Step4McpsSkills({
               </label>
             );
           })}
+
+          {/* Import tile */}
+          {(() => {
+            const active = !!state.importPayload;
+            return (
+              <label style={{
+                padding: '12px 14px',
+                border: `1px solid ${active ? '#8b5cf6' : 'var(--border)'}`,
+                borderRadius: 8, cursor: 'pointer',
+                background: active ? 'rgba(139,92,246,0.08)' : 'transparent',
+                transition: 'all 0.15s',
+                gridColumn: 'span 2',
+              }}>
+                <input type="radio" name="template" checked={active} onChange={() => {}} style={{ display: 'none' }} />
+                <ImportConfigPicker
+                  value={state.importPayload}
+                  onChange={payload => update({ importPayload: payload })}
+                  compact
+                />
+              </label>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -979,7 +1038,9 @@ function Step4McpsSkills({
 function Step5Review({ state, update, catalog, agents }: { state: WizardState; update: (p: Partial<WizardState>) => void; catalog: McpServer[]; agents: Agent[] }) {
   const assignedBosses = agents.filter(a => state.reportsToIds.includes(a.id));
   const assignedMcps = catalog.filter(m => state.mcpServerIds.includes(m.id));
-  const template = TEMPLATES.find(t => t.value === state.skillTemplate)?.label ?? state.skillTemplate;
+  const template = state.importPayload
+    ? `Import (${state.importPayload.agentSlug ? `@${state.importPayload.agentSlug}` : 'config file'}, ${state.importPayload.skills.length} skills)`
+    : (TEMPLATES.find(t => t.value === state.skillTemplate)?.label ?? state.skillTemplate);
 
   const reportsToValue = state.isBoss
     ? '—'
@@ -1026,15 +1087,9 @@ function Step5Review({ state, update, catalog, agents }: { state: WizardState; u
         ))}
       </div>
 
-      <ImportConfigPicker
-        value={state.importPayload}
-        onChange={payload => update({ importPayload: payload })}
-      />
-
       <div style={{
         background: '#f0fdf4', border: '1px solid #bbf7d0',
         borderRadius: 'var(--radius)', padding: '14px 16px', fontSize: 13, color: '#15803d', lineHeight: 1.65,
-        marginTop: 14,
       }}>
         Once created, the runner picks up the agent automatically and connects to Slack.
         Manage skills, MCPs, and channel permissions from the agent detail page.
