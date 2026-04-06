@@ -34,6 +34,9 @@ CREATE TABLE agents (
   model                TEXT        NOT NULL DEFAULT 'claude-opus-4-6',
   status               TEXT        NOT NULL DEFAULT 'stopped'
                                    CHECK (status IN ('running', 'stopped', 'error')),
+  -- Whether this agent should auto-start when the runner starts.
+  -- Set to false only when explicitly stopped via the UI.
+  enabled              BOOLEAN     NOT NULL DEFAULT true,
   is_boss              BOOLEAN     NOT NULL DEFAULT false,
   -- Array of boss agent UUIDs this agent reports to. Empty = top-level boss.
   reports_to           UUID[]      NOT NULL DEFAULT '{}',
