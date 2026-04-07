@@ -36,6 +36,39 @@ const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? '/tmp/agents';
  * Memory system instructions injected into every agent's CLAUDE.md.
  * Tells the agent to persist learned facts to .claude/memory/ in its cwd.
  */
+/**
+ * Slack formatting rules injected into every agent's CLAUDE.md.
+ * Built-in at the framework level — not visible in the Skills tab.
+ */
+const SLACK_FORMATTING_SECTION = `# Slack Formatting
+
+You are responding in Slack. Follow these rules for every message:
+
+**Text formatting:**
+- Bold: \`*bold*\` — NOT \`**bold**\`
+- Italic: \`_italic_\` — NOT \`*italic*\`
+- Section headers: \`*Header Text*\` on its own line — NOT \`#\`, \`##\`, \`###\`
+- Inline code: \`` + '`' + `code\`` + '`' + `
+- Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
+- Lists: \`- item\` or \`1. item\`
+- Links: \`<url|text>\`
+- Horizontal rules: just a blank line — NOT \`---\` or \`***\`
+- Blockquotes: use plain text or \`_italic_\` — NOT \`>\`
+
+**Tables — use standard Markdown pipe format:**
+- Every row MUST start and end with \`|\`
+- Always include a separator row: \`|---|---|---|\`
+- Do NOT wrap tables in code blocks
+
+Good:
+\`\`\`
+| Name | Count |
+|---|---|
+| Alpha | 42 |
+\`\`\`
+
+**Never use:** \`## headings\`, \`**double asterisks**\`, \`> blockquotes\`, \`---\` rules`;
+
 const MEMORY_SYSTEM_SECTION = `# Memory System
 
 You have a persistent memory system. **At the end of every conversation, proactively save anything useful you learned** — this is how you get smarter over time. Memories persist across all future conversations with every user.
@@ -245,6 +278,9 @@ function buildClaudeMd(agent: Agent, memories: Memory[], overrideClaudeMd?: stri
     if (agent.description) lines.push('', agent.description);
     sections.push(lines.join('\n'));
   }
+
+  // Slack formatting rules (framework-level, not a skill)
+  sections.push(SLACK_FORMATTING_SECTION);
 
   // Memory system instructions
   sections.push(MEMORY_SYSTEM_SECTION);
