@@ -675,7 +675,7 @@ SlackHive takes supply chain security seriously:
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Email **[aman@amansrivastava.dev](mailto:aman@amansrivastava.dev)** with:
+Email **[aman@pelago.co](mailto:aman@pelago.co)** with:
 - A description of the vulnerability
 - Steps to reproduce
 - Potential impact
