@@ -1,6 +1,6 @@
 {
   "name": "slackhive",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "CLI to install and manage SlackHive — AI agent teams on Slack",
   "bin": {
     "slackhive": "./dist/index.js"
@@ -21,7 +21,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/amansrivastava17/slackhive"
+    "url": "https://github.com/pelago-labs/slackhive"
   },
   "dependencies": {
     "chalk": "^4.1.2",
