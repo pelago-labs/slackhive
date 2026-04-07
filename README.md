@@ -692,7 +692,7 @@ We aim to respond within 48 hours and issue a fix within 7 days for confirmed is
 
 ## 📄 License
 
-MIT © 2026 [Aman Srivastava](https://github.com/amansrivastava17)
+MIT © 2026 [Pelago Labs](https://github.com/pelago-labs)
 
 ---
 
