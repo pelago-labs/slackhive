@@ -1,0 +1,134 @@
+---
+title: "Environment Variables"
+description: "Complete reference for all SlackHive environment variables."
+---
+
+All configuration is done through a `.env` file in the project root. Copy `.env.example` to `.env` and fill in the required values.
+
+```bash
+cp .env.example .env
+```
+
+## Claude authentication
+
+Choose **one** authentication method. If both are present, the API key takes precedence.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | One of the two | Anthropic API key for pay-per-token usage. Format: `sk-ant-api03-...` |
+| `CLAUDE_BIN` | One of the two | Path to the `claude` binary on the host, used with a Claude Max subscription. Leave `ANTHROPIC_API_KEY` unset. |
+
+### API key (Option A)
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-api03-...
+```
+
+Every agent uses this key. You're billed per token via the Anthropic API. Best for teams and production use.
+
+### Claude Max subscription (Option B)
+
+```bash
+# Comment out or remove ANTHROPIC_API_KEY
+CLAUDE_BIN=/usr/local/bin/claude
+```
+
+Run `claude login` on the host machine first. Mount `~/.claude:/root/.claude` in the runner container. Best for individual developers on a $100–$200/month Claude Max plan.
+
+## PostgreSQL
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `POSTGRES_DB` | Yes | `slackhive` | Database name |
+| `POSTGRES_USER` | Yes | `slackhive` | Database user |
+| `POSTGRES_PASSWORD` | Yes | — | Database password. Use a strong random value. |
+
+```bash
+POSTGRES_DB=slackhive
+POSTGRES_USER=slackhive
+POSTGRES_PASSWORD=<strong-random-password>
+```
+
+The `DATABASE_URL` used internally by the web and runner services is constructed automatically from these values in `docker-compose.yml`.
+
+## Redis
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `REDIS_PASSWORD` | Yes | Redis authentication password. Used for the pub/sub event bus between web and runner. |
+
+```bash
+REDIS_PASSWORD=<strong-random-password>
+```
+
+## Web UI authentication
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ADMIN_USERNAME` | Yes | Superadmin login username. Stored only in `.env`, never in the database. |
+| `ADMIN_PASSWORD` | Yes | Superadmin login password. Stored only in `.env`, never in the database. |
+| `AUTH_SECRET` | Yes | HMAC key for signing session cookies. Generate with `openssl rand -hex 32`. |
+| `ENV_SECRET_KEY` | Yes | AES-256 key for encrypting stored env vars (pgcrypto). Generate with `openssl rand -hex 32`. |
+
+```bash
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<strong-random-password>
+AUTH_SECRET=<output-of: openssl rand -hex 32>
+ENV_SECRET_KEY=<output-of: openssl rand -hex 32>
+```
+
+<Warning>
+  `AUTH_SECRET` and `ENV_SECRET_KEY` must not change after initial setup. Rotating `ENV_SECRET_KEY` requires re-encrypting all stored env vars. Rotating `AUTH_SECRET` invalidates all active sessions.
+</Warning>
+
+## Platform
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NODE_ENV` | No | `development` | Set to `production` for production deployments. Affects logging verbosity and error handling. |
+| `AGENTS_TMP_DIR` | No | `/tmp/agents` | Root directory for ephemeral agent workspaces. Each agent gets a subdirectory here containing its `CLAUDE.md`, skills, and session working directories. |
+
+## Generating secret values
+
+The `slackhive init` CLI generates all secret values automatically. For manual setup:
+
+```bash
+# AUTH_SECRET and ENV_SECRET_KEY
+openssl rand -hex 32
+
+# POSTGRES_PASSWORD and REDIS_PASSWORD (shorter is fine)
+openssl rand -hex 16
+```
+
+## Complete .env.example
+
+```bash
+# ============================================================
+# SlackHive — Environment Configuration
+# ============================================================
+
+# Claude authentication (choose ONE)
+# Option A: API key
+# ANTHROPIC_API_KEY=sk-ant-api03-...
+
+# Option B: Claude Max subscription
+# Leave ANTHROPIC_API_KEY unset. Run `claude login` on host first.
+# CLAUDE_BIN=/usr/local/bin/claude
+
+# PostgreSQL
+POSTGRES_DB=slackhive
+POSTGRES_USER=slackhive
+POSTGRES_PASSWORD=<strong-random-password>
+
+# Redis
+REDIS_PASSWORD=<strong-random-password>
+
+# Web UI auth
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<strong-random-password>
+AUTH_SECRET=<output-of: openssl rand -hex 32>
+ENV_SECRET_KEY=<output-of: openssl rand -hex 32>
+
+# Platform
+NODE_ENV=production
+```

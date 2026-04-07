@@ -52,41 +52,53 @@ The Boss reads the message, checks its team registry, and delegates to the right
 
 ## ✨ Features
 
-### Core Platform
+### 🤖 Claude Code Agents — The Real Thing
 
-| Feature | Description |
-|---------|-------------|
-| 👑 **Boss Agent** | Orchestrator bot that knows every specialist and delegates by @mention in threads |
-| 🧠 **Agent Memory** | Agents learn from every conversation — memories auto-synced to Postgres |
-| 🔌 **MCP Server Catalog** | Add tool servers once, assign to any agent — Redshift, GitHub, custom APIs. Test connectivity with one click |
-| 🔐 **Encrypted Env Vars** | Platform-level secret store — values encrypted at rest (pgcrypto), never exposed via API; MCPs reference keys by name |
-| 📝 **Inline TypeScript MCPs** | Paste TypeScript source directly into the UI — runner compiles and executes with `tsx`, no file paths needed |
-| 🧵 **Thread Context** | Tagged agents fetch full thread history — zero context loss in handoffs |
-| 💾 **Session Persistence** | Slack thread ↔ Claude session mapping survives restarts |
-| 🔁 **Hot Reload** | Edit anything in the UI → agent picks up changes in seconds via Redis pub/sub |
+Every agent in SlackHive is a full **Claude Code SDK** agent — not a chatbot wrapper, not a prompt chain. Each one runs with its own identity, memory, tools, and instructions. When you @mention one in Slack, you're talking to a real AI agent that can use tools, remember context across conversations, and get smarter over time.
 
-### Web UI
+| | |
+|---|---|
+| 🧠 **Persistent Memory** | Agents write memories during conversations — feedback, user context, project state. Synced to Postgres, injected on next start. They don't forget. |
+| 🔌 **MCP Tool Integration** | Connect any MCP server (Redshift, GitHub, custom APIs) — stdio, SSE, or HTTP. Agents use real tools, not hallucinated ones. |
+| 📝 **Inline TypeScript MCPs** | Paste TypeScript source directly into the UI — the runner compiles and executes it with `tsx`. No deployment needed. |
+| 🧵 **Full Thread Context** | When tagged, agents fetch the entire Slack thread — zero context lost in handoffs between agents. |
+| 💾 **Session Continuity** | Slack thread ↔ Claude session mapping survives restarts. Pick up exactly where you left off. |
+| 🔐 **Encrypted Secret Store** | API keys and credentials encrypted at rest (pgcrypto). MCPs reference secrets by name — raw values never touch the API or UI. |
+| 🔁 **Hot Reload** | Edit an agent's instructions, skills, or tools in the UI — it picks up changes in seconds via Redis pub/sub. No restart needed. |
 
-| Feature | Description |
-|---------|-------------|
-| 🧙 **Onboarding Wizard** | Guided flow: identity → Slack app → tokens → MCPs & skills (skipped for boss) → review |
-| 📝 **Skill Editor** | In-browser editor for agent markdown skills with file tree and categories |
-| 🔐 **Tool Permissions** | Per-agent allowlist/denylist for Claude Code SDK tools |
-| 📊 **Live Logs** | SSE-streamed Docker log output per agent with level filters and search |
-| ⚙️ **Settings** | Configurable branding (app name, logo, tagline), dashboard title, user management |
-| 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories grouped by type |
-| 📄 **CLAUDE.md Editor** | Dedicated editor for the agent's main instruction file — separate from skills |
-| 🛠 **Slash Command Skills** | Skills are written to `.claude/commands/` as real Claude Code slash commands (e.g. `/sql-rules`) |
-| 🕓 **Version Control** | Every save auto-snapshots the agent state; browse history with line-level diff, restore any point |
-| 📐 **Collapsible Sidebar** | Clean sidebar with live agent roster, status dots, and collapse toggle |
-| 📱 **Responsive Design** | Mobile-friendly layout with hamburger menu, overlay sidebar, fluid grids |
-| 🔒 **Auth & RBAC** | Login page, superadmin via env vars, 4 roles (superadmin/admin/editor/viewer) |
-| 👥 **User Management** | Create users, change roles, and assign per-agent write access from Settings |
-| 🏢 **Agent Hierarchy** | Multi-boss support — agents can report to multiple bosses, each boss manages its own team |
-| ⏰ **Scheduled Jobs** | Cron-based recurring tasks executed by the boss agent, with run history |
-| 🔒 **MCP Secret Masking** | MCP server env vars and headers are masked in API responses — secrets never exposed to the client |
-| 🚦 **Channel Restrictions** | Per-agent allowlist of Slack channels — bot only responds in listed channels; auto-leaves uninvited ones with a clear notice |
-| 🧪 **Test Suite** | 220+ unit tests across web + runner with Vitest; CI runs on every push and PR |
+---
+
+### 👑 Boss + Specialist Hierarchy
+
+Think of it like a real Slack team: **managers who know their direct reports**. Each Boss agent has a built-in roster of specialists it can delegate to. Each agent's `CLAUDE.md` is its system prompt — its identity, instructions, and accumulated knowledge. Skills are modular capabilities bolted on top.
+
+| | |
+|---|---|
+| 👑 **Boss Orchestration** | The Boss reads your message, checks its team registry, and delegates to the right specialist by @mention — all in the same thread. |
+| 🏢 **Multi-Boss Support** | Run multiple Boss agents for different domains (engineering, data, support). Specialists can report to more than one boss. |
+| 📋 **Auto-Generated Registries** | Every Boss gets a live `CLAUDE.md` roster of its reportees — auto-regenerated whenever the team changes. No manual maintenance. |
+| 📄 **CLAUDE.md as System Prompt** | Each agent's `CLAUDE.md` is its core identity — role, behavior, memories, and instructions. Edit it live; the agent picks it up instantly. |
+| 🛠 **Skills as Capabilities** | Skills are markdown files deployed as Claude Code slash commands. Give an agent SQL rules, writing guidelines, or domain playbooks — modular and reusable. |
+| ⏰ **Scheduled Jobs** | Cron-based recurring tasks sent to the Boss — daily reports, weekly digests, monitoring alerts — posted to any Slack channel or DM. |
+
+---
+
+### ⚙️ Platform Capabilities
+
+Everything you need to build, manage, and scale a team of AI agents — without writing infrastructure.
+
+| | |
+|---|---|
+| 🧙 **Onboarding Wizard** | 5-step guided setup: identity → Slack app → credentials → tools & skills → review. Live in minutes. |
+| 📝 **Skill System** | Write agent skills as markdown — deployed as real Claude Code slash commands in `.claude/commands/`. |
+| 📄 **CLAUDE.md Editor** | Dedicated editor for agent identity and instructions, separate from skills. Version-controlled. |
+| 🕓 **Version Control** | Every save auto-snapshots the full agent state. Browse history with line-level diffs, restore any point in one click. |
+| 🔒 **Auth & RBAC** | 4 roles (superadmin / admin / editor / viewer), HMAC-signed sessions, per-agent write access grants. No external auth provider needed. |
+| 🚦 **Channel Restrictions** | Lock agents to specific Slack channels. Bot silently ignores messages outside its allowlist and auto-leaves uninvited channels with a notice. |
+| 📊 **Live Logs** | SSE-streamed Docker log output per agent — with level filters and search, right in the dashboard. |
+| 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type — feedback, user, project, reference. |
+| 🔐 **Tool Permissions** | Per-agent allowlist/denylist for Claude Code SDK tools. Control exactly what each agent can do. |
+| 🧪 **220+ Tests** | Vitest unit tests across web and runner. CI runs on every push and PR. |
 
 ### Agent Capabilities
 

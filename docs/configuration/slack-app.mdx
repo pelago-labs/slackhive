@@ -1,0 +1,118 @@
+---
+title: "Slack App Setup"
+description: "Create and configure a Slack app for each SlackHive agent."
+---
+
+Each SlackHive agent needs its own Slack app. The web UI generates a pre-configured manifest so you don't have to set up scopes manually.
+
+## Overview
+
+Every agent is a separate Slack app with:
+- A **bot user** (the @handle your team mentions)
+- **Socket Mode** enabled for real-time message delivery
+- A specific set of **OAuth scopes** for reading messages, posting replies, and managing reactions
+
+## Step 1: Generate the manifest
+
+When creating an agent in the SlackHive wizard (Step 2), click **Generate Manifest**. The wizard produces a JSON manifest pre-configured for your agent.
+
+The manifest includes:
+- App name and description
+- Socket Mode enabled
+- All required bot OAuth scopes
+- Event subscriptions for messages and app mentions
+
+## Step 2: Create the app
+
+1. Open [https://api.slack.com/apps](https://api.slack.com/apps) in a new tab
+2. Click **Create New App**
+3. Choose **From an app manifest**
+4. Select your Slack workspace
+5. Paste the manifest JSON from the SlackHive wizard
+6. Review the settings and click **Create**
+
+## Step 3: Install to workspace
+
+After the app is created:
+
+1. In the left sidebar, go to **OAuth & Permissions**
+2. Click **Install to Workspace**
+3. Review the permission list and click **Allow**
+
+The app is now installed and your bot user (@handle) exists in the workspace.
+
+## Step 4: Collect credentials
+
+You need three values from the Slack app settings page.
+
+### Bot Token
+
+1. Go to **OAuth & Permissions**
+2. Copy the **Bot User OAuth Token** — starts with `xoxb-`
+
+### App-Level Token
+
+1. Go to **Basic Information**
+2. Scroll down to **App-Level Tokens**
+3. Click **Generate Tokens and Scopes**
+4. Give it any name (e.g. "socket-mode")
+5. Add the `connections:write` scope
+6. Click **Generate** and copy the token — starts with `xapp-`
+
+### Signing Secret
+
+1. Go to **Basic Information**
+2. Under **App Credentials**, reveal and copy the **Signing Secret**
+
+## Step 5: Enter credentials in SlackHive
+
+Back in the SlackHive wizard (Step 3), paste all three values:
+
+| Field | Value |
+|-------|-------|
+| **Bot Token** | `xoxb-...` |
+| **App Token** | `xapp-...` |
+| **Signing Secret** | The hex string from App Credentials |
+
+SlackHive verifies the connection before proceeding. If verification fails:
+
+- Confirm **Socket Mode** is enabled: left sidebar → **Socket Mode** → toggle on
+- Check that the App Token has the `connections:write` scope
+- Verify the Signing Secret was copied correctly (no leading/trailing spaces)
+
+## Required OAuth scopes
+
+The generated manifest includes these bot token scopes:
+
+| Scope | Purpose |
+|-------|---------|
+| `app_mentions:read` | Receive events when the bot is @mentioned |
+| `channels:history` | Read messages in public channels |
+| `channels:read` | List channels and get channel info |
+| `chat:write` | Post messages to channels |
+| `groups:history` | Read messages in private channels |
+| `groups:read` | List and read private channels |
+| `im:history` | Read direct messages |
+| `im:read` | Access DM info |
+| `im:write` | Send direct messages |
+| `mpim:history` | Read group DMs |
+| `reactions:write` | Add emoji reactions (used for "thinking" indicators) |
+| `users:read` | Get user display names |
+
+## After setup
+
+Once credentials are saved, the runner connects the agent to Slack via Socket Mode. You'll see the agent status change to **Active** in the SlackHive dashboard.
+
+Invite the bot to a channel to start using it:
+
+```
+/invite @your-agent-name
+```
+
+You can also DM the bot directly without any channel invite.
+
+## Multiple workspaces
+
+Each agent can only be installed in one workspace at a time. If you need agents in multiple workspaces, create separate Slack apps (with separate credentials) and create separate agent entries in SlackHive for each workspace.
+
+Multi-workspace support from a single agent config is on the [roadmap](https://github.com/pelago-labs/slackhive).

@@ -1,0 +1,123 @@
+---
+title: "Set Up a Boss Team"
+description: "Create a Boss agent that orchestrates specialist agents via Slack threads."
+---
+
+A Boss agent is an orchestrator. It receives high-level requests, breaks them into subtasks, delegates each subtask to the right specialist in a Slack thread, and synthesizes the results. Your human teammates interact only with the Boss — the specialist coordination happens automatically.
+
+## Create a Boss agent
+
+<Steps>
+  <Step title="Start the agent wizard">
+    Click **New Agent** and fill in Step 1 (Name & Role).
+  </Step>
+  <Step title="Enable Boss mode">
+    Toggle **This agent is a Boss**. This skips the Tools step — Boss agents delegate instead of using tools directly.
+
+    Choose a powerful model for your Boss. `claude-opus-4-6` is recommended because orchestration requires strong reasoning and planning.
+  </Step>
+  <Step title="Complete the wizard">
+    Complete Steps 2 and 3 (Slack App and Credentials) as you would for any agent. The Boss gets its own Slack bot identity.
+  </Step>
+</Steps>
+
+## Create specialist agents
+
+Create specialist agents normally (without the Boss toggle). In Step 1 of each specialist's wizard, use the **Reports To** dropdown to select your Boss agent.
+
+An agent can report to multiple bosses — select all bosses that should be able to delegate to this specialist.
+
+**Example team:**
+
+| Agent | Role | Reports To |
+|-------|------|-----------|
+| `@oracle-boss` | Project lead, orchestrates team | — |
+| `@ava-engineer` | Code review, debugging | oracle-boss |
+| `@diana-data` | SQL analysis, reporting | oracle-boss |
+| `@felix-writer` | Documentation, content | oracle-boss |
+
+## Auto-generated CLAUDE.md
+
+When you save a Boss agent, SlackHive auto-generates its `CLAUDE.md` with a **team registry** — a structured listing of every specialist that reports to it:
+
+```markdown
+## Your Team
+
+You are an orchestrating boss agent. Delegate tasks to specialists using @mentions in Slack threads.
+
+### Specialists
+
+- **@ava-engineer** — Code review, debugging, architecture questions, PR summaries
+- **@diana-data** — SQL queries, data analysis, metric reporting, trend analysis  
+- **@felix-writer** — Documentation, blog posts, release notes, content editing
+
+### Delegation Protocol
+
+When delegating:
+1. Open a thread on the original message
+2. @mention the specialist with a clear, specific task
+3. Tell them to @mention you back when complete
+4. Wait for their response before proceeding
+5. Synthesize results and respond to the original requester
+```
+
+The registry updates automatically whenever specialist assignments change.
+
+## How delegation works
+
+Here's what happens when a user messages the Boss:
+
+<Steps>
+  <Step title="User sends request">
+    A teammate @mentions the Boss in a channel or DM: *"@oracle-boss can you analyze our Q4 churn and draft an exec summary?"*
+  </Step>
+  <Step title="Boss decomposes the task">
+    The Boss breaks the request into subtasks and identifies which specialists can handle each one.
+  </Step>
+  <Step title="Boss delegates in threads">
+    In a thread on the original message, the Boss @mentions specialists with specific instructions:
+    - *"@diana-data please run churn analysis for Q4 — compare to Q3, segment by plan tier. @mention me when done."*
+    - *"@felix-writer stand by — I'll send you data to turn into an exec summary once @diana-data finishes."*
+  </Step>
+  <Step title="Specialist works and reports back">
+    `@diana-data` completes the analysis and @mentions the Boss in the same thread: *"@oracle-boss analysis complete — Q4 churn was 4.2%, up from 3.1% in Q3. Enterprise tier is stable; SMB churn is the driver. Full breakdown in the thread."*
+  </Step>
+  <Step title="Boss coordinates next steps">
+    The Boss receives the response, may delegate to the next specialist, and ultimately synthesizes the results into a final response to the original requester.
+  </Step>
+</Steps>
+
+## Multi-boss setup
+
+An agent can report to multiple Boss agents. This is useful when:
+
+- A specialist is shared across multiple teams
+- You have a hierarchy (Boss of Bosses delegating to sub-Bosses with their own specialists)
+- You want the same specialist available to both a project boss and a department boss
+
+To add a boss to an existing specialist, open the agent's **Overview** tab and add entries to **Reports To**.
+
+## Viewing the team hierarchy
+
+The dashboard shows a hierarchy view when Boss agents are configured. Each Boss displays its direct reports inline. Click any agent to jump to its detail page.
+
+## Testing the delegation flow
+
+<Steps>
+  <Step title="Invite both bots to a channel">
+    ```
+    /invite @oracle-boss
+    /invite @ava-engineer
+    ```
+  </Step>
+  <Step title="Send a task that requires delegation">
+    @mention the Boss with something that clearly maps to one of your specialists.
+  </Step>
+  <Step title="Watch the thread">
+    You should see the Boss open a thread, delegate to the specialist, and the specialist respond. The Boss then synthesizes and replies to you.
+  </Step>
+</Steps>
+
+<Tip>
+  If delegation isn't happening, check the Boss agent's CLAUDE.md (from its detail page → CLAUDE.md tab) to confirm the team registry was generated correctly with accurate specialist descriptions.
+</Tip>

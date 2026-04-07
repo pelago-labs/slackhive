@@ -1,0 +1,155 @@
+---
+title: "MCP Setup"
+description: "Connect agents to databases, APIs, and custom tools via Model Context Protocol servers."
+---
+
+MCP (Model Context Protocol) servers expose tools that agents can call during a session. A Redshift MCP server might expose `query` and `describe_table` tools. A GitHub MCP server might expose `create_pr` and `list_issues`. Once assigned to an agent, these tools are available inside Claude automatically.
+
+## Add a server to the catalog
+
+MCP servers are defined in a **global catalog** (Settings → MCP Catalog) and then assigned to individual agents. This lets you define a database connection once and give access to multiple agents.
+
+<Steps>
+  <Step title="Open the catalog">
+    Go to **Settings → MCP Catalog** and click **Add Server**.
+  </Step>
+  <Step title="Choose transport type">
+    Select the transport that matches your server:
+    - **stdio** — spawns a local process (most common for packaged MCP servers)
+    - **TypeScript inline** — runs TypeScript code you write directly in the UI
+    - **SSE** — connects to a remote server over HTTP Server-Sent Events
+    - **HTTP** — connects to a remote server over plain HTTP
+  </Step>
+  <Step title="Fill in configuration">
+    The form fields change based on transport type. See examples below.
+  </Step>
+  <Step title="Test connectivity">
+    Click **Test** to verify the server connects and lists its tools.
+  </Step>
+</Steps>
+
+## Transport examples
+
+<Tabs>
+  <Tab title="stdio">
+
+stdio servers spawn a local process. This is the standard transport for published MCP packages.
+
+```json
+{
+  "name": "redshift",
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@pelago/mcp-redshift"],
+  "env": {
+    "AWS_REGION": "us-east-1"
+  },
+  "envRefs": {
+    "REDSHIFT_URL": "REDSHIFT_CONNECTION_URL",
+    "AWS_ACCESS_KEY_ID": "AWS_ACCESS_KEY",
+    "AWS_SECRET_ACCESS_KEY": "AWS_SECRET_KEY"
+  }
+}
+```
+
+`env` contains plain-text values. `envRefs` maps environment variable names (as the MCP process sees them) to keys in the [encrypted env var store](/guides/env-vars). Sensitive values should always go in `envRefs`, not `env`.
+
+  </Tab>
+  <Tab title="TypeScript inline">
+
+TypeScript inline servers let you write an MCP server directly in the UI. Useful for simple custom tools or internal APIs.
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const server = new McpServer({ name: "custom-tools", version: "1.0.0" });
+
+server.tool(
+  "get_current_time",
+  "Returns the current UTC time",
+  {},
+  async () => ({
+    content: [{ type: "text", text: new Date().toISOString() }]
+  })
+);
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+```
+
+The code is saved in the `tsSource` field and executed with `tsx` when the agent starts.
+
+  </Tab>
+  <Tab title="SSE">
+
+SSE servers connect to a remote HTTP endpoint that streams events.
+
+```json
+{
+  "name": "my-remote-server",
+  "transport": "sse",
+  "url": "https://mcp.example.com/sse",
+  "headers": {
+    "Authorization": "Bearer your-token-here"
+  }
+}
+```
+
+For token-based auth, put the actual token in an encrypted env var and reference it via `envRefs` if your SSE implementation supports environment substitution, or store it directly in headers for simpler setups.
+
+  </Tab>
+  <Tab title="HTTP">
+
+HTTP transport polls a JSON endpoint rather than streaming.
+
+```json
+{
+  "name": "my-http-server",
+  "transport": "http",
+  "url": "https://mcp.example.com/mcp",
+  "headers": {
+    "X-API-Key": "your-key"
+  }
+}
+```
+
+  </Tab>
+</Tabs>
+
+## Assign servers to agents
+
+After adding a server to the catalog:
+
+1. Open an agent's detail page
+2. Go to the **Tools** tab
+3. Under **MCP Servers**, click **Add** and select servers from the catalog
+4. Save — the agent reloads within seconds
+
+## Tool naming
+
+When an agent uses an MCP tool, it appears in Claude as `mcp__{serverName}__{toolName}`. For example, a `query` tool on a server named `redshift` becomes `mcp__redshift__query`.
+
+You can reference this naming in skills or CLAUDE.md to give agents explicit instructions about when to use specific tools.
+
+## Using envRefs for secrets
+
+Never put database passwords, API keys, or tokens directly in the `env` field or in `args`. Instead:
+
+1. Add the secret to **Settings → Env Vars** (see [Encrypted Env Vars](/guides/env-vars))
+2. In your MCP config's `envRefs`, map the variable name the MCP process expects to the key you stored: `{ "DATABASE_URL": "MY_DB_URL" }`
+
+The runner injects the decrypted value at runtime. The secret never appears in the MCP config stored in the database.
+
+## Testing connectivity
+
+Use the **Test** button on any catalog entry to verify:
+- The server process starts (stdio) or connection succeeds (SSE/HTTP)
+- Tools are listed correctly
+- No authentication errors
+
+If a test fails, check:
+- For stdio: confirm `command` is available in the runner container's PATH
+- For envRefs: confirm the referenced env var key exists in Settings → Env Vars
+- For SSE/HTTP: confirm the URL is reachable from the runner container (not just your browser)

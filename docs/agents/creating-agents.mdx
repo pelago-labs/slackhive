@@ -1,0 +1,132 @@
+---
+title: "Creating Agents"
+description: "Create a Claude agent and deploy it to Slack using the 5-step wizard."
+---
+
+Click **New Agent** in the sidebar to open the creation wizard. Creating an agent takes about 5 minutes if you have your Slack credentials ready.
+
+## Step 1: Name & Role
+
+| Field | Description |
+|-------|-------------|
+| **Name** | Display name shown in the UI and Slack (e.g. "Ava Engineer") |
+| **Slug** | URL-safe identifier auto-generated from the name (e.g. `ava-engineer`). Used internally and as the agent's workspace directory name. |
+| **Description** | What this agent does. Shown in Boss agent team registries so the Boss knows who to delegate to. |
+| **Persona** | Free-form personality and behavioral instructions. Compiled into `CLAUDE.md` as the agent's identity section. |
+| **Model** | The Claude model this agent uses. |
+
+### Model selection
+
+| Model | Best for |
+|-------|---------|
+| `claude-opus-4-6` | Complex reasoning, Boss agents, multi-step planning |
+| `claude-sonnet-4-6` | Balanced capability and speed — good default for most agents |
+| `claude-haiku-4-5-20251001` | Fast, lightweight tasks and high-volume operations |
+
+### Boss vs specialist
+
+Toggle **This agent is a Boss** if this agent should orchestrate a team:
+
+- Boss agents skip the Tools step (they delegate rather than use tools directly)
+- Boss `CLAUDE.md` is auto-generated from the team registry — it lists all specialists that report to this boss and includes explicit delegation rules
+- The registry regenerates automatically whenever any agent is added, updated, or deleted
+
+For specialist agents, use **Reports To** to select which Boss agent(s) they report to. A specialist can report to multiple bosses and will appear in each selected boss's registry.
+
+## Step 2: Slack App
+
+SlackHive generates a Slack app manifest tailored for your agent. The manifest pre-configures:
+- All required OAuth scopes
+- Socket Mode enabled
+- Bot display name matching your agent's name
+
+**To create the Slack app:**
+1. Click **Generate Manifest** in the wizard
+2. Open [api.slack.com/apps](https://api.slack.com/apps) in a new tab
+3. Click **Create New App** → **From a manifest**
+4. Select your workspace, paste the manifest, click **Create**
+5. Go to **OAuth & Permissions** → **Install to Workspace** → **Allow**
+
+See [Slack App Setup](/configuration/slack-app) for a detailed walkthrough.
+
+## Step 3: Credentials
+
+Paste the three values from your Slack app settings:
+
+| Field | Where to find it |
+|-------|-----------------|
+| **Bot Token** (`xoxb-...`) | OAuth & Permissions → Bot User OAuth Token |
+| **App Token** (`xapp-...`) | Basic Information → App-Level Tokens (create with `connections:write` scope) |
+| **Signing Secret** | Basic Information → App Credentials |
+
+After saving, SlackHive verifies the Slack connection. If it fails, confirm that Socket Mode is enabled on your app.
+
+## Step 4: Tools
+
+<Note>This step is skipped for Boss agents.</Note>
+
+### Skill template
+
+Select a starting template for the agent's skill set:
+
+| Template | Description |
+|----------|-------------|
+| **Blank** | No starter skills — clean slate |
+| **Data Analyst** | SQL query patterns, data summarization, charting guidance |
+| **Writer** | Content drafting, editing, tone adjustment |
+| **Developer** | Code review, debugging, PR summaries, architecture commands |
+
+Skills are Markdown files compiled as Claude Code slash commands. They can be edited or replaced at any time from the agent's **Skills** tab.
+
+### MCP servers
+
+Assign MCP servers from the platform catalog to give this agent access to external tools. Each assigned server's tools become available as `mcp__{serverName}__{toolName}`.
+
+Servers can be added or removed later from the agent's **Tools** tab.
+
+## Step 5: Review
+
+Review the summary:
+- Agent name, slug, model, persona
+- Boss/specialist configuration
+- Slack app connection status
+- Assigned skills and MCP servers
+
+Click **Create Agent** to finalize. The runner picks up the new agent within seconds via Redis pub/sub.
+
+## After creation
+
+1. The agent appears in the dashboard with **Active** status
+2. Invite the bot to a Slack channel: `/invite @your-agent-name`
+3. @mention it to start a conversation
+
+<Tip>
+  Test your agent by opening a Slack DM with it. DMs don't require a channel invite.
+</Tip>
+
+## Editing an agent
+
+All fields are editable after creation from the agent's detail page tabs:
+
+| Tab | What you can edit |
+|-----|------------------|
+| **Overview** | Name, description, persona, model, Slack credentials, channel restrictions |
+| **CLAUDE.md** | The agent's main instruction/identity file directly |
+| **Skills** | Skill files (slash commands), add/edit/delete |
+| **Tools** | MCP server assignments, tool permissions (allowlist/denylist) |
+| **Memory** | Browse, inspect, and delete agent memories |
+| **History** | Version control — browse snapshots, view diffs, restore |
+
+Every save to skills, CLAUDE.md, tools, or permissions is auto-snapshotted. Changes are live-reloaded by the runner within seconds.
+
+## Channel restrictions
+
+By default, an agent responds in any channel it's invited to. To restrict to specific channels:
+
+1. Go to the agent's **Overview** tab
+2. Scroll to **Allowed Channels**
+3. Enter one or more Slack channel IDs (e.g. `C12345678`)
+
+When a channel list is set, the agent silently ignores messages from other channels. If the bot is invited to a non-allowed channel, it posts a notice and immediately leaves.
+
+Find a channel ID in Slack by right-clicking the channel name → **Copy link** — the ID is the `C...` segment at the end of the URL.

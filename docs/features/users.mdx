@@ -1,0 +1,92 @@
+---
+title: "User Management"
+description: "Create users, assign roles, and control per-agent write access."
+---
+
+## Authentication overview
+
+SlackHive uses a simple built-in auth system — no external provider required.
+
+- **Superadmin** is configured via environment variables (`ADMIN_USERNAME` / `ADMIN_PASSWORD`) — never stored in the database
+- **Sessions** use HMAC-signed cookies. The signing key is `AUTH_SECRET` in your `.env`
+- All routes are protected — unauthenticated requests redirect to `/login`
+
+## Roles
+
+SlackHive has four roles with escalating permissions:
+
+| Role | View agents | Edit agents | Manage jobs | Settings | Manage users |
+|------|-------------|-------------|-------------|----------|-------------|
+| **Superadmin** | All | All | Yes | Yes | Yes |
+| **Admin** | All | All | Yes | Yes | Yes |
+| **Editor** | All | Own + granted | Yes | Yes | No |
+| **Viewer** | All | No | No | No | No |
+
+### Superadmin
+
+Configured via `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`. This account is never stored in the database — it exists only in environment configuration. The superadmin has all permissions and cannot be deleted or demoted.
+
+### Admin
+
+Full access equivalent to superadmin, but stored in the database and manageable via the Users page. Admins can create other users, change roles, and grant per-agent write access to editors.
+
+### Editor
+
+Read access to all agents by default. Write access on:
+- Agents they created themselves
+- Any agents an admin has explicitly granted them access to
+
+Editors can create and manage scheduled jobs. They cannot manage users or change platform settings.
+
+### Viewer
+
+Read-only access to everything. Can see all agents, memories, and history, but cannot make changes.
+
+## Creating users
+
+Only superadmins and admins can create users.
+
+1. Go to **Settings → Users** in the sidebar
+2. Click **Add User**
+3. Enter a username and password
+4. Select a role
+5. Click **Create**
+
+Users can log in immediately at the `/login` page.
+
+## Changing a user's role
+
+1. Go to **Settings → Users**
+2. Find the user in the list
+3. Use the role dropdown to select a new role
+4. Changes take effect on the user's next page load (their active session remains valid)
+
+## Per-agent write access for editors
+
+Admins can grant editors write access to specific agents beyond what they created themselves:
+
+1. Go to **Settings → Users**
+2. Click a user with the **Editor** role
+3. Under **Agent Access**, you'll see a checklist of all agents
+4. Check the agents this editor should have full write access to
+5. Save
+
+Checked agents grant the editor full edit rights: skills, CLAUDE.md, tool permissions, MCP assignments, and history restore.
+
+## Permissions enforcement
+
+All permissions are enforced **server-side** in API route guards — not just hidden in the UI. A viewer who manually calls an API endpoint to edit an agent will receive a 403 response.
+
+The permission model:
+- Read operations require any authenticated session
+- Write operations on an agent require: admin, superadmin, or (editor + agent ownership/grant)
+- Settings mutations require: admin or superadmin
+- User management requires: admin or superadmin
+
+## Session behavior
+
+Sessions use HMAC-signed cookies with no expiry by default (persistent sessions). Sessions are invalidated when:
+- The user logs out explicitly
+- `AUTH_SECRET` is rotated in `.env` (invalidates all sessions immediately)
+
+There is no session table — sessions are stateless HMAC tokens, which means there's no way to invalidate individual sessions without rotating the `AUTH_SECRET`.

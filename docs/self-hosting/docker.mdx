@@ -1,0 +1,151 @@
+---
+title: "Docker Setup"
+description: "Run SlackHive with Docker Compose — the standard deployment method."
+---
+
+## Docker Compose architecture
+
+SlackHive runs as four Docker Compose services. All services share a private bridge network and communicate by service name.
+
+| Service | Image | Port (host) | Description |
+|---------|-------|-------------|-------------|
+| `web` | Built from `apps/web` | 3001 | Next.js 15 management UI + API |
+| `runner` | Built from `apps/runner` | — | Agent process host (Slack Bolt) |
+| `postgres` | `postgres:16-alpine` | 5432 | PostgreSQL database |
+| `redis` | `redis:7-alpine` | 6379 | Pub/sub event bus |
+
+## Prerequisites
+
+- Docker Engine 24+ and Docker Compose v2
+- At least 2 GB RAM available for Docker
+- Ports 3001 and 5432 free on the host (or configure alternate ports)
+
+## Starting services
+
+```bash
+# First time (builds images)
+docker compose up -d --build
+
+# Subsequent starts (uses cached images)
+docker compose up -d
+
+# Check status
+docker compose ps
+```
+
+## Stopping services
+
+```bash
+# Stop containers (data is preserved in volumes)
+docker compose stop
+
+# Stop and remove containers (data is preserved in volumes)
+docker compose down
+
+# Stop and remove containers AND volumes (destroys all data)
+docker compose down -v
+```
+
+<Warning>
+  `docker compose down -v` deletes all PostgreSQL and Redis data. Do not use this unless you intend to start fresh.
+</Warning>
+
+## Viewing logs
+
+```bash
+# All services
+docker compose logs -f
+
+# Runner only
+docker compose logs -f runner
+
+# Web only
+docker compose logs -f web
+
+# Last 100 lines of runner
+docker compose logs --tail 100 runner
+```
+
+## Rebuilding after changes
+
+If you pull an update or change code:
+
+```bash
+docker compose up -d --build
+```
+
+Or use the CLI:
+
+```bash
+slackhive update
+```
+
+This pulls the latest code, rebuilds images, and restarts containers.
+
+## Agent working directories
+
+Agents write ephemeral files (CLAUDE.md, skills, session directories, memory files) to `AGENTS_TMP_DIR`, which defaults to `/tmp/agents` inside the runner container.
+
+This directory is mounted as a Docker volume or bind mount. If you want agent working directories to persist across container rebuilds (useful for debugging), add a bind mount in `docker-compose.yml`:
+
+```yaml
+runner:
+  volumes:
+    - /path/on/host/agents:/tmp/agents
+```
+
+Otherwise, the runner recreates all workspace files from the database on startup.
+
+## Claude Max subscription volume mount
+
+If you're using a Claude Max subscription instead of an API key, you need to mount the Claude credentials from the host:
+
+```yaml
+runner:
+  volumes:
+    - ~/.claude:/root/.claude       # Auth credentials
+    - /tmp/agents:/tmp/agents       # Agent working dirs (optional)
+```
+
+Then make sure `ANTHROPIC_API_KEY` is **not** set in `.env`.
+
+## Health checks
+
+The `postgres` and `redis` services include health checks in `docker-compose.yml`. The `web` and `runner` services wait for their dependencies to be healthy before starting.
+
+If services fail to start, check:
+
+```bash
+# Check health status
+docker compose ps
+
+# Check postgres logs
+docker compose logs postgres
+
+# Check redis logs
+docker compose logs redis
+```
+
+## Persistent data volumes
+
+By default, Docker Compose creates named volumes for PostgreSQL and Redis data:
+
+| Volume | Contents |
+|--------|----------|
+| `slackhive_postgres_data` | All database tables (agents, skills, memory, sessions, users, etc.) |
+| `slackhive_redis_data` | Redis persistence (used for pub/sub; not critical) |
+
+These volumes survive `docker compose down` but are deleted by `docker compose down -v`.
+
+## Database migrations
+
+SlackHive runs database migrations automatically on startup. The web service applies any pending schema migrations before starting the server.
+
+For manual migration (e.g. after pulling an update with schema changes):
+
+```bash
+docker compose up -d --build web
+docker compose logs -f web
+```
+
+Watch for migration success messages in the web logs before proceeding.
