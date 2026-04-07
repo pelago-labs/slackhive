@@ -1,0 +1,95 @@
+---
+title: "Encrypted Env Vars"
+description: "Store secrets securely and reference them in MCP server configurations."
+---
+
+Encrypted env vars let you store sensitive values — database connection strings, API keys, tokens — in SlackHive's encrypted store. MCP server configs reference them by key name rather than embedding the value directly.
+
+## Why use encrypted env vars
+
+MCP server configurations are stored in the database. If you put a database password directly in an MCP config's `env` field, it's stored in plaintext. Encrypted env vars solve this:
+
+- Values are encrypted with AES-256 using your `ENV_SECRET_KEY`
+- Once saved, values are **write-only** — they cannot be retrieved via the API or UI
+- MCP configs reference values by key name, not the value itself
+- Rotating a secret only requires updating the env var — no MCP config changes needed
+
+## Adding a secret
+
+<Steps>
+  <Step title="Open Settings → Env Vars">
+    Navigate to **Settings** in the top navigation, then click **Env Vars**.
+  </Step>
+  <Step title="Click Add Variable">
+    Fill in:
+    - **Key** — `UPPER_SNAKE_CASE` format, e.g. `REDSHIFT_CONNECTION_URL`
+    - **Description** — what this secret is for (visible in the UI, helps you remember)
+    - **Value** — the secret value (encrypted on save, never shown again)
+  </Step>
+  <Step title="Save">
+    Click **Save**. The value is immediately encrypted using pgcrypto with your `ENV_SECRET_KEY` and stored. You will see the key and description but not the value.
+  </Step>
+</Steps>
+
+<Warning>
+  Values cannot be retrieved after saving. If you need to verify or rotate a value, create a new entry with the same key (overwriting it) or delete and recreate it.
+</Warning>
+
+## Naming rules
+
+Keys must follow `UPPER_SNAKE_CASE`:
+
+- Only uppercase letters, digits, and underscores
+- Must start with a letter
+- No spaces or special characters
+
+Good examples: `REDSHIFT_URL`, `OPENAI_API_KEY`, `GITHUB_TOKEN`, `STRIPE_SECRET_KEY`
+
+## Referencing in MCP configs
+
+In an MCP server's configuration, use `envRefs` to map the env var name that the MCP process expects to the key stored in SlackHive:
+
+```json
+{
+  "envRefs": {
+    "DATABASE_URL": "REDSHIFT_CONNECTION_URL",
+    "AWS_ACCESS_KEY_ID": "AWS_ACCESS_KEY",
+    "AWS_SECRET_ACCESS_KEY": "AWS_SECRET_KEY"
+  }
+}
+```
+
+When the MCP process starts, the runner looks up `REDSHIFT_CONNECTION_URL` in the encrypted store, decrypts it, and injects it as `DATABASE_URL` into the MCP process environment. The MCP server sees `DATABASE_URL` as if it were set in the shell.
+
+## How encryption works
+
+SlackHive uses PostgreSQL's `pgcrypto` extension with symmetric encryption:
+
+```sql
+-- Storage (write path)
+UPDATE env_secrets SET value = pgp_sym_encrypt($1, $ENV_SECRET_KEY) WHERE key = $2;
+
+-- Retrieval (runner only, never returned via API)
+SELECT pgp_sym_decrypt(value::bytea, $ENV_SECRET_KEY) FROM env_secrets WHERE key = $1;
+```
+
+`ENV_SECRET_KEY` is set in your `.env` file and never stored in the database. Generate a strong key with:
+
+```bash
+openssl rand -hex 32
+```
+
+<Warning>
+  Keep your `ENV_SECRET_KEY` backed up securely. If you lose it, all encrypted env vars become unrecoverable and must be re-entered.
+</Warning>
+
+## Rotating a secret
+
+To update a secret value:
+
+1. Go to **Settings → Env Vars**
+2. Find the key you want to rotate
+3. Click **Edit** and enter the new value
+4. Save — the new encrypted value overwrites the old one
+
+Running agents pick up the new value the next time they start a session.

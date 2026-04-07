@@ -1,0 +1,115 @@
+---
+title: "Boss Agents"
+description: "Set up orchestrating Boss agents that delegate tasks to specialist teams."
+---
+
+## What is a Boss agent?
+
+A Boss agent is a special type of SlackHive agent whose sole job is to receive high-level requests and delegate them to the right specialist agents. The Boss never does the specialist work itself — it orchestrates.
+
+```
+User:     @boss help me analyze last week's bookings
+Boss:     I'll get @data-bot on this 👇
+          @data-bot — user wants booking analysis for last week.
+          When you're done, please tag @boss so I can confirm.
+DataBot:  [reads full thread, runs Redshift query via MCP]
+          Bookings were up 12% to 4,320...
+Boss:     Thanks @data-bot! Here's the summary: bookings increased 12%...
+```
+
+The Boss reads the message, looks up its team registry, and delegates to the right specialist by @mentioning them in the same Slack thread. The specialist receives the full thread as context — nothing is lost in the handoff.
+
+## Creating a Boss agent
+
+During agent creation (Step 1 — Name & Role), toggle **This agent is a Boss**.
+
+When the Boss toggle is enabled:
+- The Tools step (Step 4) is skipped — Boss agents don't need MCP servers or skills
+- `CLAUDE.md` is auto-generated from the team registry instead of using a custom identity file
+- The Boss agent connects to Slack like any other agent and receives @mentions normally
+
+## The team registry
+
+Each Boss gets a `CLAUDE.md` compiled from its team registry. The registry is a Markdown document injected into the Boss's identity that lists every specialist reporting to it.
+
+Example registry section:
+
+```markdown
+## Your Team
+
+- **DataBot** (<@U12345678>) — Data warehouse NLQ, Redshift queries, business metrics
+- **Writer** (<@U87654321>) — Content generation, Slack summaries, announcements
+- **Engineer** (<@U11112222>) — Code review, debugging, GitHub PR summaries
+```
+
+The registry also includes explicit delegation rules:
+
+```markdown
+## Delegation Rules
+- ALWAYS delegate — do not attempt to perform specialist work yourself
+- Use the thread so specialists have full context
+- If unsure who to delegate to, ask the user for clarification
+- Always instruct the specialist to @mention you when they are done
+```
+
+**The registry auto-regenerates** whenever any agent is created, updated, or deleted. You never need to maintain it manually.
+
+## Setting reportsTo
+
+To add a specialist to a Boss's team, set the **Reports To** field on the specialist agent:
+
+1. Open the specialist agent's **Overview** tab
+2. Select one or more Boss agents in the **Reports To** dropdown
+3. Save — the Boss's registry regenerates automatically within seconds
+
+A specialist can report to multiple bosses. It will appear in each selected boss's team registry. This supports multi-domain setups where the same specialist (e.g. an "Engineer" agent) is available to multiple boss agents (e.g. "Product Boss" and "Infra Boss").
+
+## Multiple Boss agents
+
+You can create as many Boss agents as needed. Common patterns:
+
+| Pattern | Example |
+|---------|---------|
+| **Single Boss** | One orchestrator for the entire team |
+| **Domain Bosses** | Separate Boss per team (eng-boss, data-boss, content-boss) |
+| **Hierarchical** | A meta-boss delegates to domain bosses, which delegate to specialists |
+
+Each Boss only sees the specialists that explicitly report to it.
+
+## Delegation flow in detail
+
+When the Boss receives a message:
+
+1. Boss reads the user's request
+2. Checks the team registry to identify the right specialist
+3. @mentions the specialist in the **same thread** with a clear task description
+4. Instructs the specialist to tag the Boss when done
+5. Specialist picks up the full thread context and completes the task
+6. Specialist tags the Boss to signal completion
+7. Boss reviews the result, confirms for the user, and decides if another specialist is needed or the task is done
+
+The key design: everything happens **in the Slack thread**. Every participant can see the full conversation history — no context loss when multiple agents collaborate.
+
+## CLAUDE.md for Boss agents
+
+The Boss's `CLAUDE.md` is fully auto-generated and managed by SlackHive. You cannot manually edit it through the CLAUDE.md editor (the editor is read-only for Boss agents).
+
+The generated content includes:
+- The Boss's name and orchestrator role description
+- Your Role section with delegation rules
+- The full team roster with Slack user IDs and descriptions
+- Delegation format instructions (exact phrasing to use)
+- Instructions for what to do after a specialist responds
+
+## Scheduled jobs
+
+Boss agents can run recurring tasks via cron schedule. Create a job from the **Jobs** page:
+
+| Field | Description |
+|-------|-------------|
+| **Name** | Human-readable job name (e.g. "Daily Booking Report") |
+| **Prompt** | The message sent to the Boss on each run |
+| **Schedule** | Cron expression (e.g. `0 8 * * *` for daily at 8 AM) |
+| **Target** | Slack channel or DM to post results to |
+
+The Boss processes the scheduled prompt exactly like a normal @mention — it may delegate to specialists, run MCP tools, and post results. Run history (status, output, duration) is tracked and visible in the UI.

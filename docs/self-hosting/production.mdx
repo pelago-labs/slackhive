@@ -1,0 +1,176 @@
+---
+title: "Production Deployment"
+description: "Best practices and configuration for running SlackHive in production."
+---
+
+## Overview
+
+SlackHive is designed to run as a self-hosted Docker Compose stack. For production use, this page covers security hardening, reverse proxy configuration, backup procedures, and operational best practices.
+
+## Security checklist
+
+Before exposing SlackHive to the internet or a production network:
+
+- [ ] Replace all default passwords with strong random values (`openssl rand -hex 32`)
+- [ ] Set `NODE_ENV=production` in `.env`
+- [ ] Use a reverse proxy (nginx, Caddy) to terminate TLS — never expose the Next.js server directly on port 80/443
+- [ ] Keep `.env` out of version control (already in `.gitignore`)
+- [ ] Store MCP secrets in the encrypted env vars store, not in plain `env` fields
+- [ ] Restrict database port 5432 to the Docker network only (do not expose to the host in production)
+- [ ] Rotate `AUTH_SECRET` and `ENV_SECRET_KEY` after initial setup if they were auto-generated during testing
+
+## Reverse proxy with nginx
+
+Example nginx config to proxy SlackHive's web UI:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name slackhive.example.com;
+
+    ssl_certificate /etc/ssl/certs/slackhive.crt;
+    ssl_certificate_key /etc/ssl/private/slackhive.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Required for SSE (live logs streaming)
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+<Note>
+  The `proxy_buffering off` setting is required for the live logs feature, which uses server-sent events (SSE). Without it, log lines will be buffered and not appear in real time.
+</Note>
+
+## Reverse proxy with Caddy
+
+Caddy handles TLS automatically via Let's Encrypt:
+
+```caddyfile
+slackhive.example.com {
+    reverse_proxy 127.0.0.1:3001 {
+        flush_interval -1
+    }
+}
+```
+
+`flush_interval -1` disables response buffering — required for SSE live logs.
+
+## Changing the web UI port
+
+By default, the web service listens on port 3001. To change it, update `docker-compose.yml`:
+
+```yaml
+web:
+  ports:
+    - "8080:3000"  # host:container
+```
+
+Or add `PORT=8080` to `.env` if the compose file references it.
+
+## Backup
+
+### PostgreSQL backup
+
+All critical data lives in PostgreSQL. Back it up regularly:
+
+```bash
+# Dump the database
+docker exec slackhive-postgres-1 pg_dump -U slackhive slackhive > backup.sql
+
+# Restore from backup
+docker exec -i slackhive-postgres-1 psql -U slackhive slackhive < backup.sql
+```
+
+For automated backups, add a cron job on the host:
+
+```bash
+0 2 * * * docker exec slackhive-postgres-1 pg_dump -U slackhive slackhive > /backups/slackhive-$(date +%Y%m%d).sql
+```
+
+### What's in the database
+
+The PostgreSQL database contains everything that matters:
+
+| Table | Contents |
+|-------|----------|
+| `agents` | All agent configs, credentials, personas |
+| `skills` | Agent skill files |
+| `memories` | All learned agent memories |
+| `permissions` | Tool allowlists and denylists |
+| `mcp_servers` | MCP server catalog |
+| `agent_mcps` | Agent-to-MCP assignments |
+| `sessions` | Slack thread → Claude session ID mapping |
+| `users` | Platform user accounts |
+| `settings` | Platform settings (branding, etc.) |
+| `scheduled_jobs` | Cron job definitions |
+| `job_runs` | Job run history |
+| `agent_snapshots` | Version history snapshots |
+| `env_vars` | Encrypted environment variables |
+
+## Updating SlackHive
+
+```bash
+# Pull latest and rebuild
+slackhive update
+
+# Or manually
+git pull
+docker compose up -d --build
+```
+
+Review the [changelog](https://github.com/pelago-labs/slackhive/releases) before updating in production. Database migrations run automatically on the next startup.
+
+## Resource requirements
+
+Minimum recommended for a small team (5–10 agents, moderate traffic):
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 2 cores | 4 cores |
+| RAM | 2 GB | 4 GB |
+| Disk | 10 GB | 20 GB |
+
+Each active agent maintains a Slack Bolt Socket Mode connection and (if it has MCP servers) persistent MCP processes. Memory usage scales with the number of active agents.
+
+## Environment variable rotation
+
+### Rotating AUTH_SECRET
+
+Rotating `AUTH_SECRET` invalidates all active user sessions. All logged-in users will be redirected to the login page.
+
+1. Generate a new value: `openssl rand -hex 32`
+2. Update `.env`
+3. Restart the web service: `docker compose restart web`
+
+### Rotating ENV_SECRET_KEY
+
+Rotating `ENV_SECRET_KEY` requires re-encrypting all stored env vars. Without this, MCP servers that use `envRefs` will fail to decrypt their secrets.
+
+1. Export all env var values (they are not accessible via the API — you need the plaintext values)
+2. Generate a new key: `openssl rand -hex 32`
+3. Update `.env`
+4. Re-enter all env var values in **Settings → Env Vars**
+5. Restart all services: `docker compose restart`
+
+## Monitoring
+
+SlackHive does not include built-in metrics or alerting. For production monitoring:
+
+- Use the **Live Logs** feature in the UI for real-time diagnostics
+- Pipe Docker logs to a log aggregator (e.g. Loki, Datadog, CloudWatch) via a log driver
+- Monitor Docker container health with `docker compose ps` or an external healthcheck service
+
+```bash
+# Example: check that all containers are running
+docker compose ps --format json | jq '.[].State'
+```

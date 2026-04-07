@@ -1,0 +1,89 @@
+---
+title: "Introduction"
+description: "Build, deploy, and orchestrate teams of Claude AI agents on Slack. AI teammates you @mention, not tools you switch to."
+---
+
+## Why SlackHive exists
+
+Slack is where your company already works. Every decision, every question, every escalation — it all happens there. The future of AI at work isn't a separate tool you switch to — it's agents that are **part of the team**, living where work already happens.
+
+In the near future, every Slack team will have AI members alongside humans. An AI engineer who fixes bugs and reviews code. A data analyst who runs queries and surfaces insights on demand. A fraud analyst who monitors transactions. A support agent who resolves tickets and escalates edge cases. Not tools you prompt — **teammates you @mention**.
+
+SlackHive is built on this belief. It gives you the infrastructure to deploy, manage, and grow a team of AI agents on Slack — each with their own identity, memory, skills, and tools. The more they work with your team, the smarter they get.
+
+```
+User:     @boss can you analyze last week's conversion funnel?
+Boss:     That's right up @data-analyst's alley. Let me loop them in 👇
+          @data-analyst — user wants conversion funnel analysis for last week.
+DataBot:  [reads full thread context, runs Redshift query via MCP]
+          Here are the results: conversions were up 12% week-over-week...
+```
+
+The Boss reads the message, checks its team registry, and delegates to the right specialist. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Boss Orchestration" icon="sitemap">
+    A Boss agent receives high-level requests and delegates to specialists via Slack thread @mentions. Each specialist reports back, and Boss consolidates results for the user.
+  </Card>
+  <Card title="Persistent Memory" icon="brain">
+    Agents write structured memory files during every session. Memory is synced to Postgres and re-materialized on restart — agents accumulate knowledge over time.
+  </Card>
+  <Card title="MCP Tool Servers" icon="plug">
+    Connect agents to databases, APIs, and services via Model Context Protocol. Manage a global catalog of MCP servers and assign them per-agent. Supports stdio, SSE, and HTTP transports.
+  </Card>
+  <Card title="Skills as Slash Commands" icon="terminal">
+    Skills are Markdown files compiled as Claude Code slash commands (e.g. `/sql-rules`). Give agents repeatable workflows, domain knowledge, and specialized instructions.
+  </Card>
+  <Card title="Encrypted Env Vars" icon="lock">
+    A platform-level secret store encrypted at rest with pgcrypto. MCP configs reference store keys by name using `envRefs` — raw secrets are never returned by the API.
+  </Card>
+  <Card title="Hot Reload" icon="bolt">
+    Edit anything in the UI — skills, CLAUDE.md, tools, permissions — and the agent picks up changes within seconds via Redis pub/sub. No restart needed.
+  </Card>
+  <Card title="Version Control" icon="clock-rotate-left">
+    Every save auto-snapshots the agent state. Browse history with line-level diffs and restore any previous version with one click.
+  </Card>
+  <Card title="RBAC & Access Control" icon="shield">
+    Four roles: superadmin, admin, editor, and viewer. Admins can grant editors per-agent write access. All permissions enforced server-side.
+  </Card>
+</CardGroup>
+
+## Architecture
+
+SlackHive runs as four Docker Compose services:
+
+| Service | Role | Port |
+|---------|------|------|
+| **Web** (Next.js 15) | Management UI + API routes | 3001 |
+| **Runner** (Node.js) | Hosts all agent processes via Slack Bolt Socket Mode | — |
+| **PostgreSQL 16** | Agents, skills, memory, jobs, snapshots, sessions | 5432 |
+| **Redis 7** | Pub/sub event bus for hot reload between Web and Runner | 6379 |
+
+**Message flow:**
+
+1. User @mentions an agent in Slack
+2. Runner receives the event via Bolt Socket Mode
+3. Claude Code SDK processes the message using the agent's compiled `CLAUDE.md`
+4. Agent may invoke MCP tools (Redshift, GitHub, custom APIs) during processing
+5. Response is formatted as Slack Block Kit and posted to the thread
+6. Memory files written during the session are detected by `MemoryWatcher` and synced to Postgres
+7. On next conversation, the agent starts with all accumulated knowledge
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Install SlackHive with the CLI and have your first agent running in minutes.
+  </Card>
+  <Card title="Create an Agent" icon="robot" href="/agents/creating-agents">
+    Walk through the 5-step agent creation wizard in detail.
+  </Card>
+  <Card title="Boss Agents" icon="sitemap" href="/agents/boss-agents">
+    Set up an orchestrating Boss to manage a team of specialists.
+  </Card>
+  <Card title="MCP Servers" icon="plug" href="/configuration/mcp-servers">
+    Connect agents to external databases and APIs.
+  </Card>
+</CardGroup>

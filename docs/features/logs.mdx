@@ -1,0 +1,131 @@
+---
+title: "Live Logs"
+description: "Real-time log streaming for debugging agents and monitoring activity."
+---
+
+## Overview
+
+The **Live Logs** feature streams Docker container log output directly to your browser using server-sent events (SSE). Each agent's logs are available from its detail page.
+
+Logs capture everything the runner produces for a given agent: startup events, incoming Slack messages, Claude SDK calls, MCP tool invocations, memory writes, and errors.
+
+## Accessing logs
+
+1. Open an agent from the dashboard
+2. Click the **Logs** tab on the agent detail page
+
+Logs begin streaming immediately. New log lines appear in real time as the agent processes messages.
+
+## Log levels
+
+SlackHive uses structured logging (Winston) with four levels:
+
+| Level | Color | When it appears |
+|-------|-------|----------------|
+| `error` | Red | Unrecoverable failures: Slack auth errors, Claude SDK exceptions, DB connection failures |
+| `warn` | Yellow | Recoverable issues: stale session retries, MCP server startup failures, malformed memory files |
+| `info` | Default | Normal operation: agent started, message received, memory synced, session created |
+| `debug` | Dimmed | Verbose detail: SDK options, session directory paths, MCP server config |
+
+Use the **level filter** in the log viewer to show only the levels you care about. In production, `info` and above is usually sufficient. Enable `debug` when diagnosing unexpected behavior.
+
+## Log search
+
+The log viewer includes a search bar. Type any string to filter log lines to those containing that text. Useful for finding:
+- Log lines for a specific user ID (`U012AB3CD`)
+- Log lines for a specific session (`session_key`)
+- All memory sync events (`memory synced`)
+- All MCP-related activity (`mcp__`)
+
+## What you'll see in logs
+
+### Agent startup
+
+```
+[info] Agent started { mcpServers: ['redshift', 'filesystem'] }
+[info] Memory watcher started { memoryDir: '/tmp/agents/data-bot/memory' }
+[debug] MCP servers configured { servers: ['redshift'] }
+```
+
+### Incoming message
+
+```
+[info] Streaming query { sessionKey: 'U012-C456-1234.5678', resume: 'new', cwd: '...' }
+[debug] Session work dir created { sessionKey: '...', sessionDir: '...' }
+[debug] Session created { sessionKey: '...', sessionId: 'sess_...' }
+```
+
+### Memory write
+
+```
+[info] Memory synced to DB { filePath: '...', name: 'kai_preferences', type: 'user' }
+[info] Memory synced from session { file: 'user_kai_preferences.md', name: 'kai_preferences', type: 'user' }
+```
+
+### MCP tool use
+
+MCP tool invocations appear in the Claude SDK output stream and are rendered in the Slack response as tool-use labels. In logs, you'll see the MCP proxy management:
+
+```
+[info] MCP proxy started { server: 'redshift', port: 14050 }
+```
+
+### Session cleanup
+
+```
+[info] Cleaned up stale sessions { count: 2 }
+```
+
+### Errors
+
+```
+[error] Claude query failed { sessionKey: '...', error: 'No conversation found' }
+[warn] Stale session, retrying as new { sessionKey: '...', staleSessionId: 'sess_...' }
+[error] MCP proxy start failed { server: 'broken-mcp', error: 'Command not found' }
+```
+
+## Debugging common issues
+
+### Agent not responding in Slack
+
+Check for:
+- `[error]` lines mentioning Slack token or connection errors
+- `[warn]` lines about missing or invalid credentials
+- Whether the agent shows **Active** status in the dashboard
+
+### MCP tools not working
+
+Check for:
+- `[error] MCP proxy start failed` — the server binary is not found or not executable
+- `[warn] MCP envRef not found` — the referenced env var key doesn't exist in the encrypted store
+- `[warn] Memory dir watcher error` — filesystem permission issues
+
+### Memory not persisting
+
+Check for:
+- `[warn] Could not parse memory file` — the agent wrote a memory file with invalid frontmatter
+- Absence of `[info] Memory synced to DB` lines — the watcher may not have detected the file
+
+### Stale session errors
+
+Stale sessions occur when a Claude session ID stored in the database no longer corresponds to an active SDK session (e.g. after a runner restart). SlackHive retries automatically as a new session. You'll see:
+
+```
+[warn] Stale session, retrying as new
+```
+
+This is normal after restarts and resolves itself automatically.
+
+## Tailing logs from the CLI
+
+For shell access to runner logs, use the CLI:
+
+```bash
+slackhive logs
+```
+
+This tails the Docker container logs for the runner service. Add `--no-follow` to print without following:
+
+```bash
+docker compose logs runner --tail 100
+```

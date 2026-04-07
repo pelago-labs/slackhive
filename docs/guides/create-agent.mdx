@@ -1,0 +1,135 @@
+---
+title: "Create an Agent"
+description: "Walk through the 5-step wizard to create and deploy a Claude agent to Slack."
+---
+
+Creating an agent takes about 5 minutes. You'll need a Slack app ready (or create one during the process — see [Install a Slack App](/guides/slack-install)).
+
+Click **New Agent** from the dashboard to open the wizard.
+
+## Step 1: Name & Role
+
+<Steps>
+  <Step title="Fill in agent identity">
+    | Field | Description |
+    |-------|-------------|
+    | **Name** | Display name shown in the UI (e.g. "Ava Engineer") |
+    | **Slug** | URL-safe identifier used internally (e.g. `ava-engineer`) — auto-generated from name |
+    | **Description** | What this agent does — shown in the team registry for Boss agents |
+    | **Persona** | Free-form personality and behavioral instructions compiled into CLAUDE.md |
+    | **Model** | The Claude model this agent uses (see model comparison below) |
+  </Step>
+  <Step title="Choose model">
+    | Model | Best for |
+    |-------|---------|
+    | `claude-opus-4-6` | Complex reasoning, Boss agents, multi-step planning |
+    | `claude-sonnet-4-6` | Balanced capability and speed — good default for most agents |
+    | `claude-haiku-4-5-20251001` | Fast, lightweight tasks; high-volume operations |
+  </Step>
+  <Step title="Configure boss settings (optional)">
+    Toggle **This agent is a Boss** if you want this agent to orchestrate a team.
+
+    When enabled:
+    - The Tools step is skipped (Boss agents delegate rather than use tools directly)
+    - CLAUDE.md is auto-generated with a team registry listing all specialists that report to this boss
+
+    Use **Reports To** to select which Boss agent(s) this agent reports to. An agent can report to multiple bosses — select all that apply.
+  </Step>
+</Steps>
+
+## Step 2: Slack App
+
+This step generates a Slack app manifest and walks you through creating the app.
+
+<Steps>
+  <Step title="Generate the manifest">
+    Click **Generate Manifest**. SlackHive produces a JSON manifest pre-configured with all required OAuth scopes and Socket Mode enabled.
+  </Step>
+  <Step title="Create the app at api.slack.com">
+    1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
+    2. Click **Create New App**
+    3. Choose **From an app manifest**
+    4. Select your workspace
+    5. Paste the generated manifest JSON
+    6. Review and click **Create**
+  </Step>
+  <Step title="Install to workspace">
+    On your new app's page:
+    1. Go to **OAuth & Permissions**
+    2. Click **Install to Workspace**
+    3. Review permissions and click **Allow**
+  </Step>
+</Steps>
+
+<Tip>
+  Keep the Slack app page open — you'll need credentials from it in Step 3.
+</Tip>
+
+## Step 3: Credentials
+
+Enter the three credentials that connect SlackHive to your Slack app.
+
+| Field | Where to find it |
+|-------|-----------------|
+| **Bot Token** (`xoxb-...`) | **OAuth & Permissions** → Bot User OAuth Token |
+| **App Token** (`xapp-...`) | **Basic Information** → App-Level Tokens → Create a token with `connections:write` scope |
+| **Signing Secret** | **Basic Information** → App Credentials → Signing Secret |
+
+<Note>
+  The **Bot User ID** (e.g. `U012AB3CD`) is auto-populated when the agent first connects. You don't need to enter it manually.
+</Note>
+
+After saving credentials, SlackHive verifies the connection. If verification fails, double-check that Socket Mode is enabled on your app (**Socket Mode** in the left sidebar → **Enable Socket Mode**).
+
+## Step 4: Tools
+
+<Note>
+  This step is skipped for Boss agents.
+</Note>
+
+### Skills
+
+Skills are slash commands compiled into your agent's Claude Code environment. Choose a starting template:
+
+| Template | Contents |
+|----------|---------|
+| **Blank** | Empty — start from scratch |
+| **Data Analyst** | SQL query patterns, data summarization, charting guidance |
+| **Writer** | Content drafting, editing, tone adjustment commands |
+| **Developer** | Code review, debugging, PR summary, architecture commands |
+
+You can add, edit, and remove skills after creation from the agent's **Skills** tab.
+
+### MCP Servers
+
+Assign MCP servers from the global catalog to give this agent access to external tools. Each assigned server's tools become available as `mcp__{serverName}__{toolName}` in Claude.
+
+If you haven't set up any MCP servers yet, you can skip this and add them later from the agent's **Tools** tab. See [MCP Setup](/guides/mcp-setup).
+
+## Step 5: Review
+
+Review all settings before creating:
+
+- Agent name, slug, model, and persona
+- Boss configuration and reporting structure
+- Slack app connection status
+- Assigned skills and MCP servers
+
+Click **Create Agent** to finalize.
+
+## After creation
+
+Once created, the agent:
+
+1. Appears in the dashboard with **Active** status
+2. The runner picks it up within seconds via Redis hot reload
+3. Invite the bot to a Slack channel (`/invite @your-agent-name`)
+4. @mention it to start a conversation
+
+<Tip>
+  Test your agent by opening a Slack DM with it. DMs don't require channel permissions.
+</Tip>
+
+## Editing an agent
+
+All fields are editable after creation from the agent's detail page. Changes to skills, tools, CLAUDE.md, or permissions are auto-snapshotted for version control. The runner reloads the agent within seconds of any save.
