@@ -167,8 +167,8 @@ export class ClaudeHandler {
         }
       }
 
-      // Create memory dir for per-thread memory files
-      fs.mkdirSync(path.join(sessionDir, '.claude', 'memory'), { recursive: true });
+      // Create memory dir for per-thread memory files (outside .claude/ to avoid SDK sensitive-file blocking)
+      fs.mkdirSync(path.join(sessionDir, 'memory'), { recursive: true });
       this.log.debug('Session work dir created', { sessionKey, sessionDir });
     }
 
@@ -282,7 +282,7 @@ export class ClaudeHandler {
    * the MemoryWatcher to ensure memories are never lost due to missed fs events.
    */
   private async syncSessionMemories(sessionWorkDir: string): Promise<void> {
-    const memDir = path.join(sessionWorkDir, '.claude', 'memory');
+    const memDir = path.join(sessionWorkDir, 'memory');
     if (!fs.existsSync(memDir)) return;
 
     const files = fs.readdirSync(memDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');

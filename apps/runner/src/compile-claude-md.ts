@@ -75,7 +75,7 @@ You have a persistent memory system. **At the end of every conversation, proacti
 
 ## How to save a memory
 
-Use the Write tool to create a file at \`.claude/memory/{name}.md\`:
+Use the Write tool to create a file at \`memory/{name}.md\` (relative to your working directory):
 
 \`\`\`markdown
 ---
@@ -107,7 +107,7 @@ Save a memory whenever you learn:
 
 ## MEMORY.md index
 
-After writing a memory file, also update \`.claude/memory/MEMORY.md\` with a one-line entry:
+After writing a memory file, also update \`memory/MEMORY.md\` with a one-line entry:
 \`- [Name](filename.md) — one-line hook\`
 
 ## Updating existing memories
@@ -236,7 +236,7 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
  * @returns {void}
  */
 export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
-  const memoryDir = path.join(getAgentWorkDir(agent.slug), '.claude', 'memory');
+  const memoryDir = path.join(getAgentWorkDir(agent.slug), 'memory');
   fs.mkdirSync(memoryDir, { recursive: true });
 
   for (const memory of memories) {
