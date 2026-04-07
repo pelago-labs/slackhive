@@ -387,13 +387,15 @@ export class ClaudeHandler {
     const denied: string[] = this.permissions?.deniedTools ?? [];
     const mcpToolPrefixes = this.mcpServers.map((s) => `mcp__${s.name}`);
 
-    // Read and Write are always allowed — Read for project context, Write for the memory system.
+    // Read and Write are always available — Read for project context, Write for the memory system.
     // These cannot be overridden by agent permissions.
     const alwaysAllowed = ['Read', 'Write'];
-    options.tools = ['Read'];
-    options.allowedTools = [...new Set([...alwaysAllowed, ...baseAllowed, ...mcpToolPrefixes])].filter(
+    const availableTools = [...new Set([...alwaysAllowed, ...baseAllowed, ...mcpToolPrefixes])].filter(
       (tool) => !denied.includes(tool)
     );
+    // `tools` controls which tools the model can see/use; `allowedTools` controls auto-execution.
+    options.tools = availableTools;
+    options.allowedTools = availableTools;
 
     if (this.mcpServers.length > 0) {
       options.mcpServers = Object.fromEntries(
