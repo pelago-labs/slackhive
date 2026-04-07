@@ -51,22 +51,25 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       return NextResponse.json({ error: 'category, filename, content are required' }, { status: 400 });
     }
 
-    // Snapshot current state before mutation
-    const session = getSessionFromRequest(req);
-    const [agent, currentSkills, perms, mcps] = await Promise.all([
-      getAgentById(id),
-      getAgentSkills(id),
-      getAgentPermissions(id),
-      getAgentMcpServers(id),
-    ]);
-    await createSnapshot(
-      id, 'skills', session?.username ?? 'system', null,
-      currentSkills.map(skillToSnapshotSkill),
-      perms?.allowedTools ?? [],
-      perms?.deniedTools ?? [],
-      mcps.map(m => m.id),
-      agent?.claudeMd ?? '',
-    ).catch(() => {});
+    // Snapshot current state before mutation (skip during bulk import)
+    const noSnapshot = req.nextUrl.searchParams.get('noSnapshot') === '1';
+    if (!noSnapshot) {
+      const session = getSessionFromRequest(req);
+      const [agent, currentSkills, perms, mcps] = await Promise.all([
+        getAgentById(id),
+        getAgentSkills(id),
+        getAgentPermissions(id),
+        getAgentMcpServers(id),
+      ]);
+      await createSnapshot(
+        id, 'skills', session?.username ?? 'system', null,
+        currentSkills.map(skillToSnapshotSkill),
+        perms?.allowedTools ?? [],
+        perms?.deniedTools ?? [],
+        mcps.map(m => m.id),
+        agent?.claudeMd ?? '',
+      ).catch(() => {});
+    }
 
     const skill = await upsertSkill(id, body.category, body.filename, body.content, body.sortOrder ?? 0);
     await publishAgentEvent({ type: 'reload', agentId: id });
