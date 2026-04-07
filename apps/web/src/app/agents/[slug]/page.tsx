@@ -12,6 +12,7 @@
 import React, { useEffect, useState, useRef, use } from 'react';
 import { Brain, Camera, Clock, History, Upload, Download } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
@@ -142,7 +143,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         body: importPreview.claudeMd,
       });
       await Promise.all(importPreview.skills.map(s =>
-        fetch(`/api/agents/${agent.id}/skills`, {
+        fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(s),
         })
@@ -324,7 +325,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} />}
+        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} />}
         {tab === 'skills'      && <SkillsTab      agentId={agent.id} canEdit={canEdit} />}
         {tab === 'claude-md'   && <ClaudeMdTab    agentId={agent.id} canEdit={canEdit} />}
         {tab === 'mcps'        && <McpsTab        agentId={agent.id} canEdit={canEdit} />}
@@ -339,7 +340,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null }) {
   const [form, setForm] = useState({
     name:               agent.name,
     description:        agent.description ?? '',
@@ -351,10 +352,12 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
     isBoss:             agent.isBoss,
     reportsTo:          agent.reportsTo ?? [] as string[],
   });
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg]       = useState('');
-  const [manifest, setManifest]       = useState('');
+  const [saving, setSaving]             = useState(false);
+  const [msg, setMsg]                   = useState('');
+  const [manifest, setManifest]         = useState('');
   const [showManifest, setShowManifest] = useState(false);
+  const [deleting, setDeleting]         = useState(false);
+  const router = useRouter();
 
   // Channel restrictions state
   const [allowedChannels, setAllowedChannels] = useState('');
@@ -389,11 +392,27 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
     setShowManifest(true);
   };
 
+  const handleDelete = async () => {
+    if (!confirm(`Permanently delete agent "${agent.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    const r = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
+    if (r.ok) {
+      router.push('/');
+    } else {
+      const err = await r.json();
+      setMsg(err.error ?? 'Delete failed');
+      setDeleting(false);
+    }
+  };
+
+  const isAdmin = role === 'admin' || role === 'superadmin';
+
   return (
     <div style={{ maxWidth: 640 }} className="fade-up">
       <Section title="Identity">
         <Grid2>
-          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit} />
+          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
+            hint={<span style={{ color: '#b45309' }}>⚠ Changing the name requires creating a new Slack app with the updated bot name.</span>} />
           <Field label="Model" value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))}
             hint="claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001" readOnly={!canEdit} />
         </Grid2>
@@ -570,6 +589,37 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
             margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)',
             fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 320,
           }}>{manifest}</pre>
+        </div>
+      )}
+
+      {/* ── Danger Zone ── */}
+      {isAdmin && (
+        <div style={{
+          marginTop: 40, borderTop: '1px solid #fecaca', paddingTop: 28,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
+            Danger Zone
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: '#fff8f8', border: '1px solid #fecaca', borderRadius: 8, padding: '14px 18px',
+          }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>Delete this agent</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Permanently removes the agent, all its skills, memories, and history. This cannot be undone.</div>
+            </div>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{
+                flexShrink: 0, marginLeft: 24,
+                padding: '8px 18px', borderRadius: 7, border: '1px solid #dc2626',
+                background: deleting ? '#fef2f2' : '#fff', color: '#dc2626',
+                fontSize: 13, fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer',
+                fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+              }}
+            >{deleting ? 'Deleting…' : 'Delete Agent'}</button>
+          </div>
         </div>
       )}
     </div>
@@ -1194,7 +1244,6 @@ interface ParsedLog {
 }
 
 function parseLine(raw: string): ParsedLog {
-  // Strip ANSI color codes
   const stripped = raw.replace(/\x1b\[[0-9;]*m/g, '');
   try {
     const obj = JSON.parse(stripped);
@@ -1202,34 +1251,111 @@ function parseLine(raw: string): ParsedLog {
       obj.level === 'error' || obj.level === 50 ? 'error' :
       obj.level === 'warn'  || obj.level === 40 ? 'warn'  :
       obj.level === 'debug' || obj.level === 20 ? 'debug' : 'info';
-    const ts = obj.timestamp ? new Date(obj.timestamp).toLocaleTimeString() : '';
-    const msg = obj.message ?? obj.msg ?? '';
+    const ts = obj.timestamp ? new Date(obj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    const rawMsg = obj.message ?? obj.msg ?? '';
+    const msg = rawMsg.replace(/^(error|warn|info|debug|trace):\s*/i, '');
     const skip = new Set(['level', 'message', 'msg', 'timestamp', 'agent', 'service']);
     const fields: Record<string, string> = {};
     for (const [k, v] of Object.entries(obj)) {
       if (!skip.has(k)) fields[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
     }
-    return { raw, level, time: ts, message: msg, fields };
+    return { raw: stripped, level, time: ts, message: msg, fields };
   } catch {
+    const lo = stripped.toLowerCase();
     const level: LogLevel =
-      stripped.includes('"level":"error"') || stripped.includes('"level":50') ? 'error' :
-      stripped.includes('"level":"warn"')  || stripped.includes('"level":40') ? 'warn'  :
-      stripped.includes('"level":"debug"') || stripped.includes('"level":20') ? 'debug' : 'info';
-    return { raw: stripped, level, time: '', message: stripped, fields: {} };
+      lo.includes('"level":"error"') || lo.includes('"level":50') || lo.includes('error:') ? 'error' :
+      lo.includes('"level":"warn"')  || lo.includes('"level":40') || lo.includes('warn:')  ? 'warn'  :
+      lo.includes('"level":"debug"') || lo.includes('"level":20') || lo.includes('debug:') ? 'debug' : 'info';
+    const plainMsg = stripped.replace(/^(error|warn|info|debug|trace):\s*/i, '');
+    const tsMatch = stripped.match(/"timestamp":"([^"]+)"/);
+    const plainTime = tsMatch ? new Date(tsMatch[1]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    return { raw: stripped, level, time: plainTime, message: plainMsg, fields: {} };
   }
 }
 
-const LEVEL_COLORS: Record<LogLevel, string> = {
-  all:   'var(--text)',
-  error: '#dc2626',
-  warn:  '#b45309',
-  info:  'var(--text)',
-  debug: 'var(--muted)',
+const LOG_META: Record<LogLevel, { label: string; color: string; bg: string; border: string; rowBg: string }> = {
+  all:   { label: 'ALL',   color: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', rowBg: 'transparent' },
+  info:  { label: 'INFO',  color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', rowBg: 'transparent' },
+  debug: { label: 'DEBUG', color: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb', rowBg: 'transparent' },
+  warn:  { label: 'WARN',  color: '#92400e', bg: '#fffbeb', border: '#fde68a', rowBg: '#fffdf0' },
+  error: { label: 'ERR',   color: '#991b1b', bg: '#fef2f2', border: '#fecaca', rowBg: '#fff8f8' },
 };
 
-const LEVEL_BADGE: Record<LogLevel, string> = {
-  all: 'var(--muted)', error: '#dc2626', warn: '#b45309', info: '#2563eb', debug: 'var(--subtle)',
-};
+function LogRow({ log }: { log: ParsedLog }) {
+  const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered]   = useState(false);
+  const m = LOG_META[log.level];
+  const hasFields = Object.keys(log.fields).length > 0;
+  const msgColor = log.level === 'error' ? '#7f1d1d' : log.level === 'warn' ? '#78350f' : log.level === 'debug' ? '#9ca3af' : 'var(--text)';
+
+  return (
+    <div
+      onClick={() => setExpanded(e => !e)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        cursor: 'pointer',
+        background: hovered ? 'var(--surface-2)' : (expanded ? 'var(--surface-2)' : m.rowBg),
+        borderLeft: `3px solid ${expanded ? m.border : 'transparent'}`,
+        borderBottom: '1px solid var(--border)',
+        transition: 'background 0.1s',
+      }}
+    >
+      {/* Compact single row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 10px', minHeight: 28 }}>
+        <span style={{ color: 'var(--subtle)', flexShrink: 0, fontSize: 10.5, fontVariantNumeric: 'tabular-nums', minWidth: 68 }}>
+          {log.time}
+        </span>
+        <span style={{
+          flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em',
+          padding: '1px 6px', borderRadius: 3, border: `1px solid ${m.border}`,
+          background: m.bg, color: m.color, minWidth: 34, textAlign: 'center',
+        }}>{m.label}</span>
+        <span style={{ flex: 1, color: msgColor, fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {log.message}
+        </span>
+        {!expanded && hasFields && (
+          <span style={{ flexShrink: 0, display: 'flex', gap: 3 }}>
+            {Object.keys(log.fields).slice(0, 3).map(k => (
+              <span key={k} style={{ fontSize: 9.5, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '0 4px' }}>{k}</span>
+            ))}
+            {Object.keys(log.fields).length > 3 && <span style={{ fontSize: 9.5, color: 'var(--subtle)' }}>+{Object.keys(log.fields).length - 3}</span>}
+          </span>
+        )}
+        <span style={{ flexShrink: 0, color: 'var(--subtle)', fontSize: 9, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
+      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div style={{ padding: '8px 14px 12px 92px', borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+          {log.message.includes('\n') && (
+            <pre style={{ margin: '0 0 10px', color: 'var(--text)', fontSize: 11.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{log.message}</pre>
+          )}
+          {hasFields && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px', marginBottom: 8 }}>
+              {Object.entries(log.fields).map(([k, v]) => (
+                <>
+                  <span key={`k-${k}`} style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 500 }}>{k}</span>
+                  <span key={`v-${k}`} style={{ color: 'var(--muted)', fontSize: 11, wordBreak: 'break-all' }}>{v}</span>
+                </>
+              ))}
+            </div>
+          )}
+          {log.raw && (
+            <>
+              <div style={{ fontSize: 10, color: 'var(--subtle)', marginTop: 8, marginBottom: 4 }}>Raw</div>
+              <pre style={{
+                margin: 0, padding: '8px 10px', background: 'var(--surface-2)',
+                border: '1px solid var(--border)', borderRadius: 4,
+                fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 180, overflow: 'auto',
+              }}>{log.raw}</pre>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
   const [lines, setLines]             = useState<ParsedLog[]>([]);
@@ -1237,7 +1363,7 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
   const [levelFilter, setLevelFilter] = useState<LogLevel>('all');
   const [search, setSearch]           = useState('');
   const [autoScroll, setAutoScroll]   = useState(true);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef    = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1257,6 +1383,10 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
 
   const LEVEL_ORDER: LogLevel[] = ['error', 'warn', 'info', 'debug'];
 
+  const counts = lines.reduce<Record<LogLevel, number>>((acc, l) => {
+    acc[l.level] = (acc[l.level] ?? 0) + 1; return acc;
+  }, { all: lines.length, error: 0, warn: 0, info: 0, debug: 0 });
+
   const visibleLines = lines.filter(l => {
     if (levelFilter !== 'all' && l.level !== levelFilter) return false;
     if (search) {
@@ -1267,96 +1397,75 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
     return true;
   });
 
-  const levelBtnStyle = (lvl: LogLevel) => ({
-    padding: '2px 10px', borderRadius: 12, border: '1px solid var(--border)',
-    fontSize: 11, fontFamily: 'var(--font-sans)', cursor: 'pointer',
-    background: levelFilter === lvl ? 'var(--accent)' : 'var(--surface-2)',
-    color: levelFilter === lvl ? '#fff' : lvl === 'info' || lvl === 'all' ? 'var(--muted)' : LEVEL_COLORS[lvl],
-    fontWeight: levelFilter === lvl ? 600 : 400,
-  });
-
   return (
     <div className="fade-up">
       {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div
-            className={connected ? 'status-running' : ''}
-            style={{ width: 7, height: 7, borderRadius: '50%', background: connected ? '#16a34a' : 'var(--border-2)' }}
-          />
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{connected ? 'Live' : 'Disconnected'}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div className={connected ? 'status-running' : ''}
+            style={{ width: 6, height: 6, borderRadius: '50%', background: connected ? '#16a34a' : 'var(--border-2)' }} />
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{connected ? 'Live' : 'Disconnected'}</span>
         </div>
-
-        {/* Level filters */}
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button onClick={() => setLevelFilter('all')} style={levelBtnStyle('all')}>all</button>
-          {LEVEL_ORDER.map(lvl => (
-            <button key={lvl} onClick={() => setLevelFilter(lvl)} style={levelBtnStyle(lvl)}>{lvl}</button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search…"
+        <div style={{ width: 1, height: 14, background: 'var(--border)', margin: '0 2px' }} />
+        {/* Level filters with counts */}
+        {(['all', ...LEVEL_ORDER] as LogLevel[]).map(lvl => {
+          const m = LOG_META[lvl];
+          const active = levelFilter === lvl;
+          return (
+            <button key={lvl} onClick={() => setLevelFilter(lvl)} style={{
+              padding: '2px 8px', borderRadius: 4,
+              border: `1px solid ${active ? m.border : 'var(--border)'}`,
+              fontSize: 10.5, fontFamily: 'var(--font-sans)', cursor: 'pointer',
+              background: active ? m.bg : 'transparent',
+              color: active ? m.color : 'var(--muted)',
+              fontWeight: active ? 700 : 400,
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+              {m.label}
+              {counts[lvl] > 0 && <span style={{ fontSize: 9.5, opacity: 0.75 }}>{counts[lvl]}</span>}
+            </button>
+          );
+        })}
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter logs…"
           style={{
-            padding: '2px 10px', borderRadius: 12, border: '1px solid var(--border)',
-            fontSize: 11, fontFamily: 'var(--font-sans)', background: 'var(--surface-2)',
-            color: 'var(--text)', outline: 'none', width: 160,
-          }}
-        />
-
-        <button
-          onClick={() => setLines([])}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}
-        >Clear</button>
+            padding: '3px 10px', borderRadius: 4, border: '1px solid var(--border)',
+            fontSize: 11, fontFamily: 'var(--font-mono)', background: 'transparent',
+            color: 'var(--text)', outline: 'none', width: 180,
+          }} />
+        <button onClick={() => setLines([])} style={{
+          marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
+          fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)',
+        }}>Clear</button>
       </div>
 
       {/* Log pane */}
-      <div
-        ref={containerRef}
-        onScroll={e => {
-          const el = e.currentTarget;
-          setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 40);
-        }}
-        style={{
-          background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10,
-          padding: '12px 16px', height: 500, overflow: 'auto',
-          fontFamily: 'var(--font-mono)', fontSize: 11.5, lineHeight: 1.7,
-        }}
-      >
-        {visibleLines.length === 0
-          ? <span style={{ color: 'var(--subtle)' }}>{lines.length === 0 ? 'Waiting for log lines…' : 'No matching lines.'}</span>
-          : visibleLines.map((log, i) => (
-            <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 2, alignItems: 'baseline' }}>
-              {/* Time */}
-              {log.time && (
-                <span style={{ color: 'var(--subtle)', flexShrink: 0, fontSize: 10.5 }}>{log.time}</span>
-              )}
-              {/* Level badge */}
-              <span style={{
-                flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em',
-                textTransform: 'uppercase', color: LEVEL_BADGE[log.level],
-                minWidth: 34,
-              }}>{log.level}</span>
-              {/* Message */}
-              <span style={{ color: LEVEL_COLORS[log.level], flex: 1, wordBreak: 'break-word' }}>
-                {log.message}
-                {/* Inline fields */}
-                {Object.entries(log.fields).map(([k, v]) => (
-                  <span key={k}>
-                    {' '}
-                    <span style={{ color: 'var(--accent)' }}>{k}</span>
-                    <span style={{ color: 'var(--subtle)' }}>=</span>
-                    <span style={{ color: 'var(--muted)' }}>{v}</span>
-                  </span>
-                ))}
-              </span>
-            </div>
-          ))
-        }
+      <div ref={containerRef} onScroll={e => {
+        const el = e.currentTarget;
+        setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 40);
+      }} style={{
+        background: '#fff', border: '1px solid var(--border)', borderRadius: 8,
+        height: 520, overflow: 'auto', fontFamily: 'var(--font-mono)',
+      }}>
+        {visibleLines.length === 0 ? (
+          <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--subtle)', fontSize: 12 }}>
+            {lines.length === 0 ? 'Waiting for log lines…' : 'No matching lines.'}
+          </div>
+        ) : (
+          visibleLines.map((log, i) => <LogRow key={i} log={log} />)
+        )}
         <div ref={bottomRef} />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, padding: '0 2px' }}>
+        <span style={{ fontSize: 10.5, color: 'var(--subtle)' }}>
+          {visibleLines.length}{visibleLines.length !== lines.length ? ` / ${lines.length}` : ''} line{visibleLines.length !== 1 ? 's' : ''}
+        </span>
+        {!autoScroll && (
+          <button onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
+            style={{ fontSize: 10.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
+            ↓ Jump to latest
+          </button>
+        )}
       </div>
     </div>
   );
@@ -2026,13 +2135,22 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             </select>
           </div>
 
-          {/* Diff sections */}
-          {[
+          {/* Diff sections — wait for compare target to load */}
+          {!currentAsSnapshot ? (
+            <div style={{
+              background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
+              padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
+            }}>
+              Loading comparison…
+            </div>
+          ) : [
             { title: 'Skills',       content: <SkillDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
             { title: 'Tools',        content: <PermsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
             { title: 'MCPs',         content: <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} /> },
             { title: 'System Prompt', content: (() => {
-                const diff = lineDiff(fullSnapshot.compiledMd || '', currentAsSnapshot?.compiledMd || '');
+                if (!fullSnapshot.compiledMd || !currentAsSnapshot.compiledMd)
+                  return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>Not available for this snapshot</p>;
+                const diff = lineDiff(fullSnapshot.compiledMd.trim(), currentAsSnapshot.compiledMd.trim());
                 const changed = diff.some(l => l.type !== 'same');
                 if (!changed) return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>No changes</p>;
                 return (
