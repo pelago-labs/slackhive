@@ -18,7 +18,7 @@ const mockQuery = vi.fn();
 
 vi.mock('pg', () => {
   return {
-    Pool: vi.fn().mockImplementation(() => ({ query: mockQuery })),
+    Pool: vi.fn().mockImplementation(function() { return { query: mockQuery }; }),
   };
 });
 

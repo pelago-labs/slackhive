@@ -18,7 +18,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockQuery = vi.fn();
 
 vi.mock('pg', () => ({
-  Pool: vi.fn().mockImplementation(() => ({ query: mockQuery })),
+  Pool: vi.fn().mockImplementation(function() { return { query: mockQuery }; }),
 }));
 
 process.env.DATABASE_URL = 'postgresql://mock/db';
