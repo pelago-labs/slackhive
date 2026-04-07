@@ -263,6 +263,40 @@ describe('regenerateBossRegistry', () => {
     expect(contents[0]).toContain('SharedBot');
     expect(contents[1]).toContain('SharedBot');
   });
+
+  it('includes boss self-mention in delegation instructions when boss has slackBotUserId', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slackBotUserId: 'UBOSS' });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'USPEC' });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('<@UBOSS>');
+  });
+
+  it('falls back to @slug in delegation instructions when boss has no slackBotUserId', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slug: 'my-boss', slackBotUserId: undefined });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'USPEC' });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('@my-boss');
+  });
+
+  it('includes post-delegation confirmation instructions', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slackBotUserId: 'UBOSS' });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'USPEC' });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('After a specialist responds');
+    expect(content).toContain("When you're done, please tag");
+  });
 });
 
 // ─── slug fallback branch (line 48) ──────────────────────────────────────────
