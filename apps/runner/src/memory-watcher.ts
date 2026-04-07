@@ -185,7 +185,7 @@ interface ParsedMemoryFrontmatter {
  * @param {string} content - Full file content including frontmatter.
  * @returns {ParsedMemoryFrontmatter | null} Parsed frontmatter, or null if invalid.
  */
-function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null {
+export function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) return null;
 
