@@ -69,7 +69,7 @@ describe('syncSessionMemories', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-sync-test-'));
-    memDir = path.join(tmpDir, '.claude', 'memory');
+    memDir = path.join(tmpDir, 'memory');
     fs.mkdirSync(memDir, { recursive: true });
     handler = new ClaudeHandler(makeAgent(), [], null, tmpDir);
     mockUpsertMemorySafe.mockClear();
