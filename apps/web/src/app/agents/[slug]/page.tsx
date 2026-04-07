@@ -22,7 +22,6 @@ type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memor
 interface AgentExportPayload {
   version: number;
   exportedAt?: string;
-  agentSlug?: string;
   claudeMd: string;
   skills: { category: string; filename: string; content: string; sortOrder: number }[];
 }
@@ -105,7 +104,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       const payload: AgentExportPayload = {
         version: 1,
         exportedAt: new Date().toISOString(),
-        agentSlug: agent.slug,
         claudeMd,
         skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
       };
@@ -286,7 +284,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                {importPreview.agentSlug && <InfoRow label="Source agent" value={`@${importPreview.agentSlug}`} />}
                 {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
                 <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
               </div>

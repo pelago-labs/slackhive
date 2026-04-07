@@ -20,7 +20,6 @@ import { generateSlackManifest } from '@/lib/slack-manifest';
 interface AgentExportPayload {
   version: number;
   exportedAt?: string;
-  agentSlug?: string;
   claudeMd: string;
   skills: { category: string; filename: string; content: string; sortOrder: number }[];
 }
@@ -450,7 +449,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed' }}>
-                {value.agentSlug ? `@${value.agentSlug}` : 'Config loaded'}
+                Config loaded
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
@@ -516,7 +515,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
             </div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
-                {value.agentSlug ? `@${value.agentSlug}` : 'Config file loaded'}
+                Config file loaded
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
@@ -1038,7 +1037,7 @@ function Step5Review({ state, update, catalog, agents }: { state: WizardState; u
   const assignedBosses = agents.filter(a => state.reportsToIds.includes(a.id));
   const assignedMcps = catalog.filter(m => state.mcpServerIds.includes(m.id));
   const template = state.importPayload
-    ? `Import (${state.importPayload.agentSlug ? `@${state.importPayload.agentSlug}` : 'config file'}, ${state.importPayload.skills.length} skills)`
+    ? `Import (${state.importPayload.skills.length} skills)`
     : (TEMPLATES.find(t => t.value === state.skillTemplate)?.label ?? state.skillTemplate);
 
   const reportsToValue = state.isBoss

@@ -38,6 +38,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     slackSigningSecret: 'secret',
     model: 'claude-opus-4-6',
     status: 'stopped',
+    enabled: true,
     isBoss: false,
     reportsTo: [],
     claudeMd: '',
