@@ -25,18 +25,13 @@
 
 ## Why SlackHive?
 
-Most AI agent frameworks focus on a single agent doing a single task. But real teams have **specialists** — a data analyst who speaks SQL, a writer who crafts announcements, an engineer who reviews code. What if your AI team worked the same way?
+Slack is where your company already works. Every decision, every question, every escalation — it all happens there. We believe the future of AI at work isn't a separate tool you switch to — it's agents that are **part of the team**, living where work already happens.
 
-**SlackHive** was born from a simple observation: the most powerful AI setup isn't one omniscient agent — it's a **team of specialists** that learn and improve from every interaction.
+In the near future, every Slack team will have AI members alongside humans. An AI engineer who fixes bugs and reviews code. A data analyst who runs queries and surfaces insights on demand. A fraud analyst who monitors transactions and reports anomalies before anyone asks. A support agent who resolves tickets and escalates edge cases. Not tools you prompt — **teammates you @mention**.
 
-Inspired by how engineering teams actually collaborate in Slack, we built a platform where:
+SlackHive is built on this belief. It gives you the infrastructure to deploy, manage, and grow a team of AI agents on Slack — each with their own identity, memory, skills, and tools. The more they work with your team, the smarter they get.
 
-- **Each agent is a Slack bot** with its own identity, skills, and memory
-- **A Boss Agent** knows the entire team and delegates work by @mentioning the right specialist
-- **Every agent learns** — memories from conversations are persisted and loaded on the next start
-- **Everything is configurable** from a clean web UI — no code changes needed to add agents, assign tools, or edit behavior
-
-Whether you're building an internal AI ops team, a customer support squad, or a research group — SlackHive gives you the infrastructure to make it happen.
+The AI-native team isn't a future concept. It's something you can build today.
 
 <details>
 <summary><b>See it in action</b></summary>
