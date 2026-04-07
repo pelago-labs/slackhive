@@ -641,6 +641,18 @@ Please open an issue before submitting large PRs so we can discuss the approach.
 
 ---
 
+## 👥 Contributors
+
+Thanks to everyone who has contributed to SlackHive!
+
+<a href="https://github.com/pelago-labs/slackhive/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=pelago-labs/slackhive" alt="Contributors" />
+</a>
+
+Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) and [open issues](https://github.com/pelago-labs/slackhive/issues).
+
+---
+
 ## ⭐ Star History
 
 If you find this project useful, please consider giving it a star — it helps others discover it!
