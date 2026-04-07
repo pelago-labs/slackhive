@@ -38,6 +38,7 @@ function makeAgent(overrides: Partial<Agent>): Agent {
     slackBotUserId: undefined,
     model: 'claude-opus-4-5',
     status: 'stopped',
+    enabled: true,
     isBoss: false,
     reportsTo: [],
     claudeMd: '',

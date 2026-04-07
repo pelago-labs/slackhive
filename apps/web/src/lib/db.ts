@@ -112,6 +112,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     slackBotUserId: row.slack_bot_user_id as string | undefined,
     model: row.model as string,
     status: row.status as AgentStatus,
+    enabled: row.enabled !== false,
     isBoss: row.is_boss as boolean,
     reportsTo: (row.reports_to as string[]) ?? [],
     claudeMd: (row.claude_md as string) ?? '',
@@ -249,6 +250,13 @@ export async function updateAgentStatus(id: string, status: AgentStatus): Promis
   );
 }
 
+export async function updateAgentEnabled(id: string, enabled: boolean): Promise<void> {
+  await getPool().query(
+    'UPDATE agents SET enabled = $1, updated_at = now() WHERE id = $2',
+    [enabled, id]
+  );
+}
+
 /**
  * Updates mutable fields on an agent record.
  *
@@ -268,6 +276,8 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
   if (req.slackAppToken !== undefined) { fields.push(`slack_app_token = $${idx++}`); values.push(req.slackAppToken); }
   if (req.slackSigningSecret !== undefined) { fields.push(`slack_signing_secret = $${idx++}`); values.push(req.slackSigningSecret); }
   if (req.model !== undefined) { fields.push(`model = $${idx++}`); values.push(req.model); }
+  if (req.isBoss !== undefined) { fields.push(`is_boss = $${idx++}`); values.push(req.isBoss); }
+  if (req.reportsTo !== undefined) { fields.push(`reports_to = $${idx++}`); values.push(req.reportsTo); }
 
   if (fields.length === 0) return getAgentById(id);
 
@@ -837,6 +847,7 @@ export async function userCanWriteAgent(agentId: string, username: string, role:
 function rowToJob(row: Record<string, unknown>): ScheduledJob {
   return {
     id: row.id as string,
+    agentId: row.agent_id as string,
     name: row.name as string,
     prompt: row.prompt as string,
     cronSchedule: row.cron_schedule as string,
@@ -908,9 +919,9 @@ export async function getJobById(id: string): Promise<ScheduledJob | null> {
  */
 export async function createJob(req: CreateJobRequest): Promise<ScheduledJob> {
   const r = await getPool().query(
-    `INSERT INTO scheduled_jobs (name, prompt, cron_schedule, target_type, target_id, enabled)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [req.name, req.prompt, req.cronSchedule, req.targetType ?? 'channel', req.targetId, req.enabled ?? true]
+    `INSERT INTO scheduled_jobs (agent_id, name, prompt, cron_schedule, target_type, target_id, enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [req.agentId, req.name, req.prompt, req.cronSchedule, req.targetType ?? 'channel', req.targetId, req.enabled ?? true]
   );
   return rowToJob(r.rows[0]);
 }
@@ -926,6 +937,7 @@ export async function updateJob(id: string, req: UpdateJobRequest): Promise<Sche
   const sets: string[] = [];
   const vals: unknown[] = [];
   let i = 1;
+  if (req.agentId !== undefined) { sets.push(`agent_id = $${i++}`); vals.push(req.agentId); }
   if (req.name !== undefined) { sets.push(`name = $${i++}`); vals.push(req.name); }
   if (req.prompt !== undefined) { sets.push(`prompt = $${i++}`); vals.push(req.prompt); }
   if (req.cronSchedule !== undefined) { sets.push(`cron_schedule = $${i++}`); vals.push(req.cronSchedule); }
@@ -1069,10 +1081,11 @@ export async function createSnapshot(
  */
 export async function listSnapshots(agentId: string, limit = 100, offset = 0): Promise<AgentSnapshot[]> {
   const r = await getPool().query(
-    'SELECT * FROM agent_snapshots WHERE agent_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+    `SELECT id, agent_id, trigger, created_by, label, allowed_tools, denied_tools, mcp_ids, allowed_channels, created_at
+     FROM agent_snapshots WHERE agent_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
     [agentId, limit, offset]
   );
-  return r.rows.map(rowToSnapshot);
+  return r.rows.map(row => rowToSnapshot({ ...row, skills_json: [], compiled_md: '' }));
 }
 
 /**

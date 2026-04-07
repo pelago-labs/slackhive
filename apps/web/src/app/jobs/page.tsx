@@ -12,7 +12,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Portal } from '@/lib/portal';
-import { Hash, MessageSquare } from 'lucide-react';
+import { Hash, MessageSquare, CalendarClock } from 'lucide-react';
 
 interface JobRun {
   id: string;
@@ -26,6 +26,7 @@ interface JobRun {
 
 interface Job {
   id: string;
+  agentId: string;
   name: string;
   prompt: string;
   cronSchedule: string;
@@ -69,9 +70,12 @@ function cronToHuman(cron: string): string {
  *
  * @returns {JSX.Element}
  */
+interface AgentOption { id: string; name: string; slug: string; isBoss: boolean; }
+
 export default function JobsPage() {
   const { canEdit } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
@@ -80,7 +84,10 @@ export default function JobsPage() {
 
   const load = () => {
     setLoading(true);
-    fetch('/api/jobs').then(r => r.json()).then(setJobs).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([
+      fetch('/api/jobs').then(r => r.json()),
+      fetch('/api/agents').then(r => r.json()),
+    ]).then(([j, a]) => { setJobs(j); setAgents(a); }).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
 
@@ -126,7 +133,7 @@ export default function JobsPage() {
             Scheduled Jobs
           </h1>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Recurring tasks executed by the boss agent on a cron schedule.
+            Recurring tasks executed by any agent on a cron schedule.
           </p>
         </div>
         {canEdit && (
@@ -153,7 +160,7 @@ export default function JobsPage() {
           textAlign: 'center', padding: '60px 20px',
           border: '1px solid var(--border)', borderRadius: 12, background: '#fff',
         }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>⏰</div>
+          <CalendarClock size={32} style={{ marginBottom: 12, color: 'var(--border-2)' }} />
           <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>No scheduled jobs</p>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', maxWidth: 300, marginInline: 'auto' }}>
             {canEdit ? 'Create a recurring task for the boss agent to execute on a schedule.' : 'No jobs have been configured yet.'}
@@ -190,8 +197,17 @@ export default function JobsPage() {
                       }}>Paused</span>
                     )}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', gap: 12 }}>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span>{cronToHuman(job.cronSchedule)}</span>
+                    {job.agentId && (() => {
+                      const a = agents.find(x => x.id === job.agentId);
+                      return a ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: a.isBoss ? 'var(--accent)' : 'var(--muted)', display: 'inline-block' }} />
+                          {a.name}
+                        </span>
+                      ) : null;
+                    })()}
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                       {job.targetType === 'dm' ? <MessageSquare size={11} /> : <Hash size={11} />}
                       {job.targetType === 'dm' ? 'DM' : 'Channel'}: <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{job.targetId}</code>
@@ -337,6 +353,7 @@ export default function JobsPage() {
       {showForm && (
         <JobFormModal
           job={editingJob}
+          agents={agents}
           onClose={() => { setShowForm(false); setEditingJob(null); }}
           onSaved={() => { setShowForm(false); setEditingJob(null); load(); }}
         />
@@ -349,10 +366,11 @@ export default function JobsPage() {
 // Job form modal
 // =============================================================================
 
-function JobFormModal({ job, onClose, onSaved }: {
-  job: Job | null; onClose: () => void; onSaved: () => void;
+function JobFormModal({ job, agents, onClose, onSaved }: {
+  job: Job | null; agents: AgentOption[]; onClose: () => void; onSaved: () => void;
 }) {
   const isEdit = !!job;
+  const [agentId, setAgentId] = useState(job?.agentId ?? agents[0]?.id ?? '');
   const [name, setName] = useState(job?.name ?? '');
   const [prompt, setPrompt] = useState(job?.prompt ?? '');
   const [cronSchedule, setCronSchedule] = useState(job?.cronSchedule ?? '0 8 * * *');
@@ -363,14 +381,14 @@ function JobFormModal({ job, onClose, onSaved }: {
   const [error, setError] = useState('');
 
   const save = async () => {
-    if (!name || !prompt || !cronSchedule || !targetId) {
+    if (!agentId || !name || !prompt || !cronSchedule || !targetId) {
       setError('All fields are required');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      const body = { name, prompt, cronSchedule, targetType, targetId, enabled };
+      const body = { agentId, name, prompt, cronSchedule, targetType, targetId, enabled };
       const r = isEdit
         ? await fetch(`/api/jobs/${job!.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -408,6 +426,20 @@ function JobFormModal({ job, onClose, onSaved }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>&times;</button>
         </div>
 
+        {/* Agent */}
+        <div>
+          <label style={labelStyle}>Agent</label>
+          <select value={agentId} onChange={e => setAgentId(e.target.value)} style={inputStyle}>
+            {agents.length === 0 && <option value="">No agents available</option>}
+            {agents.map(a => (
+              <option key={a.id} value={a.id}>{a.name}{a.isBoss ? ' (Boss)' : ''}</option>
+            ))}
+          </select>
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+            The agent that will receive and execute this prompt.
+          </p>
+        </div>
+
         {/* Name */}
         <div>
           <label style={labelStyle}>Name</label>
@@ -419,10 +451,10 @@ function JobFormModal({ job, onClose, onSaved }: {
         <div>
           <label style={labelStyle}>Prompt</label>
           <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
-            placeholder="What should the boss agent do? e.g. Generate a summary of yesterday's bookings with key metrics"
+            placeholder="What should this agent do? e.g. Generate a summary of yesterday's bookings with key metrics"
             rows={3} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-sans)' }} />
           <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-            This prompt is sent to the boss agent on each scheduled run.
+            Sent to the agent on each scheduled run.
           </p>
         </div>
 

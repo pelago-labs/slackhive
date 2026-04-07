@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById, updateAgent, deleteAgent, publishAgentEvent } from '@/lib/db';
 import type { UpdateAgentRequest } from '@slackhive/shared';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
-import { guardAgentWrite } from '@/lib/api-guard';
+import { guardAgentWrite, guardUserAdmin } from '@/lib/api-guard';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -69,7 +69,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
 export async function DELETE(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const denied = await guardAgentWrite(req, id);
+    const denied = guardUserAdmin(req);
     if (denied) return denied;
     await publishAgentEvent({ type: 'stop', agentId: id });
     await deleteAgent(id);

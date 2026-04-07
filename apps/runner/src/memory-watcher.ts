@@ -56,7 +56,7 @@ export class MemoryWatcher {
   constructor(agent: Agent) {
     this.agent = agent;
     const workDir = getAgentWorkDir(agent.slug);
-    this.memoryDir = path.join(workDir, '.claude', 'memory');
+    this.memoryDir = path.join(workDir, 'memory');
     this.sessionsDir = path.join(workDir, 'sessions');
     this.log = agentLogger(agent.slug);
   }
@@ -80,7 +80,7 @@ export class MemoryWatcher {
     const watcher = fs.watch(this.sessionsDir, { persistent: false }, (eventType, filename) => {
       if (!filename) return;
       const sessionDir = path.join(this.sessionsDir, filename);
-      const memDir = path.join(sessionDir, '.claude', 'memory');
+      const memDir = path.join(sessionDir, 'memory');
       // When a new session dir appears, start watching its memory dir
       if (fs.existsSync(sessionDir) && fs.statSync(sessionDir).isDirectory()) {
         fs.mkdirSync(memDir, { recursive: true });
@@ -93,7 +93,7 @@ export class MemoryWatcher {
     // Also watch any existing session memory dirs
     if (fs.existsSync(this.sessionsDir)) {
       for (const entry of fs.readdirSync(this.sessionsDir)) {
-        const memDir = path.join(this.sessionsDir, entry, '.claude', 'memory');
+        const memDir = path.join(this.sessionsDir, entry, 'memory');
         fs.mkdirSync(memDir, { recursive: true });
         this.watchDir(memDir);
       }
@@ -185,7 +185,7 @@ interface ParsedMemoryFrontmatter {
  * @param {string} content - Full file content including frontmatter.
  * @returns {ParsedMemoryFrontmatter | null} Parsed frontmatter, or null if invalid.
  */
-function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null {
+export function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) return null;
 

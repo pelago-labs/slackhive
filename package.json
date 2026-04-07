@@ -21,6 +21,7 @@
     "@anthropic-ai/claude-code": "^2.1.89"
   },
   "overrides": {
-    "dompurify": "^3.3.3"
+    "dompurify": "^3.3.3",
+    "vite": "^6.4.2"
   }
 }

@@ -118,6 +118,12 @@ export interface Agent {
   /** Current runtime status of the agent's Slack bot process. */
   status: AgentStatus;
   /**
+   * Whether this agent should auto-start when the runner starts.
+   * Set to false only when the user explicitly stops the agent.
+   * Runner restarts never change this value.
+   */
+  enabled: boolean;
+  /**
    * Whether this is a boss agent.
    * Multiple boss agents are supported; each manages its own team of specialists.
    * A boss agent's CLAUDE.md registry is auto-generated from agents that report to it.
@@ -479,6 +485,8 @@ export interface UpdateAgentRequest {
   slackAppToken?: string;
   slackSigningSecret?: string;
   model?: string;
+  isBoss?: boolean;
+  reportsTo?: string[];
 }
 
 /**
@@ -559,8 +567,10 @@ export type JobRunStatus = 'running' | 'success' | 'error';
  */
 export interface ScheduledJob {
   id: string;
+  /** The agent that executes this job. */
+  agentId: string;
   name: string;
-  /** The prompt sent to the boss agent on each run. */
+  /** The prompt sent to the agent on each run. */
   prompt: string;
   /** Cron expression (e.g. "0 8 * * *" for daily at 8am). */
   cronSchedule: string;
@@ -592,6 +602,7 @@ export interface JobRun {
  * Request body for creating a new scheduled job.
  */
 export interface CreateJobRequest {
+  agentId: string;
   name: string;
   prompt: string;
   cronSchedule: string;
@@ -604,6 +615,7 @@ export interface CreateJobRequest {
  * Request body for updating an existing scheduled job.
  */
 export interface UpdateJobRequest {
+  agentId?: string;
   name?: string;
   prompt?: string;
   cronSchedule?: string;

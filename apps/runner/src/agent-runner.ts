@@ -71,17 +71,15 @@ export class AgentRunner {
   private redisSubscriber: RedisClientType | null = null;
 
   constructor() {
-    this.jobScheduler = new JobScheduler(() => this.getBossAgent());
+    this.jobScheduler = new JobScheduler((agentId: string) => this.getRunningAgent(agentId));
   }
 
   /**
-   * Returns the running boss agent, or undefined if not running.
+   * Returns any running agent by ID, or undefined if not running.
    */
-  private getBossAgent(): { app: App; claudeHandler: import('./claude-handler').ClaudeHandler } | undefined {
-    for (const ra of this.runningAgents.values()) {
-      if (ra.agent.isBoss) return { app: ra.app, claudeHandler: ra.claudeHandler };
-    }
-    return undefined;
+  getRunningAgent(agentId: string): { app: App; claudeHandler: import('./claude-handler').ClaudeHandler } | undefined {
+    const ra = this.runningAgents.get(agentId);
+    return ra ? { app: ra.app, claudeHandler: ra.claudeHandler } : undefined;
   }
 
   /**
@@ -148,8 +146,8 @@ export class AgentRunner {
     // Start agents sequentially to avoid overwhelming Slack's rate limits.
     // Skip agents that are stopped or have placeholder/missing tokens.
     for (const agent of agents) {
-      if (agent.status === 'stopped') {
-        logger.info('Skipping stopped agent', { agent: agent.slug });
+      if (agent.enabled === false) {
+        logger.info('Skipping disabled agent', { agent: agent.slug });
         continue;
       }
       if (

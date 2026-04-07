@@ -131,9 +131,9 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               <Link key={agent.id} href={`/agents/${agent.slug}`} title={agent.name}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  padding: collapsed ? '6px 0' : '7px 10px',
+                  padding: collapsed ? '7px 0' : '8px 12px',
                   justifyContent: collapsed ? 'center' : 'flex-start',
-                  borderRadius: 8, textDecoration: 'none', marginBottom: 2,
+                  borderRadius: 'var(--radius)', textDecoration: 'none', marginBottom: 2,
                   background: isActive ? 'var(--surface-2)' : 'transparent',
                   transition: 'background 0.12s',
                 }}
@@ -179,7 +179,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
 
           {canEdit && <Link href="/agents/new" title="Add agent" style={{
             display: 'flex', alignItems: 'center',
-            gap: 8, padding: collapsed ? '6px 0' : '7px 10px',
+            gap: 8, padding: collapsed ? '7px 0' : '8px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius: 8, textDecoration: 'none',
             color: 'var(--muted)', fontSize: 13, marginTop: 4,
@@ -319,11 +319,11 @@ function NavItem({ href, icon, children, active, collapsed, onClick }: {
 }) {
   const style: React.CSSProperties = {
     display: 'flex', alignItems: 'center',
-    gap: 9, padding: collapsed ? '8px 0' : '8px 10px',
+    gap: 9, padding: collapsed ? '8px 0' : '9px 12px',
     justifyContent: collapsed ? 'center' : 'flex-start',
-    borderRadius: 8, textDecoration: 'none', border: 'none',
+    borderRadius: 'var(--radius)', textDecoration: 'none', border: 'none',
     color: active ? 'var(--text)' : 'var(--muted)',
-    background: active ? 'var(--surface-2)' : 'transparent',
+    background: active ? 'var(--surface-3)' : 'transparent',
     fontSize: 13, fontWeight: active ? 600 : 400,
     transition: 'background 0.12s, color 0.12s',
     cursor: 'pointer', width: '100%', fontFamily: 'var(--font-sans)',

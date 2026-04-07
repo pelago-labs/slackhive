@@ -18,17 +18,17 @@ import type { ClaudeHandler } from './claude-handler';
 import { logger } from './logger';
 
 /** The shape of a running agent as exposed by AgentRunner. */
-interface BossAgent {
+interface RunningAgent {
   app: App;
   claudeHandler: ClaudeHandler;
 }
 
 /**
- * Manages cron-scheduled jobs that are executed by the boss agent.
+ * Manages cron-scheduled jobs that are executed by any running agent.
  *
  * @example
  * ```ts
- * const scheduler = new JobScheduler(() => agentRunner.getBossAgent());
+ * const scheduler = new JobScheduler((id) => agentRunner.getRunningAgent(id));
  * await scheduler.start();
  * ```
  */
@@ -37,9 +37,9 @@ export class JobScheduler {
   private running: Set<string> = new Set();
 
   /**
-   * @param {() => BossAgent | undefined} getBoss - Callback to get the running boss agent.
+   * @param {(agentId: string) => RunningAgent | undefined} getAgent - Returns a running agent by ID.
    */
-  constructor(private getBoss: () => BossAgent | undefined) {}
+  constructor(private getAgent: (agentId: string) => RunningAgent | undefined) {}
 
   /**
    * Loads all enabled jobs from DB and schedules them.
@@ -108,23 +108,24 @@ export class JobScheduler {
     }
     this.running.add(job.id);
 
+    // Skip silently if agent is not running — avoids noisy error runs
+    const agent = this.getAgent(job.agentId);
+    if (!agent) {
+      logger.warn('Skipping job — agent not running', { jobId: job.id, agentId: job.agentId });
+      return;
+    }
+
     const runId = await insertJobRun(job.id);
     logger.info('Job run started', { jobId: job.id, runId, name: job.name });
 
     try {
-      // Get the boss agent
-      const boss = this.getBoss();
-      if (!boss) {
-        throw new Error('Boss agent is not running');
-      }
 
       // Fresh session key per run (no resume)
       const sessionKey = `job-${job.id}-${Date.now()}`;
 
-      // Stream query to boss
+      // Stream query to agent
       let output = '';
-      for await (const msg of boss.claudeHandler.streamQuery(job.prompt, sessionKey)) {
-        // Capture final result text
+      for await (const msg of agent.claudeHandler.streamQuery(job.prompt, sessionKey)) {
         const m = msg as Record<string, unknown>;
         if (m.type === 'result' && m.subtype === 'success') {
           output = (m.result as string) ?? '';
@@ -137,16 +138,15 @@ export class JobScheduler {
 
       // Post to target
       if (job.targetType === 'dm') {
-        // Open DM conversation first
-        const dm = await boss.app.client.conversations.open({ users: job.targetId });
+        const dm = await agent.app.client.conversations.open({ users: job.targetId });
         if (dm.channel?.id) {
-          await boss.app.client.chat.postMessage({
+          await agent.app.client.chat.postMessage({
             channel: dm.channel.id,
             text: output,
           });
         }
       } else {
-        await boss.app.client.chat.postMessage({
+        await agent.app.client.chat.postMessage({
           channel: job.targetId,
           text: output,
         });

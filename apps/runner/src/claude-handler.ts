@@ -24,8 +24,10 @@ import {
   getSession,
   upsertSession,
   cleanupStaleSessions,
+  upsertMemorySafe,
 } from './db';
 import { agentLogger } from './logger';
+import { parseMemoryFile } from './memory-watcher';
 import { McpProcessManager } from './mcp-process-manager.js';
 import type { Logger } from 'winston';
 
@@ -165,8 +167,8 @@ export class ClaudeHandler {
         }
       }
 
-      // Create memory dir for per-thread memory files
-      fs.mkdirSync(path.join(sessionDir, '.claude', 'memory'), { recursive: true });
+      // Create memory dir for per-thread memory files (outside .claude/ to avoid SDK sensitive-file blocking)
+      fs.mkdirSync(path.join(sessionDir, 'memory'), { recursive: true });
       this.log.debug('Session work dir created', { sessionKey, sessionDir });
     }
 
@@ -271,6 +273,34 @@ export class ClaudeHandler {
     }
 
     await upsertSession(this.agent.id, sessionKey, newSessionId ?? claudeSessionId);
+    await this.syncSessionMemories(sessionWorkDir);
+  }
+
+  /**
+   * Scans the session's .claude/memory/ directory after a query completes and
+   * upserts any valid memory files to the database. Belt-and-suspenders alongside
+   * the MemoryWatcher to ensure memories are never lost due to missed fs events.
+   */
+  private async syncSessionMemories(sessionWorkDir: string): Promise<void> {
+    const memDir = path.join(sessionWorkDir, 'memory');
+    if (!fs.existsSync(memDir)) return;
+
+    const files = fs.readdirSync(memDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
+    for (const file of files) {
+      const filePath = path.join(memDir, file);
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const parsed = parseMemoryFile(content);
+        if (!parsed) {
+          this.log.warn('Memory file has invalid frontmatter, skipping', { file });
+          continue;
+        }
+        await upsertMemorySafe(this.agent.id, parsed.type as 'user' | 'feedback' | 'project' | 'reference', parsed.name, content);
+        this.log.info('Memory synced from session', { file, name: parsed.name, type: parsed.type });
+      } catch (err) {
+        this.log.error('Failed to sync memory file', { file, error: (err as Error).message });
+      }
+    }
   }
 
   /**
@@ -353,14 +383,19 @@ export class ClaudeHandler {
 
     const baseAllowed: string[] = this.permissions?.allowedTools?.length
       ? this.permissions.allowedTools
-      : ['Read'];
+      : [];
     const denied: string[] = this.permissions?.deniedTools ?? [];
     const mcpToolPrefixes = this.mcpServers.map((s) => `mcp__${s.name}`);
 
-    options.tools = ['Read'];
-    options.allowedTools = [...new Set([...baseAllowed, ...mcpToolPrefixes])].filter(
+    // Read and Write are always available — Read for project context, Write for the memory system.
+    // These cannot be overridden by agent permissions.
+    const alwaysAllowed = ['Read', 'Write'];
+    const availableTools = [...new Set([...alwaysAllowed, ...baseAllowed, ...mcpToolPrefixes])].filter(
       (tool) => !denied.includes(tool)
     );
+    // `tools` controls which tools the model can see/use; `allowedTools` controls auto-execution.
+    options.tools = availableTools;
+    options.allowedTools = availableTools;
 
     if (this.mcpServers.length > 0) {
       options.mcpServers = Object.fromEntries(

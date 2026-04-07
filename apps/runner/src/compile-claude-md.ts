@@ -36,13 +36,46 @@ const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? '/tmp/agents';
  * Memory system instructions injected into every agent's CLAUDE.md.
  * Tells the agent to persist learned facts to .claude/memory/ in its cwd.
  */
+/**
+ * Slack formatting rules injected into every agent's CLAUDE.md.
+ * Built-in at the framework level — not visible in the Skills tab.
+ */
+const SLACK_FORMATTING_SECTION = `# Slack Formatting
+
+You are responding in Slack. Follow these rules for every message:
+
+**Text formatting:**
+- Bold: \`*bold*\` — NOT \`**bold**\`
+- Italic: \`_italic_\` — NOT \`*italic*\`
+- Section headers: \`*Header Text*\` on its own line — NOT \`#\`, \`##\`, \`###\`
+- Inline code: \`` + '`' + `code\`` + '`' + `
+- Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
+- Lists: \`- item\` or \`1. item\`
+- Links: \`<url|text>\`
+- Horizontal rules: just a blank line — NOT \`---\` or \`***\`
+- Blockquotes: use plain text or \`_italic_\` — NOT \`>\`
+
+**Tables — use standard Markdown pipe format:**
+- Every row MUST start and end with \`|\`
+- Always include a separator row: \`|---|---|---|\`
+- Do NOT wrap tables in code blocks
+
+Good:
+\`\`\`
+| Name | Count |
+|---|---|
+| Alpha | 42 |
+\`\`\`
+
+**Never use:** \`## headings\`, \`**double asterisks**\`, \`> blockquotes\`, \`---\` rules`;
+
 const MEMORY_SYSTEM_SECTION = `# Memory System
 
-You have a persistent memory system. Save important things you learn about the user, their preferences, ongoing projects, or useful facts for future conversations.
+You have a persistent memory system. **At the end of every conversation, proactively save anything useful you learned** — this is how you get smarter over time. Memories persist across all future conversations with every user.
 
 ## How to save a memory
 
-Use the Write tool to create a file at \`.claude/memory/{name}.md\` with this format:
+Use the Write tool to create a file at \`memory/{name}.md\` (relative to your working directory):
 
 \`\`\`markdown
 ---
@@ -55,24 +88,31 @@ Memory content here...
 \`\`\`
 
 **Types:**
-- \`user\` — facts about the user (role, preferences, expertise)
-- \`feedback\` — how the user wants you to behave (corrections, style preferences)
-- \`project\` — ongoing work, goals, decisions, deadlines
-- \`reference\` — pointers to external resources, tools, locations
+- \`user\` — who the user is, their role, team, expertise level, preferences
+- \`feedback\` — how the user wants you to behave; corrections; things to avoid or repeat
+- \`project\` — ongoing work, context, goals, decisions, important deadlines
+- \`reference\` — where to find things: tables, dashboards, channels, docs, repos
 
-## When to save
+## Save proactively — do not wait to be asked
 
-- When the user corrects you or gives explicit guidance → \`feedback\`
-- When you learn about the user's role, team, or preferences → \`user\`
-- When important project context or decisions are shared → \`project\`
-- When the user tells you where to find something → \`reference\`
+Save a memory whenever you learn:
+- Who a user is or what their role/team is
+- A user preference or working style ("prefers concise answers", "uses BigQuery not Redshift")
+- A correction the user gave you
+- A recurring task or project they mentioned
+- Where important data/resources live (table names, Slack channels, dashboards, repos)
+- A domain-specific fact useful for future queries (schema details, naming conventions, etc.)
+
+**Default to saving.** A slightly over-captured memory is better than a missed one. Do not save the response itself or ephemeral one-off details.
 
 ## MEMORY.md index
 
-After writing a memory file, update \`.claude/memory/MEMORY.md\` to add a one-line entry:
+After writing a memory file, also update \`memory/MEMORY.md\` with a one-line entry:
 \`- [Name](filename.md) — one-line hook\`
 
-Do NOT save ephemeral task details, code you just wrote, or anything already obvious from the conversation.`;
+## Updating existing memories
+
+If a memory already exists and new info supersedes it, overwrite the file with updated content rather than creating a duplicate.`;
 
 
 /**
@@ -196,7 +236,7 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
  * @returns {void}
  */
 export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
-  const memoryDir = path.join(getAgentWorkDir(agent.slug), '.claude', 'memory');
+  const memoryDir = path.join(getAgentWorkDir(agent.slug), 'memory');
   fs.mkdirSync(memoryDir, { recursive: true });
 
   for (const memory of memories) {
@@ -238,6 +278,9 @@ function buildClaudeMd(agent: Agent, memories: Memory[], overrideClaudeMd?: stri
     if (agent.description) lines.push('', agent.description);
     sections.push(lines.join('\n'));
   }
+
+  // Slack formatting rules (framework-level, not a skill)
+  sections.push(SLACK_FORMATTING_SECTION);
 
   // Memory system instructions
   sections.push(MEMORY_SYSTEM_SECTION);

@@ -3,18 +3,26 @@
 /**
  * @fileoverview 5-step agent onboarding wizard.
  *
- * Steps: Identity → Slack App → Tokens → MCPs & Skills → Review
+ * Steps: Name & Role → Slack App → Credentials → Tools → Review
  *
  * Route: /agents/new
  * @module web/app/agents/new
  */
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Agent, McpServer } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 
 // ─── State ────────────────────────────────────────────────────────────────────
+
+interface AgentExportPayload {
+  version: number;
+  exportedAt?: string;
+  claudeMd: string;
+  skills: { category: string; filename: string; content: string; sortOrder: number }[];
+}
 
 interface WizardState {
   name: string; slug: string; description: string; persona: string;
@@ -23,6 +31,7 @@ interface WizardState {
   slackBotToken: string; slackAppToken: string; slackSigningSecret: string;
   mcpServerIds: string[];
   skillTemplate: 'blank' | 'data-analyst' | 'writer' | 'developer';
+  importPayload: AgentExportPayload | null;
 }
 
 const INITIAL: WizardState = {
@@ -30,7 +39,7 @@ const INITIAL: WizardState = {
   model: 'claude-opus-4-6', isBoss: false,
   reportsToIds: [],
   slackBotToken: '', slackAppToken: '', slackSigningSecret: '',
-  mcpServerIds: [], skillTemplate: 'blank',
+  mcpServerIds: [], skillTemplate: 'blank', importPayload: null,
 };
 
 const MODELS = [
@@ -76,8 +85,8 @@ export default function NewAgentWizard() {
   // Boss agents skip the MCPs & Skills step (their CLAUDE.md is auto-generated)
   const totalSteps = state.isBoss ? 4 : 5;
   const stepLabels = state.isBoss
-    ? ['Identity', 'Slack App', 'Tokens', 'Review']
-    : ['Identity', 'Slack App', 'Tokens', 'MCPs & Skills', 'Review'];
+    ? ['Name & Role', 'Slack App', 'Credentials', 'Review']
+    : ['Name & Role', 'Slack App', 'Credentials', 'Tools', 'Review'];
 
   const next = () => setStep(s => Math.min(s + 1, totalSteps - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
@@ -100,6 +109,21 @@ export default function NewAgentWizard() {
       });
       const data = await r.json();
       if (!r.ok) { setError(data.error ?? 'Failed to create agent'); return; }
+
+      // Apply imported config if provided
+      if (state.importPayload) {
+        const { claudeMd, skills } = state.importPayload;
+        await fetch(`/api/agents/${data.id}/claude-md`, {
+          method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: claudeMd,
+        });
+        await Promise.all(skills.map(s =>
+          fetch(`/api/agents/${data.id}/skills`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(s),
+          })
+        ));
+      }
+
       router.push(`/agents/${data.slug}`);
     } finally { setSubmitting(false); }
   };
@@ -120,7 +144,7 @@ export default function NewAgentWizard() {
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, display: 'flex', padding: '40px 36px', gap: 40, maxWidth: 900, margin: '0 auto', width: '100%' }}>
+      <div style={{ flex: 1, display: 'flex', padding: '40px 36px', gap: 36, maxWidth: 860, width: '100%' }}>
 
         {/* ── Left: step nav ───────────────────────────────────────────── */}
         <div style={{ width: 180, flexShrink: 0 }}>
@@ -164,8 +188,10 @@ export default function NewAgentWizard() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 14, padding: '32px',
+              background: 'var(--surface)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '32px',
+              boxShadow: 'var(--shadow-card)',
             }}
             className="fade-up"
             key={step}
@@ -174,7 +200,7 @@ export default function NewAgentWizard() {
             {step === 1 && <Step2SlackApp state={state} />}
             {step === 2 && <Step3Tokens state={state} update={update} />}
             {step === 3 && !state.isBoss && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
-            {((step === 3 && state.isBoss) || step === 4) && <Step5Review state={state} catalog={catalog} agents={agents} />}
+            {((step === 3 && state.isBoss) || step === 4) && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
           </div>
 
           {error && (
@@ -190,8 +216,8 @@ export default function NewAgentWizard() {
               onClick={back} disabled={step === 0}
               style={{
                 background: 'transparent', color: step === 0 ? 'var(--subtle)' : 'var(--muted)',
-                border: '1px solid var(--border)', borderRadius: 8,
-                padding: '9px 20px', fontSize: 13, cursor: step === 0 ? 'not-allowed' : 'pointer',
+                border: '1.5px solid var(--border)', borderRadius: 'var(--radius)',
+                padding: '10px 20px', fontSize: 14, fontWeight: 500, cursor: step === 0 ? 'not-allowed' : 'pointer',
                 fontFamily: 'var(--font-sans)', transition: 'border-color 0.15s, color 0.15s',
               }}
               onMouseEnter={e => { if (step > 0) { (e.currentTarget as HTMLElement).style.color = 'var(--text)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; } }}
@@ -203,27 +229,31 @@ export default function NewAgentWizard() {
                 onClick={next} disabled={!canNext()}
                 style={{
                   background: canNext() ? 'var(--accent)' : 'var(--border)',
-                  color: '#fff', border: 'none', borderRadius: 8,
-                  padding: '9px 24px', fontSize: 13, fontWeight: 500,
+                  color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+                  padding: '10px 24px', fontSize: 14, fontWeight: 600,
                   cursor: canNext() ? 'pointer' : 'not-allowed',
-                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
+                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
+                  boxShadow: canNext() ? 'var(--shadow-sm)' : 'none',
+                  letterSpacing: '-0.01em',
                 }}
-                onMouseEnter={e => { if (canNext()) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-              >Next →</button>
+                onMouseEnter={e => { if (canNext()) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; } }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
+              >Continue →</button>
             ) : (
               <button
                 onClick={submit}
                 disabled={submitting || !state.slackBotToken || !state.slackAppToken || !state.slackSigningSecret}
                 style={{
                   background: submitting ? 'var(--border)' : '#16a34a',
-                  color: '#fff', border: 'none', borderRadius: 8,
-                  padding: '9px 24px', fontSize: 13, fontWeight: 600,
+                  color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+                  padding: '10px 24px', fontSize: 14, fontWeight: 600,
                   cursor: submitting ? 'not-allowed' : 'pointer',
-                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
+                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
+                  boxShadow: !submitting ? 'var(--shadow-sm)' : 'none',
+                  letterSpacing: '-0.01em',
                 }}
-                onMouseEnter={e => { if (!submitting) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+                onMouseEnter={e => { if (!submitting) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; } }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
               >{submitting ? 'Creating…' : 'Create Agent'}</button>
             )}
           </div>
@@ -251,7 +281,7 @@ function Step1Identity({ state, update, bosses }: {
 
   return (
     <div>
-      <StepHeader step={1} title="Agent Identity" desc="Define who this agent is and what it specializes in." />
+      <StepHeader step={1} title="Name your agent" desc="Give it a name and decide if it leads a team or works as a specialist." />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
         <Field label="Agent Name *" value={state.name} placeholder="e.g. GILFOYLE"
           onChange={v => update({ name: v, slug: autoSlug(v) })} />
@@ -354,6 +384,152 @@ function Step1Identity({ state, update, bosses }: {
           )}
         </div>
       )}
+
+      {/* Import config */}
+    </div>
+  );
+}
+
+// ─── Import config picker ─────────────────────────────────────────────────────
+
+function ImportConfigPicker({ value, onChange, compact }: {
+  value: AgentExportPayload | null;
+  onChange: (p: AgentExportPayload | null) => void;
+  compact?: boolean;
+}) {
+  const [error, setError] = useState('');
+  const ref = useRef<HTMLInputElement>(null);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setError('');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (typeof data.claudeMd !== 'string' || !Array.isArray(data.skills)) {
+          setError('Invalid file — must contain claudeMd (string) and skills (array)'); return;
+        }
+        if (typeof data.version !== 'number') {
+          setError('Invalid file — missing version field'); return;
+        }
+        onChange(data);
+      } catch {
+        setError('Could not parse file — must be valid JSON');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  if (compact) {
+    return (
+      <div>
+        {!value ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 1 }}>Import config</div>
+              <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>Load CLAUDE.md + skills from an exported agent</div>
+              {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 3 }}>{error}</div>}
+            </div>
+            <button type="button" onClick={() => ref.current?.click()} style={{
+              display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+              padding: '6px 12px', borderRadius: 6,
+              border: '1px solid var(--border-2)', background: '#fff',
+              fontSize: 12, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
+            }}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <path d="M8 2v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Choose file
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed' }}>
+                Config loaded
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
+              </div>
+            </div>
+            <button type="button" onClick={() => { onChange(null); setError(''); }} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 11.5, color: 'var(--muted)', padding: '3px 6px',
+            }}>Remove</button>
+          </div>
+        )}
+        <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      marginTop: 20, padding: '14px 16px', borderRadius: 10,
+      border: `1.5px dashed ${value ? '#8b5cf6' : 'var(--border-2)'}`,
+      background: value ? 'rgba(139,92,246,0.03)' : 'var(--surface)',
+      transition: 'all 0.2s',
+    }}>
+      {!value ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>
+              Import from existing config
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Load CLAUDE.md + skills from a previously exported agent
+            </div>
+            {error && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 4 }}>{error}</div>}
+          </div>
+          <button type="button" onClick={() => ref.current?.click()} style={{
+            display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+            padding: '7px 14px', borderRadius: 7,
+            border: '1.5px solid var(--border-2)', background: '#fff',
+            fontSize: 12.5, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#8b5cf6'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M8 2v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Choose file
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+              background: 'rgba(139,92,246,0.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z" stroke="#8b5cf6" strokeWidth="1.4" strokeLinejoin="round"/>
+                <path d="M9 2v4h4" stroke="#8b5cf6" strokeWidth="1.4" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
+                Config file loaded
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
+                {value.exportedAt && ` · ${new Date(value.exportedAt).toLocaleDateString()}`}
+              </div>
+            </div>
+          </div>
+          <button type="button" onClick={() => { onChange(null); setError(''); }} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 11.5, color: 'var(--muted)', padding: '4px 8px', borderRadius: 5,
+          }}>Remove</button>
+        </div>
+      )}
+      <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
     </div>
   );
 }
@@ -370,46 +546,69 @@ function Step2SlackApp({ state }: { state: WizardState }) {
 
   return (
     <div>
-      <StepHeader step={2} title="Create Slack App" desc="Use this manifest to create a new Slack app. Takes about 2 minutes." />
+      <StepHeader step={2} title="Create a Slack app" desc="Paste this manifest into Slack — it configures everything automatically in about 2 minutes." />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-        {[
-          { n: 1, text: <>Go to <strong style={{ color: 'var(--text)' }}>api.slack.com/apps</strong> → <strong style={{ color: 'var(--text)' }}>Create New App</strong></> },
-          { n: 2, text: <>Choose <strong style={{ color: 'var(--text)' }}>From an app manifest</strong> and select your workspace</> },
-          { n: 3, text: <>Paste the JSON manifest below and click <strong style={{ color: 'var(--text)' }}>Next → Create</strong></> },
-          { n: 4, text: <>Go to <strong style={{ color: 'var(--text)' }}>Install App</strong> → Install to workspace. Then collect tokens in the next step.</> },
-        ].map(({ n, text }) => (
-          <div key={n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-            <div style={{
-              width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-              background: 'rgba(59,130,246,0.15)', color: 'var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 11, fontWeight: 700,
-            }}>{n}</div>
-            <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, paddingTop: 2 }}>{text}</span>
+      {/* Steps */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginBottom: 20 }}>
+        {([
+          {
+            n: 1,
+            title: 'Open api.slack.com/apps',
+            body: <>Click <Kbd>Create New App</Kbd> → <Kbd>From a manifest</Kbd> and select your workspace.</>,
+          },
+          {
+            n: 2,
+            title: 'Paste the manifest',
+            body: <>Switch to the <Kbd>JSON</Kbd> tab, paste the manifest below, click <Kbd>Next</Kbd> → <Kbd>Create</Kbd>.</>,
+          },
+          {
+            n: 3,
+            title: 'Install to workspace',
+            body: <>In the sidebar go to <Kbd>Install App</Kbd> → <Kbd>Install to Workspace</Kbd> → Allow. This generates your Bot Token — it won&apos;t appear until you install.</>,
+          },
+        ] as { n: number; title: string; body: React.ReactNode }[]).map(({ n, title, body }, i, arr) => (
+          <div key={n} style={{ display: 'flex', gap: 0 }}>
+            {/* Connector line + dot */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 32, flexShrink: 0 }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--accent)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700, zIndex: 1,
+              }}>{n}</div>
+              {i < arr.length - 1 && (
+                <div style={{ width: 2, flex: 1, background: 'var(--border)', minHeight: 20, marginTop: 4 }} />
+              )}
+            </div>
+            {/* Content */}
+            <div style={{ paddingLeft: 14, paddingBottom: i < arr.length - 1 ? 20 : 0, paddingTop: 3 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>{title}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.65 }}>{body}</div>
+            </div>
           </div>
         ))}
       </div>
 
-      <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      {/* Manifest block */}
+      <div style={{ background: 'var(--surface-2)', border: '1.5px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)',
+          padding: '10px 16px', borderBottom: '1px solid var(--border)',
         }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
             {state.name || 'agent'}-manifest.json
           </span>
           <button onClick={copy} style={{
-            background: copied ? '#dcfce7' : 'none',
-            color: copied ? '#16a34a' : 'var(--accent)',
-            border: 'none', cursor: 'pointer', fontSize: 12,
-            fontFamily: 'var(--font-sans)', padding: '2px 8px', borderRadius: 4,
+            background: copied ? '#dcfce7' : 'var(--accent)',
+            color: copied ? '#16a34a' : '#fff',
+            border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            fontFamily: 'var(--font-sans)', padding: '5px 12px', borderRadius: 6,
             transition: 'all 0.15s',
-          }}>{copied ? '✓ Copied' : 'Copy'}</button>
+          }}>{copied ? '✓ Copied!' : 'Copy manifest'}</button>
         </div>
         <pre style={{
           margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)',
-          fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 280, lineHeight: 1.6,
+          fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 260, lineHeight: 1.6,
         }}>{manifest}</pre>
       </div>
     </div>
@@ -421,34 +620,303 @@ function Step2SlackApp({ state }: { state: WizardState }) {
 function Step3Tokens({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
   return (
     <div>
-      <StepHeader step={3} title="Slack Credentials" desc="Find these in your Slack app settings after installing to workspace." />
+      <StepHeader step={3} title="Add your tokens" desc="Three values from your Slack app — paste each one below." />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <TokenCard
+          label="Bot Token"
+          prefix="xoxb-"
+          path={['OAuth & Permissions', 'Bot User OAuth Token']}
+          screenshot={<BotTokenScreenshot />}
+          placeholder="xoxb-..."
+          value={state.slackBotToken}
+          onChange={v => update({ slackBotToken: v })}
+        />
+        <TokenCard
+          label="App-Level Token"
+          prefix="xapp-"
+          path={['Basic Information', 'App-Level Tokens']}
+          note={<>Click <strong>Generate Token and Scopes</strong>, add scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'rgba(59,130,246,0.08)', color: 'var(--accent)', padding: '1px 6px', borderRadius: 4 }}>connections:write</code>, then generate.</>}
+          screenshot={<AppTokenScreenshot />}
+          placeholder="xapp-..."
+          value={state.slackAppToken}
+          onChange={v => update({ slackAppToken: v })}
+        />
+        <TokenCard
+          label="Signing Secret"
+          prefix=""
+          path={['Basic Information', 'App Credentials', 'Signing Secret']}
+          screenshot={<SigningSecretScreenshot />}
+          placeholder="abc123def..."
+          value={state.slackSigningSecret}
+          onChange={v => update({ slackSigningSecret: v })}
+        />
+      </div>
+    </div>
+  );
+}
 
-      <div style={{
-        background: '#eff6ff', border: '1px solid #bfdbfe',
-        borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 12, color: '#1e40af',
-        lineHeight: 1.85,
-      }}>
-        <div>
-          <strong>Bot Token (xoxb-…)</strong> →{' '}
-          <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>api.slack.com/apps</a>
-          {' '}→ your app → <strong>OAuth &amp; Permissions</strong> → <em>Bot User OAuth Token</em>
+// ─── Token card ───────────────────────────────────────────────────────────────
+
+function TokenCard({ label, prefix, path, note, screenshot, placeholder, value, onChange }: {
+  label: string; prefix: string;
+  path: string[];
+  note?: React.ReactNode;
+  screenshot?: React.ReactNode;
+  placeholder: string; value: string; onChange: (v: string) => void;
+}) {
+  const [show, setShow] = useState(false);
+  const [showScreenshot, setShowScreenshot] = useState(false);
+  const isDirty = value.length > 0;
+  const isValid = prefix ? value.startsWith(prefix) : value.length >= 8;
+
+  return (
+    <div style={{
+      borderRadius: 'var(--radius)',
+      border: `1.5px solid ${isDirty ? (isValid ? '#86efac' : '#fca5a5') : 'var(--border)'}`,
+      background: '#fff',
+      overflow: 'hidden',
+      transition: 'border-color 0.2s',
+    }}>
+      {/* Header: label + breadcrumb */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', flexShrink: 0 }}>{label}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+            {path.map((p, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && <span style={{ fontSize: 11, color: 'var(--border-2)' }}>›</span>}
+                <span style={{
+                  fontSize: 11.5, whiteSpace: 'nowrap',
+                  color: i === path.length - 1 ? 'var(--muted)' : 'var(--subtle)',
+                  fontWeight: i === path.length - 1 ? 500 : 400,
+                }}>{p}</span>
+              </React.Fragment>
+            ))}
+          </div>
         </div>
-        <div>
-          <strong>App-Level Token (xapp-…)</strong> → <strong>Basic Information</strong> → <em>App-Level Tokens</em> → Generate with scope{' '}
-          <code style={{ fontFamily: 'var(--font-mono)', background: '#dbeafe', padding: '0 4px', borderRadius: 3 }}>connections:write</code>
-        </div>
-        <div>
-          <strong>Signing Secret</strong> → <strong>Basic Information</strong> → <em>App Credentials</em> → Signing Secret
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {screenshot && (
+            <button
+              type="button"
+              onClick={() => setShowScreenshot(s => !s)}
+              style={{
+                background: showScreenshot ? 'var(--surface-2)' : 'none',
+                border: '1px solid var(--border)', borderRadius: 5,
+                padding: '3px 8px', cursor: 'pointer',
+                color: 'var(--muted)', fontSize: 11, fontWeight: 500,
+                fontFamily: 'var(--font-sans)', transition: 'all 0.15s',
+              }}
+            >{showScreenshot ? 'Hide guide' : 'Where?'}</button>
+          )}
+          {isDirty && (
+            <span style={{ fontSize: 12, fontWeight: 700, color: isValid ? '#16a34a' : '#ef4444' }}>
+              {isValid ? '✓' : '✗'}
+            </span>
+          )}
         </div>
       </div>
 
-      <Field label="Bot Token *" value={state.slackBotToken} placeholder="xoxb-..."
-        type="password" onChange={v => update({ slackBotToken: v })} />
-      <Field label="App-Level Token *" value={state.slackAppToken} placeholder="xapp-..."
-        type="password" onChange={v => update({ slackAppToken: v })} />
-      <Field label="Signing Secret *" value={state.slackSigningSecret} placeholder="abc123def..."
-        type="password" onChange={v => update({ slackSigningSecret: v })} />
+      {/* Screenshot guide */}
+      {showScreenshot && screenshot && (
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+          {screenshot}
+        </div>
+      )}
+
+      {/* Note */}
+      {note && (
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', background: 'var(--surface-2)', lineHeight: 1.6 }}>
+          {note}
+        </div>
+      )}
+
+      {/* Input */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 4px 0 16px', gap: 6 }}>
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{
+            flex: 1, background: 'transparent', border: 'none',
+            padding: '12px 0', color: 'var(--text)',
+            fontSize: 13, fontFamily: value ? 'var(--font-mono)' : 'var(--font-sans)',
+            outline: 'none',
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => setShow(s => !s)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--subtle)', fontSize: 12, padding: '8px',
+            fontFamily: 'var(--font-sans)', lineHeight: 1,
+          }}
+        >{show ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+      </div>
     </div>
+  );
+}
+
+// ─── Slack UI screenshot mockups ──────────────────────────────────────────────
+
+const slackStyles = {
+  wrap: {
+    borderRadius: 8, overflow: 'hidden', border: '1px solid #e0e0e0',
+    fontFamily: 'Lato, -apple-system, sans-serif', fontSize: 12,
+  } as React.CSSProperties,
+  chrome: {
+    background: '#f1f1f1', padding: '6px 10px',
+    borderBottom: '1px solid #ddd', display: 'flex', alignItems: 'center', gap: 8,
+  } as React.CSSProperties,
+  urlBar: {
+    flex: 1, background: '#fff', border: '1px solid #ddd', borderRadius: 4,
+    padding: '3px 8px', fontSize: 10.5, color: '#555',
+    fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  body: { background: '#fff', padding: '14px 16px' } as React.CSSProperties,
+  sectionTitle: { fontSize: 12, fontWeight: 700, color: '#1d1c1d', marginBottom: 10 } as React.CSSProperties,
+  row: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 5,
+  } as React.CSSProperties,
+  label: { fontSize: 11.5, color: '#616061' } as React.CSSProperties,
+  token: { fontSize: 11, fontFamily: 'monospace', color: '#1d1c1d', letterSpacing: 1 } as React.CSSProperties,
+  greenBtn: {
+    background: '#007a5a', color: '#fff', border: 'none', borderRadius: 4,
+    padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'default',
+    boxShadow: '0 0 0 3px rgba(0,122,90,0.25)',
+  } as React.CSSProperties,
+  badge: {
+    background: '#e8f5f0', color: '#007a5a', border: '1px solid #b8dfd4',
+    borderRadius: 3, padding: '1px 6px', fontSize: 10.5, fontWeight: 600,
+  } as React.CSSProperties,
+  highlight: {
+    outline: '2.5px solid #007a5a', outlineOffset: 2, borderRadius: 4,
+  } as React.CSSProperties,
+};
+
+function ChromeBar({ url }: { url: string }) {
+  return (
+    <div style={slackStyles.chrome}>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {['#ff5f57','#febc2e','#28c840'].map(c => (
+          <div key={c} style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
+        ))}
+      </div>
+      <div style={slackStyles.urlBar}>{url}</div>
+    </div>
+  );
+}
+
+function SlackLayout({ url, activeNav, children }: { url: string; activeNav: string; children: React.ReactNode }) {
+  const navItems = ['Basic Information', 'Socket Mode', 'Install App', 'OAuth & Permissions', 'Event Subscriptions', 'App Manifest'];
+  return (
+    <div style={slackStyles.wrap}>
+      <ChromeBar url={url} />
+      <div style={{ display: 'flex', background: '#fff' }}>
+        {/* Sidebar */}
+        <div style={{ width: 148, background: '#f8f8f8', borderRight: '1px solid #e0e0e0', padding: '10px 0', flexShrink: 0 }}>
+          {navItems.map(item => (
+            <div key={item} style={{
+              padding: '5px 12px', fontSize: 11, cursor: 'default',
+              background: item === activeNav ? '#e8e8e8' : 'transparent',
+              color: item === activeNav ? '#1d1c1d' : '#616061',
+              fontWeight: item === activeNav ? 700 : 400,
+              borderLeft: item === activeNav ? '2px solid #007a5a' : '2px solid transparent',
+            }}>{item}</div>
+          ))}
+        </div>
+        {/* Content */}
+        <div style={{ flex: 1, padding: '14px 16px', minWidth: 0 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function BotTokenScreenshot() {
+  return (
+    <SlackLayout url="api.slack.com/apps/A.../oauth" activeNav="OAuth & Permissions">
+      {/* Install notice */}
+      <div style={{ background: '#fff8e6', border: '1px solid #f5c842', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontSize: 11, color: '#7a5c00', lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+        <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>Token only appears after <strong>Install to Workspace</strong> (sidebar → Install App)</span>
+      </div>
+      <div style={slackStyles.sectionTitle}>OAuth Tokens</div>
+      <div style={{ border: '1px solid #e8e8e8', borderRadius: 5, overflow: 'hidden' }}>
+        <div style={{ padding: '8px 10px', background: '#fafafa', borderBottom: '1px solid #e8e8e8' }}>
+          <div style={{ fontSize: 11, color: '#616061', marginBottom: 1 }}>Bot User OAuth Token</div>
+          <div style={{ ...slackStyles.token, fontSize: 10.5 }}>xoxb-••••••••••••-••••••••••••-••••••••••••</div>
+          <div style={{ fontSize: 10, color: '#616061', marginTop: 2 }}>Access Level: Workspace</div>
+        </div>
+        <div style={{ padding: '7px 10px', display: 'flex', justifyContent: 'flex-end' }}>
+          <button style={{ ...slackStyles.greenBtn, ...slackStyles.highlight }}>Copy</button>
+        </div>
+      </div>
+    </SlackLayout>
+  );
+}
+
+function AppTokenScreenshot() {
+  return (
+    <SlackLayout url="api.slack.com/apps/A.../general" activeNav="Basic Information">
+      <div style={slackStyles.sectionTitle}>App-Level Tokens</div>
+      <div style={{ fontSize: 11, color: '#616061', marginBottom: 10, lineHeight: 1.5 }}>
+        App-level tokens represent your app across organizations.
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <button style={{ ...slackStyles.greenBtn, ...slackStyles.highlight }}>Generate Token and Scopes</button>
+      </div>
+      <div style={{ border: '1px solid #e8e8e8', borderRadius: 5, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#1d1c1d', marginBottom: 4 }}>SlackHive</div>
+          <span style={slackStyles.badge}>connections:write</span>
+        </div>
+        <div style={slackStyles.token}>xapp-••••••••••••</div>
+      </div>
+    </SlackLayout>
+  );
+}
+
+function SigningSecretScreenshot() {
+  return (
+    <SlackLayout url="api.slack.com/apps/A.../general" activeNav="Basic Information">
+      <div style={slackStyles.sectionTitle}>App Credentials</div>
+      <div style={{ fontSize: 11, color: '#616061', marginBottom: 10, lineHeight: 1.5 }}>
+        These credentials allow your app to access the Slack API. Keep them secret.
+      </div>
+      {[
+        { label: 'App ID', value: 'A0AN••••••9', mono: true },
+        { label: 'Client ID', value: '9186••••••••••••••••', mono: true },
+        { label: 'Client Secret', value: '••••••••••', mono: true },
+      ].map(row => (
+        <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0', fontSize: 11, color: '#616061' }}>
+          <span>{row.label}</span>
+          <span style={{ fontFamily: 'monospace', color: '#1d1c1d' }}>{row.value}</span>
+        </div>
+      ))}
+      {/* Signing Secret highlighted */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', marginTop: 6, border: '1px solid #e8e8e8', borderRadius: 5, ...slackStyles.highlight }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#1d1c1d', marginBottom: 2 }}>Signing Secret</div>
+          <div style={slackStyles.token}>••••••••••••••••••••••••</div>
+        </div>
+        <button style={slackStyles.greenBtn}>Show</button>
+      </div>
+    </SlackLayout>
+  );
+}
+
+// ─── Kbd helper ───────────────────────────────────────────────────────────────
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd style={{
+      display: 'inline-block', fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 600,
+      background: 'var(--surface-3)', color: 'var(--text)',
+      border: '1px solid var(--border)', borderRadius: 5,
+      padding: '1px 7px', lineHeight: 1.7, whiteSpace: 'nowrap',
+    }}>{children}</kbd>
   );
 }
 
@@ -466,7 +934,7 @@ function Step4McpsSkills({
 
   return (
     <div>
-      <StepHeader step={4} title="MCPs & Skills" desc="Choose MCP servers and a starting skill template." />
+      <StepHeader step={4} title="Tools & Skills" desc="Attach MCP servers and pick a starting skill template. You can change these anytime." />
 
       {/* MCP list */}
       <div style={{ marginBottom: 22 }}>
@@ -518,7 +986,7 @@ function Step4McpsSkills({
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {TEMPLATES.map(t => {
-            const active = state.skillTemplate === t.value;
+            const active = state.skillTemplate === t.value && !state.importPayload;
             return (
               <label key={t.value} style={{
                 padding: '12px 14px', border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
@@ -527,7 +995,7 @@ function Step4McpsSkills({
                 transition: 'all 0.15s',
               }}>
                 <input type="radio" name="template" value={t.value} checked={active}
-                  onChange={() => update({ skillTemplate: t.value as WizardState['skillTemplate'] })}
+                  onChange={() => update({ skillTemplate: t.value as WizardState['skillTemplate'], importPayload: null })}
                   style={{ display: 'none' }} />
                 <div style={{ fontSize: 13, fontWeight: 600, color: active ? 'var(--accent)' : 'var(--text)', marginBottom: 2 }}>
                   {t.label}
@@ -536,6 +1004,27 @@ function Step4McpsSkills({
               </label>
             );
           })}
+
+          {/* Import tile */}
+          {(() => {
+            const active = !!state.importPayload;
+            return (
+              <div style={{
+                padding: '12px 14px',
+                border: `1px solid ${active ? '#8b5cf6' : 'var(--border)'}`,
+                borderRadius: 8,
+                background: active ? 'rgba(139,92,246,0.08)' : 'transparent',
+                transition: 'all 0.15s',
+                gridColumn: 'span 2',
+              }}>
+                <ImportConfigPicker
+                  value={state.importPayload}
+                  onChange={payload => update({ importPayload: payload })}
+                  compact
+                />
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -544,10 +1033,12 @@ function Step4McpsSkills({
 
 // ─── Step 5: Review ───────────────────────────────────────────────────────────
 
-function Step5Review({ state, catalog, agents }: { state: WizardState; catalog: McpServer[]; agents: Agent[] }) {
+function Step5Review({ state, update, catalog, agents }: { state: WizardState; update: (p: Partial<WizardState>) => void; catalog: McpServer[]; agents: Agent[] }) {
   const assignedBosses = agents.filter(a => state.reportsToIds.includes(a.id));
   const assignedMcps = catalog.filter(m => state.mcpServerIds.includes(m.id));
-  const template = TEMPLATES.find(t => t.value === state.skillTemplate)?.label ?? state.skillTemplate;
+  const template = state.importPayload
+    ? `Import (${state.importPayload.skills.length} skills)`
+    : (TEMPLATES.find(t => t.value === state.skillTemplate)?.label ?? state.skillTemplate);
 
   const reportsToValue = state.isBoss
     ? '—'
@@ -557,7 +1048,7 @@ function Step5Review({ state, catalog, agents }: { state: WizardState; catalog: 
 
   return (
     <div>
-      <StepHeader step={state.isBoss ? 4 : 5} title="Review & Create" desc="Everything looks good? Hit Create Agent to launch." />
+      <StepHeader step={state.isBoss ? 4 : 5} title="Looks good?" desc="Review the details below, then hit Create Agent to launch." />
 
       <div style={{
         background: 'var(--surface-2)', border: '1px solid var(--border)',
@@ -596,10 +1087,10 @@ function Step5Review({ state, catalog, agents }: { state: WizardState; catalog: 
 
       <div style={{
         background: '#f0fdf4', border: '1px solid #bbf7d0',
-        borderRadius: 8, padding: '12px 14px', fontSize: 12.5, color: '#15803d', lineHeight: 1.6,
+        borderRadius: 'var(--radius)', padding: '14px 16px', fontSize: 13, color: '#15803d', lineHeight: 1.65,
       }}>
-        After creation, the runner will automatically pick up the new agent and connect it to Slack via Socket Mode.
-        You can manage skills, MCPs, and permissions from the agent detail page.
+        Once created, the runner picks up the agent automatically and connects to Slack.
+        Manage skills, MCPs, and channel permissions from the agent detail page.
       </div>
     </div>
   );
@@ -632,15 +1123,15 @@ function Field({ label, value, onChange, placeholder, hint, type = 'text' }: {
       </label>
       <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
         style={{
-          width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 12px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
+          width: '100%', background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }
@@ -656,15 +1147,15 @@ function TextArea({ label, value, onChange, placeholder, hint, rows = 3 }: {
       </label>
       <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
         style={{
-          width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 12px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+          width: '100%', background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
           transition: 'border-color 0.15s', lineHeight: 1.55,
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }

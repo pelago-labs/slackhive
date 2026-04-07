@@ -10,7 +10,9 @@
  */
 
 import React, { useEffect, useState, useRef, use } from 'react';
+import { Brain, Camera, Clock, History, Upload, Download } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
@@ -18,12 +20,19 @@ import { lineDiff, type DiffLine } from '@/lib/diff';
 
 type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memory' | 'logs' | 'history';
 
+interface AgentExportPayload {
+  version: number;
+  exportedAt?: string;
+  claudeMd: string;
+  skills: { category: string; filename: string; content: string; sortOrder: number }[];
+}
+
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',     label: 'Overview'     },
   { id: 'skills',       label: 'Skills'       },
-  { id: 'claude-md',    label: 'CLAUDE.md'    },
-  { id: 'mcps',         label: 'MCPs'         },
-  { id: 'permissions',  label: 'Permissions'  },
+  { id: 'claude-md',    label: 'System Prompt' },
+  { id: 'mcps',         label: 'MCPs'          },
+  { id: 'permissions',  label: 'Tools'         },
   { id: 'memory',       label: 'Memory'       },
   { id: 'logs',         label: 'Logs'         },
   { id: 'history',      label: 'History'      },
@@ -42,15 +51,22 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const { slug } = use(params);
   const { role, canManageUsers } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
+  const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [canEdit, setCanEdit] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<AgentExportPayload | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch('/api/agents')
       .then(r => r.json())
       .then((agents: Agent[]) => {
+        setAllAgents(agents);
         const found = agents.find(a => a.slug === slug) ?? null;
         setAgent(found);
         if (found) {
@@ -76,6 +92,68 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
     setTimeout(() => setActionMsg(''), 2000);
   };
 
+  const handleExport = async () => {
+    if (!agent) return;
+    setExporting(true);
+    try {
+      const [skillsRes, mdRes] = await Promise.all([
+        fetch(`/api/agents/${agent.id}/skills`),
+        fetch(`/api/agents/${agent.id}/claude-md`),
+      ]);
+      const skills: Skill[] = await skillsRes.json();
+      const claudeMd = await mdRes.text();
+      const payload: AgentExportPayload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        claudeMd,
+        skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${agent.slug}-export.json`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setImportError('');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (typeof data.claudeMd !== 'string' || !Array.isArray(data.skills)) {
+          setImportError('Invalid export file'); return;
+        }
+        setImportPreview(data);
+      } catch { setImportError('Could not parse file'); }
+    };
+    reader.readAsText(file);
+  };
+
+  const applyImport = async () => {
+    if (!agent || !importPreview) return;
+    setImporting(true);
+    try {
+      await fetch(`/api/agents/${agent.id}/claude-md`, {
+        method: 'PUT', headers: { 'Content-Type': 'text/plain' },
+        body: importPreview.claudeMd,
+      });
+      await Promise.all(importPreview.skills.map(s =>
+        fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(s),
+        })
+      ));
+      const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
+      setAgent(updated);
+      setImportPreview(null);
+    } finally { setImporting(false); }
+  };
+
   if (loading) return <PageLoader />;
   if (!agent)  return <NotFound slug={slug} />;
 
@@ -87,7 +165,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '20px 36px 0',
+        padding: '28px 40px 0',
         borderBottom: '1px solid var(--border)',
         paddingBottom: 0,
         flexWrap: 'wrap', gap: 12,
@@ -146,6 +224,21 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16 }}>
           {actionMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{actionMsg}</span>}
+          {importError && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{importError}</span>}
+
+          {/* Export / Import icon buttons */}
+          <IconBtn title="Export config" onClick={handleExport} loading={exporting}>
+            <Download size={15} />
+          </IconBtn>
+          {canEdit && (
+            <IconBtn title="Import config" onClick={() => fileInputRef.current?.click()}>
+              <Upload size={15} />
+            </IconBtn>
+          )}
+          <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+
+          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
+
           {canEdit && agent.status !== 'running' && (
             <Btn color="#22c55e" onClick={() => triggerAction('start')}>Start</Btn>
           )}
@@ -157,6 +250,52 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
           )}
         </div>
       </div>
+
+      {/* Import confirmation modal */}
+      {importPreview && (
+        <Portal>
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }} onClick={() => setImportPreview(null)}>
+            <div style={{
+              background: '#fff', borderRadius: 14, padding: '28px 32px',
+              maxWidth: 480, width: '90%',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+            }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+                Import agent config
+              </h3>
+
+              {/* Danger warning — shown first */}
+              <div style={{
+                display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
+                background: '#fff1f2', border: '1.5px solid #fecdd3', borderRadius: 8,
+              }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
+                    This will overwrite current CLAUDE.md and skills
+                  </div>
+                  <div style={{ fontSize: 12, color: '#9f1239' }}>
+                    Existing CLAUDE.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
+                <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <PrimaryBtn onClick={applyImport} loading={importing}>Apply Import</PrimaryBtn>
+                <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
 
       {/* ── Tab bar ──────────────────────────────────────────────────────── */}
       <div style={{
@@ -186,7 +325,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} />}
+        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} />}
         {tab === 'skills'      && <SkillsTab      agentId={agent.id} canEdit={canEdit} />}
         {tab === 'claude-md'   && <ClaudeMdTab    agentId={agent.id} canEdit={canEdit} />}
         {tab === 'mcps'        && <McpsTab        agentId={agent.id} canEdit={canEdit} />}
@@ -201,7 +340,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null }) {
   const [form, setForm] = useState({
     name:               agent.name,
     description:        agent.description ?? '',
@@ -210,11 +349,24 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
     slackBotToken:      agent.slackBotToken,
     slackAppToken:      agent.slackAppToken,
     slackSigningSecret: agent.slackSigningSecret,
+    isBoss:             agent.isBoss,
+    reportsTo:          agent.reportsTo ?? [] as string[],
   });
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg]       = useState('');
-  const [manifest, setManifest]       = useState('');
+  const [saving, setSaving]             = useState(false);
+  const [msg, setMsg]                   = useState('');
+  const [manifest, setManifest]         = useState('');
   const [showManifest, setShowManifest] = useState(false);
+  const [deleting, setDeleting]         = useState(false);
+  const [slackInfo, setSlackInfo]       = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!agent.slackBotToken) return;
+    fetch(`/api/agents/${agent.id}/slack-info`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setSlackInfo(d))
+      .catch(() => {});
+  }, [agent.id, agent.slackBotToken]);
 
   // Channel restrictions state
   const [allowedChannels, setAllowedChannels] = useState('');
@@ -249,11 +401,27 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
     setShowManifest(true);
   };
 
+  const handleDelete = async () => {
+    if (!confirm(`Permanently delete agent "${agent.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    const r = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
+    if (r.ok) {
+      router.push('/');
+    } else {
+      const err = await r.json();
+      setMsg(err.error ?? 'Delete failed');
+      setDeleting(false);
+    }
+  };
+
+  const isAdmin = role === 'admin' || role === 'superadmin';
+
   return (
     <div style={{ maxWidth: 640 }} className="fade-up">
       <Section title="Identity">
         <Grid2>
-          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit} />
+          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
+            hint="This is the internal agent name. To update the Slack bot display name, change it in your Slack App settings → App Home." />
           <Field label="Model" value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))}
             hint="claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001" readOnly={!canEdit} />
         </Grid2>
@@ -263,6 +431,95 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
         <TextArea label="Persona" value={form.persona}
           onChange={v => setForm(f => ({ ...f, persona: v }))}
           hint="Injected into CLAUDE.md — who is this agent?" rows={4} readOnly={!canEdit} />
+      </Section>
+
+      <Section title="Role & Hierarchy">
+        {/* Boss toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks</div>
+          </div>
+          <button
+            disabled={!canEdit}
+            onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none',
+              background: form.isBoss ? '#d97706' : 'var(--border-2)',
+              cursor: canEdit ? 'pointer' : 'default',
+              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: 3, left: form.isBoss ? 23 : 3,
+              width: 18, height: 18, borderRadius: '50%', background: '#fff',
+              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+          </button>
+        </div>
+
+        {/* Reports To — only show for non-boss agents */}
+        {!form.isBoss && (() => {
+          const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
+          if (bosses.length === 0) return (
+            <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>
+              No boss agents available. Create a boss agent first.
+            </div>
+          );
+          return (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {bosses.map(boss => {
+                  const checked = form.reportsTo.includes(boss.id);
+                  return (
+                    <label key={boss.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '8px 12px', borderRadius: 8,
+                      border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
+                      background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
+                      cursor: canEdit ? 'pointer' : 'default',
+                      transition: 'all 0.15s',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!canEdit}
+                        onChange={() => setForm(f => ({
+                          ...f,
+                          reportsTo: checked
+                            ? f.reportsTo.filter(id => id !== boss.id)
+                            : [...f.reportsTo, boss.id],
+                        }))}
+                        style={{ accentColor: '#d97706', width: 14, height: 14 }}
+                      />
+                      <div style={{
+                        width: 24, height: 24, borderRadius: 6, background: '#171717',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 600, color: '#fff', flexShrink: 0,
+                      }}>
+                        {boss.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{boss.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>@{boss.slug}</div>
+                      </div>
+                      {checked && (
+                        <span style={{
+                          marginLeft: 'auto', fontSize: 10, fontWeight: 600,
+                          color: '#d97706', letterSpacing: '0.04em', textTransform: 'uppercase',
+                        }}>Reports to</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>
+                An agent can report to multiple bosses.
+              </div>
+            </div>
+          );
+        })()}
       </Section>
 
       <Section title="Slack Credentials">
@@ -275,7 +532,29 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
         <Field label="Signing Secret" value={form.slackSigningSecret}
           onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
           hint="Basic Information → App Credentials → Signing Secret" />
-        {agent.slackBotUserId && (
+        {slackInfo && (
+          <div style={{
+            background: '#f0fdf4', border: '1px solid #bbf7d0',
+            borderRadius: 7, padding: '10px 14px', fontSize: 12,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
+              <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to Slack</span>
+              <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>{slackInfo.teamName}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
+              <span style={{ color: '#6b7280' }}>Display name</span>
+              <span style={{ color: '#166534', fontWeight: 500 }}>{slackInfo.displayName}</span>
+              <span style={{ color: '#6b7280' }}>@handle</span>
+              <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span>
+              {agent.slackBotUserId && <>
+                <span style={{ color: '#6b7280' }}>Bot User ID</span>
+                <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>{agent.slackBotUserId}</span>
+              </>}
+            </div>
+          </div>
+        )}
+        {!slackInfo && agent.slackBotUserId && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8,
             background: '#f0fdf4', border: '1px solid #bbf7d0',
@@ -284,7 +563,6 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
             <span style={{ color: '#15803d' }}>Connected ·</span>
             <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>Bot User ID: {agent.slackBotUserId}</span>
-            <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>auto-set by runner on connect</span>
           </div>
         )}
       </Section>
@@ -313,7 +591,7 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
         />
       </Section>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
         <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
         {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
@@ -341,6 +619,37 @@ function OverviewTab({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a:
             margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)',
             fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 320,
           }}>{manifest}</pre>
+        </div>
+      )}
+
+      {/* ── Danger Zone ── */}
+      {isAdmin && (
+        <div style={{
+          marginTop: 40, borderTop: '1px solid #fecaca', paddingTop: 28,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
+            Danger Zone
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: '#fff8f8', border: '1px solid #fecaca', borderRadius: 8, padding: '14px 18px',
+          }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>Delete this agent</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Permanently removes the agent, all its skills, memories, and history. This cannot be undone.</div>
+            </div>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{
+                flexShrink: 0, marginLeft: 24,
+                padding: '8px 18px', borderRadius: 7, border: '1px solid #dc2626',
+                background: deleting ? '#fef2f2' : '#fff', color: '#dc2626',
+                fontSize: 13, fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer',
+                fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+              }}
+            >{deleting ? 'Deleting…' : 'Delete Agent'}</button>
+          </div>
         </div>
       )}
     </div>
@@ -865,12 +1174,15 @@ function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
 
   if (memories.length === 0) {
     return (
-      <div className="fade-up" style={{ textAlign: 'center', paddingTop: 80, color: 'var(--muted)' }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>🧠</div>
-        <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+      <div className="fade-up" style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        paddingTop: 80, color: 'var(--muted)',
+      }}>
+        <Brain size={36} style={{ marginBottom: 12, color: 'var(--border-2)' }} />
+        <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
           No memories yet
         </p>
-        <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 300, margin: '0 auto' }}>
+        <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 300, margin: '0', textAlign: 'center' }}>
           The agent will automatically accumulate memories as it interacts in Slack.
         </p>
       </div>
@@ -962,7 +1274,6 @@ interface ParsedLog {
 }
 
 function parseLine(raw: string): ParsedLog {
-  // Strip ANSI color codes
   const stripped = raw.replace(/\x1b\[[0-9;]*m/g, '');
   try {
     const obj = JSON.parse(stripped);
@@ -970,34 +1281,111 @@ function parseLine(raw: string): ParsedLog {
       obj.level === 'error' || obj.level === 50 ? 'error' :
       obj.level === 'warn'  || obj.level === 40 ? 'warn'  :
       obj.level === 'debug' || obj.level === 20 ? 'debug' : 'info';
-    const ts = obj.timestamp ? new Date(obj.timestamp).toLocaleTimeString() : '';
-    const msg = obj.message ?? obj.msg ?? '';
+    const ts = obj.timestamp ? new Date(obj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    const rawMsg = obj.message ?? obj.msg ?? '';
+    const msg = rawMsg.replace(/^(error|warn|info|debug|trace):\s*/i, '');
     const skip = new Set(['level', 'message', 'msg', 'timestamp', 'agent', 'service']);
     const fields: Record<string, string> = {};
     for (const [k, v] of Object.entries(obj)) {
       if (!skip.has(k)) fields[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
     }
-    return { raw, level, time: ts, message: msg, fields };
+    return { raw: stripped, level, time: ts, message: msg, fields };
   } catch {
+    const lo = stripped.toLowerCase();
     const level: LogLevel =
-      stripped.includes('"level":"error"') || stripped.includes('"level":50') ? 'error' :
-      stripped.includes('"level":"warn"')  || stripped.includes('"level":40') ? 'warn'  :
-      stripped.includes('"level":"debug"') || stripped.includes('"level":20') ? 'debug' : 'info';
-    return { raw: stripped, level, time: '', message: stripped, fields: {} };
+      lo.includes('"level":"error"') || lo.includes('"level":50') || lo.includes('error:') ? 'error' :
+      lo.includes('"level":"warn"')  || lo.includes('"level":40') || lo.includes('warn:')  ? 'warn'  :
+      lo.includes('"level":"debug"') || lo.includes('"level":20') || lo.includes('debug:') ? 'debug' : 'info';
+    const plainMsg = stripped.replace(/^(error|warn|info|debug|trace):\s*/i, '');
+    const tsMatch = stripped.match(/"timestamp":"([^"]+)"/);
+    const plainTime = tsMatch ? new Date(tsMatch[1]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    return { raw: stripped, level, time: plainTime, message: plainMsg, fields: {} };
   }
 }
 
-const LEVEL_COLORS: Record<LogLevel, string> = {
-  all:   'var(--text)',
-  error: '#dc2626',
-  warn:  '#b45309',
-  info:  'var(--text)',
-  debug: 'var(--muted)',
+const LOG_META: Record<LogLevel, { label: string; color: string; bg: string; border: string; rowBg: string }> = {
+  all:   { label: 'ALL',   color: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', rowBg: 'transparent' },
+  info:  { label: 'INFO',  color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', rowBg: 'transparent' },
+  debug: { label: 'DEBUG', color: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb', rowBg: 'transparent' },
+  warn:  { label: 'WARN',  color: '#92400e', bg: '#fffbeb', border: '#fde68a', rowBg: '#fffdf0' },
+  error: { label: 'ERR',   color: '#991b1b', bg: '#fef2f2', border: '#fecaca', rowBg: '#fff8f8' },
 };
 
-const LEVEL_BADGE: Record<LogLevel, string> = {
-  all: 'var(--muted)', error: '#dc2626', warn: '#b45309', info: '#2563eb', debug: 'var(--subtle)',
-};
+function LogRow({ log }: { log: ParsedLog }) {
+  const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered]   = useState(false);
+  const m = LOG_META[log.level];
+  const hasFields = Object.keys(log.fields).length > 0;
+  const msgColor = log.level === 'error' ? '#7f1d1d' : log.level === 'warn' ? '#78350f' : log.level === 'debug' ? '#9ca3af' : 'var(--text)';
+
+  return (
+    <div
+      onClick={() => setExpanded(e => !e)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        cursor: 'pointer',
+        background: hovered ? 'var(--surface-2)' : (expanded ? 'var(--surface-2)' : m.rowBg),
+        borderLeft: `3px solid ${expanded ? m.border : 'transparent'}`,
+        borderBottom: '1px solid var(--border)',
+        transition: 'background 0.1s',
+      }}
+    >
+      {/* Compact single row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 10px', minHeight: 28 }}>
+        <span style={{ color: 'var(--subtle)', flexShrink: 0, fontSize: 10.5, fontVariantNumeric: 'tabular-nums', minWidth: 68 }}>
+          {log.time}
+        </span>
+        <span style={{
+          flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em',
+          padding: '1px 6px', borderRadius: 3, border: `1px solid ${m.border}`,
+          background: m.bg, color: m.color, minWidth: 34, textAlign: 'center',
+        }}>{m.label}</span>
+        <span style={{ flex: 1, color: msgColor, fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {log.message}
+        </span>
+        {!expanded && hasFields && (
+          <span style={{ flexShrink: 0, display: 'flex', gap: 3 }}>
+            {Object.keys(log.fields).slice(0, 3).map(k => (
+              <span key={k} style={{ fontSize: 9.5, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '0 4px' }}>{k}</span>
+            ))}
+            {Object.keys(log.fields).length > 3 && <span style={{ fontSize: 9.5, color: 'var(--subtle)' }}>+{Object.keys(log.fields).length - 3}</span>}
+          </span>
+        )}
+        <span style={{ flexShrink: 0, color: 'var(--subtle)', fontSize: 9, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
+      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div style={{ padding: '8px 14px 12px 92px', borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+          {log.message.includes('\n') && (
+            <pre style={{ margin: '0 0 10px', color: 'var(--text)', fontSize: 11.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{log.message}</pre>
+          )}
+          {hasFields && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px', marginBottom: 8 }}>
+              {Object.entries(log.fields).map(([k, v]) => (
+                <>
+                  <span key={`k-${k}`} style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 500 }}>{k}</span>
+                  <span key={`v-${k}`} style={{ color: 'var(--muted)', fontSize: 11, wordBreak: 'break-all' }}>{v}</span>
+                </>
+              ))}
+            </div>
+          )}
+          {log.raw && (
+            <>
+              <div style={{ fontSize: 10, color: 'var(--subtle)', marginTop: 8, marginBottom: 4 }}>Raw</div>
+              <pre style={{
+                margin: 0, padding: '8px 10px', background: 'var(--surface-2)',
+                border: '1px solid var(--border)', borderRadius: 4,
+                fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 180, overflow: 'auto',
+              }}>{log.raw}</pre>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
   const [lines, setLines]             = useState<ParsedLog[]>([]);
@@ -1005,7 +1393,7 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
   const [levelFilter, setLevelFilter] = useState<LogLevel>('all');
   const [search, setSearch]           = useState('');
   const [autoScroll, setAutoScroll]   = useState(true);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef    = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1025,6 +1413,10 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
 
   const LEVEL_ORDER: LogLevel[] = ['error', 'warn', 'info', 'debug'];
 
+  const counts = lines.reduce<Record<LogLevel, number>>((acc, l) => {
+    acc[l.level] = (acc[l.level] ?? 0) + 1; return acc;
+  }, { all: lines.length, error: 0, warn: 0, info: 0, debug: 0 });
+
   const visibleLines = lines.filter(l => {
     if (levelFilter !== 'all' && l.level !== levelFilter) return false;
     if (search) {
@@ -1035,96 +1427,75 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
     return true;
   });
 
-  const levelBtnStyle = (lvl: LogLevel) => ({
-    padding: '2px 10px', borderRadius: 12, border: '1px solid var(--border)',
-    fontSize: 11, fontFamily: 'var(--font-sans)', cursor: 'pointer',
-    background: levelFilter === lvl ? 'var(--accent)' : 'var(--surface-2)',
-    color: levelFilter === lvl ? '#fff' : lvl === 'info' || lvl === 'all' ? 'var(--muted)' : LEVEL_COLORS[lvl],
-    fontWeight: levelFilter === lvl ? 600 : 400,
-  });
-
   return (
     <div className="fade-up">
       {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div
-            className={connected ? 'status-running' : ''}
-            style={{ width: 7, height: 7, borderRadius: '50%', background: connected ? '#16a34a' : 'var(--border-2)' }}
-          />
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{connected ? 'Live' : 'Disconnected'}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div className={connected ? 'status-running' : ''}
+            style={{ width: 6, height: 6, borderRadius: '50%', background: connected ? '#16a34a' : 'var(--border-2)' }} />
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{connected ? 'Live' : 'Disconnected'}</span>
         </div>
-
-        {/* Level filters */}
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button onClick={() => setLevelFilter('all')} style={levelBtnStyle('all')}>all</button>
-          {LEVEL_ORDER.map(lvl => (
-            <button key={lvl} onClick={() => setLevelFilter(lvl)} style={levelBtnStyle(lvl)}>{lvl}</button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search…"
+        <div style={{ width: 1, height: 14, background: 'var(--border)', margin: '0 2px' }} />
+        {/* Level filters with counts */}
+        {(['all', ...LEVEL_ORDER] as LogLevel[]).map(lvl => {
+          const m = LOG_META[lvl];
+          const active = levelFilter === lvl;
+          return (
+            <button key={lvl} onClick={() => setLevelFilter(lvl)} style={{
+              padding: '2px 8px', borderRadius: 4,
+              border: `1px solid ${active ? m.border : 'var(--border)'}`,
+              fontSize: 10.5, fontFamily: 'var(--font-sans)', cursor: 'pointer',
+              background: active ? m.bg : 'transparent',
+              color: active ? m.color : 'var(--muted)',
+              fontWeight: active ? 700 : 400,
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+              {m.label}
+              {counts[lvl] > 0 && <span style={{ fontSize: 9.5, opacity: 0.75 }}>{counts[lvl]}</span>}
+            </button>
+          );
+        })}
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter logs…"
           style={{
-            padding: '2px 10px', borderRadius: 12, border: '1px solid var(--border)',
-            fontSize: 11, fontFamily: 'var(--font-sans)', background: 'var(--surface-2)',
-            color: 'var(--text)', outline: 'none', width: 160,
-          }}
-        />
-
-        <button
-          onClick={() => setLines([])}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}
-        >Clear</button>
+            padding: '3px 10px', borderRadius: 4, border: '1px solid var(--border)',
+            fontSize: 11, fontFamily: 'var(--font-mono)', background: 'transparent',
+            color: 'var(--text)', outline: 'none', width: 180,
+          }} />
+        <button onClick={() => setLines([])} style={{
+          marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
+          fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)',
+        }}>Clear</button>
       </div>
 
       {/* Log pane */}
-      <div
-        ref={containerRef}
-        onScroll={e => {
-          const el = e.currentTarget;
-          setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 40);
-        }}
-        style={{
-          background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10,
-          padding: '12px 16px', height: 500, overflow: 'auto',
-          fontFamily: 'var(--font-mono)', fontSize: 11.5, lineHeight: 1.7,
-        }}
-      >
-        {visibleLines.length === 0
-          ? <span style={{ color: 'var(--subtle)' }}>{lines.length === 0 ? 'Waiting for log lines…' : 'No matching lines.'}</span>
-          : visibleLines.map((log, i) => (
-            <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 2, alignItems: 'baseline' }}>
-              {/* Time */}
-              {log.time && (
-                <span style={{ color: 'var(--subtle)', flexShrink: 0, fontSize: 10.5 }}>{log.time}</span>
-              )}
-              {/* Level badge */}
-              <span style={{
-                flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em',
-                textTransform: 'uppercase', color: LEVEL_BADGE[log.level],
-                minWidth: 34,
-              }}>{log.level}</span>
-              {/* Message */}
-              <span style={{ color: LEVEL_COLORS[log.level], flex: 1, wordBreak: 'break-word' }}>
-                {log.message}
-                {/* Inline fields */}
-                {Object.entries(log.fields).map(([k, v]) => (
-                  <span key={k}>
-                    {' '}
-                    <span style={{ color: 'var(--accent)' }}>{k}</span>
-                    <span style={{ color: 'var(--subtle)' }}>=</span>
-                    <span style={{ color: 'var(--muted)' }}>{v}</span>
-                  </span>
-                ))}
-              </span>
-            </div>
-          ))
-        }
+      <div ref={containerRef} onScroll={e => {
+        const el = e.currentTarget;
+        setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 40);
+      }} style={{
+        background: '#fff', border: '1px solid var(--border)', borderRadius: 8,
+        height: 520, overflow: 'auto', fontFamily: 'var(--font-mono)',
+      }}>
+        {visibleLines.length === 0 ? (
+          <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--subtle)', fontSize: 12 }}>
+            {lines.length === 0 ? 'Waiting for log lines…' : 'No matching lines.'}
+          </div>
+        ) : (
+          visibleLines.map((log, i) => <LogRow key={i} log={log} />)
+        )}
         <div ref={bottomRef} />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, padding: '0 2px' }}>
+        <span style={{ fontSize: 10.5, color: 'var(--subtle)' }}>
+          {visibleLines.length}{visibleLines.length !== lines.length ? ` / ${lines.length}` : ''} line{visibleLines.length !== 1 ? 's' : ''}
+        </span>
+        {!autoScroll && (
+          <button onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
+            style={{ fontSize: 10.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
+            ↓ Jump to latest
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1135,14 +1506,14 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{
-      marginBottom: 22, paddingBottom: 22,
+      marginBottom: 32, paddingBottom: 28,
       borderBottom: '1px solid var(--border)',
     }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em',
-        textTransform: 'uppercase', marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em',
+        textTransform: 'uppercase', marginBottom: 16 }}>
         {title}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{children}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
     </div>
   );
 }
@@ -1163,15 +1534,15 @@ function Field({ label, value, onChange, hint, type = 'text', readOnly }: {
       <input
         type={type} value={value} onChange={e => onChange(e.target.value)} readOnly={readOnly}
         style={{
-          width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
+          width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }
@@ -1188,15 +1559,15 @@ function TextArea({ label, value, onChange, hint, rows = 3, readOnly }: {
       <textarea
         value={value} onChange={e => onChange(e.target.value)} rows={rows} readOnly={readOnly}
         style={{
-          width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+          width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }
@@ -1207,28 +1578,62 @@ function PrimaryBtn({ children, onClick, loading }: {
   return (
     <button onClick={onClick} disabled={loading} style={{
       background: loading ? 'var(--border)' : 'var(--accent)',
-      color: '#fff', border: 'none', borderRadius: 7,
-      padding: '8px 18px', fontSize: 13, fontWeight: 500,
+      color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+      padding: '10px 22px', fontSize: 14, fontWeight: 600,
+      letterSpacing: '-0.01em',
       cursor: loading ? 'not-allowed' : 'pointer',
-      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
+      fontFamily: 'var(--font-sans)',
+      boxShadow: loading ? 'none' : 'var(--shadow-sm)',
+      transition: 'opacity 0.15s, transform 0.15s, box-shadow 0.15s',
     }}
-      onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+      onMouseEnter={e => { if (!loading) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; }}
     >{loading ? 'Saving…' : children}</button>
   );
 }
 
-function GhostBtn({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function GhostBtn({ children, onClick, loading }: { children: React.ReactNode; onClick?: () => void; loading?: boolean }) {
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} disabled={loading} style={{
       background: 'transparent', color: 'var(--muted)',
-      border: '1px solid var(--border)', borderRadius: 7,
-      padding: '8px 18px', fontSize: 13, fontFamily: 'var(--font-sans)', cursor: 'pointer',
+      border: '1.5px solid var(--border-2)', borderRadius: 'var(--radius)',
+      padding: '10px 20px', fontSize: 14, fontWeight: 500, fontFamily: 'var(--font-sans)',
+      cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
       transition: 'border-color 0.15s, color 0.15s',
     }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
-    >{children}</button>
+      onMouseEnter={e => { if (!loading) { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+    >{loading ? '…' : children}</button>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+      <span style={{ color: 'var(--muted)' }}>{label}</span>
+      <span style={{ color: 'var(--text)', fontWeight: 500 }}>{value}</span>
+    </div>
+  );
+}
+
+function IconBtn({ children, onClick, title, loading }: { children: React.ReactNode; onClick?: () => void; title?: string; loading?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      disabled={loading}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border)',
+        background: 'var(--surface)', color: 'var(--muted)',
+        cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.5 : 1,
+        transition: 'all 0.15s',
+      }}
+      onMouseEnter={e => { if (!loading) { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--border-2)'; el.style.color = 'var(--text)'; el.style.background = 'var(--surface-2)'; }}}
+      onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--border)'; el.style.color = 'var(--muted)'; el.style.background = 'var(--surface)'; }}
+    >
+      {loading ? <span style={{ fontSize: 11 }}>…</span> : children}
+    </button>
   );
 }
 
@@ -1239,12 +1644,12 @@ function Btn({ children, onClick, color, textColor }: {
   return (
     <button onClick={onClick} style={{
       background: color ?? 'var(--border)', color: textColor ?? '#fff',
-      border: 'none', borderRadius: 7, padding: '7px 16px',
-      fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
-      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
+      border: 'none', borderRadius: 'var(--radius)', padding: '8px 18px',
+      fontSize: 13, fontWeight: 600, cursor: 'pointer',
+      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
     }}
-      onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
-      onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
     >{children}</button>
   );
 }
@@ -1260,10 +1665,10 @@ function Modal({ title, children, onClose }: {
       backdropFilter: 'blur(4px)',
     }}>
       <div style={{
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        borderRadius: 14, padding: '24px', width: 420,
-        boxShadow: '0 0 0 1px rgba(255,255,255,0.04)',
-        display: 'flex', flexDirection: 'column', gap: 14,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-lg)', padding: '28px', width: 440,
+        boxShadow: 'var(--shadow-modal)',
+        display: 'flex', flexDirection: 'column', gap: 16,
         maxHeight: '90vh', overflow: 'auto',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1434,12 +1839,16 @@ const TRIGGER_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 function TriggerBadge({ trigger }: { trigger: string }) {
-  const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--border)', color: 'var(--muted)' };
+  const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--surface-2)', color: 'var(--muted)' };
+  const label: Record<string, string> = {
+    skills: 'Skills', permissions: 'Tools', mcps: 'MCPs',
+    'claude-md': 'System Prompt', manual: 'Manual', restrictions: 'Channels',
+  };
   return (
     <span style={{
-      fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-      background: c.bg, color: c.color, textTransform: 'uppercase', letterSpacing: '0.05em',
-    }}>{trigger}</span>
+      fontSize: 10.5, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+      background: c.bg, color: c.color, letterSpacing: '0.03em',
+    }}>{label[trigger] ?? trigger}</span>
   );
 }
 
@@ -1456,21 +1865,30 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   const [liveSnapshot, setLiveSnapshot] = useState<AgentSnapshot | null>(null);
   const [allMcps, setAllMcps]     = useState<McpServer[]>([]);
   const [restoring, setRestoring] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [msg, setMsg]             = useState('');
 
-  // Load snapshot list + MCP catalog + current live state
+  // Load snapshot list + MCP catalog (fast path — no live state on mount)
   useEffect(() => {
     Promise.all([
       fetch(`/api/agents/${agentId}/snapshots`).then(r => r.json()),
       fetch('/api/mcps').then(r => r.json()),
+    ]).then(([snaps, mcps]) => {
+      setSnapshots(Array.isArray(snaps) ? snaps : []);
+      setAllMcps(mcps);
+      setLoading(false);
+    });
+  }, [agentId]);
+
+  // Lazy-load live state only when user picks "Compare with current"
+  useEffect(() => {
+    if (compareId !== '__current__' || liveSnapshot) return;
+    Promise.all([
       fetch(`/api/agents/${agentId}/skills`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/mcps`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/claude-md`).then(r => r.text()),
-    ]).then(([snaps, mcps, skills, perms, agentMcps, claudeMd]) => {
-      setSnapshots(Array.isArray(snaps) ? snaps : []);
-      setAllMcps(mcps);
-      // Build a pseudo-snapshot representing the current live state
+    ]).then(([skills, perms, agentMcps, claudeMd]) => {
       setLiveSnapshot({
         id: '__current__',
         agentId,
@@ -1489,16 +1907,18 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
         allowedChannels: [],
         createdAt: new Date(),
       });
-      setLoading(false);
     });
-  }, [agentId]);
+  }, [agentId, compareId, liveSnapshot]);
 
   // Load full snapshot when selected
   useEffect(() => {
     if (!selectedId) { setFullSnapshot(null); return; }
+    setFullSnapshot(null);
+    setLoadingDetail(true);
     fetch(`/api/agents/${agentId}/snapshots/${selectedId}`)
       .then(r => r.json())
-      .then(setFullSnapshot);
+      .then(snap => { setFullSnapshot(snap); setLoadingDetail(false); })
+      .catch(() => setLoadingDetail(false));
   }, [agentId, selectedId]);
 
   // Load compare snapshot when compareId changes
@@ -1551,155 +1971,263 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   // Build comparison target: live state or a selected historical snapshot
   const currentAsSnapshot: AgentSnapshot | null = compareId === '__current__' ? liveSnapshot : compareSnapshot;
 
-  if (loading) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading history…</p>;
+  if (loading) return (
+    <div style={{ display: 'flex', gap: 20, minHeight: 500 }}>
+      <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ width: 70, height: 13, borderRadius: 5, background: 'var(--surface-2)' }} />
+          <div style={{ width: 110, height: 30, borderRadius: 8, background: 'var(--surface-2)' }} />
+        </div>
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} style={{
+            background: '#fff', borderRadius: 'var(--radius)', padding: '14px 16px',
+            boxShadow: 'var(--shadow-card)', opacity: 1 - (i - 1) * 0.2,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ width: 70, height: 18, borderRadius: 6, background: 'var(--surface-2)' }} />
+              <div style={{ width: 50, height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
+            </div>
+            <div style={{ width: '55%', height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ flex: 1, background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ fontSize: 13, color: 'var(--subtle)' }}>Loading history…</div>
+      </div>
+    </div>
+  );
 
   return (
-    <div style={{ display: 'flex', gap: 24, minHeight: 500 }}>
+    <div style={{ display: 'flex', gap: 20, minHeight: 500, alignItems: 'flex-start' }}>
 
       {/* ── Left: snapshot list ────────────────────────────────────────────── */}
-      <div style={{ width: 320, flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}</span>
+      <div style={{ width: 280, flexShrink: 0 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+            color: 'var(--subtle)', textTransform: 'uppercase',
+          }}>
+            {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
+          </span>
           {canEdit && (
             <button onClick={handleCreateManual} style={{
-              background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6,
-              padding: '6px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-            }}>Save snapshot</button>
+              background: 'var(--accent)', color: '#fff', border: 'none',
+              borderRadius: 'var(--radius-sm)', padding: '7px 13px',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              fontFamily: 'var(--font-sans)', letterSpacing: '-0.01em',
+              boxShadow: 'var(--shadow-sm)', transition: 'opacity 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+            >+ Snapshot</button>
           )}
         </div>
 
-        {msg && <p style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 10 }}>{msg}</p>}
+        {msg && (
+          <div style={{
+            fontSize: 12, color: '#16a34a', background: '#f0fdf4',
+            border: '1px solid #bbf7d0', borderRadius: 8,
+            padding: '8px 12px', marginBottom: 10,
+          }}>{msg}</div>
+        )}
 
         {snapshots.length === 0 ? (
           <div style={{
-            border: '1px dashed var(--border)', borderRadius: 8, padding: '20px 16px',
-            fontSize: 13, color: 'var(--subtle)', textAlign: 'center', lineHeight: 1.6,
+            background: '#fff', borderRadius: 'var(--radius)',
+            boxShadow: 'var(--shadow-card)', padding: '28px 20px',
+            textAlign: 'center',
           }}>
-            No snapshots yet. Snapshots are created automatically when skills, permissions, or MCPs are saved.
+            <Camera size={22} style={{ marginBottom: 10, color: 'var(--border-2)' }} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No snapshots yet</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+              Snapshots are saved automatically when you change skills, MCPs, or permissions.
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {snapshots.map(snap => (
-              <div
-                key={snap.id}
-                onClick={() => { setSelectedId(snap.id === selectedId ? null : snap.id); setCompareId('__current__'); setCompareSnapshot(null); }}
-                style={{
-                  border: `1px solid ${snap.id === selectedId ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 8, padding: '10px 12px', cursor: 'pointer',
-                  background: snap.id === selectedId ? 'rgba(59,130,246,0.06)' : 'var(--surface)',
-                  transition: 'border-color 0.15s, background 0.15s',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <TriggerBadge trigger={snap.trigger} />
-                  <span style={{ fontSize: 11, color: 'var(--subtle)' }}>by <strong style={{ color: 'var(--muted)' }}>{snap.createdBy}</strong></span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text)', marginBottom: 2 }}>{fmt(snap.createdAt)}</div>
-                {snap.label && <div style={{ fontSize: 11.5, color: 'var(--accent)', fontStyle: 'italic' }}>{snap.label}</div>}
-                {snap.id === selectedId && canEdit && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={() => handleRestore(snap)}
-                      disabled={restoring}
-                      style={{
-                        fontSize: 11.5, padding: '4px 10px', borderRadius: 5, cursor: 'pointer',
-                        background: '#16a34a', color: '#fff', border: 'none', fontFamily: 'var(--font-sans)',
-                      }}
-                    >{restoring ? 'Restoring…' : 'Restore'}</button>
-                    <button
-                      onClick={() => handleDelete(snap.id)}
-                      style={{
-                        fontSize: 11.5, padding: '4px 10px', borderRadius: 5, cursor: 'pointer',
-                        background: 'transparent', color: '#ef4444',
-                        border: '1px solid rgba(239,68,68,0.3)', fontFamily: 'var(--font-sans)',
-                      }}
-                    >Delete</button>
+            {snapshots.map(snap => {
+              const isSelected = snap.id === selectedId;
+              return (
+                <div
+                  key={snap.id}
+                  onClick={() => { setSelectedId(isSelected ? null : snap.id); setCompareId('__current__'); setCompareSnapshot(null); }}
+                  style={{
+                    background: '#fff',
+                    borderRadius: 'var(--radius)',
+                    boxShadow: isSelected ? '0 0 0 2px var(--accent), var(--shadow-card)' : 'var(--shadow-card)',
+                    padding: '13px 15px', cursor: 'pointer',
+                    transition: 'box-shadow 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}
+                  onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-card)'; }}
+                >
+                  {/* Top row: badge + author */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+                    <TriggerBadge trigger={snap.trigger} />
+                    <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-mono)' }}>{snap.createdBy}</span>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Timestamp */}
+                  <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)', marginBottom: snap.label ? 4 : 0 }}>
+                    {fmt(snap.createdAt)}
+                  </div>
+
+                  {/* Optional label */}
+                  {snap.label && (
+                    <div style={{
+                      fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic',
+                      marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{snap.label}</div>
+                  )}
+
+                  {/* Actions — only when selected */}
+                  {isSelected && canEdit && (
+                    <div style={{ display: 'flex', gap: 7, marginTop: 11, paddingTop: 11, borderTop: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => handleRestore(snap)}
+                        disabled={restoring}
+                        style={{
+                          flex: 1, fontSize: 12, padding: '6px 0', borderRadius: 6, cursor: restoring ? 'not-allowed' : 'pointer',
+                          background: '#16a34a', color: '#fff', border: 'none',
+                          fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
+                        }}
+                        onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
+                        onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                      >{restoring ? 'Restoring…' : 'Restore'}</button>
+                      <button
+                        onClick={() => handleDelete(snap.id)}
+                        style={{
+                          fontSize: 12, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                          background: 'transparent', color: 'var(--red)',
+                          border: '1.5px solid rgba(220,38,38,0.25)',
+                          fontFamily: 'var(--font-sans)', fontWeight: 500, transition: 'all 0.15s',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget.style.background = 'var(--red)'); (e.currentTarget.style.color = '#fff'); (e.currentTarget.style.borderColor = 'var(--red)'); }}
+                        onMouseLeave={e => { (e.currentTarget.style.background = 'transparent'); (e.currentTarget.style.color = 'var(--red)'); (e.currentTarget.style.borderColor = 'rgba(220,38,38,0.25)'); }}
+                      >Delete</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
       {/* ── Right: diff panel ─────────────────────────────────────────────── */}
-      {fullSnapshot ? (
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Compare selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Comparing snapshot →</span>
+      {loadingDetail ? (
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Compare bar skeleton */}
+          <div style={{ background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 90, height: 14, borderRadius: 4, background: 'var(--surface-2)' }} />
+            <div style={{ flex: 1, height: 34, borderRadius: 8, background: 'var(--surface-2)' }} />
+          </div>
+          {/* Section skeletons */}
+          {[120, 80, 60, 200].map((h, i) => (
+            <div key={i} style={{ background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', opacity: 1 - i * 0.15 }}>
+              <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ width: 70, height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
+              </div>
+              <div style={{ padding: '16px 18px' }}>
+                <div style={{ height: h, borderRadius: 6, background: 'var(--surface-2)' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : fullSnapshot ? (
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Compare bar */}
+          <div style={{
+            background: '#fff', borderRadius: 'var(--radius)',
+            boxShadow: 'var(--shadow-card)', padding: '14px 18px',
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
+              Compare with
+            </span>
             <select
               value={compareId}
               onChange={e => setCompareId(e.target.value)}
               style={{
-                fontSize: 12, padding: '5px 10px', borderRadius: 6,
-                border: '1px solid var(--border)', background: 'var(--surface-2)',
+                flex: 1, fontSize: 13, padding: '7px 12px', borderRadius: 8,
+                border: '1.5px solid var(--border)', background: 'var(--surface-2)',
                 color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none', cursor: 'pointer',
               }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
             >
               <option value="__current__">Current state</option>
               {snapshots.filter(s => s.id !== selectedId).map(s => (
-                <option key={s.id} value={s.id}>{fmt(s.createdAt)} — {s.trigger}{s.label ? ` (${s.label})` : ''}</option>
+                <option key={s.id} value={s.id}>{fmt(s.createdAt)} — {s.trigger}{s.label ? ` · ${s.label}` : ''}</option>
               ))}
             </select>
           </div>
 
-          {/* Skills diff */}
-          <section style={{ marginBottom: 24 }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Skills</h3>
-            <SkillDiff snapshot={fullSnapshot} current={currentAsSnapshot} />
-          </section>
-
-          {/* Permissions diff */}
-          <section style={{ marginBottom: 24 }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Permissions</h3>
-            <PermsDiff snapshot={fullSnapshot} current={currentAsSnapshot} />
-          </section>
-
-          {/* MCPs diff */}
-          <section style={{ marginBottom: 24 }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>MCPs</h3>
-            <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} />
-          </section>
-
-          {/* CLAUDE.md diff */}
-          <section>
-            <h3 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              CLAUDE.md
-            </h3>
-            {(() => {
-              const diff = lineDiff(fullSnapshot.compiledMd || '', currentAsSnapshot?.compiledMd || '');
-              const changed = diff.some(l => l.type !== 'same');
-              if (!changed) return <p style={{ fontSize: 12, color: 'var(--subtle)', margin: 0 }}>No changes to CLAUDE.md</p>;
-              return (
-                <pre style={{
-                  margin: 0, padding: '14px', borderRadius: 8, fontSize: 11.5,
-                  fontFamily: 'var(--font-mono)', background: 'var(--surface-2)',
-                  border: '1px solid var(--border)', overflow: 'auto', maxHeight: 400,
-                  color: 'var(--text)', lineHeight: 1.65,
-                }}>
-                  {diff.map((l, i) => (
-                    <div key={i} style={{
-                      background: l.type === 'add' ? 'rgba(34,197,94,0.12)' : l.type === 'remove' ? 'rgba(239,68,68,0.12)' : 'transparent',
-                      color: l.type === 'add' ? '#22c55e' : l.type === 'remove' ? '#ef4444' : 'inherit',
-                      padding: '0 4px',
-                    }}>
-                      {l.type === 'add' ? '+ ' : l.type === 'remove' ? '- ' : '  '}{l.line}
-                    </div>
-                  ))}
-                </pre>
-              );
-            })()}
-          </section>
+          {/* Diff sections — wait for compare target to load */}
+          {!currentAsSnapshot ? (
+            <div style={{
+              background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
+              padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
+            }}>
+              Loading comparison…
+            </div>
+          ) : [
+            { title: 'Skills',       content: <SkillDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
+            { title: 'Tools',        content: <PermsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
+            { title: 'MCPs',         content: <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} /> },
+            { title: 'System Prompt', content: (() => {
+                if (!fullSnapshot.compiledMd || !currentAsSnapshot.compiledMd)
+                  return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>Not available for this snapshot</p>;
+                const diff = lineDiff(fullSnapshot.compiledMd.trim(), currentAsSnapshot.compiledMd.trim());
+                const changed = diff.some(l => l.type !== 'same');
+                if (!changed) return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>No changes</p>;
+                return (
+                  <pre style={{
+                    margin: 0, padding: '14px 16px', borderRadius: 8, fontSize: 12,
+                    fontFamily: 'var(--font-mono)', background: 'var(--surface-2)',
+                    border: '1px solid var(--border)', overflow: 'auto', maxHeight: 380,
+                    color: 'var(--text)', lineHeight: 1.7,
+                  }}>
+                    {diff.map((l, i) => (
+                      <div key={i} style={{
+                        background: l.type === 'add' ? 'rgba(34,197,94,0.12)' : l.type === 'remove' ? 'rgba(239,68,68,0.10)' : 'transparent',
+                        color: l.type === 'add' ? '#16a34a' : l.type === 'remove' ? '#dc2626' : 'inherit',
+                        padding: '1px 6px', borderRadius: 3, marginBottom: 1,
+                      }}>
+                        {l.type === 'add' ? '+ ' : l.type === 'remove' ? '- ' : '  '}{l.line}
+                      </div>
+                    ))}
+                  </pre>
+                );
+              })(),
+            },
+          ].map(({ title, content }) => (
+            <div key={title} style={{
+              background: '#fff', borderRadius: 'var(--radius)',
+              boxShadow: 'var(--shadow-card)', overflow: 'hidden',
+            }}>
+              <div style={{
+                padding: '12px 18px', borderBottom: '1px solid var(--border)',
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+                color: 'var(--muted)', textTransform: 'uppercase',
+              }}>{title}</div>
+              <div style={{ padding: '16px 18px' }}>{content}</div>
+            </div>
+          ))}
         </div>
       ) : (
         <div style={{
-          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          border: '1px dashed var(--border)', borderRadius: 10,
-          color: 'var(--subtle)', fontSize: 13,
+          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          background: '#fff', borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow-card)', gap: 10, padding: 40,
         }}>
-          Select a snapshot to view the diff
+          <History size={32} style={{ color: 'var(--border-2)' }} />
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Select a snapshot</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 260, lineHeight: 1.6 }}>
+            Click any snapshot on the left to view what changed at that point in time.
+          </div>
         </div>
       )}
     </div>
