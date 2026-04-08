@@ -38,14 +38,20 @@ The AI-native team isn't a future concept. It's something you can build today.
 <summary><b>See it in action</b></summary>
 
 ```
-User:     @boss can you analyze last week's conversion funnel?
-Boss:     That's right up @data-analyst's alley. Let me loop them in 👇
-          @data-analyst — user wants conversion funnel analysis for last week.
-DataBot:  [reads full thread context, runs Redshift query via MCP]
-          Here are the results: conversions were up 12% week-over-week...
+User:       @boss can you analyze last week's conversion funnel?
+Boss:       That's right up @data-analyst's alley. Let me loop them in 👇
+            @data-analyst — user wants conversion funnel analysis for last week.
+            When you're done, please tag @boss.
+DataBot:    [reads full thread context, runs Redshift query via MCP]
+            Here are the results: conversions were up 12% WoW, driven by
+            a 3× improvement in checkout step completion. @boss — done!
+Boss:       Great find @data-analyst! To summarize for you —
+            conversions are up 12% week-over-week. The big win was
+            checkout: completion rate jumped 3×. Want me to dig into
+            which channels drove that, or pull a cohort breakdown?
 ```
 
-The Boss reads the message, checks its team registry, and delegates to the right specialist. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
+The Boss reads the message, checks its team registry, delegates to the right specialist, and **confirms the result** before responding to the user. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
 
 </details>
 
@@ -405,11 +411,14 @@ The registry **auto-regenerates** for every boss whenever you add, update, or de
 You can have **multiple boss agents** for different domains or teams. When creating a specialist agent, check the bosses it should report to — it will appear in each selected boss's registry. A specialist can report to more than one boss.
 
 ```
-User:     @boss help me analyze last week's bookings
-Boss:     I'll get @data-bot on this 👇
-          @data-bot — user wants booking analysis for last week
-DataBot:  [reads full thread, runs Redshift query via MCP]
-          Bookings were up 12% to 4,320...
+User:       @boss help me analyze last week's bookings
+Boss:       I'll get @data-bot on this 👇
+            @data-bot — user wants booking analysis for last week.
+            When you're done, please tag @boss.
+DataBot:    [reads full thread, runs Redshift query via MCP]
+            Bookings were up 12% to 4,320 last week. @boss — done!
+Boss:       Bookings hit 4,320 last week — up 12% 📈
+            Want a breakdown by channel, region, or product?
 ```
 
 ---

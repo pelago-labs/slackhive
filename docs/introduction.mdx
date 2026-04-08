@@ -12,14 +12,20 @@ In the near future, every Slack team will have AI members alongside humans. An A
 SlackHive is built on this belief. It gives you the infrastructure to deploy, manage, and grow a team of AI agents on Slack — each with their own identity, memory, skills, and tools. The more they work with your team, the smarter they get.
 
 ```
-User:     @boss can you analyze last week's conversion funnel?
-Boss:     That's right up @data-analyst's alley. Let me loop them in 👇
-          @data-analyst — user wants conversion funnel analysis for last week.
-DataBot:  [reads full thread context, runs Redshift query via MCP]
-          Here are the results: conversions were up 12% week-over-week...
+User:       @boss can you analyze last week's conversion funnel?
+Boss:       That's right up @data-analyst's alley. Let me loop them in 👇
+            @data-analyst — user wants conversion funnel analysis for last week.
+            When you're done, please tag @boss.
+DataBot:    [reads full thread context, runs Redshift query via MCP]
+            Here are the results: conversions were up 12% WoW, driven by
+            a 3× improvement in checkout step completion. @boss — done!
+Boss:       Great find @data-analyst! To summarize —
+            conversions are up 12% week-over-week. The big win was
+            checkout: completion rate jumped 3×. Want me to dig into
+            which channels drove that, or pull a cohort breakdown?
 ```
 
-The Boss reads the message, checks its team registry, and delegates to the right specialist. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
+The Boss reads the message, checks its team registry, delegates to the right specialist, and **confirms the result** before responding to the user. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
 
 ## Key features
 
