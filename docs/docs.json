@@ -8,19 +8,24 @@
   },
   "favicon": "/favicon.svg",
   "colors": {
-    "primary": "#D97757",
-    "light": "#E89070",
-    "dark": "#C06040"
+    "primary": "#D97757"
   },
-  "topbarLinks": [
-    {
-      "name": "GitHub",
-      "url": "https://github.com/pelago-labs/slackhive"
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/pelago-labs/slackhive"
+      }
+    ],
+    "primary": {
+      "label": "Get Started",
+      "href": "https://github.com/pelago-labs/slackhive"
     }
-  ],
-  "topbarCtaButton": {
-    "name": "Get Started",
-    "url": "https://github.com/pelago-labs/slackhive"
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/pelago-labs/slackhive"
+    }
   },
   "navigation": [
     {
@@ -59,8 +64,5 @@
         "self-hosting/production"
       ]
     }
-  ],
-  "footerSocials": {
-    "github": "https://github.com/pelago-labs/slackhive"
-  }
+  ]
 }
