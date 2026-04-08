@@ -73,6 +73,8 @@ The CLI will:
 4. Walk you through configuration (API key or subscription, admin credentials)
 5. Start all services automatically
 
+Open `http://localhost:3001` and create your first agent.
+
 ### CLI Commands
 
 | Command | Description |
