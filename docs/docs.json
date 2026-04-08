@@ -57,6 +57,7 @@
           {
             "group": "Features",
             "pages": [
+              "features/scheduled-jobs",
               "features/logs",
               "features/history",
               "features/users"

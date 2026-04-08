@@ -1,0 +1,203 @@
+---
+title: "Scheduled Jobs"
+description: "Trigger any agent on a schedule — get proactive alerts, reports, and monitoring delivered to Slack automatically."
+---
+
+## Your agents don't just wait to be asked
+
+Most AI tools are reactive — you ask, they answer. Scheduled Jobs make your agents **proactive**. Set a schedule, point it at any agent, and it fires automatically — running queries, checking metrics, scanning for anomalies, and posting results directly to a Slack channel or DM.
+
+No dashboards to check. No reports to pull. The insight comes to you.
+
+---
+
+## What you can build
+
+<CardGroup cols={2}>
+  <Card title="GMV & Revenue Alerts" icon="chart-line">
+    If GMV drops more than 10% hour-over-hour, DM the CEO immediately with a breakdown by channel and cohort.
+  </Card>
+  <Card title="Fraud Monitoring" icon="shield-halved">
+    Run a fraud check every hour. If anomalies are detected, post a summary to `#fraud-alerts` with transaction IDs and risk scores.
+  </Card>
+  <Card title="Daily Business Digest" icon="newspaper">
+    Every morning at 8 AM, post yesterday's key metrics — bookings, revenue, churn, NPS — to `#analytics`.
+  </Card>
+  <Card title="Weekly Engineering Report" icon="code">
+    Every Monday, summarize last week's PRs, incidents, and deploy count. Post to `#engineering`.
+  </Card>
+  <Card title="Inventory Alerts" icon="boxes-stacked">
+    Check stock levels every 4 hours. DM the ops lead if any SKU drops below threshold.
+  </Card>
+  <Card title="Support Queue Health" icon="headset">
+    Every 30 minutes during business hours, check ticket queue depth. Alert `#support-ops` if SLA is at risk.
+  </Card>
+</CardGroup>
+
+---
+
+## How it works
+
+<Steps>
+  <Step title="You set up a job">
+    Pick an agent, write a prompt, set a schedule (cron), and choose where results go — a Slack channel or a direct message.
+  </Step>
+  <Step title="The schedule fires">
+    At the configured time, SlackHive sends your prompt to the agent — exactly like a Slack message, but automated.
+  </Step>
+  <Step title="The agent runs">
+    The agent executes fully — it can run queries, call APIs, check metrics, compare against thresholds, and reason about the results.
+  </Step>
+  <Step title="Results posted to Slack">
+    The response is posted to the channel or DM you configured. If nothing notable happened, the agent can say so. If something needs attention, it flags it.
+  </Step>
+</Steps>
+
+---
+
+## Any agent, any schedule
+
+Jobs are not limited to boss agents. Assign a job to any agent:
+
+| Agent | Job example |
+|-------|------------|
+| `@data-analyst` | Run revenue query every morning, post to `#finance` |
+| `@devops` | Check error rates every 15 min, DM on-call if spiking |
+| `@fraud-bot` | Hourly transaction anomaly scan, post to `#fraud-alerts` |
+| `@support-agent` | Check ticket backlog every 30 min, alert if queue > 50 |
+| `@boss` | Daily summary across all teams, post to `#general` |
+
+---
+
+## Creating a job
+
+Go to **Jobs** in the sidebar → **New Job**.
+
+<Steps>
+  <Step title="Name the job">
+    Give it a clear name — e.g. `Daily Revenue Digest` or `Hourly Fraud Check`.
+  </Step>
+  <Step title="Choose an agent">
+    Select which agent should run this job. Pick the specialist best suited for the task.
+  </Step>
+  <Step title="Write the prompt">
+    Write exactly what you'd say to the agent in Slack. Be specific about what to check, what thresholds matter, and what to include in the response.
+
+    ```
+    Check GMV for the last hour vs the same hour yesterday.
+    If it's down more than 10%, flag it as urgent and include
+    a breakdown by acquisition channel. Otherwise just post
+    a one-line summary.
+    ```
+  </Step>
+  <Step title="Set the schedule">
+    Use a cron expression or pick a preset:
+
+    | Preset | Cron |
+    |--------|------|
+    | Every hour | `0 * * * *` |
+    | Every 15 minutes | `*/15 * * * *` |
+    | Daily at 8 AM | `0 8 * * *` |
+    | Weekdays at 9 AM | `0 9 * * 1-5` |
+    | Weekly on Monday | `0 9 * * 1` |
+
+    <Tip>The UI shows cron expressions in plain English so you can verify the schedule before saving.</Tip>
+  </Step>
+  <Step title="Set the target">
+    Choose where results are posted:
+
+    - **Channel** — paste a Slack channel ID (e.g. `C12345678`) to post publicly
+    - **DM** — paste a Slack user ID (e.g. `U12345678`) to send a direct message
+
+    <Tip>Find channel IDs in Slack by right-clicking the channel → Copy link. The ID is the `C…` at the end of the URL. Find user IDs in their Slack profile → More → Copy member ID.</Tip>
+  </Step>
+</Steps>
+
+---
+
+## DM alerts
+
+Jobs can DM any Slack user directly — not just post to channels. This is powerful for personal alerts:
+
+- CEO gets a DM if daily GMV is down
+- On-call engineer gets a DM if error rate spikes
+- Finance lead gets a DM every Friday with weekly P&L summary
+
+The agent sends the message as itself — it appears in Slack as a direct message from your bot.
+
+---
+
+## Writing effective job prompts
+
+The prompt is the most important part. A few principles:
+
+**Be specific about what to check**
+```
+❌ Check the data
+✅ Query bookings for the last 24 hours and compare to the 7-day average
+```
+
+**Define what "notable" means**
+```
+❌ Let me know if anything is wrong
+✅ Flag if conversion rate drops below 3% or if any single channel
+   drops more than 20% week-over-week
+```
+
+**Tell it what to do in each case**
+```
+✅ If everything looks normal, post a one-line summary.
+   If something needs attention, include the specific numbers,
+   what changed, and your best hypothesis for why.
+```
+
+**Give it context it might need**
+```
+✅ Note: Tuesday is always lower due to our weekly maintenance window.
+   Don't flag Tuesday dips unless they exceed 30%.
+```
+
+---
+
+## Monitoring job runs
+
+Every job run is logged — status, output, duration, and timestamp — visible in **Jobs → [job name] → Run History**.
+
+| Status | Meaning |
+|--------|---------|
+| ✅ Success | Agent ran and posted to Slack |
+| ❌ Error | Agent not running, Claude error, or Slack API failure |
+| ⏭ Skipped | Agent was offline when the job fired |
+
+<Note>
+  If a job fails, the error is logged in run history. Common causes: the agent's Slack app token expired, the agent wasn't running, or the MCP server the agent needed was down.
+</Note>
+
+---
+
+## Example: GMV drop alert
+
+Here's a complete setup for a GMV monitoring job:
+
+| Field | Value |
+|-------|-------|
+| **Name** | Hourly GMV Alert |
+| **Agent** | `@data-analyst` |
+| **Schedule** | `0 * * * *` (every hour) |
+| **Target** | DM → CEO's Slack user ID |
+| **Prompt** | Compare GMV for the last hour vs the same hour last week. If it's down more than 15%, send an urgent alert with a breakdown by channel, device type, and acquisition source. If it's within normal range, send a single line: "GMV on track — $X this hour vs $Y last week." |
+
+The CEO gets a DM every hour. 99% of the time it's one line. When something breaks, they know immediately — with the breakdown already in their pocket.
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Creating Agents" icon="robot" href="/agents/creating-agents">
+    Build the specialist agents that power your jobs.
+  </Card>
+  <Card title="MCP Servers" icon="plug" href="/configuration/mcp-servers">
+    Connect agents to your data sources so jobs can query real data.
+  </Card>
+</CardGroup>
