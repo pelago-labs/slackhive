@@ -66,7 +66,14 @@ npm install -g slackhive
 slackhive init
 ```
 
-The CLI will check prerequisites (Docker, Git), clone the repo, walk you through configuration, and start all services automatically. Open `http://localhost:3001` and create your first agent.
+The CLI will:
+1. Check prerequisites (Docker, Docker Compose, Git, Claude Code)
+2. Clone the repository
+3. Auto-detect your Claude installation (cross-platform compatible)
+4. Walk you through configuration (API key or subscription, admin credentials)
+5. Start all services automatically
+
+Open `http://localhost:3001` and create your first agent.
 
 ### CLI Commands
 
