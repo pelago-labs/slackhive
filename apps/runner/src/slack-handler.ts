@@ -797,7 +797,7 @@ export async function downloadFile(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function buildPrompt(
+export async function buildPrompt(
   client: any, channelId: string, threadTs: string | undefined,
   userText: string, agent: Agent, log: Logger,
   files?: SlackFile[]
