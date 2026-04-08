@@ -18,6 +18,7 @@
       }
     ],
     "primary": {
+      "type": "button",
       "label": "Get Started",
       "href": "https://github.com/pelago-labs/slackhive"
     }
@@ -27,42 +28,49 @@
       "github": "https://github.com/pelago-labs/slackhive"
     }
   },
-  "navigation": [
-    {
-      "group": "Getting Started",
-      "pages": ["introduction", "quickstart"]
-    },
-    {
-      "group": "Configuration",
-      "pages": [
-        "configuration/env-vars",
-        "configuration/slack-app",
-        "configuration/mcp-servers"
-      ]
-    },
-    {
-      "group": "Agents",
-      "pages": [
-        "agents/creating-agents",
-        "agents/boss-agents",
-        "agents/memory",
-        "agents/tools"
-      ]
-    },
-    {
-      "group": "Features",
-      "pages": [
-        "features/logs",
-        "features/history",
-        "features/users"
-      ]
-    },
-    {
-      "group": "Self-Hosting",
-      "pages": [
-        "self-hosting/docker",
-        "self-hosting/production"
-      ]
-    }
-  ]
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/env-vars",
+              "configuration/slack-app",
+              "configuration/mcp-servers"
+            ]
+          },
+          {
+            "group": "Agents",
+            "pages": [
+              "agents/creating-agents",
+              "agents/boss-agents",
+              "agents/memory",
+              "agents/tools"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/logs",
+              "features/history",
+              "features/users"
+            ]
+          },
+          {
+            "group": "Self-Hosting",
+            "pages": [
+              "self-hosting/docker",
+              "self-hosting/production"
+            ]
+          }
+        ]
+      }
+    ]
+  }
 }
