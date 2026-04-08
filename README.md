@@ -37,6 +37,17 @@ The AI-native team isn't a future concept. It's something you can build today.
 <details>
 <summary><b>See it in action</b></summary>
 
+Tag a specialist directly when you know who to ask:
+
+```
+User:       @data-analyst pull last week's conversion funnel
+DataBot:    [reads thread, runs Redshift query via MCP]
+            Conversions were up 12% WoW. Checkout completion
+            jumped 3×. Want a channel or cohort breakdown?
+```
+
+Or tag @boss when you're not sure who handles it — Boss figures out the right specialist and coordinates:
+
 ```
 User:       @boss can you analyze last week's conversion funnel?
 Boss:       That's right up @data-analyst's alley. Let me loop them in 👇
@@ -51,16 +62,7 @@ Boss:       Great find @data-analyst! To summarize for you —
             which channels drove that, or pull a cohort breakdown?
 ```
 
-The Boss reads the message, checks its team registry, delegates to the right specialist, and **confirms the result** before responding to the user. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
-
-You can also tag specialists directly — no boss needed:
-
-```
-User:       @data-analyst pull last week's conversion funnel
-DataBot:    [reads thread, runs Redshift query via MCP]
-            Conversions were up 12% WoW. Checkout completion
-            jumped 3×. Want a channel or cohort breakdown?
-```
+The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
 
 </details>
 

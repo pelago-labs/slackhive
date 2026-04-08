@@ -11,6 +11,17 @@ In the near future, every Slack team will have AI members alongside humans. An A
 
 SlackHive is built on this belief. It gives you the infrastructure to deploy, manage, and grow a team of AI agents on Slack — each with their own identity, memory, skills, and tools. The more they work with your team, the smarter they get.
 
+Tag a specialist directly when you know who to ask:
+
+```
+User:       @data-analyst pull last week's conversion funnel
+DataBot:    [reads thread, runs Redshift query via MCP]
+            Conversions were up 12% WoW. Checkout completion
+            jumped 3×. Want a channel or cohort breakdown?
+```
+
+Or tag @boss when you're not sure who handles it — Boss figures out the right specialist and coordinates:
+
 ```
 User:       @boss can you analyze last week's conversion funnel?
 Boss:       That's right up @data-analyst's alley. Let me loop them in 👇
@@ -25,16 +36,7 @@ Boss:       Great find @data-analyst! To summarize —
             which channels drove that, or pull a cohort breakdown?
 ```
 
-The Boss reads the message, checks its team registry, delegates to the right specialist, and **confirms the result** before responding to the user. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
-
-You can also tag specialists directly — no boss needed:
-
-```
-User:       @data-analyst pull last week's conversion funnel
-DataBot:    [reads thread, runs Redshift query via MCP]
-            Conversions were up 12% WoW. Checkout completion
-            jumped 3×. Want a channel or cohort breakdown?
-```
+The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
 
 ## Key features
 
