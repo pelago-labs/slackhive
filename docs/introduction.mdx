@@ -27,6 +27,15 @@ Boss:       Great find @data-analyst! To summarize —
 
 The Boss reads the message, checks its team registry, delegates to the right specialist, and **confirms the result** before responding to the user. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
 
+You can also tag specialists directly — no boss needed:
+
+```
+User:       @data-analyst pull last week's conversion funnel
+DataBot:    [reads thread, runs Redshift query via MCP]
+            Conversions were up 12% WoW. Checkout completion
+            jumped 3×. Want a channel or cohort breakdown?
+```
+
 ## Key features
 
 <CardGroup cols={2}>
