@@ -11,6 +11,10 @@ import * as crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { getUserByUsername } from './db';
 
+if (process.env.NODE_ENV === 'production' && !process.env.CI && (!process.env.AUTH_SECRET || !process.env.ADMIN_PASSWORD)) {
+  throw new Error('AUTH_SECRET and ADMIN_PASSWORD must be set in production. See .env.example.');
+}
+
 const AUTH_SECRET = process.env.AUTH_SECRET || 'change-this-secret-in-production';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';

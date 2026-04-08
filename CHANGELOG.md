@@ -47,6 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/amansrivastava17/slackhive/compare/v0.1.19...HEAD
-[0.1.19]: https://github.com/amansrivastava17/slackhive/compare/v0.1.18...v0.1.19
-[0.1.18]: https://github.com/amansrivastava17/slackhive/releases/tag/v0.1.18
+[Unreleased]: https://github.com/pelago-labs/slackhive/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/pelago-labs/slackhive/compare/v0.1.18...v0.1.19
+[0.1.18]: https://github.com/pelago-labs/slackhive/releases/tag/v0.1.18

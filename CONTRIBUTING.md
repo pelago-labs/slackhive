@@ -42,7 +42,7 @@ git clone https://github.com/<your-username>/slackhive.git
 cd slackhive
 
 # Add the upstream remote
-git remote add upstream https://github.com/amansrivastava17/slackhive.git
+git remote add upstream https://github.com/pelago-labs/slackhive.git
 ```
 
 ### 2. Set up environment variables
@@ -176,7 +176,7 @@ Keep the subject line under 72 characters and use the imperative mood ("add", no
 2. **Implement** your changes following the code standards below.
 3. **Test** your changes locally with `docker compose up postgres redis -d` and the dev servers running.
 4. **Push** your branch to your fork.
-5. **Open a PR** against the `main` branch of `amansrivastava17/slackhive`.
+5. **Open a PR** against the `main` branch of `pelago-labs/slackhive`.
 6. Fill in the **PR template** completely, including screenshots for any UI changes.
 7. Address any review feedback.
 
@@ -197,8 +197,8 @@ PRs should be focused — one logical change per PR. Large refactors should be d
 
 ## Reporting Bugs and Requesting Features
 
-- **Bugs:** Open a [bug report issue](https://github.com/amansrivastava17/slackhive/issues/new?template=bug_report.yml).
-- **Features:** Open a [feature request issue](https://github.com/amansrivastava17/slackhive/issues/new?template=feature_request.yml).
-- **Questions / discussions:** Use [GitHub Discussions](https://github.com/amansrivastava17/slackhive/discussions).
+- **Bugs:** Open a [bug report issue](https://github.com/pelago-labs/slackhive/issues/new?template=bug_report.yml).
+- **Features:** Open a [feature request issue](https://github.com/pelago-labs/slackhive/issues/new?template=feature_request.yml).
+- **Questions / discussions:** Use [GitHub Discussions](https://github.com/pelago-labs/slackhive/discussions).
 
 Please do **not** use public issues to report security vulnerabilities. See [SECURITY.md](SECURITY.md) for the responsible disclosure process.

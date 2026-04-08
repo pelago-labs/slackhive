@@ -15,7 +15,7 @@ Only the latest release of SlackHive receives security fixes.
 
 Instead, use [GitHub's private security advisory feature](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability) to report vulnerabilities confidentially:
 
-1. Go to the [Security tab](https://github.com/amansrivastava17/slackhive/security/advisories/new) of this repository
+1. Go to the [Security tab](https://github.com/pelago-labs/slackhive/security/advisories/new) of this repository
 2. Click **"Report a vulnerability"**
 3. Fill in the details
 
