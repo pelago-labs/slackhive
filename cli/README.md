@@ -261,7 +261,7 @@ Open an issue before submitting large PRs so we can align on the approach.
 
 ## 🔒 Security
 
-Report vulnerabilities to **[aman@pelago.co](mailto:aman@pelago.co)** — please don't open public issues for security bugs. We respond within 48 hours.
+Report vulnerabilities to **[conduct@slackhive.dev](mailto:conduct@slackhive.dev)** — please don't open public issues for security bugs. We respond within 48 hours.
 
 ---
 

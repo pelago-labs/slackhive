@@ -12,6 +12,10 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+if (process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET) {
+  throw new Error('AUTH_SECRET must be set in production. See .env.example.');
+}
+
 const AUTH_SECRET = process.env.AUTH_SECRET || 'change-this-secret-in-production';
 const COOKIE_NAME = 'auth_session';
 

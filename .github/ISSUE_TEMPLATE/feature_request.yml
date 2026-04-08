@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Have a great idea? We'd love to hear it!
-        Please search [existing issues](https://github.com/amansrivastava17/slackhive/issues) first to avoid duplicates.
+        Please search [existing issues](https://github.com/pelago-labs/slackhive/issues) first to avoid duplicates.
 
   - type: textarea
     id: problem
