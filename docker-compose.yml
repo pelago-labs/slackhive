@@ -104,6 +104,7 @@ services:
       - /tmp/agents:/tmp/agents
       # Mount host claude installation and config so agents use the host Claude Code subscription
       - ${CLAUDE_MODULE_PATH:-/usr/local/lib/node_modules/@anthropic-ai/claude-code}:/usr/local/lib/node_modules/@anthropic-ai/claude-code:ro
+      - ${CLAUDE_BIN:-/usr/local/bin/claude}:/usr/local/bin/claude-host:ro
       - ${HOME}/.claude:/root/.claude
       # Mount host home so MCP server paths resolve inside container
       - ${HOME}:${HOME}:ro

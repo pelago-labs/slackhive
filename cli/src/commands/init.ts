@@ -7,6 +7,7 @@
 import { execSync, spawn } from 'child_process';
 import { existsSync, writeFileSync, readlinkSync } from 'fs';
 import { join, resolve, dirname } from 'path';
+import { platform } from 'os';
 import chalk from 'chalk';
 import ora from 'ora';
 import prompts from 'prompts';
@@ -24,10 +25,31 @@ interface ClaudeInstallation {
 }
 
 /**
- * Cross-platform Claude installation detection.
- * Finds both the binary and module directory automatically.
+ * Simple Claude installation detection for Linux.
+ * Uses the binary directly without module path detection.
  */
-function detectClaudeInstallation(): ClaudeInstallation {
+function detectClaudeInstallationLinux(): ClaudeInstallation {
+  let claudeBin: string;
+  try {
+    claudeBin = execSync('which claude', { encoding: 'utf-8' }).trim();
+  } catch {
+    throw new Error('Claude Code not found. Please install Claude Code first.');
+  }
+
+  if (!claudeBin) {
+    throw new Error('Claude Code not found. Please install Claude Code first.');
+  }
+
+  // For Linux, we don't need to detect the module path - just use the binary directly
+  // The Docker container will use the mounted binary
+  return { claudeBin, claudeModulePath: '' };
+}
+
+/**
+ * Advanced Claude installation detection for macOS.
+ * Finds both the binary and module directory automatically with symlink resolution.
+ */
+function detectClaudeInstallationMacOS(): ClaudeInstallation {
   // Find Claude binary
   let claudeBin: string;
   try {
@@ -83,6 +105,22 @@ function detectClaudeInstallation(): ClaudeInstallation {
   }
 
   return { claudeBin, claudeModulePath };
+}
+
+/**
+ * Cross-platform Claude installation detection.
+ * Uses different strategies based on the operating system.
+ */
+function detectClaudeInstallation(): ClaudeInstallation {
+  const os = platform();
+
+  if (os === 'darwin') {
+    // macOS - use advanced detection with symlink resolution
+    return detectClaudeInstallationMacOS();
+  } else {
+    // Linux and other Unix-like systems - use simple detection
+    return detectClaudeInstallationLinux();
+  }
 }
 
 /**
@@ -191,20 +229,22 @@ export async function init(opts: InitOptions): Promise<void> {
         spinner.succeed(`Found Claude at ${claudeBin}`);
 
         // Set these for the .env file
-        questions.push(
-          {
-            type: 'text',
-            name: 'claudeBin',
-            message: 'Path to claude binary',
-            initial: claudeBin,
-          },
-          {
+        questions.push({
+          type: 'text',
+          name: 'claudeBin',
+          message: 'Path to claude binary',
+          initial: claudeBin,
+        });
+
+        // Only ask for module path on macOS (Linux uses binary directly)
+        if (claudeModulePath) {
+          questions.push({
             type: 'text',
             name: 'claudeModulePath',
             message: 'Path to claude module',
             initial: claudeModulePath,
-          }
-        );
+          });
+        }
       } catch (error) {
         spinner.fail('Could not detect Claude installation');
         console.log(chalk.yellow(`  ${error}`));
@@ -216,20 +256,22 @@ export async function init(opts: InitOptions): Promise<void> {
           if (found) claudeBinDefault = found;
         } catch { /* use default */ }
 
-        questions.push(
-          {
-            type: 'text',
-            name: 'claudeBin',
-            message: 'Path to claude binary',
-            initial: claudeBinDefault,
-          },
-          {
+        questions.push({
+          type: 'text',
+          name: 'claudeBin',
+          message: 'Path to claude binary',
+          initial: claudeBinDefault,
+        });
+
+        // Only ask for module path on macOS
+        if (platform() === 'darwin') {
+          questions.push({
             type: 'text',
             name: 'claudeModulePath',
             message: 'Path to claude module directory',
             initial: '/usr/local/lib/node_modules/@anthropic-ai/claude-code',
-          }
-        );
+          });
+        }
       }
     }
 
@@ -253,7 +295,9 @@ export async function init(opts: InitOptions): Promise<void> {
     } else {
       envContent += `# Claude Code subscription — credentials from ~/.claude\n`;
       envContent += `CLAUDE_BIN=${response.claudeBin}\n`;
-      envContent += `CLAUDE_MODULE_PATH=${response.claudeModulePath}\n`;
+      if (response.claudeModulePath) {
+        envContent += `CLAUDE_MODULE_PATH=${response.claudeModulePath}\n`;
+      }
     }
     envContent += `\nPOSTGRES_DB=slackhive\n`;
     envContent += `POSTGRES_USER=slackhive\n`;
