@@ -797,7 +797,7 @@ export async function downloadFile(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function buildPrompt(
+export async function buildPrompt(
   client: any, channelId: string, threadTs: string | undefined,
   userText: string, agent: Agent, log: Logger,
   files?: SlackFile[]
@@ -810,10 +810,48 @@ async function buildPrompt(
       const messages: any[] = replies.messages ?? [];
       const contextMessages = messages.slice(0, -1);
       if (contextMessages.length > 0) {
-        let context = contextMessages.map((m: any) => {
-          const speaker = m.bot_id ? `Assistant (${agent.name})` : 'User';
-          return `${speaker}: ${stripBotMention(m.text ?? '', agent.slackBotUserId)}`;
-        }).join('\n');
+        const userCache: Record<string, string> = {};
+        const getUserLabel = async (userId: string) => {
+          if (userCache[userId]) return userCache[userId];
+          try {
+            const info = await client.users.info({ user: userId });
+            const name = info.user?.display_name || info.user?.real_name || userId;
+            userCache[userId] = `${name} (${userId})`;
+          } catch { userCache[userId] = userId; }
+          return userCache[userId];
+        };
+        const contextLines = await Promise.all(contextMessages.map(async (m: any) => {
+          const speaker = m.bot_id ? `${agent.name}` : await getUserLabel(m.user);
+          const parts: string[] = [`${speaker}: ${stripBotMention(m.text ?? '', agent.slackBotUserId)}`];
+
+          // Include forwarded/shared message attachments (text + images)
+          if (m.attachments?.length) {
+            for (const att of m.attachments) {
+              const attParts: string[] = [];
+              if (att.author_name || att.from_url) attParts.push(`[Forwarded from ${att.author_name ?? att.from_url}]`);
+              if (att.pretext) attParts.push(att.pretext);
+              if (att.text) attParts.push(att.text);
+              if (att.fallback && !att.text) attParts.push(att.fallback);
+              if (att.image_url) attParts.push(`[Attached image: ${att.image_url}]`);
+              if (attParts.length) parts.push(attParts.join('\n'));
+            }
+          }
+
+          // Include files shared in thread history (images shown as note)
+          if (m.files?.length) {
+            for (const f of m.files) {
+              const label = f.name ?? f.title ?? f.id;
+              if (f.mimetype?.startsWith('image/')) {
+                parts.push(`[Shared image: ${label}]`);
+              } else if (f.name) {
+                parts.push(`[Shared file: ${label}]`);
+              }
+            }
+          }
+
+          return parts.join('\n');
+        }));
+        let context = contextLines.join('\n');
         if (context.length > MAX_THREAD_CONTEXT_CHARS) context = '...' + context.slice(-MAX_THREAD_CONTEXT_CHARS);
         threadContext = `[Thread context]\n${context}\n\n`;
       }
