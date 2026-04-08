@@ -1,72 +1,97 @@
 ---
 title: "Slack App Setup"
-description: "Create and configure a Slack app for each SlackHive agent."
+description: "Create and configure a Slack app for each agent — the wizard generates everything, you just copy and paste."
 ---
 
-Each SlackHive agent needs its own Slack app. The web UI generates a pre-configured manifest so you don't have to set up scopes manually.
+Every SlackHive agent needs its own Slack app. The app is how your agent gets a Slack identity (`@handle`), connects to your workspace, and receives messages.
 
-## Overview
+The good news: **you don't need to configure scopes or settings manually.** The SlackHive wizard generates a complete app manifest — you just paste it into Slack and click a few buttons.
 
-Every agent is a separate Slack app with:
-- A **bot user** (the @handle your team mentions)
-- **Socket Mode** enabled for real-time message delivery
-- A specific set of **OAuth scopes** for reading messages, posting replies, and managing reactions
+This page walks through that process in detail, and covers troubleshooting if something goes wrong.
+
+## What you're creating
+
+Each Slack app gives your agent:
+- A **bot user** — the `@handle` your team @mentions in channels
+- **Socket Mode** — a persistent connection that receives messages in real time (no webhooks needed, no public URL required)
+- The right **OAuth scopes** — permissions to read messages, post replies, and add reactions
 
 ## Step 1: Generate the manifest
 
-When creating an agent in the SlackHive wizard (Step 2), click **Generate Manifest**. The wizard produces a JSON manifest pre-configured for your agent.
+When you're on **Step 2** of the agent creation wizard, click **Generate Manifest**. SlackHive creates a JSON manifest pre-configured for your agent with the correct name, scopes, and Socket Mode settings.
 
-The manifest includes:
-- App name and description
-- Socket Mode enabled
-- All required bot OAuth scopes
-- Event subscriptions for messages and app mentions
+Keep this manifest JSON ready — you'll paste it into Slack in the next step.
 
-## Step 2: Create the app
+## Step 2: Create the Slack app
 
-1. Open [https://api.slack.com/apps](https://api.slack.com/apps) in a new tab
-2. Click **Create New App**
-3. Choose **From an app manifest**
-4. Select your Slack workspace
-5. Paste the manifest JSON from the SlackHive wizard
-6. Review the settings and click **Create**
+<Steps>
+  <Step title="Open the Slack API console">
+    Go to [api.slack.com/apps](https://api.slack.com/apps) in a new browser tab. Sign in with the Slack account that has permission to install apps in your workspace.
+  </Step>
+  <Step title="Start creating a new app">
+    Click the **Create New App** button in the top right. A dialog will appear asking how you'd like to configure your app.
+  </Step>
+  <Step title="Choose From an app manifest">
+    Select **From an app manifest** (not "From scratch"). This lets you paste the pre-configured manifest rather than setting everything up manually.
+  </Step>
+  <Step title="Select your workspace">
+    Choose the Slack workspace where you want this agent to live. Click **Next**.
+  </Step>
+  <Step title="Paste the manifest">
+    You'll see a text editor. Delete any existing content, then paste the manifest JSON from the SlackHive wizard. Click **Next**.
+  </Step>
+  <Step title="Review and create">
+    Slack will show you a summary of the app settings. Click **Create** to finish. You'll land on the app's settings page.
+  </Step>
+</Steps>
 
-## Step 3: Install to workspace
+## Step 3: Install to your workspace
 
-After the app is created:
+Your app exists, but it's not yet installed in your workspace.
 
-1. In the left sidebar, go to **OAuth & Permissions**
-2. Click **Install to Workspace**
-3. Review the permission list and click **Allow**
+<Steps>
+  <Step title="Go to OAuth & Permissions">
+    In the left sidebar of the Slack app settings page, click **OAuth & Permissions**.
+  </Step>
+  <Step title="Install the app">
+    Click the **Install to Workspace** button near the top of the page.
+  </Step>
+  <Step title="Approve the permissions">
+    Slack shows you a list of what the app will be allowed to do. Review it and click **Allow**.
+  </Step>
+</Steps>
 
-The app is now installed and your bot user (@handle) exists in the workspace.
+Your bot user (`@your-agent-name`) now exists in your workspace.
 
-## Step 4: Collect credentials
+## Step 4: Collect your credentials
 
-You need three values from the Slack app settings page.
+You need three values to connect the agent in SlackHive. Here's exactly where to find each one.
 
-### Bot Token
+### Bot Token (`xoxb-...`)
 
-1. Go to **OAuth & Permissions**
-2. Copy the **Bot User OAuth Token** — starts with `xoxb-`
+1. Go to **OAuth & Permissions** in the left sidebar
+2. Under **OAuth Tokens for Your Workspace**, find **Bot User OAuth Token**
+3. Copy it — it starts with `xoxb-`
 
-### App-Level Token
+### App Token (`xapp-...`)
 
-1. Go to **Basic Information**
+1. Go to **Basic Information** in the left sidebar
 2. Scroll down to **App-Level Tokens**
-3. Click **Generate Tokens and Scopes**
-4. Give it any name (e.g. "socket-mode")
-5. Add the `connections:write` scope
-6. Click **Generate** and copy the token — starts with `xapp-`
+3. Click **Generate Token and Scopes**
+4. Give it a name (e.g. `socket-mode`)
+5. Click **Add Scope** and select `connections:write`
+6. Click **Generate**
+7. Copy the token — it starts with `xapp-`
 
 ### Signing Secret
 
-1. Go to **Basic Information**
-2. Under **App Credentials**, reveal and copy the **Signing Secret**
+1. Still on **Basic Information**
+2. Under **App Credentials**, find **Signing Secret**
+3. Click **Show** to reveal it, then copy the hex string
 
 ## Step 5: Enter credentials in SlackHive
 
-Back in the SlackHive wizard (Step 3), paste all three values:
+Go back to the SlackHive agent wizard (Step 3 — Credentials) and paste all three values:
 
 | Field | Value |
 |-------|-------|
@@ -74,45 +99,77 @@ Back in the SlackHive wizard (Step 3), paste all three values:
 | **App Token** | `xapp-...` |
 | **Signing Secret** | The hex string from App Credentials |
 
-SlackHive verifies the connection before proceeding. If verification fails:
-
-- Confirm **Socket Mode** is enabled: left sidebar → **Socket Mode** → toggle on
-- Check that the App Token has the `connections:write` scope
-- Verify the Signing Secret was copied correctly (no leading/trailing spaces)
+Click **Verify Connection**. SlackHive will test the connection before letting you proceed.
 
 ## Required OAuth scopes
 
-The generated manifest includes these bot token scopes:
+The generated manifest includes these bot token scopes. Here's what each one is for:
 
-| Scope | Purpose |
-|-------|---------|
-| `app_mentions:read` | Receive events when the bot is @mentioned |
-| `channels:history` | Read messages in public channels |
+| Scope | Why it's needed |
+|-------|----------------|
+| `app_mentions:read` | Receive events when the bot is @mentioned in a channel |
+| `channels:history` | Read messages in public channels (needed for thread context) |
 | `channels:read` | List channels and get channel info |
-| `chat:write` | Post messages to channels |
+| `chat:write` | Post messages and replies |
 | `groups:history` | Read messages in private channels |
-| `groups:read` | List and read private channels |
+| `groups:read` | List and access private channels |
 | `im:history` | Read direct messages |
-| `im:read` | Access DM info |
+| `im:read` | Access DM channel info |
 | `im:write` | Send direct messages |
 | `mpim:history` | Read group DMs |
-| `reactions:write` | Add emoji reactions (used for "thinking" indicators) |
-| `users:read` | Get user display names |
+| `reactions:write` | Add emoji reactions (used for "thinking" indicators while processing) |
+| `users:read` | Look up user display names (for memory and context) |
+
+## Troubleshooting
+
+<Accordion title="Verification failed — connection refused">
+  The most common cause is **Socket Mode not being enabled**.
+
+  1. Go to your Slack app settings
+  2. Click **Socket Mode** in the left sidebar
+  3. Make sure the toggle is **On**
+  4. Go back to SlackHive and try verifying again
+</Accordion>
+
+<Accordion title="Verification failed — invalid token">
+  - Check that you pasted the **Bot Token** (starts with `xoxb-`) in the Bot Token field, not the App Token
+  - Make sure there are no extra spaces before or after the token
+  - If you recently regenerated the token, make sure you copied the new one
+</Accordion>
+
+<Accordion title="App Token scope error">
+  The App Token must have the `connections:write` scope. If you created the token without adding this scope:
+  1. Go to **Basic Information** → **App-Level Tokens**
+  2. Click on your token name
+  3. Add the `connections:write` scope
+  4. Regenerate the token and copy the new value
+</Accordion>
+
+<Accordion title="Bot doesn't appear in workspace">
+  If you can't find `@your-agent-name` in Slack after completing the wizard:
+  1. Check that the app was installed: go to Slack app settings → **OAuth & Permissions** → the **Install to Workspace** button should show as already installed
+  2. In Slack, type `@` in a message box and start typing the agent's name
+  3. If it still doesn't appear, try reinstalling the app from **OAuth & Permissions**
+</Accordion>
+
+<Accordion title="Agent is Active but not responding">
+  If the dashboard shows the agent as Active but it doesn't respond to @mentions:
+  1. Make sure you've **invited the bot to the channel**: `/invite @your-agent-name`
+  2. Check the **Logs** tab on the agent — it will show if messages are being received
+  3. Verify the agent doesn't have channel restrictions set (Overview tab → Allowed Channels)
+</Accordion>
 
 ## After setup
 
-Once credentials are saved, the runner connects the agent to Slack via Socket Mode. You'll see the agent status change to **Active** in the SlackHive dashboard.
+Once credentials are verified, the runner connects the agent to Slack automatically. The agent status changes to **Active** in the dashboard.
 
-Invite the bot to a channel to start using it:
+Invite the bot to a channel and start a conversation:
 
 ```
 /invite @your-agent-name
+@your-agent-name hello!
 ```
 
-You can also DM the bot directly without any channel invite.
-
-## Multiple workspaces
-
-Each agent can only be installed in one workspace at a time. If you need agents in multiple workspaces, create separate Slack apps (with separate credentials) and create separate agent entries in SlackHive for each workspace.
-
-Multi-workspace support from a single agent config is on the [roadmap](https://github.com/pelago-labs/slackhive).
+<Note>
+  Each agent can only be installed in one Slack workspace. If you need agents in multiple workspaces, create separate Slack apps for each workspace and create separate agent entries in SlackHive.
+</Note>

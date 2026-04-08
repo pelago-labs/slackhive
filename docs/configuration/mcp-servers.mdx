@@ -1,135 +1,75 @@
 ---
 title: "MCP Servers"
-description: "Connect agents to external tools and data sources using the Model Context Protocol."
+description: "Connect your agents to databases, APIs, and external services using the Model Context Protocol."
 ---
 
-## What are MCP servers?
+## What is MCP?
 
-MCP (Model Context Protocol) servers are external processes that expose tools to Claude agents. An MCP server might provide tools for querying a database, reading files from a repository, calling an API, or running arbitrary code.
+**MCP (Model Context Protocol)** is a standard that lets AI agents connect to external tools and data sources. Think of MCP servers as plugins for your agents — they give agents the ability to actually *do* things beyond just having a conversation.
 
-SlackHive manages MCP servers at the platform level. You add a server once to the global catalog, then assign it to any number of agents.
+Without MCP, an agent can only talk. With MCP, an agent can:
+- Query your database and return real results
+- Read files from a repository
+- Create GitHub issues
+- Fetch data from any internal API
+- Run custom scripts
 
-Tool names follow the pattern `mcp__{serverName}__{toolName}`. For example, a server named `redshift` with a `query` tool is accessed as `mcp__redshift__query`.
+An MCP server is a small program that exposes a set of **tools**. When an agent needs to do something — like run a SQL query — it calls the appropriate MCP tool, gets back the result, and incorporates it into its response.
 
-## Transport types
+<Note>
+  You don't need to build MCP servers from scratch. There are [many open-source MCP servers](https://github.com/modelcontextprotocol/servers) for common tools. SlackHive also supports **inline TypeScript MCPs** — you can paste code directly into the UI without deploying anything.
+</Note>
 
-| Transport | Use case | Config fields |
-|-----------|----------|---------------|
-| `stdio` | Local subprocess (most common) | `command`, `args`, `env` |
-| `sse` | Remote server-sent events endpoint | `url`, `headers` |
-| `http` | Remote HTTP endpoint | `url`, `headers` |
+## How SlackHive manages MCP
+
+SlackHive manages MCP servers at the **platform level**. You add a server once to the global catalog, then assign it to any number of agents.
+
+When an agent starts, SlackHive launches all its assigned MCP servers and keeps them running. There's no per-message startup overhead — once the agent is live, its tools are always ready.
+
+Tool names follow the pattern `mcp__{serverName}__{toolName}`. For example, a server named `redshift` with a `query` tool is called as `mcp__redshift__query`.
 
 ## Adding a server to the catalog
 
-1. In the sidebar, click **MCP Servers** (under Settings)
-2. Click **Add Server**
-3. Fill in the server name, description, and transport type
-4. Enter the configuration for your chosen transport
-5. Click **Test Connection** to verify the server starts correctly
-6. Click **Save**
+<Steps>
+  <Step title="Open MCP Servers">
+    In the sidebar, click **MCP Servers** (under Settings).
+  </Step>
+  <Step title="Click Add Server">
+    Give it a name and description. The name becomes part of every tool name from this server (`mcp__{name}__...`).
+  </Step>
+  <Step title="Choose a transport type">
+    Select how SlackHive connects to this server (see the [Transport Types](#transport-types) section below).
+  </Step>
+  <Step title="Enter the configuration">
+    Fill in the command, URL, or script depending on your transport type.
+  </Step>
+  <Step title="Test and save">
+    Click **Test Connection** to verify the server starts and responds correctly. Then click **Save**.
+  </Step>
+</Steps>
 
-## Assigning servers to agents
+## Transport types
 
-Servers can be assigned to agents in two places:
-- During agent creation (Step 4 — Tools)
-- After creation, from the agent's **Tools** tab
+There are four ways to run an MCP server:
 
-An agent can have any number of MCP servers assigned. All assigned servers are started when the agent starts, and their tools become available to Claude during conversations.
+| Transport | Use case |
+|-----------|----------|
+| `stdio` | A local process (Node.js script, Python script, binary) — most common |
+| `sse` | A remote server accessible via HTTP server-sent events |
+| `http` | A remote server accessible via HTTP |
+| TypeScript inline | Paste TypeScript source directly — no deployment needed |
 
 ## Configuration examples
 
-### stdio: Redshift MCP
+### Redshift / Data Warehouse
 
-A locally installed Node.js MCP server for Redshift queries:
+Give your data analyst agent the ability to run real SQL queries:
 
 ```json
 {
   "name": "redshift",
   "type": "stdio",
   "description": "Read-only Redshift query access",
-  "config": {
-    "command": "node",
-    "args": ["/path/to/redshift-mcp/dist/index.js"],
-    "env": {
-      "DATABASE_URL": "redshift://user:pass@host:5439/db"
-    }
-  }
-}
-```
-
-<Tip>
-  Instead of embedding secrets in `env`, use `envRefs` to reference the encrypted env vars store. See [Encrypted Env Vars](#encrypted-env-vars) below.
-</Tip>
-
-### stdio: Filesystem MCP
-
-Give agents read access to a directory on the host:
-
-```json
-{
-  "name": "filesystem",
-  "type": "stdio",
-  "description": "Read files from the repo",
-  "config": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/repo"]
-  }
-}
-```
-
-### sse: Remote MCP server
-
-A remote MCP server accessible over HTTP:
-
-```json
-{
-  "name": "analytics-api",
-  "type": "sse",
-  "description": "Internal analytics API",
-  "config": {
-    "url": "https://mcp.internal.example.com/sse",
-    "headers": {
-      "Authorization": "Bearer <token>"
-    }
-  }
-}
-```
-
-### Inline TypeScript MCP
-
-Instead of deploying a separate binary, paste TypeScript source directly into the UI. The runner writes the script to disk and executes it with `tsx` — no `command` or `args` needed.
-
-Select **TypeScript inline script** as the transport type and paste your MCP server implementation:
-
-```typescript
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
-
-const server = new McpServer({ name: "my-mcp", version: "1.0.0" });
-
-server.tool("greet", { name: z.string() }, async ({ name }) => ({
-  content: [{ type: "text", text: `Hello, ${name}!` }],
-}));
-
-const transport = new StdioServerTransport();
-await server.connect(transport);
-```
-
-This is ideal for internal tools you don't want to expose as file paths on disk.
-
-## Encrypted env vars
-
-Never put raw secrets in MCP `env` configs. Use the encrypted env vars store instead:
-
-1. Go to **Settings → Env Vars** in the sidebar
-2. Add a key (e.g. `REDSHIFT_DATABASE_URL`) and its value — stored encrypted with AES-256, never returned by the API
-3. In your MCP config, use `envRefs` to map the store key to the env var the process needs:
-
-```json
-{
-  "name": "redshift",
-  "type": "stdio",
   "config": {
     "command": "node",
     "args": ["/path/to/redshift-mcp/dist/index.js"],
@@ -140,14 +80,124 @@ Never put raw secrets in MCP `env` configs. Use the encrypted env vars store ins
 }
 ```
 
-The runner resolves `envRefs` at agent start time, decrypts the value, and injects it as `DATABASE_URL` into the MCP process environment. Raw secrets never appear in API responses or browser dev tools.
+<Tip>
+  Notice the `envRefs` instead of `env`. This references a secret from the encrypted store rather than embedding the connection string directly. See [Keeping secrets safe](#keeping-secrets-safe) below.
+</Tip>
 
-## How MCP processes are managed
+### Filesystem Access
 
-SlackHive uses a persistent MCP process manager (`McpProcessManager`). stdio servers are started once when the agent starts and kept alive across all conversations — there is no per-message startup overhead. Each agent gets a stable port range for its MCP proxies.
+Give an agent read access to files in a directory — useful for code review or documentation agents:
 
-If an MCP server fails to start, the agent still runs; an error is logged but the agent continues without that server's tools.
+```json
+{
+  "name": "filesystem",
+  "type": "stdio",
+  "description": "Read files from the codebase",
+  "config": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/your/repo"]
+  }
+}
+```
 
-## Testing connectivity
+The agent can then use `mcp__filesystem__read_file`, `mcp__filesystem__list_directory`, etc.
 
-From the MCP catalog (**Settings → MCP Servers**), click the **Test** button next to any server. SlackHive starts the server process and verifies it responds to initialization. Test results appear inline.
+### Remote API (SSE)
+
+Connect to a remote MCP server over the network:
+
+```json
+{
+  "name": "analytics-api",
+  "type": "sse",
+  "description": "Internal analytics data API",
+  "config": {
+    "url": "https://mcp.internal.example.com/sse",
+    "headers": {
+      "Authorization": "Bearer your-token-here"
+    }
+  }
+}
+```
+
+### Inline TypeScript
+
+The most convenient option for internal tools: paste TypeScript source directly into the UI. SlackHive writes it to disk and runs it — no separate deployment needed.
+
+Select **TypeScript inline script** as the transport type, then paste your implementation:
+
+```typescript
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const server = new McpServer({ name: "my-tool", version: "1.0.0" });
+
+server.tool(
+  "lookup_customer",
+  { customer_id: z.string() },
+  async ({ customer_id }) => ({
+    content: [{ type: "text", text: `Customer ${customer_id}: Acme Corp, Plan: Pro` }],
+  })
+);
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+```
+
+This is ideal for simple tools you want to prototype quickly, or for internal utilities you don't want to expose as file paths.
+
+## Assigning servers to agents
+
+Once a server is in the catalog, you can assign it to agents:
+- **During agent creation** — Step 4 (Tools) of the wizard
+- **After creation** — from the agent's **Tools** tab
+
+An agent can have any number of MCP servers assigned. All tools from all assigned servers become available to the agent.
+
+## Keeping secrets safe
+
+Never paste database credentials, API keys, or passwords directly into MCP config `env` fields. Use the **encrypted env store** instead.
+
+The env store encrypts secrets at rest using AES-256. Values are never returned by the API or shown in the browser — only the key names are visible.
+
+<Steps>
+  <Step title="Add your secret to the store">
+    1. Go to **Settings → Env Vars** in the sidebar
+    2. Click **Add Variable**
+    3. Enter a name (e.g. `REDSHIFT_DATABASE_URL`) and the secret value
+    4. Click **Save** — the value is encrypted immediately
+  </Step>
+  <Step title="Reference it in your MCP config">
+    In your MCP server configuration, use `envRefs` to map the store key to the environment variable name the server expects:
+
+    ```json
+    {
+      "envRefs": {
+        "DATABASE_URL": "REDSHIFT_DATABASE_URL"
+      }
+    }
+    ```
+
+    When the agent starts, the runner decrypts `REDSHIFT_DATABASE_URL` from the store and injects it as `DATABASE_URL` into the MCP process environment.
+  </Step>
+</Steps>
+
+The raw secret never appears in API responses, browser dev tools, or log files.
+
+## Testing a server
+
+From **Settings → MCP Servers**, click the **Test** button next to any server. SlackHive starts the server process and verifies it responds to initialization. Results appear inline.
+
+If a server fails to start, the agent still runs — an error is logged, but the agent continues without that server's tools. Check the agent's **Logs** tab for details.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Tools & Permissions" icon="shield" href="/agents/tools">
+    Control exactly which MCP tools each agent can use.
+  </Card>
+  <Card title="Env Vars" icon="lock" href="/configuration/env-vars">
+    Configure your encryption key and other platform settings.
+  </Card>
+</CardGroup>

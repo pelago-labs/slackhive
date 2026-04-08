@@ -1,177 +1,270 @@
 ---
 title: "Quick Start"
-description: "Get SlackHive running and deploy your first agent in under 10 minutes."
+description: "From zero to your first AI agent responding in Slack — in under 10 minutes."
 ---
 
-## Prerequisites
+This guide takes you from a fresh machine to a working SlackHive setup with a live agent in your Slack workspace. You'll install SlackHive, create a Slack app, and send your first message to an AI agent.
 
-- **Docker** and **Docker Compose** (Docker Desktop works fine)
-- One of:
-  - An [Anthropic API key](https://console.anthropic.com) (pay-per-token)
-  - A Claude Max subscription (`claude login` on the host)
-- A Slack workspace where you can install apps
+<Note>
+  **Before you begin, you'll need:**
+  - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+  - A Slack workspace where you can install apps (you need to be an admin, or have permission to install apps)
+  - One of:
+    - An [Anthropic API key](https://console.anthropic.com) — pay per token, best for teams
+    - A Claude Pro or Max subscription — run `claude login` on your machine first
+</Note>
 
-## Option A: CLI install (recommended)
+## Install SlackHive
 
-The `slackhive` CLI handles everything — checking Docker, cloning the repo, configuring `.env`, and starting all services.
+<Tabs>
+  <Tab title="CLI (Recommended)">
+    The `slackhive` CLI handles everything automatically — it checks your environment, clones the repo, walks you through configuration, and starts all services.
 
-<Steps>
-  <Step title="Install the CLI">
-    ```bash
-    npm install -g slackhive
-    ```
-  </Step>
-  <Step title="Run the init wizard">
-    ```bash
-    slackhive init
-    ```
+    <Steps>
+      <Step title="Install the CLI">
+        Open your terminal and run:
 
-    The interactive wizard prompts you for:
+        ```bash
+        npm install -g slackhive
+        ```
 
-    | Prompt | Description |
-    |--------|-------------|
-    | **Install directory** | Where to clone the repo (default: `./slackhive`) |
-    | **ADMIN_USERNAME** | Your superadmin login name |
-    | **ADMIN_PASSWORD** | Your superadmin password |
-    | **POSTGRES_PASSWORD** | Database password (auto-generated if blank) |
-    | **REDIS_PASSWORD** | Redis password (auto-generated if blank) |
-    | **ENV_SECRET_KEY** | AES-256 encryption key for env vars store (auto-generated if blank) |
-    | **AUTH_SECRET** | HMAC key for session cookies (auto-generated if blank) |
-    | **ANTHROPIC_API_KEY** | Your Anthropic API key (leave blank for Claude Max subscription) |
+        <Note>Requires Node.js 20 or later. Check your version with `node --version`.</Note>
+      </Step>
+      <Step title="Run the setup wizard">
+        ```bash
+        slackhive init
+        ```
 
-    After configuration, the wizard checks that Docker is running, builds images, and starts all four services.
-  </Step>
-  <Step title="Open the dashboard">
-    Navigate to [http://localhost:3001](http://localhost:3001) and log in with the admin credentials you just set.
-  </Step>
-</Steps>
+        The wizard will ask you a few questions:
 
-## Option B: Manual setup
+        | Prompt | What to enter |
+        |--------|---------------|
+        | **Install directory** | Where to put SlackHive (default: `./slackhive`) |
+        | **Admin username** | Your login name for the dashboard |
+        | **Admin password** | Choose a strong password |
+        | **Anthropic API key** | Your `sk-ant-api03-...` key, or leave blank for Claude Max |
 
-<Steps>
-  <Step title="Clone the repository">
-    ```bash
-    git clone https://github.com/pelago-labs/slackhive.git
-    cd slackhive
-    ```
-  </Step>
-  <Step title="Configure environment variables">
-    ```bash
-    cp .env.example .env
-    ```
+        Everything else (database passwords, encryption keys) is generated automatically.
 
-    Edit `.env` and fill in the required values:
+        Once you confirm, the wizard checks that Docker is running, builds the images, and starts all four services. This takes 2–3 minutes on the first run.
+      </Step>
+      <Step title="Open the dashboard">
+        When the wizard finishes, navigate to:
 
-    ```bash
-    # Claude authentication (pick one)
-    ANTHROPIC_API_KEY=sk-ant-api03-...
+        ```
+        http://localhost:3001
+        ```
 
-    # PostgreSQL
-    POSTGRES_DB=slackhive
-    POSTGRES_USER=slackhive
-    POSTGRES_PASSWORD=<strong-random-password>
+        Log in with the admin credentials you just set. You'll see the SlackHive dashboard.
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Manual Setup">
+    If you prefer to set things up yourself:
 
-    # Redis
-    REDIS_PASSWORD=<strong-random-password>
+    <Steps>
+      <Step title="Clone the repository">
+        ```bash
+        git clone https://github.com/pelago-labs/slackhive.git
+        cd slackhive
+        ```
+      </Step>
+      <Step title="Create your environment file">
+        ```bash
+        cp .env.example .env
+        ```
 
-    # Web UI auth
-    ADMIN_USERNAME=admin
-    ADMIN_PASSWORD=<strong-random-password>
-    AUTH_SECRET=<output-of: openssl rand -hex 32>
-    ENV_SECRET_KEY=<output-of: openssl rand -hex 32>
+        Open `.env` and fill in these required values:
 
-    # Environment
-    NODE_ENV=production
-    ```
-  </Step>
-  <Step title="Start all services">
-    ```bash
-    docker compose up -d --build
-    ```
+        ```bash
+        # Claude (choose one)
+        ANTHROPIC_API_KEY=sk-ant-api03-...
 
-    This builds and starts four containers:
+        # Database
+        POSTGRES_DB=slackhive
+        POSTGRES_USER=slackhive
+        POSTGRES_PASSWORD=your-strong-password
 
-    | Container | Port | Description |
-    |-----------|------|-------------|
-    | `web` | 3001 | Next.js management UI |
-    | `runner` | — | Agent process host |
-    | `postgres` | 5432 | PostgreSQL database |
-    | `redis` | 6379 | Pub/sub for hot reload |
-  </Step>
-  <Step title="Open the dashboard">
-    Navigate to [http://localhost:3001](http://localhost:3001) and log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
-  </Step>
-</Steps>
+        # Redis
+        REDIS_PASSWORD=your-strong-password
 
-<Warning>
-  Never commit your `.env` file. It is already listed in `.gitignore`.
-</Warning>
+        # Dashboard login
+        ADMIN_USERNAME=admin
+        ADMIN_PASSWORD=your-strong-password
+
+        # Security keys — generate with: openssl rand -hex 32
+        AUTH_SECRET=...
+        ENV_SECRET_KEY=...
+
+        NODE_ENV=production
+        ```
+
+        <Tip>
+          Generate strong values for `AUTH_SECRET` and `ENV_SECRET_KEY` with:
+          ```bash
+          openssl rand -hex 32
+          ```
+        </Tip>
+      </Step>
+      <Step title="Start all services">
+        ```bash
+        docker compose up -d --build
+        ```
+
+        This builds and starts four containers:
+
+        | Container | Port | Description |
+        |-----------|------|-------------|
+        | `web` | 3001 | Management dashboard |
+        | `runner` | — | Agent process host |
+        | `postgres` | 5432 | Database |
+        | `redis` | 6379 | Hot-reload event bus |
+
+        First run takes 2–3 minutes while images build.
+      </Step>
+      <Step title="Open the dashboard">
+        Navigate to [http://localhost:3001](http://localhost:3001) and log in.
+      </Step>
+    </Steps>
+
+    <Warning>
+      Never commit your `.env` file. It contains secrets and is already listed in `.gitignore`.
+    </Warning>
+  </Tab>
+</Tabs>
 
 ## Create your first agent
 
-Once you're logged in:
+Once you're logged into the dashboard, click **New Agent** in the sidebar. This opens a 5-step wizard.
 
 <Steps>
-  <Step title="Click New Agent">
-    From the dashboard sidebar, click **New Agent** to open the creation wizard.
-  </Step>
   <Step title="Name & Role">
-    Give your agent a name (e.g. "Data Analyst"), description, and persona. The slug is auto-generated. Select a Claude model — `claude-sonnet-4-6` is a good default for most use cases.
-  </Step>
-  <Step title="Create a Slack app">
-    The wizard generates a manifest JSON. In a new tab:
-    1. Go to [api.slack.com/apps](https://api.slack.com/apps)
-    2. Click **Create New App** → **From a manifest**
-    3. Select your workspace, paste the manifest, click **Create**
-    4. On the app page, go to **OAuth & Permissions** → **Install to Workspace**
-  </Step>
-  <Step title="Paste credentials">
-    Back in the wizard, enter:
-    - **Bot Token** (`xoxb-...`) from **OAuth & Permissions → Bot User OAuth Token**
-    - **App Token** (`xapp-...`) from **Basic Information → App-Level Tokens** (create one with `connections:write` scope)
-    - **Signing Secret** from **Basic Information → App Credentials**
-  </Step>
-  <Step title="Select tools">
-    Optionally assign MCP servers and a starter skill template (Blank, Data Analyst, Writer, or Developer). Both can be changed later.
-  </Step>
-  <Step title="Create and test">
-    Click **Create Agent**. The runner picks it up within seconds.
+    Give your agent:
+    - **Name** — shown in Slack (e.g. "Data Analyst" or "Ava")
+    - **Description** — what this agent does. Keep it short — this is used by Boss agents to know who to delegate to.
+    - **Persona** — how the agent should behave. This becomes its identity. Example:
 
-    In Slack, invite the bot to a channel:
+    ```
+    You are a data analyst who specializes in SQL queries and business metrics.
+    You give concise, direct answers. You always show your SQL before running it.
+    When you have results, lead with the key insight, then show the numbers.
+    ```
+
+    - **Model** — `claude-sonnet-4-6` is a good default for most agents
+
+    Leave the **Boss** toggle off for now. You can come back to that later.
+  </Step>
+  <Step title="Create a Slack App">
+    Each SlackHive agent needs its own Slack app. The wizard generates everything you need.
+
+    1. Click **Generate Manifest** in the wizard
+    2. Open [api.slack.com/apps](https://api.slack.com/apps) in a **new tab**
+    3. Click **Create New App** → **From an app manifest**
+    4. Select your Slack workspace
+    5. Paste the manifest JSON from the wizard
+    6. Click **Create**
+    7. On the next screen, click **Install to Workspace** → **Allow**
+
+    Your Slack bot now exists in your workspace. You'll grab its credentials in the next step.
+
+    <Tip>
+      Keep the Slack app settings tab open — you'll need it for Step 3.
+    </Tip>
+  </Step>
+  <Step title="Enter Credentials">
+    You need three values from your Slack app. Go back to the Slack app settings tab:
+
+    **Bot Token**
+    - Go to **OAuth & Permissions** in the left sidebar
+    - Copy the **Bot User OAuth Token** — it starts with `xoxb-`
+
+    **App Token**
+    - Go to **Basic Information**
+    - Scroll to **App-Level Tokens**
+    - Click **Generate Token and Scopes**
+    - Give it any name (e.g. "socket-mode")
+    - Add the scope `connections:write`
+    - Click **Generate**, then copy the token — it starts with `xapp-`
+
+    **Signing Secret**
+    - Still on **Basic Information**
+    - Under **App Credentials**, click **Show** next to Signing Secret and copy it
+
+    Paste all three into the wizard and click **Verify Connection**. If it fails, see [Slack App Setup](/configuration/slack-app) for troubleshooting.
+  </Step>
+  <Step title="Tools (Optional)">
+    Choose a **starter template** for your agent's skill set:
+    - **Blank** — clean slate
+    - **Data Analyst** — SQL patterns, data summarization
+    - **Writer** — content drafting, editing
+    - **Developer** — code review, PR summaries
+
+    You can also assign **MCP servers** here if you've added any to the catalog. MCP servers give agents access to external tools like databases and APIs. Skip this for now — you can add them later.
+  </Step>
+  <Step title="Review & Create">
+    Review the summary and click **Create Agent**.
+
+    The runner picks up the new agent within a few seconds. You'll see the agent status change to **Active** in the dashboard.
+  </Step>
+</Steps>
+
+## Test your agent in Slack
+
+Your agent is now live. Let's make sure it works.
+
+<Steps>
+  <Step title="Invite the bot to a channel">
+    In Slack, go to any channel and type:
+
     ```
     /invite @your-agent-name
     ```
 
-    Then @mention it to start a conversation.
+    Replace `your-agent-name` with the bot's Slack handle (it matches the name you gave it in the wizard).
+  </Step>
+  <Step title="Send a message">
+    @mention your agent:
+
+    ```
+    @your-agent-name hello, what can you help me with?
+    ```
+
+    You should see a typing indicator, then a response in the thread.
   </Step>
 </Steps>
 
+<Tip>
+  You can also DM the bot directly without inviting it to a channel. Open a new DM in Slack, find your agent by name, and start chatting.
+</Tip>
+
+If you don't get a response, check the **Logs** tab on the agent's detail page in the dashboard — it shows exactly what happened and any errors.
+
 ## CLI reference
 
-After installing with `npm install -g slackhive`, the following commands are available:
+Once installed, the `slackhive` CLI gives you quick access to common operations:
 
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
-| `slackhive init` | Clone, configure `.env`, and start SlackHive |
-| `slackhive start` | Start all Docker Compose services |
+| `slackhive init` | First-time setup wizard |
+| `slackhive start` | Start all services |
 | `slackhive stop` | Stop all services |
 | `slackhive status` | Show running containers |
-| `slackhive logs` | Tail runner service logs |
+| `slackhive logs` | Tail the runner logs |
 | `slackhive update` | Pull latest changes and rebuild |
 
 ## What's next
 
 <CardGroup cols={2}>
-  <Card title="Create a Boss agent" icon="sitemap" href="/agents/boss-agents">
-    Set up an orchestrating Boss to delegate tasks to a team of specialists.
+  <Card title="Create a Boss Agent" icon="sitemap" href="/agents/boss-agents">
+    Set up an orchestrator that routes requests to the right specialist automatically.
   </Card>
-  <Card title="Connect MCP servers" icon="plug" href="/configuration/mcp-servers">
-    Give agents access to databases, APIs, and custom tools.
+  <Card title="Connect MCP Servers" icon="plug" href="/configuration/mcp-servers">
+    Give your agent real tools — query databases, read files, call APIs.
   </Card>
-  <Card title="Configure env vars" icon="lock" href="/configuration/env-vars">
-    Full reference for all environment variables.
+  <Card title="Agent Memory" icon="brain" href="/agents/memory">
+    Learn how agents remember context and get smarter over time.
   </Card>
-  <Card title="Agent memory" icon="brain" href="/agents/memory">
-    Learn how agents accumulate knowledge across conversations.
+  <Card title="Environment Variables" icon="lock" href="/configuration/env-vars">
+    Full reference for all configuration options.
   </Card>
 </CardGroup>

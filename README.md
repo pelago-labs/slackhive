@@ -12,7 +12,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-≥20-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?logo=docker&logoColor=white)](https://docs.docker.com/compose)
-[![Claude Code SDK](https://img.shields.io/badge/Claude_Code-SDK-cc785c?logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/agent-sdk)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-SDK-cc785c?logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/agent-sdk)
 [![Slack](https://img.shields.io/badge/Slack-Bolt-4A154B?logo=slack&logoColor=white)](https://api.slack.com/bolt)
 [![Security Audit](https://github.com/pelago-labs/slackhive/actions/workflows/audit.yml/badge.svg)](https://github.com/pelago-labs/slackhive/actions/workflows/audit.yml)
 [![Dependencies](https://img.shields.io/badge/dependencies-up%20to%20date-brightgreen?logo=dependabot)](https://github.com/pelago-labs/slackhive/security/dependabot)
@@ -72,7 +72,7 @@ The specialist picks up the **full Slack thread** as context — nothing is lost
 
 ### 🤖 Claude Code Agents — The Real Thing
 
-Every agent in SlackHive is a full **Claude Code SDK** agent — not a chatbot wrapper, not a prompt chain. Each one runs with its own identity, memory, tools, and instructions. When you @mention one in Slack, you're talking to a real AI agent that can use tools, remember context across conversations, and get smarter over time.
+Every agent in SlackHive is a full **Claude Code** agent — not a chatbot wrapper, not a prompt chain. Each one runs with its own identity, memory, tools, and instructions. When you @mention one in Slack, you're talking to a real AI agent that can use tools, remember context across conversations, and get smarter over time.
 
 | | |
 |---|---|
@@ -115,7 +115,7 @@ Everything you need to build, manage, and scale a team of AI agents — without 
 | 🚦 **Channel Restrictions** | Lock agents to specific Slack channels. Bot silently ignores messages outside its allowlist and auto-leaves uninvited channels with a notice. |
 | 📊 **Live Logs** | SSE-streamed Docker log output per agent — with level filters and search, right in the dashboard. |
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type — feedback, user, project, reference. |
-| 🔐 **Tool Permissions** | Per-agent allowlist/denylist for Claude Code SDK tools. Control exactly what each agent can do. |
+| 🔐 **Tool Permissions** | Per-agent allowlist/denylist for Claude Code tools. Control exactly what each agent can do. |
 | 🧪 **220+ Tests** | Vitest unit tests across web and runner. CI runs on every push and PR. |
 
 ### Agent Capabilities
@@ -178,7 +178,7 @@ Everything you need to build, manage, and scale a team of AI agents — without 
 
 1. **User** messages an agent (or `@boss`) in Slack
 2. **Runner** receives the event via Bolt Socket Mode
-3. **Claude Code SDK** processes the message with the agent's compiled `CLAUDE.md`
+3. **Claude Code** processes the message with the agent's compiled `CLAUDE.md`
 4. Agent may use **MCP tools** (Redshift queries, GitHub API, etc.) during processing
 5. **Response** is formatted as Slack Block Kit and posted to the thread
 6. **Memory files** written during the session are detected by `MemoryWatcher` and synced to Postgres
@@ -308,7 +308,7 @@ In the MCP editor, select **TypeScript inline script** as the transport and past
 
 ## 🔑 Claude Code Authentication
 
-SlackHive supports two authentication modes for the Claude Code SDK. Choose the one that fits your setup.
+SlackHive supports two authentication modes for the Claude Code. Choose the one that fits your setup.
 
 ### Option 1: API Key (pay-per-use)
 
@@ -326,7 +326,7 @@ That's it. Every agent will use this key. You're billed per token via the [Anthr
 
 Best for: individual developers, Claude Pro/Max subscribers ($100–$200/month unlimited).
 
-If you have a Claude Max subscription with Claude Code access:
+If you have a Claude Pro or Max subscription with Claude Code access:
 
 **Step 1 — Login on the host machine:**
 
@@ -599,7 +599,7 @@ slackhive/
 │   └── runner/                     # Agent runner service
 │       └── src/
 │           ├── agent-runner.ts     # Lifecycle manager
-│           ├── claude-handler.ts   # Claude Code SDK integration
+│           ├── claude-handler.ts   # Claude Code integration
 │           ├── slack-handler.ts    # Slack Bolt + Block Kit formatting
 │           ├── compile-claude-md.ts # Writes CLAUDE.md (identity + memories) and .claude/commands/ (skills)
 │           ├── memory-watcher.ts   # fs.watch → DB sync (learning)
@@ -622,7 +622,7 @@ slackhive/
 |-------|-----------|
 | **Language** | TypeScript 5.x throughout |
 | **Web UI** | Next.js 15 (App Router), React 19 |
-| **AI Runtime** | Claude Code SDK (`@anthropic-ai/claude-agent-sdk`) |
+| **AI Runtime** | Claude Code (`@anthropic-ai/claude-agent-sdk`) |
 | **Slack** | Bolt SDK (Socket Mode) |
 | **Database** | PostgreSQL 16 |
 | **Pub/Sub** | Redis 7 |
@@ -737,5 +737,5 @@ MIT © 2026 [Pelago Labs](https://github.com/pelago-labs)
 ---
 
 <div align="center">
-  <sub>Built with Claude Code SDK, Slack Bolt, and a lot of ☕</sub>
+  <sub>Built with Claude Code, Slack Bolt, and a lot of ☕</sub>
 </div>
