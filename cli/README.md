@@ -261,7 +261,7 @@ Open an issue before submitting large PRs so we can align on the approach.
 
 ## 🔒 Security
 
-Report vulnerabilities to **[conduct@slackhive.dev](mailto:conduct@slackhive.dev)** — please don't open public issues for security bugs. We respond within 48 hours.
+Use [GitHub\'s private vulnerability reporting](https://github.com/pelago-labs/slackhive/security/advisories/new) — click **"Report a vulnerability"** on the Security tab. Or email **[conduct@slackhive.dev](mailto:conduct@slackhive.dev)**. Please don\'t open public issues for security bugs. We respond within 48 hours.
 
 ---
 
