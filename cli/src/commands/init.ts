@@ -11,7 +11,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import prompts from 'prompts';
 
-const REPO_URL = 'https://github.com/amansrivastava17/slackhive.git';
+const REPO_URL = 'https://github.com/pelago-labs/slackhive.git';
 
 interface InitOptions {
   dir: string;
@@ -68,7 +68,7 @@ export async function init(opts: InitOptions): Promise<void> {
   } else {
     const spinner = ora('  Cloning repository...').start();
     try {
-      execSync(`git clone ${REPO_URL} "${dir}"`, { stdio: 'ignore' });
+      execSync(`git clone --depth 1 ${REPO_URL} "${dir}"`, { stdio: 'ignore' });
       spinner.succeed('Repository cloned');
     } catch {
       spinner.fail('Failed to clone repository');

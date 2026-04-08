@@ -20,10 +20,6 @@ RUN cd apps/runner && npx tsc --skipLibCheck || true
 FROM node:20-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
-# Install uvx only if Python MCP servers are needed (optional, non-fatal)
-RUN apk add --no-cache curl && \
-    curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    ln -s /root/.local/bin/uvx /usr/local/bin/uvx || true
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared ./packages/shared
 COPY --from=builder /app/apps/runner ./apps/runner

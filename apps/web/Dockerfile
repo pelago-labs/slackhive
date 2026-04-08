@@ -1,8 +1,6 @@
 FROM node:20-alpine AS base
 WORKDIR /app
 RUN apk add --no-cache libc6-compat docker-cli curl python3 make g++ && \
-    curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    ln -s /root/.local/bin/uvx /usr/local/bin/uvx || true && \
     npm install -g tsx
 
 # Install all workspace deps
