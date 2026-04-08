@@ -5,7 +5,7 @@ description: "How agents learn from conversations and accumulate persistent know
 
 ## How memory works
 
-Every conversation is an opportunity for an agent to learn. At the end of each session, the Claude Code SDK writes structured memory files to the agent's working directory. SlackHive's `MemoryWatcher` detects these files in real time, parses them, and persists them to Postgres.
+Every conversation is an opportunity for an agent to learn. At the end of each session, the Claude Code writes structured memory files to the agent's working directory. SlackHive's `MemoryWatcher` detects these files in real time, parses them, and persists them to Postgres.
 
 On next restart — or when hot-reloaded — all stored memories are compiled back into the agent's `CLAUDE.md` as a **Learned Memory** section. The agent starts every conversation with its full accumulated knowledge.
 

@@ -1,134 +1,166 @@
 ---
 title: "Environment Variables"
-description: "Complete reference for all SlackHive environment variables."
+description: "Complete reference for every SlackHive configuration variable, grouped by category."
 ---
 
-All configuration is done through a `.env` file in the project root. Copy `.env.example` to `.env` and fill in the required values.
+All SlackHive configuration lives in a single `.env` file in the project root. The `slackhive init` CLI generates this file for you automatically. For manual setup, copy the example file and fill in the values:
 
 ```bash
 cp .env.example .env
 ```
 
-## Claude authentication
+<Warning>
+  Never commit your `.env` file to version control. It contains passwords and cryptographic keys. It's already listed in `.gitignore`, but double-check before pushing.
+</Warning>
 
-Choose **one** authentication method. If both are present, the API key takes precedence.
+## Claude Authentication
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ANTHROPIC_API_KEY` | One of the two | Anthropic API key for pay-per-token usage. Format: `sk-ant-api03-...` |
-| `CLAUDE_BIN` | One of the two | Path to the `claude` binary on the host, used with a Claude Max subscription. Leave `ANTHROPIC_API_KEY` unset. |
+You need one of these two options — not both. If both are set, the API key takes precedence.
 
-### API key (Option A)
+### Option A: Anthropic API Key
+
+Best for teams, production deployments, and predictable billing.
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-Every agent uses this key. You're billed per token via the Anthropic API. Best for teams and production use.
+All agents share this key. You're billed per token via the [Anthropic API](https://console.anthropic.com). Set up your billing and usage limits on the Anthropic console.
 
-### Claude Max subscription (Option B)
+### Option B: Claude Max Subscription
+
+Best for individual developers on a Claude Pro or Max plan ($100–$200/month for unlimited usage).
 
 ```bash
-# Comment out or remove ANTHROPIC_API_KEY
+# Leave ANTHROPIC_API_KEY unset (comment it out)
 CLAUDE_BIN=/usr/local/bin/claude
 ```
 
-Run `claude login` on the host machine first. Mount `~/.claude:/root/.claude` in the runner container. Best for individual developers on a $100–$200/month Claude Max plan.
+First, run `claude login` on the host machine to authenticate. Then mount the credentials into the runner container by adding this to `docker-compose.yml`:
 
-## PostgreSQL
+```yaml
+runner:
+  volumes:
+    - ~/.claude:/root/.claude
+```
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `POSTGRES_DB` | Yes | `slackhive` | Database name |
-| `POSTGRES_USER` | Yes | `slackhive` | Database user |
-| `POSTGRES_PASSWORD` | Yes | — | Database password. Use a strong random value. |
+<Note>
+  The `CLAUDE_BIN` variable tells the runner where the `claude` binary lives on your host. Find the path with `which claude`.
+</Note>
+
+## Database (PostgreSQL)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `POSTGRES_DB` | Yes | Database name. Default: `slackhive` |
+| `POSTGRES_USER` | Yes | Database user. Default: `slackhive` |
+| `POSTGRES_PASSWORD` | Yes | Database password. Use a strong random value. |
 
 ```bash
 POSTGRES_DB=slackhive
 POSTGRES_USER=slackhive
-POSTGRES_PASSWORD=<strong-random-password>
+POSTGRES_PASSWORD=change-this-to-something-strong
 ```
 
-The `DATABASE_URL` used internally by the web and runner services is constructed automatically from these values in `docker-compose.yml`.
+The `DATABASE_URL` used internally is constructed from these values automatically in `docker-compose.yml`. You don't set it directly.
 
-## Redis
+## Cache (Redis)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `REDIS_PASSWORD` | Yes | Redis authentication password. Used for the pub/sub event bus between web and runner. |
+| `REDIS_PASSWORD` | Yes | Redis authentication password. Used for the pub/sub event bus between the dashboard and the runner. |
 
 ```bash
-REDIS_PASSWORD=<strong-random-password>
+REDIS_PASSWORD=change-this-to-something-strong
 ```
 
-## Web UI authentication
+## Dashboard Authentication
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ADMIN_USERNAME` | Yes | Superadmin login username. Stored only in `.env`, never in the database. |
-| `ADMIN_PASSWORD` | Yes | Superadmin login password. Stored only in `.env`, never in the database. |
-| `AUTH_SECRET` | Yes | HMAC key for signing session cookies. Generate with `openssl rand -hex 32`. |
-| `ENV_SECRET_KEY` | Yes | AES-256 key for encrypting stored env vars (pgcrypto). Generate with `openssl rand -hex 32`. |
+| `ADMIN_USERNAME` | Yes | Superadmin login name. Stored only in `.env`, never in the database. |
+| `ADMIN_PASSWORD` | Yes | Superadmin login password. Stored only in `.env`. |
+| `AUTH_SECRET` | Yes | Cryptographic key for signing session cookies. Changing this logs out all users. |
+| `ENV_SECRET_KEY` | Yes | Encryption key for the secret store (AES-256 via pgcrypto). Changing this breaks all stored secrets. |
 
 ```bash
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=<strong-random-password>
-AUTH_SECRET=<output-of: openssl rand -hex 32>
-ENV_SECRET_KEY=<output-of: openssl rand -hex 32>
+ADMIN_PASSWORD=change-this-to-something-strong
+AUTH_SECRET=generate-with-openssl-rand-hex-32
+ENV_SECRET_KEY=generate-with-openssl-rand-hex-32
 ```
 
+<Tip>
+  Generate strong values for `AUTH_SECRET` and `ENV_SECRET_KEY`:
+  ```bash
+  openssl rand -hex 32
+  ```
+  Run this command twice — once for each variable. Each should be unique.
+</Tip>
+
 <Warning>
-  `AUTH_SECRET` and `ENV_SECRET_KEY` must not change after initial setup. Rotating `ENV_SECRET_KEY` requires re-encrypting all stored env vars. Rotating `AUTH_SECRET` invalidates all active sessions.
+  **Do not rotate these keys after your initial setup without planning ahead.**
+
+  - Rotating `AUTH_SECRET` immediately invalidates all active user sessions — everyone gets logged out.
+  - Rotating `ENV_SECRET_KEY` makes all stored secrets unreadable. You must re-enter every secret manually in **Settings → Env Vars** before any MCP servers using `envRefs` will work again.
 </Warning>
 
 ## Platform
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `NODE_ENV` | No | `development` | Set to `production` for production deployments. Affects logging verbosity and error handling. |
-| `AGENTS_TMP_DIR` | No | `/tmp/agents` | Root directory for ephemeral agent workspaces. Each agent gets a subdirectory here containing its `CLAUDE.md`, skills, and session working directories. |
-
-## Generating secret values
-
-The `slackhive init` CLI generates all secret values automatically. For manual setup:
+| `NODE_ENV` | No | `development` | Set to `production` for production deployments. Affects log verbosity and error handling. |
+| `AGENTS_TMP_DIR` | No | `/tmp/agents` | Root directory for agent workspaces inside the runner container. Each agent gets a subdirectory containing its `CLAUDE.md`, skills, and session data. |
 
 ```bash
-# AUTH_SECRET and ENV_SECRET_KEY
-openssl rand -hex 32
-
-# POSTGRES_PASSWORD and REDIS_PASSWORD (shorter is fine)
-openssl rand -hex 16
+NODE_ENV=production
+# AGENTS_TMP_DIR=/tmp/agents  # only change if you need a custom path
 ```
 
 ## Complete .env.example
 
+Here's the full template for reference:
+
 ```bash
 # ============================================================
 # SlackHive — Environment Configuration
+# Copy to .env and fill in your values.
 # ============================================================
 
-# Claude authentication (choose ONE)
-# Option A: API key
+# --- Claude Authentication (choose ONE) ---
+
+# Option A: Anthropic API key (pay-per-token)
 # ANTHROPIC_API_KEY=sk-ant-api03-...
 
-# Option B: Claude Max subscription
-# Leave ANTHROPIC_API_KEY unset. Run `claude login` on host first.
+# Option B: Claude Pro or Max subscription
+# Leave ANTHROPIC_API_KEY unset. Run `claude login` on the host first.
 # CLAUDE_BIN=/usr/local/bin/claude
 
-# PostgreSQL
+# --- PostgreSQL ---
 POSTGRES_DB=slackhive
 POSTGRES_USER=slackhive
-POSTGRES_PASSWORD=<strong-random-password>
+POSTGRES_PASSWORD=change-me
 
-# Redis
-REDIS_PASSWORD=<strong-random-password>
+# --- Redis ---
+REDIS_PASSWORD=change-me
 
-# Web UI auth
+# --- Dashboard Auth ---
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=<strong-random-password>
-AUTH_SECRET=<output-of: openssl rand -hex 32>
-ENV_SECRET_KEY=<output-of: openssl rand -hex 32>
+ADMIN_PASSWORD=change-me
+AUTH_SECRET=generate-with-openssl-rand-hex-32
+ENV_SECRET_KEY=generate-with-openssl-rand-hex-32
 
-# Platform
+# --- Platform ---
 NODE_ENV=production
 ```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Slack App Setup" icon="slack" href="/configuration/slack-app">
+    Configure the Slack app for each agent.
+  </Card>
+  <Card title="MCP Servers" icon="plug" href="/configuration/mcp-servers">
+    Use the encrypted env store to safely pass secrets to MCP tools.
+  </Card>
+</CardGroup>

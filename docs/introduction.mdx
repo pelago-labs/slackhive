@@ -1,89 +1,160 @@
 ---
 title: "Introduction"
-description: "Build, deploy, and orchestrate teams of Claude AI agents on Slack. AI teammates you @mention, not tools you switch to."
+description: "SlackHive turns your Slack workspace into a team of AI agents — specialists you @mention, a Boss that coordinates, and memory that compounds over time."
 ---
 
-## Why SlackHive exists
+## Build your AI-first company on Slack
 
-Slack is where your company already works. Every decision, every question, every escalation — it all happens there. The future of AI at work isn't a separate tool you switch to — it's agents that are **part of the team**, living where work already happens.
+Your team already lives in Slack. Every question, decision, and follow-up happens there. SlackHive adds AI agents to that same workspace — they sit alongside your people, in the same channels, in the same threads.
 
-In the near future, every Slack team will have AI members alongside humans. An AI engineer who fixes bugs and reviews code. A data analyst who runs queries and surfaces insights on demand. A fraud analyst who monitors transactions. A support agent who resolves tickets and escalates edge cases. Not tools you prompt — **teammates you @mention**.
+These aren't chatbots you switch to. They're **colleagues you @mention**. Each one connects to the tools your team already uses — Notion, Jira, GitHub, Figma, your database, your analytics stack. They read context, take action, and report back — right inside Slack.
 
-SlackHive is built on this belief. It gives you the infrastructure to deploy, manage, and grow a team of AI agents on Slack — each with their own identity, memory, skills, and tools. The more they work with your team, the smarter they get.
+**Anyone on the team can create an agent.** No engineers required. If you can describe what you need, you can deploy it in minutes.
+
+---
+
+## What this looks like in practice
+
+A CEO who wants to drill into metrics doesn't open a BI tool — they ask `@data-analyst` directly in Slack. An engineer debugging a production issue asks `@devops` to tail logs and open a PR with the fix. A PM sketches a feature idea and asks `@designer` to create the initial wireframe in Figma. A marketer asks `@content-writer` to draft a campaign brief in their brand voice.
+
+Every tool your company uses — Notion, Jira, GitHub, Redshift, HubSpot, Figma — becomes accessible through a simple @mention in Slack.
 
 ```
-User:     @boss can you analyze last week's conversion funnel?
-Boss:     That's right up @data-analyst's alley. Let me loop them in 👇
-          @data-analyst — user wants conversion funnel analysis for last week.
-DataBot:  [reads full thread context, runs Redshift query via MCP]
-          Here are the results: conversions were up 12% week-over-week...
+CEO:            @data-analyst revenue is down 8% this week, can you dig in?
+DataBot:        [queries Redshift across 6 dimensions]
+                Found it — enterprise tier churn spiked on Tuesday after
+                the pricing page change. 3 accounts, $42k ARR. @boss — done!
+
+Engineer:       @devops the checkout service is throwing 500s, what's happening?
+DevOps:         [reads logs via MCP, identifies root cause]
+                Memory leak in the payment processor connection pool.
+                I've opened PR #847 with the fix and added a health check.
+
+PM:             @designer can you mock up a simpler onboarding flow?
+Designer:       [uses Figma MCP to create frames]
+                Done — here's the Figma link with 3 variants. Let me know
+                which direction you want to take.
 ```
 
-The Boss reads the message, checks its team registry, and delegates to the right specialist. The specialist picks up the **full Slack thread** as context — nothing is lost in the handoff.
+---
 
-## Key features
+## Two ways to work
+
+### Tag a specialist directly
+
+When you know who to ask, @mention them. The agent reads the thread, uses its tools, and replies.
+
+```
+You:          @data-analyst pull last week's conversion funnel
+DataBot:      [reads thread, runs Redshift query]
+              Conversions were up 12% WoW. Checkout completion
+              jumped 3×. Want a channel or cohort breakdown?
+```
+
+### Ask @boss to figure it out
+
+When you're not sure who handles it, tag your Boss agent. Boss reads your request, finds the right specialist, delegates in the same thread, and summarizes the result.
+
+```
+You:          @boss can you analyze last week's conversion funnel?
+Boss:         That's right up @data-analyst's alley. Let me loop them in 👇
+              @data-analyst — user wants conversion funnel analysis for last week.
+              When you're done, please tag @boss.
+
+DataBot:      [reads full thread, runs Redshift query]
+              Conversions were up 12% WoW, driven by a 3× improvement
+              in checkout completion. @boss — done!
+
+Boss:         Great find @data-analyst! To summarize —
+              conversions are up 12% week-over-week. The big win was
+              checkout: completion rate jumped 3×. Want me to dig into
+              which channels drove that?
+```
+
+The specialist receives the **full Slack thread** as context — nothing is lost in the handoff.
+
+---
+
+## How SlackHive works
+
+<Steps>
+  <Step title="Create an agent">
+    Give it a name, a persona ("You are a data analyst who writes concise SQL..."), and connect it to a Slack app. Takes about 5 minutes.
+  </Step>
+  <Step title="Connect it to your tools">
+    Assign MCP servers to give the agent real capabilities — query a database, read files, call an API, create Jira tickets, update Notion pages. Or leave it as a conversational agent.
+  </Step>
+  <Step title="Your team @mentions it in Slack">
+    The agent wakes up, reads the thread for context, uses its tools, and replies directly in the thread.
+  </Step>
+  <Step title="It learns and improves">
+    After each conversation, the agent writes structured memory — who you are, what you prefer, what it learned about your team. Those memories are loaded at the start of every future conversation.
+  </Step>
+</Steps>
+
+---
+
+## What's included
 
 <CardGroup cols={2}>
   <Card title="Boss Orchestration" icon="sitemap">
-    A Boss agent receives high-level requests and delegates to specialists via Slack thread @mentions. Each specialist reports back, and Boss consolidates results for the user.
+    A Boss agent receives high-level requests and delegates to the right specialists via Slack thread @mentions. Specialists report back, and Boss consolidates results.
   </Card>
   <Card title="Persistent Memory" icon="brain">
-    Agents write structured memory files during every session. Memory is synced to Postgres and re-materialized on restart — agents accumulate knowledge over time.
+    Agents write structured memories during every session — feedback, user context, project state. Memories compound over time — the longer an agent works with your team, the sharper it gets.
   </Card>
   <Card title="MCP Tool Servers" icon="plug">
-    Connect agents to databases, APIs, and services via Model Context Protocol. Manage a global catalog of MCP servers and assign them per-agent. Supports stdio, SSE, and HTTP transports.
+    Connect agents to any external tool — Notion, Jira, GitHub, Redshift, Figma, HubSpot — via the Model Context Protocol. Manage a global catalog and assign per-agent.
   </Card>
-  <Card title="Skills as Slash Commands" icon="terminal">
-    Skills are Markdown files compiled as Claude Code slash commands (e.g. `/sql-rules`). Give agents repeatable workflows, domain knowledge, and specialized instructions.
+  <Card title="Skills" icon="terminal">
+    Skills are domain knowledge files your agent always carries — SQL conventions, writing guidelines, PR templates. Give agents repeatable workflows baked into their context.
   </Card>
-  <Card title="Encrypted Env Vars" icon="lock">
-    A platform-level secret store encrypted at rest with pgcrypto. MCP configs reference store keys by name using `envRefs` — raw secrets are never returned by the API.
+  <Card title="Encrypted Secret Store" icon="lock">
+    A platform-level encrypted store for API keys and credentials. MCP configs reference secrets by name — raw values are never exposed in the API or UI.
   </Card>
   <Card title="Hot Reload" icon="bolt">
-    Edit anything in the UI — skills, CLAUDE.md, tools, permissions — and the agent picks up changes within seconds via Redis pub/sub. No restart needed.
+    Edit any agent — instructions, skills, tools, permissions — and changes take effect within seconds. No restarts, no downtime.
   </Card>
-  <Card title="Version Control" icon="clock-rotate-left">
-    Every save auto-snapshots the agent state. Browse history with line-level diffs and restore any previous version with one click.
+  <Card title="Version History" icon="clock-rotate-left">
+    Every save auto-snapshots the full agent state. Browse history with line-level diffs and restore any version with one click.
   </Card>
-  <Card title="RBAC & Access Control" icon="shield">
-    Four roles: superadmin, admin, editor, and viewer. Admins can grant editors per-agent write access. All permissions enforced server-side.
+  <Card title="Access Control" icon="shield">
+    Four roles: superadmin, admin, editor, and viewer. Grant per-agent access to specific team members. All permissions enforced server-side.
   </Card>
 </CardGroup>
 
-## Architecture
+---
+
+## Under the hood
 
 SlackHive runs as four Docker Compose services:
 
-| Service | Role | Port |
-|---------|------|------|
-| **Web** (Next.js 15) | Management UI + API routes | 3001 |
-| **Runner** (Node.js) | Hosts all agent processes via Slack Bolt Socket Mode | — |
-| **PostgreSQL 16** | Agents, skills, memory, jobs, snapshots, sessions | 5432 |
-| **Redis 7** | Pub/sub event bus for hot reload between Web and Runner | 6379 |
+| Service | What it does |
+|---------|-------------|
+| **Web** (Next.js) | The management dashboard — create agents, edit skills, view logs |
+| **Runner** (Node.js) | Hosts all agent processes and maintains their Slack connections |
+| **PostgreSQL** | Stores agents, memories, skills, sessions, users, and history |
+| **Redis** | Pub/sub bus that delivers hot-reload events from Web to Runner instantly |
 
-**Message flow:**
+<Note>
+  SlackHive agents are powered by **Claude Code** — not a chatbot wrapper. Each agent is a real AI agent with tools, memory, and instructions. Works with a Claude Pro or Max subscription, or a standard API key.
+</Note>
 
-1. User @mentions an agent in Slack
-2. Runner receives the event via Bolt Socket Mode
-3. Claude Code SDK processes the message using the agent's compiled `CLAUDE.md`
-4. Agent may invoke MCP tools (Redshift, GitHub, custom APIs) during processing
-5. Response is formatted as Slack Block Kit and posted to the thread
-6. Memory files written during the session are detected by `MemoryWatcher` and synced to Postgres
-7. On next conversation, the agent starts with all accumulated knowledge
+---
 
 ## Get started
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="rocket" href="/quickstart">
-    Install SlackHive with the CLI and have your first agent running in minutes.
+    From zero to your first agent responding in Slack — in under 10 minutes.
   </Card>
   <Card title="Create an Agent" icon="robot" href="/agents/creating-agents">
-    Walk through the 5-step agent creation wizard in detail.
+    Walk through the agent creation wizard in detail.
   </Card>
   <Card title="Boss Agents" icon="sitemap" href="/agents/boss-agents">
-    Set up an orchestrating Boss to manage a team of specialists.
+    Set up a Boss to orchestrate a team of specialists.
   </Card>
   <Card title="MCP Servers" icon="plug" href="/configuration/mcp-servers">
-    Connect agents to external databases and APIs.
+    Connect agents to Notion, Jira, GitHub, databases, and more.
   </Card>
 </CardGroup>
