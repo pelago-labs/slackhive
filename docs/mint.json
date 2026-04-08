@@ -3,8 +3,8 @@
   "name": "SlackHive",
   "theme": "maple",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "/logo/wide-light.svg",
+    "dark": "/logo/wide-dark.svg"
   },
   "favicon": "/favicon.svg",
   "colors": {
