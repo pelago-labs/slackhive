@@ -17,13 +17,15 @@
 import { Command } from 'commander';
 import { init } from './commands/init';
 import { start, stop, status, logs, update } from './commands/manage';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { version } = require('../package.json');
 
 const program = new Command();
 
 program
   .name('slackhive')
   .description('CLI to install and manage SlackHive — AI agent teams on Slack')
-  .version('0.1.0');
+  .version(version);
 
 program
   .command('init')
