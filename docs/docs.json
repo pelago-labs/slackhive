@@ -58,6 +58,7 @@
             "group": "Features",
             "pages": [
               "features/scheduled-jobs",
+              "features/multi-workspace",
               "features/logs",
               "features/history",
               "features/users"
