@@ -289,6 +289,22 @@ describe('buildSlackTableBlock', () => {
     expect(block.rows[1][1].text).toBe('');
     expect(block.rows[1][2].text).toBe('');
   });
+
+  it('caps columns at 20 and keeps rows and column_settings in sync', () => {
+    const headers = Array.from({ length: 25 }, (_, i) => `H${i}`);
+    const rows = [Array.from({ length: 25 }, (_, i) => `v${i}`)];
+    const alignments = Array.from({ length: 25 }, () => 'left' as const);
+    const block = buildSlackTableBlock({ headers, rows, alignments });
+    expect(block.column_settings.length).toBe(20);
+    expect(block.rows[0].length).toBe(20);
+    expect(block.rows[1].length).toBe(20);
+  });
+
+  it('ensures row cell count matches column_settings count for normal tables', () => {
+    const block = buildSlackTableBlock(parsed);
+    expect(block.rows[0].length).toBe(block.column_settings.length);
+    expect(block.rows[1].length).toBe(block.column_settings.length);
+  });
 });
 
 // ─── buildMessagePayloads ─────────────────────────────────────────────────────

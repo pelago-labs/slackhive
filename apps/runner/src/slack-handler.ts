@@ -297,12 +297,12 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
 
           if (displayText) {
             for (const payload of buildMessagePayloads(displayText, false)) {
-              await client.chat.postMessage({
+              await postMessageWithFallback(client, {
                 channel: channelId,
                 thread_ts: threadTs,
                 text: payload.text,
                 ...(payload.blocks && { blocks: payload.blocks }),
-              });
+              }, log);
             }
           }
 
@@ -343,12 +343,12 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
 
             if (displayText) {
               for (const payload of buildMessagePayloads(displayText, true)) {
-                await client.chat.postMessage({
+                await postMessageWithFallback(client, {
                   channel: channelId,
                   thread_ts: threadTs,
                   text: payload.text,
                   ...(payload.blocks && { blocks: payload.blocks }),
-                });
+                }, log);
               }
             }
 
@@ -368,12 +368,12 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
         source: lastAssistantText ? 'lastAssistantText' : lastToolResultText ? 'lastToolResultText' : 'default',
       });
       for (const payload of buildMessagePayloads(fallback, true)) {
-        await client.chat.postMessage({
+        await postMessageWithFallback(client, {
           channel: channelId,
           thread_ts: threadTs,
           text: payload.text,
           ...(payload.blocks && { blocks: payload.blocks }),
-        });
+        }, log);
       }
     }
 
@@ -397,6 +397,35 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
   } finally {
     activeControllers.delete(sessionKey);
     setTimeout(() => currentReactions.delete(sessionKey), 5 * 60 * 1000);
+  }
+}
+
+// =============================================================================
+// Slack posting helpers
+// =============================================================================
+
+/**
+ * Posts a message to Slack; if blocks are rejected with `invalid_blocks`,
+ * retries as plain text so the user still sees the response.
+ */
+async function postMessageWithFallback(
+  client: any,
+  opts: { channel: string; thread_ts?: string; text: string; blocks?: any[] },
+  log: Logger,
+) {
+  try {
+    await client.chat.postMessage(opts);
+  } catch (err: any) {
+    if (err?.data?.error === 'invalid_blocks' && opts.blocks) {
+      log.warn('Slack rejected blocks, falling back to plain text', {
+        error: err?.data?.error,
+        blockTypes: opts.blocks.map((b: any) => b.type),
+        textPreview: opts.text.slice(0, 200),
+      });
+      await client.chat.postMessage({ channel: opts.channel, thread_ts: opts.thread_ts, text: opts.text });
+    } else {
+      throw err;
+    }
   }
 }
 
@@ -559,12 +588,13 @@ export function parseMarkdownTable(lines: string[]): { headers: string[]; rows: 
 }
 
 export function buildSlackTableBlock(parsed: { headers: string[]; rows: string[][]; alignments: ('left' | 'center' | 'right')[] }): Record<string, any> {
+  const maxCols = Math.min(parsed.headers.length, 20);
   const buildRow = (cells: string[]) =>
-    parsed.headers.map((_, i) => ({ type: 'raw_text', text: (cells[i] || '').toString() }));
+    Array.from({ length: maxCols }, (_, i) => ({ type: 'raw_text', text: (cells[i] || '').toString() }));
   return {
     type: 'table',
     rows: [buildRow(parsed.headers), ...parsed.rows.slice(0, 99).map(r => buildRow(r))],
-    column_settings: parsed.alignments.slice(0, 20).map(a => ({ align: a })),
+    column_settings: parsed.alignments.slice(0, maxCols).map(a => ({ align: a })),
   };
 }
 
