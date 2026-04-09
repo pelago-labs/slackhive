@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@slack-agent-team/shared'],
+  transpilePackages: ['@slackhive/shared'],
 };
 
 module.exports = nextConfig;
