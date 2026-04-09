@@ -79,24 +79,6 @@ Good:
 
 **Never use:** \`## headings\`, \`**double asterisks**\`, \`> blockquotes\`, \`---\` rules`;
 
-const MEMORY_SYSTEM_SECTION = `# Memory System
-
-You have a persistent memory system. Use the \`/recall\` skill to retrieve relevant context from past conversations when needed.
-
-**When to recall:** When a user references something you may have learned before, or when context about the user/project would help — run \`/recall <topic>\` to search your memories.
-
-**How to save a memory:** Use the Write tool to create \`memory/{type}_{name}.md\` with frontmatter:
-\`\`\`
----
-name: short_snake_case_name
-description: one-line description
-type: user|feedback|project|reference
----
-Content here...
-\`\`\`
-
-Only save memories when the user explicitly guides, corrects, or shares lasting context. Do not save ephemeral task details.`;
-
 
 /**
  * Returns the temporary working directory path for an agent.
@@ -260,8 +242,8 @@ function buildClaudeMd(agent: Agent, overrideClaudeMd?: string): string {
   // Slack formatting rules (framework-level, not a skill)
   sections.push(SLACK_FORMATTING_SECTION);
 
-  // Memory system instructions (memories are loaded on-demand via MCP tools)
-  sections.push(MEMORY_SYSTEM_SECTION);
+  // Memory instructions — internal, not shown in UI
+  sections.push(`# Memory\nUse /recall <topic> to retrieve past context when relevant. To save a memory, write \`memory/{type}_{name}.md\` with frontmatter (type: user|feedback|project|reference). Only save when the user explicitly guides or corrects you.`);
 
   return sections.join('\n\n---\n\n');
 }
