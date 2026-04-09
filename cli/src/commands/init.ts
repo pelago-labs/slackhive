@@ -413,121 +413,82 @@ export async function init(opts: InitOptions): Promise<void> {
 }
 
 /**
- * Runs `docker compose up -d --build` with live streaming progress output.
- * Shows each build step as it happens instead of a silent spinner.
- *
- * @param {string} cwd - The project directory.
- * @param {string} displayDir - Display name for error message.
- * @returns {Promise<void>}
+ * Runs `docker compose up -d --build`.
+ * Shows a single updating spinner line with the current build step.
+ * Docker's raw progress output is suppressed to keep the terminal clean.
  */
 function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('docker', ['compose', 'up', '-d', '--build'], {
+  return new Promise((resolve) => {
+    const proc = spawn('docker', ['compose', 'up', '-d', '--build', '--progress', 'plain'], {
       cwd,
       env: { ...process.env },
     });
-
-    const stepPattern = /^#\d+ \[([^\]]+)\] (.+)/;
-    const donePattern = /^\s*(✔|Container .+ (Started|Running|Healthy)|Image .+ Built)/i;
-
-    let lastStep = '';
-
-    const processLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#') && trimmed.includes('CACHED')) return;
-
-      const stepMatch = stepPattern.exec(trimmed);
-      if (stepMatch) {
-        const label = `  ${chalk.dim(stepMatch[1])} ${stepMatch[2]}`;
-        if (label !== lastStep) {
-          process.stdout.write('\r\x1b[K' + label.slice(0, process.stdout.columns - 2));
-          lastStep = label;
-        }
-        return;
-      }
-
-      if (donePattern.test(trimmed)) {
-        process.stdout.write('\r\x1b[K');
-        console.log('  ' + chalk.green('✓') + ' ' + trimmed.replace(/^✔\s*/, '').replace(/Container /, ''));
-      }
-    };
 
     const startTime = Date.now();
     const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     let frameIdx = 0;
     let currentStep = 'Building images';
-    const fallbackInterval = setInterval(() => {
+
+    const spinnerInterval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const frame = frames[frameIdx++ % frames.length];
-      process.stdout.write(`\r\x1b[K  ${chalk.hex('#D97757')(frame)} ${currentStep} ${chalk.gray(elapsed + 's')}`);
+      const cols = process.stdout.columns || 80;
+      const line = `  ${chalk.hex('#D97757')(frame)} ${currentStep} ${chalk.gray(elapsed + 's')}`;
+      process.stdout.write(`\r\x1b[K${line.slice(0, cols - 1)}`);
     }, 80);
 
-    let stdoutBuf = '';
-    let stderrBuf = '';
+    let buf = '';
     const errorLines: string[] = [];
 
-    proc.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuf += chunk.toString();
-      const lines = stdoutBuf.split('\n');
-      stdoutBuf = lines.pop() ?? '';
-      lines.forEach(line => {
-        processLine(line);
-        // Update current step label from build output
-        const m = /\[([^\]]+)\] (.+)/.exec(line.trim());
-        if (m) currentStep = `${m[1]} — ${m[2].slice(0, 40)}`;
-      });
-    });
+    const onData = (chunk: Buffer) => {
+      buf += chunk.toString().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); // strip ANSI
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+        // Extract meaningful step: "#5 [runner 3/6] RUN npm ci"
+        const stepMatch = /^#\d+\s+\[([^\]]+)\]\s+(.+)/.exec(line);
+        if (stepMatch) {
+          currentStep = `${chalk.dim(stepMatch[1])} ${stepMatch[2].slice(0, 45)}`;
+        }
+        if (/error/i.test(line)) errorLines.push(line);
+      }
+    };
 
-    proc.stderr.on('data', (chunk: Buffer) => {
-      stderrBuf += chunk.toString();
-      const lines = stderrBuf.split('\n');
-      stderrBuf = lines.pop() ?? '';
-      lines.forEach(line => {
-        processLine(line);
-        const m = /\[([^\]]+)\] (.+)/.exec(line.trim());
-        if (m) currentStep = `${m[1]} — ${m[2].slice(0, 40)}`;
-        if (/error/i.test(line) && line.trim()) errorLines.push(line.trim());
-      });
-    });
+    proc.stdout.on('data', onData);
+    proc.stderr.on('data', onData);
 
     proc.on('close', (code) => {
-      clearInterval(fallbackInterval);
+      clearInterval(spinnerInterval);
       process.stdout.write('\r\x1b[K');
+
       if (code === 0) {
         console.log('  ' + chalk.green('✓') + ' All services started');
         resolve();
-      } else {
-        console.log('  ' + chalk.red('✗') + ' Failed to start services');
-        console.log('');
-
-        // Classify the error and give actionable guidance
-        const allErrors = errorLines.join('\n').toLowerCase();
-        if (allErrors.includes('no space left') || allErrors.includes('disk full')) {
-          console.log(chalk.yellow('  Cause: Docker is out of disk space.'));
-          console.log(chalk.gray('  Fix:   Run `docker system prune -a` to free space, then retry.'));
-        } else if (allErrors.includes('port is already allocated') || allErrors.includes('address already in use')) {
-          const portMatch = /bind for .+:(\d+)/.exec(allErrors);
-          const port = portMatch ? portMatch[1] : 'a required port';
-          console.log(chalk.yellow(`  Cause: Port ${port} is already in use by another process.`));
-          console.log(chalk.gray(`  Fix:   Stop the process using port ${port}, then retry.`));
-        } else if (allErrors.includes('permission denied') || allErrors.includes('unauthorized')) {
-          console.log(chalk.yellow('  Cause: Docker permission denied.'));
-          console.log(chalk.gray('  Fix:   Make sure Docker Desktop is running and you are logged in.'));
-        } else if (allErrors.includes('network') || allErrors.includes('timeout') || allErrors.includes('pull')) {
-          console.log(chalk.yellow('  Cause: Network error while pulling Docker images.'));
-          console.log(chalk.gray('  Fix:   Check your internet connection and retry.'));
-        } else if (allErrors.includes('memory') || allErrors.includes('oom')) {
-          console.log(chalk.yellow('  Cause: Docker ran out of memory.'));
-          console.log(chalk.gray('  Fix:   Increase Docker Desktop memory in Settings Resources (4GB+ recommended).'));
-        } else if (errorLines.length > 0) {
-          console.log(chalk.gray('  Error details:'));
-          errorLines.slice(-5).forEach(l => console.log(chalk.red('    ' + l)));
-        }
-
-        console.log('');
-        console.log(chalk.gray(`  To retry: cd ${displayDir} && docker compose up -d --build`));
-        resolve(); // don't reject — let init finish gracefully
+        return;
       }
+
+      const allErrors = errorLines.join('\n').toLowerCase();
+      if (allErrors.includes('no space left') || allErrors.includes('disk full')) {
+        console.log(chalk.yellow('  Docker is out of disk space.'));
+        console.log(chalk.gray('  Fix: docker system prune -a'));
+      } else if (allErrors.includes('port is already allocated') || allErrors.includes('address already in use')) {
+        const portMatch = /bind for .+:(\d+)/.exec(allErrors);
+        const port = portMatch ? portMatch[1] : 'a required port';
+        console.log(chalk.yellow(`  Port ${port} is already in use.`));
+        console.log(chalk.gray(`  Fix: stop the process on port ${port} and retry`));
+      } else if (allErrors.includes('permission denied') || allErrors.includes('unauthorized')) {
+        console.log(chalk.yellow('  Docker permission denied — is Docker Desktop running?'));
+      } else if (allErrors.includes('memory') || allErrors.includes('oom')) {
+        console.log(chalk.yellow('  Docker ran out of memory.'));
+        console.log(chalk.gray('  Fix: increase Docker Desktop memory to 4GB+ in Settings → Resources'));
+      } else if (allErrors.includes('network') || allErrors.includes('timeout') || allErrors.includes('pull')) {
+        console.log(chalk.yellow('  Network error while pulling images — check your connection and retry.'));
+      }
+
+      console.log(chalk.gray(`  To retry: cd ${displayDir} && docker compose up -d --build`));
+      resolve();
     });
   });
 }
