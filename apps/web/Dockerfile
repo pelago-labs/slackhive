@@ -1,6 +1,6 @@
 FROM node:20-alpine AS base
 WORKDIR /app
-RUN apk add --no-cache libc6-compat docker-cli curl python3 make g++ && \
+RUN apk add --no-cache libc6-compat docker-cli curl && \
     npm install -g tsx
 
 # Install all workspace deps

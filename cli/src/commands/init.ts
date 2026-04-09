@@ -231,30 +231,34 @@ export async function init(opts: InitOptions): Promise<void> {
       }
     } catch { /* non-fatal */ }
 
-    await runDockerBuild(dir, opts.dir);
+    const buildOk = await runDockerBuild(dir, opts.dir);
 
-    // If containers didn't come up during build, retry once silently
-    try {
-      execSync('docker compose up -d', { cwd: dir, stdio: 'ignore' });
-    } catch { /* non-fatal */ }
-
-    // Wait for web UI — up to 3 minutes
-    const webSpinner = ora('  Waiting for web UI to be ready...').start();
-    let ready = false;
-    for (let i = 0; i < 60; i++) {
+    if (buildOk) {
+      // If containers didn't come up during build, retry once silently
       try {
-        execSync('curl -sf http://localhost:3001/login', { stdio: 'ignore' });
-        ready = true;
-        break;
-      } catch {
-        await sleep(3000);
+        execSync('docker compose up -d', { cwd: dir, stdio: 'ignore' });
+      } catch { /* non-fatal */ }
+
+      // Wait for web UI — up to 3 minutes
+      const webSpinner = ora('  Waiting for web UI to be ready...').start();
+      let ready = false;
+      for (let i = 0; i < 60; i++) {
+        try {
+          execSync('curl -sf http://localhost:3001/login', { stdio: 'ignore' });
+          ready = true;
+          break;
+        } catch {
+          await sleep(3000);
+        }
       }
-    }
-    if (ready) {
-      webSpinner.succeed('Web UI is ready');
+      if (ready) {
+        webSpinner.succeed('Web UI is ready');
+      } else {
+        webReady = false;
+        webSpinner.stopAndPersist({ symbol: ' ' });
+      }
     } else {
       webReady = false;
-      webSpinner.stopAndPersist({ symbol: ' ' });
     }
   }
 
@@ -287,7 +291,7 @@ export async function init(opts: InitOptions): Promise<void> {
  * Shows a single updating spinner line with the current build step.
  * Docker's raw progress output is suppressed to keep the terminal clean.
  */
-function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
+function runDockerBuild(cwd: string, displayDir: string): Promise<boolean> {
   return new Promise((resolve) => {
     const proc = spawn('docker', ['compose', '--progress', 'plain', 'up', '-d', '--build'], {
       cwd,
@@ -297,31 +301,78 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
     const startTime = Date.now();
     const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     let frameIdx = 0;
-    let currentStep = 'Building images';
+
+    // Phased progress tracking
+    const phases = [
+      { name: 'Installing system packages', weight: 10, pattern: /apk add|fetch.*APKINDEX/i },
+      { name: 'Installing npm dependencies', weight: 30, pattern: /npm ci|npm install|added \d+ packages/i },
+      { name: 'Compiling TypeScript',        weight: 10, pattern: /tsc|--skipLibCheck/i },
+      { name: 'Building web app',            weight: 30, pattern: /next build|next\.config/i },
+      { name: 'Creating containers',         weight: 10, pattern: /exporting to image|naming to|exporting layers/i },
+      { name: 'Starting services',           weight: 10, pattern: /Container .*(Starting|Started|Healthy|Created)/i },
+    ];
+    let currentPhase = 0;
+    let phaseStartTime = Date.now();
+
+    function getProgress(): number {
+      let pct = 0;
+      for (let i = 0; i < currentPhase; i++) pct += phases[i].weight;
+      // Add partial progress within current phase
+      if (currentPhase < phases.length) {
+        const elapsed = (Date.now() - phaseStartTime) / 1000;
+        const estimatedDuration = currentPhase === 1 ? 90 : currentPhase === 3 ? 100 : 30;
+        const partial = Math.min(0.9, elapsed / estimatedDuration);
+        pct += phases[currentPhase].weight * partial;
+      }
+      return Math.min(99, Math.round(pct));
+    }
+
+    function renderBar(): string {
+      const pct = getProgress();
+      const cols = process.stdout.columns || 80;
+      const barWidth = Math.min(20, Math.max(10, cols - 55));
+      const filled = Math.round((pct / 100) * barWidth);
+      const empty = barWidth - filled;
+      const bar = chalk.hex('#D97757')('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const phaseName = currentPhase < phases.length ? phases[currentPhase].name : 'Finishing';
+      const frame = frames[frameIdx++ % frames.length];
+      const pctStr = String(pct).padStart(2);
+      return `  ${chalk.hex('#D97757')(frame)} ${bar} ${chalk.bold(pctStr + '%')} ${phaseName} ${chalk.gray('(' + elapsed + 's)')}`;
+    }
 
     const spinnerInterval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const frame = frames[frameIdx++ % frames.length];
-      const cols = process.stdout.columns || 80;
-      const line = `  ${chalk.hex('#D97757')(frame)} ${currentStep} ${chalk.gray(elapsed + 's')}`;
-      process.stdout.write(`\r\x1b[K${line.slice(0, cols - 1)}`);
+      process.stdout.write(`\r\x1b[K${renderBar()}`);
     }, 80);
 
     let buf = '';
     const errorLines: string[] = [];
 
     const onData = (chunk: Buffer) => {
-      buf += chunk.toString().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); // strip ANSI
+      buf += chunk.toString().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
       const lines = buf.split('\n');
       buf = lines.pop() ?? '';
       for (const raw of lines) {
         const line = raw.trim();
         if (!line) continue;
-        // Extract meaningful step: "#5 [runner 3/6] RUN npm ci"
-        const stepMatch = /^#\d+\s+\[([^\]]+)\]\s+(.+)/.exec(line);
-        if (stepMatch) {
-          currentStep = `${chalk.dim(stepMatch[1])} ${stepMatch[2].slice(0, 45)}`;
+
+        // Check if we've entered a new phase
+        for (let i = currentPhase + 1; i < phases.length; i++) {
+          if (phases[i].pattern.test(line)) {
+            // Print completed phases
+            const elapsed = Math.floor((Date.now() - phaseStartTime) / 1000);
+            process.stdout.write('\r\x1b[K');
+            console.log('  ' + chalk.green('✓') + ' ' + phases[currentPhase].name + chalk.gray(` (${elapsed}s)`));
+            // Skip intermediate phases
+            for (let j = currentPhase + 1; j < i; j++) {
+              console.log('  ' + chalk.green('✓') + ' ' + phases[j].name + chalk.gray(' (cached)'));
+            }
+            currentPhase = i;
+            phaseStartTime = Date.now();
+            break;
+          }
         }
+
         if (/error/i.test(line)) errorLines.push(line);
       }
     };
@@ -334,31 +385,47 @@ function runDockerBuild(cwd: string, displayDir: string): Promise<void> {
       process.stdout.write('\r\x1b[K');
 
       if (code === 0) {
-        console.log('  ' + chalk.green('✓') + ' All services started');
-        resolve();
+        // Print any remaining phases as done
+        const elapsed = Math.floor((Date.now() - phaseStartTime) / 1000);
+        if (currentPhase < phases.length) {
+          console.log('  ' + chalk.green('✓') + ' ' + phases[currentPhase].name + chalk.gray(` (${elapsed}s)`));
+          for (let j = currentPhase + 1; j < phases.length; j++) {
+            console.log('  ' + chalk.green('✓') + ' ' + phases[j].name);
+          }
+        }
+        console.log('');
+        console.log('  ' + chalk.green('✓') + chalk.bold(' All services started'));
+        resolve(true);
         return;
       }
 
+      console.log('  ' + chalk.red('✗') + ' Failed to start services');
+      console.log('');
+
       const allErrors = errorLines.join('\n').toLowerCase();
       if (allErrors.includes('no space left') || allErrors.includes('disk full')) {
-        console.log(chalk.yellow('  Docker is out of disk space.'));
-        console.log(chalk.gray('  Fix: docker system prune -a'));
+        console.log(chalk.yellow('  Cause: Docker is out of disk space.'));
+        console.log(chalk.gray('  Fix:   docker system prune -a'));
       } else if (allErrors.includes('port is already allocated') || allErrors.includes('address already in use')) {
         const portMatch = /bind for .+:(\d+)/.exec(allErrors);
         const port = portMatch ? portMatch[1] : 'a required port';
-        console.log(chalk.yellow(`  Port ${port} is already in use.`));
-        console.log(chalk.gray(`  Fix: stop the process on port ${port} and retry`));
+        console.log(chalk.yellow(`  Cause: Port ${port} is already in use.`));
+        console.log(chalk.gray(`  Fix:   stop the process on port ${port} and retry`));
       } else if (allErrors.includes('permission denied') || allErrors.includes('unauthorized')) {
-        console.log(chalk.yellow('  Docker permission denied — is Docker Desktop running?'));
+        console.log(chalk.yellow('  Cause: Docker permission denied — is Docker Desktop running?'));
       } else if (allErrors.includes('memory') || allErrors.includes('oom')) {
-        console.log(chalk.yellow('  Docker ran out of memory.'));
-        console.log(chalk.gray('  Fix: increase Docker Desktop memory to 4GB+ in Settings → Resources'));
-      } else if (allErrors.includes('network') || allErrors.includes('timeout') || allErrors.includes('pull')) {
-        console.log(chalk.yellow('  Network error while pulling images — check your connection and retry.'));
+        console.log(chalk.yellow('  Cause: Docker ran out of memory.'));
+        console.log(chalk.gray('  Fix:   increase Docker Desktop memory to 4GB+ in Settings → Resources'));
+      } else if (allErrors.includes('network') || allErrors.includes('timeout') || allErrors.includes('pull') || allErrors.includes('tls') || allErrors.includes('certificate')) {
+        console.log(chalk.yellow('  Cause: Network/TLS error — try restarting Docker Desktop.'));
+      } else if (errorLines.length > 0) {
+        console.log(chalk.gray('  Error details:'));
+        errorLines.slice(-5).forEach(l => console.log(chalk.red('    ' + l)));
       }
 
+      console.log('');
       console.log(chalk.gray(`  To retry: cd ${displayDir} && docker compose up -d --build`));
-      resolve();
+      resolve(false);
     });
   });
 }
