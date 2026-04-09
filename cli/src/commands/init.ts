@@ -337,6 +337,7 @@ export async function init(opts: InitOptions): Promise<void> {
   }
 
   // ── Step 4: Build & start ─────────────────────────────────────────────────
+  let webReady = true;
   if (!opts.skipStart) {
     console.log(chalk.bold.hex('#D97757')('  [4/4]') + chalk.bold(' Building & starting services'));
     console.log(chalk.gray('  This takes 3–5 minutes on first run while Docker builds images.'));
@@ -362,10 +363,15 @@ export async function init(opts: InitOptions): Promise<void> {
 
     await runDockerBuild(dir, opts.dir);
 
-    // Wait for web UI
+    // If containers didn't come up during build, retry once silently
+    try {
+      execSync('docker compose up -d', { cwd: dir, stdio: 'ignore' });
+    } catch { /* non-fatal */ }
+
+    // Wait for web UI — up to 3 minutes
     const webSpinner = ora('  Waiting for web UI to be ready...').start();
     let ready = false;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       try {
         execSync('curl -sf http://localhost:3001/login', { stdio: 'ignore' });
         ready = true;
@@ -377,15 +383,24 @@ export async function init(opts: InitOptions): Promise<void> {
     if (ready) {
       webSpinner.succeed('Web UI is ready');
     } else {
-      webSpinner.warn('Web UI may still be starting up');
+      webReady = false;
+      webSpinner.stopAndPersist({ symbol: ' ' });
     }
   }
 
   // ── Done ──────────────────────────────────────────────────────────────────
   console.log('');
-  console.log('  ' + chalk.bgHex('#D97757').black.bold('  SlackHive is ready!  '));
-  console.log('');
-  console.log(`  ${chalk.bold('Open:')}   ${chalk.cyan('http://localhost:3001')}`);
+  if (webReady) {
+    console.log('  ' + chalk.bgHex('#D97757').black.bold('  SlackHive is ready!  '));
+    console.log('');
+    console.log(`  ${chalk.bold('Open:')}   ${chalk.cyan('http://localhost:3001')}`);
+  } else {
+    console.log('  ' + chalk.bold('Setup complete!'));
+    console.log('');
+    console.log(chalk.gray('  Services are still starting. Once ready:'));
+    console.log(`  ${chalk.bold('Run:')}    ${chalk.cyan('slackhive start')}`);
+    console.log(`  ${chalk.bold('Open:')}   ${chalk.cyan('http://localhost:3001')}`);
+  }
   console.log(`  ${chalk.bold('Dir:')}    ${chalk.gray(dir)}`);
   console.log('');
   console.log(chalk.gray('  Useful commands:'));
