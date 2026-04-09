@@ -1,6 +1,6 @@
 FROM node:20-alpine AS base
 WORKDIR /app
-RUN apk add --no-cache python3 make g++ curl
+RUN apk add --no-cache curl
 
 # Install deps
 FROM base AS deps
