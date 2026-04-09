@@ -31,11 +31,10 @@ import {
   getAgentMcpServers,
   getAgentPermissions,
   getAgentRestrictions,
-  getAgentMemories,
   getAllEnvVarValues,
   updateAgentStatus,
 } from './db';
-import { compileClaudeMd, materializeMemoryFiles } from './compile-claude-md';
+import { compileClaudeMd } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
 import { MemoryWatcher } from './memory-watcher';
 import { registerSlackHandlers } from './slack-handler';
@@ -191,19 +190,15 @@ export class AgentRunner {
     logger.info('Starting agent', { agent: agent.slug });
 
     // Load configuration from DB
-    const [mcpServers, permissions, restrictions, memories, envVarValues] = await Promise.all([
+    const [mcpServers, permissions, restrictions, envVarValues] = await Promise.all([
       getAgentMcpServers(agent.id),
       getAgentPermissions(agent.id),
       getAgentRestrictions(agent.id),
-      getAgentMemories(agent.id),
       getAllEnvVarValues(),
     ]);
 
-    // Compile CLAUDE.md (skills + memories → temp workspace)
+    // Compile CLAUDE.md (identity + skills → temp workspace)
     const workDir = await compileClaudeMd(agent);
-
-    // Materialize memory files so the SDK can read/update them
-    materializeMemoryFiles(agent, memories);
 
     // Create Claude Code SDK handler
     const claudeHandler = new ClaudeHandler(agent, mcpServers, permissions, workDir, envVarValues);

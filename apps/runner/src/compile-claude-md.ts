@@ -25,8 +25,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Agent, Skill, Memory } from '@slackhive/shared';
-import { getAgentSkills, getAgentMemories } from './db';
+import type { Agent, Skill } from '@slackhive/shared';
+import { getAgentSkills } from './db';
 import { logger } from './logger';
 
 /** Base directory for ephemeral agent workspaces. */
@@ -71,48 +71,15 @@ Good:
 
 const MEMORY_SYSTEM_SECTION = `# Memory System
 
-You have a persistent memory system. **At the end of every conversation, proactively save anything useful you learned** — this is how you get smarter over time. Memories persist across all future conversations with every user.
+You have a persistent memory system. Use the built-in \`memory\` MCP tools to recall relevant context from past conversations:
 
-## How to save a memory
+- \`mcp__memory__list_memories\` — see what you know (names + preview), optionally filtered by type
+- \`mcp__memory__search_memories(query)\` — find memories by keyword
+- \`mcp__memory__get_memory(name)\` — read the full content of a specific memory
 
-Use the Write tool to create a file at \`memory/{name}.md\` (relative to your working directory):
+**When to recall:** At the start of a conversation, search for memories relevant to the user or topic. When a user references something you may have learned before, look it up.
 
-\`\`\`markdown
----
-name: short_snake_case_name
-description: one-line description of what this memory contains
-type: user|feedback|project|reference
----
-
-Memory content here...
-\`\`\`
-
-**Types:**
-- \`user\` — who the user is, their role, team, expertise level, preferences
-- \`feedback\` — how the user wants you to behave; corrections; things to avoid or repeat
-- \`project\` — ongoing work, context, goals, decisions, important deadlines
-- \`reference\` — where to find things: tables, dashboards, channels, docs, repos
-
-## Save proactively — do not wait to be asked
-
-Save a memory whenever you learn:
-- Who a user is or what their role/team is
-- A user preference or working style ("prefers concise answers", "uses BigQuery not Redshift")
-- A correction the user gave you
-- A recurring task or project they mentioned
-- Where important data/resources live (table names, Slack channels, dashboards, repos)
-- A domain-specific fact useful for future queries (schema details, naming conventions, etc.)
-
-**Default to saving.** A slightly over-captured memory is better than a missed one. Do not save the response itself or ephemeral one-off details.
-
-## MEMORY.md index
-
-After writing a memory file, also update \`memory/MEMORY.md\` with a one-line entry:
-\`- [Name](filename.md) — one-line hook\`
-
-## Updating existing memories
-
-If a memory already exists and new info supersedes it, overwrite the file with updated content rather than creating a duplicate.`;
+**Do not write memories yourself** — the system automatically reflects on the conversation after it ends and saves anything worth remembering.`;
 
 
 /**
@@ -155,21 +122,17 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
 
   fs.mkdirSync(workDir, { recursive: true });
 
-  const [skills, memories] = await Promise.all([
-    getAgentSkills(agent.id),
-    getAgentMemories(agent.id),
-  ]);
+  const skills = await getAgentSkills(agent.id);
 
   logger.info('Compiling agent workspace', {
     agent: agent.slug,
     skills: skills.length,
-    memories: memories.length,
   });
 
   // -------------------------------------------------------------------------
-  // 1. Write CLAUDE.md (identity + memory system + memories)
+  // 1. Write CLAUDE.md (identity + memory system instructions)
   // -------------------------------------------------------------------------
-  const claudeMdContent = buildClaudeMd(agent, memories, overrideClaudeMd);
+  const claudeMdContent = buildClaudeMd(agent, overrideClaudeMd);
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
   logger.debug('CLAUDE.md written', {
@@ -210,7 +173,7 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
       if (!fs.statSync(sessionDir).isDirectory()) continue;
 
       // Update CLAUDE.md
-      fs.writeFileSync(path.join(sessionDir, 'CLAUDE.md'), claudeMdContent, 'utf-8');
+      fs.writeFileSync(path.join(sessionDir, 'CLAUDE.md'), claudeMdContent, 'utf8');
 
       // Update .claude/commands/
       const sessionCommandsDir = path.join(sessionDir, '.claude', 'commands');
@@ -228,29 +191,6 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
   return workDir;
 }
 
-/**
- * Materializes memory files from the database to the agent's temp workspace.
- *
- * @param {Agent} agent - The agent to materialize memories for.
- * @param {Memory[]} memories - Memory entries from the database.
- * @returns {void}
- */
-export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
-  const memoryDir = path.join(getAgentWorkDir(agent.slug), 'memory');
-  fs.mkdirSync(memoryDir, { recursive: true });
-
-  for (const memory of memories) {
-    const filename = `${memory.type}_${sanitizeFilename(memory.name)}.md`;
-    const filePath = path.join(memoryDir, filename);
-    fs.writeFileSync(filePath, memory.content, 'utf-8');
-  }
-
-  logger.debug('Memory files materialized', {
-    agent: agent.slug,
-    count: memories.length,
-    dir: memoryDir,
-  });
-}
 
 // =============================================================================
 // Private helpers
@@ -258,14 +198,13 @@ export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
 
 /**
  * Builds the CLAUDE.md content for an agent.
- * Structure: identity → memory system instructions → learned memories.
+ * Structure: identity → Slack formatting rules → memory system instructions.
  *
  * @param {Agent} agent - The agent.
- * @param {Memory[]} memories - Learned memories to append.
  * @param {string} [overrideClaudeMd] - Override for identity content (boss registry use).
  * @returns {string} Full CLAUDE.md content.
  */
-function buildClaudeMd(agent: Agent, memories: Memory[], overrideClaudeMd?: string): string {
+function buildClaudeMd(agent: Agent, overrideClaudeMd?: string): string {
   const sections: string[] = [];
 
   // Identity / instructions
@@ -282,49 +221,10 @@ function buildClaudeMd(agent: Agent, memories: Memory[], overrideClaudeMd?: stri
   // Slack formatting rules (framework-level, not a skill)
   sections.push(SLACK_FORMATTING_SECTION);
 
-  // Memory system instructions
+  // Memory system instructions (memories are loaded on-demand via MCP tools)
   sections.push(MEMORY_SYSTEM_SECTION);
 
-  // Learned memories
-  if (memories.length > 0) {
-    sections.push(compileMemoriesSection(memories));
-  }
-
   return sections.join('\n\n---\n\n');
-}
-
-/**
- * Compiles memory entries into a structured section for CLAUDE.md.
- *
- * @param {Memory[]} memories - Memory entries from the database.
- * @returns {string} Compiled memories section.
- */
-function compileMemoriesSection(memories: Memory[]): string {
-  const typeOrder: Memory['type'][] = ['feedback', 'user', 'project', 'reference'];
-  const grouped = new Map<Memory['type'], Memory[]>();
-
-  for (const memory of memories) {
-    if (!grouped.has(memory.type)) grouped.set(memory.type, []);
-    grouped.get(memory.type)!.push(memory);
-  }
-
-  const lines: string[] = [
-    '# Learned Memory',
-    '',
-    '> The following was learned from past interactions. Apply this knowledge in all responses.',
-  ];
-
-  for (const type of typeOrder) {
-    const entries = grouped.get(type);
-    if (!entries || entries.length === 0) continue;
-
-    lines.push('', `## ${capitalize(type)} Memory`);
-    for (const entry of entries) {
-      lines.push('', `### ${entry.name}`, '', entry.content.trim());
-    }
-  }
-
-  return lines.join('\n');
 }
 
 /**
@@ -337,12 +237,3 @@ function sanitizeFilename(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9_-]/g, '_').slice(0, 64);
 }
 
-/**
- * Capitalizes the first letter of a string.
- *
- * @param {string} s - Input string.
- * @returns {string} String with first letter capitalized.
- */
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
