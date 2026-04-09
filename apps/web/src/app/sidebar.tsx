@@ -98,8 +98,10 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         </div>
 
         {/* ── Nav ─────────────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '12px 12px' }}>
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
+        {/* Scrollable agents section */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 4px' }}>
           <NavItem href="/" active={pathname === '/'} collapsed={collapsed} icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <rect x="1.5" y="1.5" width="5" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -194,7 +196,10 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
             {!collapsed && 'Add agent'}
           </Link>}
 
-          <div style={{ height: 1, background: 'var(--border)', margin: '12px 6px' }} />
+        </div>
+
+        {/* Fixed bottom nav — always visible */}
+        <div style={{ padding: '4px 12px 8px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
 
           <NavItem href="/settings/mcps" active={pathname === '/settings/mcps'} collapsed={collapsed} icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -224,6 +229,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2"/>
             </svg>
           }>Settings</NavItem>
+        </div>
         </div>
 
         {/* ── Footer — Profile ──────────────────────────────────────────── */}
