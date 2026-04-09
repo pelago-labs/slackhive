@@ -8,7 +8,7 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/web/package.json ./apps/web/
-RUN npm ci --prefer-offline
+RUN npm ci
 
 # Build
 FROM deps AS builder
@@ -19,7 +19,7 @@ ARG AUTH_SECRET
 ARG ADMIN_PASSWORD
 ENV AUTH_SECRET=$AUTH_SECRET
 ENV ADMIN_PASSWORD=$ADMIN_PASSWORD
-RUN cd apps/web && npx next build
+RUN cd apps/web && npx --no-install next build
 
 # Runtime
 FROM base AS runner
@@ -34,4 +34,4 @@ COPY --from=builder /app/apps/web/next.config.js ./
 COPY --from=builder /app/package.json /app/
 
 EXPOSE 3000
-CMD ["npx", "next", "start"]
+CMD ["npx", "--no-install", "next", "start"]

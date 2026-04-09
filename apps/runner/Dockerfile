@@ -7,7 +7,7 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/runner/package.json ./apps/runner/
-RUN npm ci --prefer-offline
+RUN npm ci
 
 # Build
 FROM deps AS builder
