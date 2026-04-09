@@ -152,6 +152,7 @@ Every agent is a full **Claude Code** agent — with tools, memory, identity, an
 | 🚦 **Channel Restrictions** | Lock agents to specific Slack channels. Bot auto-leaves uninvited channels with a notice. |
 | 📊 **Live Logs** | SSE-streamed log output per agent — with level filters and search. |
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type — feedback, user, project, reference. |
+| 🌐 **Multi-Workspace** | Connect multiple Slack workspaces to a single SlackHive instance. Each workspace gets its own agents and configurations. |
 
 ---
 
