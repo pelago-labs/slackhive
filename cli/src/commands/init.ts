@@ -90,8 +90,9 @@ export async function init(opts: InitOptions): Promise<void> {
 
   // ── Step 3: Configure .env ────────────────────────────────────────────────
   const envPath = join(dir, '.env');
+  const freshEnv = !existsSync(envPath);
 
-  if (!existsSync(envPath)) {
+  if (freshEnv) {
     console.log(chalk.bold.hex('#D97757')('  [3/4]') + chalk.bold(' Configure environment'));
     console.log('');
 
@@ -231,11 +232,13 @@ export async function init(opts: InitOptions): Promise<void> {
       }
     } catch { /* non-fatal */ }
 
-    // Remove stale Postgres volume if it exists — prevents password mismatch
-    // when re-running init with new credentials
-    try {
-      execSync('docker compose down -v', { cwd: dir, stdio: 'ignore' });
-    } catch { /* non-fatal — may not exist yet */ }
+    // Remove stale Postgres volume only on fresh init — prevents password mismatch
+    // when credentials were just generated. Skip if .env already existed (re-run).
+    if (freshEnv) {
+      try {
+        execSync('docker compose down -v', { cwd: dir, stdio: 'ignore' });
+      } catch { /* non-fatal — may not exist yet */ }
+    }
 
     const buildOk = await runDockerBuild(dir, opts.dir);
 
