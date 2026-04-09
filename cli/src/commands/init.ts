@@ -5,7 +5,7 @@
  */
 
 import { execSync, spawn } from 'child_process';
-import { existsSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -73,6 +73,16 @@ function extractOAuthCredentials(): OAuthCredentials | null {
     const result = parseOAuthFromJson(creds);
     if (result) return result;
   } catch { /* not available */ }
+
+  // Fallback: read credentials file directly (headless Linux / no keyring)
+  try {
+    const credPath = join(process.env.HOME || '~', '.claude', '.credentials.json');
+    if (existsSync(credPath)) {
+      const creds = readFileSync(credPath, 'utf-8').trim();
+      const result = parseOAuthFromJson(creds);
+      if (result) return result;
+    }
+  } catch { /* file not readable or invalid */ }
 
   return null;
 }
