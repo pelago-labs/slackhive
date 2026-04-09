@@ -25,10 +25,8 @@ import {
   getSession,
   upsertSession,
   cleanupStaleSessions,
-  upsertMemorySafe,
 } from './db';
 import { agentLogger } from './logger';
-import { parseMemoryFile } from './memory-watcher';
 import { McpProcessManager } from './mcp-process-manager.js';
 import type { Logger } from 'winston';
 
@@ -284,34 +282,6 @@ export class ClaudeHandler {
     }
 
     await upsertSession(this.agent.id, sessionKey, newSessionId ?? claudeSessionId, currentMcpHash);
-    await this.syncSessionMemories(sessionWorkDir);
-  }
-
-  /**
-   * Scans the session's .claude/memory/ directory after a query completes and
-   * upserts any valid memory files to the database. Belt-and-suspenders alongside
-   * the MemoryWatcher to ensure memories are never lost due to missed fs events.
-   */
-  private async syncSessionMemories(sessionWorkDir: string): Promise<void> {
-    const memDir = path.join(sessionWorkDir, 'memory');
-    if (!fs.existsSync(memDir)) return;
-
-    const files = fs.readdirSync(memDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
-    for (const file of files) {
-      const filePath = path.join(memDir, file);
-      try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const parsed = parseMemoryFile(content);
-        if (!parsed) {
-          this.log.warn('Memory file has invalid frontmatter, skipping', { file });
-          continue;
-        }
-        await upsertMemorySafe(this.agent.id, parsed.type as 'user' | 'feedback' | 'project' | 'reference', parsed.name, content);
-        this.log.info('Memory synced from session', { file, name: parsed.name, type: parsed.type });
-      } catch (err) {
-        this.log.error('Failed to sync memory file', { file, error: (err as Error).message });
-      }
-    }
   }
 
   /**

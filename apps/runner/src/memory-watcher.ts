@@ -64,15 +64,11 @@ export class MemoryWatcher {
   start(): void {
     if (this.watchers.length > 0) return;
 
-    // Watch the root memory dir (legacy / materialized memories)
-    fs.mkdirSync(this.memoryDir, { recursive: true });
-    this.watchDir(this.memoryDir);
-
-    // Watch the sessions dir recursively — new session dirs appear at runtime
+    // Only watch session memory dirs — root memory dir is read-only (materialized from DB on startup)
     fs.mkdirSync(this.sessionsDir, { recursive: true });
     this.watchSessionsRoot();
 
-    this.log.info('Memory watcher started', { memoryDir: this.memoryDir, sessionsDir: this.sessionsDir });
+    this.log.info('Memory watcher started', { sessionsDir: this.sessionsDir });
   }
 
   /** Watch the sessions root for new session directories being created. */
