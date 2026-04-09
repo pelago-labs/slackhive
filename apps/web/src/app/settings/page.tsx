@@ -29,9 +29,9 @@ interface AgentBasic {
 
 const DEFAULTS: Record<string, string> = {
   appName: 'SlackHive',
-  tagline: 'Claude Code Platform',
+  tagline: 'AI agent teams on Slack',
   logoUrl: '',
-  dashboardTitle: 'Welcome to Silicon Valley',
+  dashboardTitle: 'Welcome to SlackHive',
 };
 
 /**

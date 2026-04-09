@@ -28,7 +28,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
   const [collapsed, setCollapsed] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [branding, setBranding] = useState({ appName: 'SlackHive', tagline: 'Claude Code Platform', logoUrl: '' });
+  const [branding, setBranding] = useState({ appName: 'SlackHive', tagline: 'AI agent teams on Slack', logoUrl: '' });
   const { username, role, canEdit, logout } = useAuth();
   const w = isMobile ? 0 : (collapsed ? W_CLOSED : W_OPEN);
 

@@ -28,7 +28,7 @@ const STATUS_LABEL: Record<string, string> = {
 export default function Dashboard() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [title, setTitle] = useState('Slack AI Agent Team');
+  const [title, setTitle] = useState('Welcome to SlackHive');
   const [view, setView] = useState<'hierarchy' | 'grid'>('hierarchy');
   const { canEdit } = useAuth();
 
