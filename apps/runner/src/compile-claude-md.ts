@@ -39,7 +39,8 @@ const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? '/tmp/agents';
 const RECALL_SKILL = `Search your memory files for context relevant to: $ARGUMENTS
 
 Use the Read tool to read files from the \`memory/\` directory (relative to your working directory).
-First list what's available by reading \`memory/MEMORY.md\` if it exists, then read specific memory files that match the topic.
+First read \`memory/MEMORY.md\` to see the index, then read specific memory files that match the topic.
+Apply what you find — past preferences, corrections, and patterns — so you don't repeat previous mistakes or ask questions you've already had answered.
 If no relevant memories are found, say so briefly and continue.`;
 
 /**
@@ -243,7 +244,19 @@ function buildClaudeMd(agent: Agent, overrideClaudeMd?: string): string {
   sections.push(SLACK_FORMATTING_SECTION);
 
   // Memory instructions — internal, not shown in UI
-  sections.push(`# Memory\nUse /recall <topic> to retrieve past context when relevant. To save a memory, write \`memory/{type}_{name}.md\` with frontmatter (type: user|feedback|project|reference). Only save when the user explicitly guides or corrects you.`);
+  sections.push(`# Memory
+
+Use /recall <topic> proactively — at the start of each conversation and whenever the topic shifts. Don't wait to be asked. Past memories contain user preferences, corrections, and learned patterns that let you pick up where you left off instead of starting from scratch.
+
+**When to save a memory** — write \`memory/{type}_{name}.md\` with frontmatter \`type: user|feedback|project|reference\`:
+- User explicitly corrects or guides you ("don't do X", "always do Y")
+- You notice a recurring pattern: same question asked repeatedly, same mistake made, same preference shown — save it so you don't start from scratch next time
+- You learn something concrete about the user's role, goals, or working style
+- A project decision or constraint is established that will affect future work
+
+**When NOT to save** — one-off tasks, ephemeral state, things already in the code or git history.
+
+Keep memories concise and actionable. Bad memory: "user asked about SQL". Good memory: "user prefers CTEs over subqueries — confirmed multiple times".`);
 
   return sections.join('\n\n---\n\n');
 }
