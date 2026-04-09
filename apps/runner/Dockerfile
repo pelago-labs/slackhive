@@ -21,6 +21,9 @@ FROM node:20-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
+# Create claude wrapper that uses the SDK's bundled CLI
+RUN printf '#!/bin/sh\ncd /app/node_modules/@anthropic-ai/claude-agent-sdk && exec node cli.js "$@"\n' > /usr/local/bin/claude && \
+    chmod +x /usr/local/bin/claude
 COPY --from=builder /app/packages/shared ./packages/shared
 COPY --from=builder /app/apps/runner ./apps/runner
 COPY --from=builder /app/package.json ./

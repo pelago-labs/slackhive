@@ -29,6 +29,54 @@ function detectClaudeBin(): string {
   return claudeBin;
 }
 
+interface OAuthCredentials {
+  accessToken: string;
+  refreshToken: string;
+}
+
+/**
+ * Parses a JSON credential blob and extracts OAuth tokens.
+ */
+function parseOAuthFromJson(json: string): OAuthCredentials | null {
+  try {
+    const parsed = JSON.parse(json);
+    const oauth = parsed?.claudeAiOauth;
+    if (oauth?.accessToken && oauth?.refreshToken) {
+      return { accessToken: oauth.accessToken, refreshToken: oauth.refreshToken };
+    }
+  } catch { /* invalid json */ }
+  return null;
+}
+
+/**
+ * Extracts the OAuth credentials from the OS credential store.
+ * Tries macOS Keychain, then Linux secret-tool (GNOME Keyring).
+ * Returns access + refresh tokens, or null if not found.
+ */
+function extractOAuthCredentials(): OAuthCredentials | null {
+  // macOS: read from Keychain
+  try {
+    const creds = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+    const result = parseOAuthFromJson(creds);
+    if (result) return result;
+  } catch { /* not macOS or not found */ }
+
+  // Linux: try secret-tool (GNOME Keyring)
+  try {
+    const creds = execSync('secret-tool lookup service "Claude Code-credentials"', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+    const result = parseOAuthFromJson(creds);
+    if (result) return result;
+  } catch { /* not available */ }
+
+  return null;
+}
+
 /**
  * Runs `slackhive init` — interactive setup wizard.
  *
@@ -111,6 +159,7 @@ export async function init(opts: InitOptions): Promise<void> {
     }
 
     const questions: prompts.PromptObject[] = [];
+    let oauthCreds: OAuthCredentials | null = null;
 
     if (authMode.mode === 'apikey') {
       questions.push({
@@ -120,7 +169,7 @@ export async function init(opts: InitOptions): Promise<void> {
         validate: (v: string) => v.startsWith('sk-') ? true : 'Must start with sk-',
       });
     } else {
-      // Claude subscription mode — detect installation automatically
+      // Claude subscription mode — extract OAuth token
       const claudeDir = join(process.env.HOME || '~', '.claude');
       if (!existsSync(claudeDir)) {
         console.log(chalk.yellow('\n  warning: ~/.claude not found. Run `claude login` first, then re-run `slackhive init`.'));
@@ -128,24 +177,27 @@ export async function init(opts: InitOptions): Promise<void> {
       }
       console.log(chalk.green('  ✓') + ' Found ~/.claude credentials');
 
-      // Auto-detect Claude binary
-      const spinner = ora('  Detecting Claude installation...').start();
-      let claudeBinDefault = '/usr/local/bin/claude';
-      try {
-        claudeBinDefault = detectClaudeBin();
-        spinner.succeed(`Found Claude at ${claudeBinDefault}`);
-      } catch (error) {
-        spinner.fail('Could not detect Claude installation');
-        console.log(chalk.yellow(`  ${error}`));
-        console.log(chalk.gray('  Please provide the path manually:'));
-      }
+      const spinner = ora('  Extracting OAuth credentials...').start();
+      oauthCreds = extractOAuthCredentials();
+      if (oauthCreds) {
+        spinner.succeed('OAuth credentials extracted');
+      } else {
+        spinner.warn('Could not auto-extract credentials from keychain');
+        console.log(chalk.gray('  On Linux/headless servers, paste your OAuth token manually.'));
+        console.log(chalk.gray('  Get it from a machine where you ran `claude login`:'));
+        console.log(chalk.gray('    security find-generic-password -s "Claude Code-credentials" -w'));
+        console.log('');
 
-      questions.push({
-        type: 'text',
-        name: 'claudeBin',
-        message: 'Path to claude binary',
-        initial: claudeBinDefault,
-      });
+        const tokenResponse = await prompts([
+          { type: 'password', name: 'accessToken', message: 'OAuth access token (sk-ant-oat01-...)', validate: (v: string) => v.startsWith('sk-ant-oat') ? true : 'Must start with sk-ant-oat' },
+          { type: 'password', name: 'refreshToken', message: 'OAuth refresh token (sk-ant-ort01-...)', validate: (v: string) => v.startsWith('sk-ant-ort') ? true : 'Must start with sk-ant-ort' },
+        ]);
+        if (!tokenResponse.accessToken || !tokenResponse.refreshToken) {
+          console.log(chalk.red('\n  Setup cancelled. Use API Key mode instead on headless servers.'));
+          process.exit(1);
+        }
+        oauthCreds = { accessToken: tokenResponse.accessToken, refreshToken: tokenResponse.refreshToken };
+      }
     }
 
     questions.push(
@@ -166,8 +218,9 @@ export async function init(opts: InitOptions): Promise<void> {
     if (authMode.mode === 'apikey') {
       envContent += `ANTHROPIC_API_KEY=${response.anthropicKey}\n`;
     } else {
-      envContent += `# Claude Code subscription — credentials from ~/.claude\n`;
-      envContent += `CLAUDE_BIN=${response.claudeBin}\n`;
+      envContent += `# Claude Code subscription — OAuth credentials from keychain\n`;
+      envContent += `CLAUDE_CODE_OAUTH_TOKEN=${oauthCreds!.accessToken}\n`;
+      envContent += `CLAUDE_CODE_OAUTH_REFRESH_TOKEN=${oauthCreds!.refreshToken}\n`;
     }
     envContent += `\nPOSTGRES_DB=slackhive\n`;
     envContent += `POSTGRES_USER=slackhive\n`;
