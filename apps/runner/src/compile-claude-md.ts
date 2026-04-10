@@ -32,8 +32,6 @@ import { logger } from './logger';
 /** Base directory for ephemeral agent workspaces. */
 const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? '/tmp/agents';
 
-/** Path to the graphify skill file installed by the graphifyy Python package. */
-const GRAPHIFY_SKILL_PATH = '/usr/lib/python3.12/site-packages/graphify/skill.md';
 
 /**
  * Built-in /recall skill — injected for every agent automatically.
@@ -157,11 +155,6 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
   // Built-in recall skill — always injected, not user-visible in Skills tab
   fs.writeFileSync(path.join(commandsDir, 'recall.md'), RECALL_SKILL, 'utf-8');
 
-  // Inject graphify skill if installed (graphifyy Python package)
-  if (fs.existsSync(GRAPHIFY_SKILL_PATH)) {
-    fs.writeFileSync(path.join(commandsDir, 'graphify.md'), fs.readFileSync(GRAPHIFY_SKILL_PATH, 'utf-8'), 'utf-8');
-  }
-
   for (const skill of skills) {
     const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
     fs.writeFileSync(path.join(commandsDir, filename), skill.content, 'utf-8');
@@ -192,9 +185,6 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
         fs.rmSync(path.join(sessionCommandsDir, existing), { force: true });
       }
       fs.writeFileSync(path.join(sessionCommandsDir, 'recall.md'), RECALL_SKILL, 'utf-8');
-      if (fs.existsSync(GRAPHIFY_SKILL_PATH)) {
-        fs.writeFileSync(path.join(sessionCommandsDir, 'graphify.md'), fs.readFileSync(GRAPHIFY_SKILL_PATH, 'utf-8'), 'utf-8');
-      }
       for (const skill of skills) {
         const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
         fs.writeFileSync(path.join(sessionCommandsDir, filename), skill.content, 'utf-8');
