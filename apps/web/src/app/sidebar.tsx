@@ -235,33 +235,6 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         </div>
         </div>
 
-        {/* ── Theme toggle ──────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0' }}>
-          <button
-            onClick={toggleTheme}
-            title={theme === 'light' ? 'Dark mode' : 'Light mode'}
-            style={{
-              width: 30, height: 30, borderRadius: 8,
-              border: '1px solid var(--border)', background: 'var(--surface-2)',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--muted)', transition: 'background 0.12s',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-3)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'var(--surface-2)')}
-          >
-            {theme === 'light' ? (
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M14 9.2A6 6 0 116.8 2a4.8 4.8 0 007.2 7.2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3"/>
-              </svg>
-            )}
-          </button>
-        </div>
-
         {/* ── Footer — Profile ──────────────────────────────────────────── */}
         <div style={{ padding: collapsed ? '12px 8px' : '12px', borderTop: '1px solid var(--border)', position: 'relative' }}>
           {/* Profile row — click to toggle popup */}
@@ -324,16 +297,42 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                 </div>
               )}
               <button
+                onClick={toggleTheme}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  width: '100%', padding: '10px 14px',
+                  background: 'transparent', border: 'none',
+                  color: 'var(--muted)', fontSize: 13, cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)',
+                  transition: 'background 0.12s',
+                  borderBottom: '1px solid var(--border)',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                {theme === 'light' ? (
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M14 9.2A6 6 0 116.8 2a4.8 4.8 0 007.2 7.2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                    <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3"/>
+                  </svg>
+                )}
+                {theme === 'light' ? 'Dark mode' : 'Light mode'}
+              </button>
+              <button
                 onClick={() => { setProfileOpen(false); logout(); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   width: '100%', padding: '10px 14px',
                   background: 'transparent', border: 'none',
-                  color: '#dc2626', fontSize: 13, cursor: 'pointer',
+                  color: 'var(--red)', fontSize: 13, cursor: 'pointer',
                   fontFamily: 'var(--font-sans)',
                   transition: 'background 0.12s',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(220,38,38,0.05)')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--red-soft-bg)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
