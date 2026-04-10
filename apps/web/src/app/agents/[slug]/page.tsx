@@ -1828,6 +1828,34 @@ function McpsDiff({ snapshot, current, allMcps }: { snapshot: AgentSnapshot; cur
   );
 }
 
+function ChannelsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: AgentSnapshot | null }) {
+  const currChannels = new Set(current?.allowedChannels ?? []);
+  const snapChannels = new Set(snapshot.allowedChannels ?? []);
+  const added   = [...currChannels].filter(ch => !snapChannels.has(ch));
+  const removed = [...snapChannels].filter(ch => !currChannels.has(ch));
+  if (!added.length && !removed.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No channel restriction changes.</p>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {added.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>Channels added</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {added.map(ch => (
+            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: '#16a34a22', color: '#16a34a' }}>{ch}</span>
+          ))}
+        </div>
+      </div>}
+      {removed.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginBottom: 4 }}>Channels removed</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {removed.map(ch => (
+            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: '#ef444422', color: '#ef4444' }}>{ch}</span>
+          ))}
+        </div>
+      </div>}
+    </div>
+  );
+}
+
 // ── Trigger badge ─────────────────────────────────────────────────────────────
 
 const TRIGGER_COLORS: Record<string, { bg: string; color: string }> = {
@@ -2177,6 +2205,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             { title: 'Skills',       content: <SkillDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
             { title: 'Tools',        content: <PermsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
             { title: 'MCPs',         content: <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} /> },
+            { title: 'Channels',     content: <ChannelsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
             { title: 'System Prompt', content: (() => {
                 if (!fullSnapshot.compiledMd || !currentAsSnapshot.compiledMd)
                   return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>Not available for this snapshot</p>;

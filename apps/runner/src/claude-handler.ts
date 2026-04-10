@@ -123,6 +123,52 @@ export class ClaudeHandler {
   }
 
   /**
+   * Refreshes the OAuth access token using the refresh token from
+   * ~/.claude/.credentials.json and writes the new token back.
+   * Returns true if the refresh succeeded.
+   */
+  static async refreshOAuthToken(): Promise<boolean> {
+    const credPath = path.join(process.env.HOME || '/root', '.claude', '.credentials.json');
+    try {
+      const raw = fs.readFileSync(credPath, 'utf-8');
+      const creds = JSON.parse(raw);
+      const refreshToken = creds?.claudeAiOauth?.refreshToken;
+      if (!refreshToken) return false;
+
+      const TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
+      const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+      const SCOPES = 'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload';
+
+      const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+      });
+
+      const resp = await fetch(TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+
+      if (!resp.ok) return false;
+
+      const data = await resp.json() as { access_token?: string; refresh_token?: string };
+      if (!data.access_token) return false;
+
+      // Update credentials file so the SDK picks up the new token
+      creds.claudeAiOauth.accessToken = data.access_token;
+      if (data.refresh_token) creds.claudeAiOauth.refreshToken = data.refresh_token;
+      fs.writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Derives a deterministic session key from Slack identifiers.
    * The key is used as both a DB lookup key and a working-directory name.
    *
@@ -259,6 +305,15 @@ export class ClaudeHandler {
               this.log.debug('Session created', { sessionKey, sessionId: newSessionId, cwd: sessionWorkDir });
             }
           }
+
+          // Intercept auth errors returned as successful results by the SDK
+          if (message.type === 'result') {
+            const resultText = (message as any).result as string | undefined;
+            if (resultText && (resultText.includes('authentication_error') || resultText.includes('Failed to authenticate'))) {
+              throw new Error(resultText);
+            }
+          }
+
           yield message;
         }
         break; // completed successfully
@@ -275,6 +330,18 @@ export class ClaudeHandler {
           activeOptions = freshOptions;
           retried = true;
           continue outer;
+        }
+        // Retry once on authentication failure — refresh the OAuth token first
+        if (!retried && (errMsg.includes('authentication_error') || errMsg.includes('401') || errMsg.includes('Invalid authentication credentials'))) {
+          this.log.warn('Authentication failed, attempting OAuth token refresh', { sessionKey });
+          const refreshed = await ClaudeHandler.refreshOAuthToken();
+          if (refreshed) {
+            this.log.info('OAuth token refreshed successfully, retrying query');
+            retried = true;
+            continue outer;
+          }
+          this.log.error('OAuth token refresh failed');
+          throw new Error('AUTH_EXPIRED: Claude authentication expired. Run `claude login` then `slackhive init` (macOS) to resync credentials.');
         }
         this.log.error('Claude query failed', { sessionKey, error: errMsg });
         throw err;

@@ -76,21 +76,23 @@ export async function PUT(
   const content = await req.text();
   if (!content.trim()) return new NextResponse('Empty content', { status: 400 });
 
-  // Snapshot current state before overwriting
-  const session = getSessionFromRequest(req);
-  const [currentSkills, currentPerms, currentMcps] = await Promise.all([
-    getAgentSkills(id),
-    getAgentPermissions(id),
-    getAgentMcpServers(id),
-  ]);
-  await createSnapshot(
-    id, 'claude-md', session?.username ?? 'system', null,
-    currentSkills.map(skillToSnapshotSkill),
-    currentPerms?.allowedTools ?? [],
-    currentPerms?.deniedTools ?? [],
-    currentMcps.map(m => m.id),
-    agent.claudeMd,
-  ).catch(() => {});
+  // Snapshot current state before overwriting — only if content actually changed
+  if (content.trim() !== agent.claudeMd.trim()) {
+    const session = getSessionFromRequest(req);
+    const [currentSkills, currentPerms, currentMcps] = await Promise.all([
+      getAgentSkills(id),
+      getAgentPermissions(id),
+      getAgentMcpServers(id),
+    ]);
+    await createSnapshot(
+      id, 'claude-md', session?.username ?? 'system', null,
+      currentSkills.map(skillToSnapshotSkill),
+      currentPerms?.allowedTools ?? [],
+      currentPerms?.deniedTools ?? [],
+      currentMcps.map(m => m.id),
+      agent.claudeMd,
+    ).catch(() => {});
+  }
 
   await updateAgentClaudeMd(id, content);
   await publishAgentEvent({ type: 'reload', agentId: id });

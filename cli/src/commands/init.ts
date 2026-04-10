@@ -37,7 +37,7 @@ interface OAuthCredentials {
 /**
  * Parses a JSON credential blob and extracts OAuth tokens.
  */
-function parseOAuthFromJson(json: string): OAuthCredentials | null {
+export function parseOAuthFromJson(json: string): OAuthCredentials | null {
   try {
     const parsed = JSON.parse(json);
     const oauth = parsed?.claudeAiOauth;
@@ -53,7 +53,7 @@ function parseOAuthFromJson(json: string): OAuthCredentials | null {
  * Tries macOS Keychain, then Linux secret-tool (GNOME Keyring).
  * Returns access + refresh tokens, or null if not found.
  */
-function extractOAuthCredentials(): OAuthCredentials | null {
+export function extractOAuthCredentials(): OAuthCredentials | null {
   // macOS: read from Keychain
   try {
     const creds = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
@@ -85,6 +85,23 @@ function extractOAuthCredentials(): OAuthCredentials | null {
   } catch { /* file not readable or invalid */ }
 
   return null;
+}
+
+/**
+ * Writes OAuth credentials to ~/.claude/.credentials.json so the Docker
+ * container's volume mount can access them. On Linux this file is created
+ * natively by `claude login`; on macOS credentials go to Keychain instead,
+ * so we need to create the file explicitly.
+ */
+export function syncCredentialsFile(creds: OAuthCredentials): void {
+  const credPath = join(process.env.HOME || '~', '.claude', '.credentials.json');
+  const payload = JSON.stringify({
+    claudeAiOauth: {
+      accessToken: creds.accessToken,
+      refreshToken: creds.refreshToken,
+    },
+  }, null, 2);
+  writeFileSync(credPath, payload, { mode: 0o600 });
 }
 
 /**
@@ -192,6 +209,7 @@ export async function init(opts: InitOptions): Promise<void> {
       oauthCreds = extractOAuthCredentials();
       if (oauthCreds) {
         spinner.succeed('OAuth credentials extracted');
+        syncCredentialsFile(oauthCreds);
       } else {
         spinner.warn('Could not auto-extract credentials from keychain');
         console.log(chalk.gray('  On Linux/headless servers, paste your OAuth token manually.'));
@@ -208,6 +226,7 @@ export async function init(opts: InitOptions): Promise<void> {
           process.exit(1);
         }
         oauthCreds = { accessToken: tokenResponse.accessToken, refreshToken: tokenResponse.refreshToken };
+        syncCredentialsFile(oauthCreds);
       }
     }
 
@@ -251,7 +270,7 @@ export async function init(opts: InitOptions): Promise<void> {
     console.log(chalk.bold.hex('#D97757')('  [3/4]') + chalk.bold(' Configure environment'));
     console.log('');
     // Check if existing .env is missing required keys
-    const envContents = existsSync(envPath) ? require('fs').readFileSync(envPath, 'utf-8') : '';
+    let envContents = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : '';
     const missingKeys: string[] = [];
     if (!envContents.includes('REDIS_PASSWORD=')) missingKeys.push('REDIS_PASSWORD');
     if (!envContents.includes('AUTH_SECRET=')) missingKeys.push('AUTH_SECRET');
@@ -263,7 +282,26 @@ export async function init(opts: InitOptions): Promise<void> {
       if (!envContents.includes('AUTH_SECRET=')) patch += `AUTH_SECRET=${randomSecret()}\n`;
       if (!envContents.includes('ENV_SECRET_KEY=')) patch += `ENV_SECRET_KEY=${randomSecret()}\n`;
       require('fs').appendFileSync(envPath, patch);
+      envContents = readFileSync(envPath, 'utf-8');
       console.log(chalk.green('  ✓') + ' .env patched');
+    }
+
+    // Resync OAuth credentials if using subscription mode
+    if (envContents.includes('CLAUDE_CODE_OAUTH_TOKEN=')) {
+      const spinner = ora('  Syncing OAuth credentials...').start();
+      const freshCreds = extractOAuthCredentials();
+      if (freshCreds) {
+        // Update .env with fresh tokens
+        envContents = envContents
+          .replace(/CLAUDE_CODE_OAUTH_TOKEN=.*/, `CLAUDE_CODE_OAUTH_TOKEN=${freshCreds.accessToken}`)
+          .replace(/CLAUDE_CODE_OAUTH_REFRESH_TOKEN=.*/, `CLAUDE_CODE_OAUTH_REFRESH_TOKEN=${freshCreds.refreshToken}`);
+        writeFileSync(envPath, envContents);
+        // Write credentials file for the Docker volume mount
+        syncCredentialsFile(freshCreds);
+        spinner.succeed('OAuth credentials synced');
+      } else {
+        spinner.warn('Could not extract credentials — run `claude login` if agents fail to authenticate');
+      }
     } else {
       console.log(chalk.yellow('  note: .env already exists — skipping configuration'));
     }

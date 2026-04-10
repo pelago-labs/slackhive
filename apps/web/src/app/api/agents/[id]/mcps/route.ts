@@ -47,22 +47,26 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
     if (denied) return denied;
     const { mcpIds } = (await req.json()) as { mcpIds: string[] };
 
-    // Snapshot before mutation
-    const session = getSessionFromRequest(req);
+    // Snapshot before mutation — only if MCP assignments actually changed
     const [agent, currentSkills, perms, currentMcps] = await Promise.all([
       getAgentById(id),
       getAgentSkills(id),
       getAgentPermissions(id),
       getAgentMcpServers(id),
     ]);
-    await createSnapshot(
-      id, 'mcps', session?.username ?? 'system', null,
-      currentSkills.map(skillToSnapshotSkill),
-      perms?.allowedTools ?? [],
-      perms?.deniedTools ?? [],
-      currentMcps.map(m => m.id),
-      agent?.claudeMd ?? '',
-    ).catch(() => {});
+    const oldMcpIds = JSON.stringify([...currentMcps.map(m => m.id)].sort());
+    const newMcpIds = JSON.stringify([...(mcpIds ?? [])].sort());
+    if (oldMcpIds !== newMcpIds) {
+      const session = getSessionFromRequest(req);
+      await createSnapshot(
+        id, 'mcps', session?.username ?? 'system', null,
+        currentSkills.map(skillToSnapshotSkill),
+        perms?.allowedTools ?? [],
+        perms?.deniedTools ?? [],
+        currentMcps.map(m => m.id),
+        agent?.claudeMd ?? '',
+      ).catch(() => {});
+    }
 
     await setAgentMcps(id, mcpIds ?? []);
     await publishAgentEvent({ type: 'reload', agentId: id });

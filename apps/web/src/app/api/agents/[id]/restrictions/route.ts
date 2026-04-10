@@ -57,8 +57,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
     if (denied) return denied;
     const body = (await req.json()) as UpdateRestrictionsRequest;
 
-    // Snapshot before mutation
-    const session = getSessionFromRequest(req);
+    // Snapshot before mutation — only if restrictions actually changed
     const [agent, currentSkills, perms, mcps, currentRestrictions] = await Promise.all([
       getAgentById(id),
       getAgentSkills(id),
@@ -66,15 +65,20 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
       getAgentMcpServers(id),
       getAgentRestrictions(id),
     ]);
-    await createSnapshot(
-      id, 'restrictions', session?.username ?? 'system', null,
-      currentSkills.map(skillToSnapshotSkill),
-      perms?.allowedTools ?? [],
-      perms?.deniedTools ?? [],
-      mcps.map(m => m.id),
-      agent?.claudeMd ?? '',
-      currentRestrictions?.allowedChannels ?? [],
-    ).catch(() => {});
+    const oldChannels = JSON.stringify([...(currentRestrictions?.allowedChannels ?? [])].sort());
+    const newChannels = JSON.stringify([...(body.allowedChannels ?? [])].sort());
+    if (oldChannels !== newChannels) {
+      const session = getSessionFromRequest(req);
+      await createSnapshot(
+        id, 'restrictions', session?.username ?? 'system', null,
+        currentSkills.map(skillToSnapshotSkill),
+        perms?.allowedTools ?? [],
+        perms?.deniedTools ?? [],
+        mcps.map(m => m.id),
+        agent?.claudeMd ?? '',
+        currentRestrictions?.allowedChannels ?? [],
+      ).catch(() => {});
+    }
 
     await upsertRestrictions(id, body.allowedChannels ?? []);
     await publishAgentEvent({ type: 'reload', agentId: id });

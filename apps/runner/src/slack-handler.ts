@@ -288,6 +288,8 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
             await client.chat.update({ channel: channelId, ts: statusTs, text: toolStatus }).catch(() => {});
           }
         } else if (textContent) {
+          // Skip posting raw auth errors — they will be handled by the catch block
+          if (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate')) continue;
           // Text-only assistant message — send immediately
           sentMessages.push(textContent);
 
@@ -391,7 +393,12 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
       await updateReaction(client, channelId, messageTs, sessionKey, 'stop_button');
     } else {
       log.error('Error streaming Claude response', { sessionKey, error: error?.message });
-      const errText = `❌ Something went wrong. Please try again.\n\`${error?.message ?? 'Unknown error'}\``;
+      let errText: string;
+      if (error?.message?.startsWith('AUTH_EXPIRED:')) {
+        errText = '🔑 Authentication expired. Please run on the host machine:\n```\nclaude login\nslackhive init   # required on macOS to sync credentials\n```';
+      } else {
+        errText = `❌ Something went wrong. Please try again.\n\`${error?.message ?? 'Unknown error'}\``;
+      }
       if (statusTs) await client.chat.update({ channel: channelId, ts: statusTs, text: errText }).catch(() => {});
       await updateReaction(client, channelId, messageTs, sessionKey, 'x');
     }

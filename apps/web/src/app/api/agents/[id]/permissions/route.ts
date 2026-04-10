@@ -48,22 +48,28 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
     if (denied) return denied;
     const body = (await req.json()) as UpdatePermissionsRequest;
 
-    // Snapshot before mutation
-    const session = getSessionFromRequest(req);
+    // Snapshot before mutation — only if permissions actually changed
     const [agent, currentSkills, perms, mcps] = await Promise.all([
       getAgentById(id),
       getAgentSkills(id),
       getAgentPermissions(id),
       getAgentMcpServers(id),
     ]);
-    await createSnapshot(
-      id, 'permissions', session?.username ?? 'system', null,
-      currentSkills.map(skillToSnapshotSkill),
-      perms?.allowedTools ?? [],
-      perms?.deniedTools ?? [],
-      mcps.map(m => m.id),
-      agent?.claudeMd ?? '',
-    ).catch(() => {});
+    const oldAllowed = JSON.stringify([...(perms?.allowedTools ?? [])].sort());
+    const oldDenied = JSON.stringify([...(perms?.deniedTools ?? [])].sort());
+    const newAllowed = JSON.stringify([...(body.allowedTools ?? [])].sort());
+    const newDenied = JSON.stringify([...(body.deniedTools ?? [])].sort());
+    if (oldAllowed !== newAllowed || oldDenied !== newDenied) {
+      const session = getSessionFromRequest(req);
+      await createSnapshot(
+        id, 'permissions', session?.username ?? 'system', null,
+        currentSkills.map(skillToSnapshotSkill),
+        perms?.allowedTools ?? [],
+        perms?.deniedTools ?? [],
+        mcps.map(m => m.id),
+        agent?.claudeMd ?? '',
+      ).catch(() => {});
+    }
 
     await upsertPermissions(id, body.allowedTools ?? [], body.deniedTools ?? []);
     await publishAgentEvent({ type: 'reload', agentId: id });

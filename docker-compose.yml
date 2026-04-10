@@ -105,8 +105,8 @@ services:
     volumes:
       # Ephemeral per-agent working directories (CLAUDE.md + memory watch)
       - /tmp/agents:/tmp/agents
-      # Mount host Claude config (read-only for credentials safety)
-      - ${HOME}/.claude:/root/.claude:ro
+      # Mount host Claude config (writable so SDK can refresh OAuth tokens)
+      - ${HOME}/.claude:/root/.claude
       # Writable overlays for SDK runtime state (session-env, shell-snapshots)
       - claude-session-env:/root/.claude/session-env
       - claude-shell-snapshots:/root/.claude/shell-snapshots
