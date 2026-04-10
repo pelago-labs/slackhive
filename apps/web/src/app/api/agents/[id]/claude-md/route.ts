@@ -13,7 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentById, getAgentMemories, updateAgentClaudeMd, publishAgentEvent, getAgentSkills, getAgentPermissions, getAgentMcpServers, createSnapshot } from '@/lib/db';
+import { getAgentById, updateAgentClaudeMd, publishAgentEvent, getAgentSkills, getAgentPermissions, getAgentMcpServers, createSnapshot } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { skillToSnapshotSkill } from '@/lib/compile';
@@ -34,8 +34,6 @@ export async function GET(
   const agent = await getAgentById(id);
   if (!agent) return new NextResponse('Not found', { status: 404 });
 
-  const memories = await getAgentMemories(id);
-
   const sections: string[] = [];
 
   if (agent.claudeMd.trim()) {
@@ -48,18 +46,7 @@ export async function GET(
     sections.push(lines.join('\n'));
   }
 
-  if (memories.length > 0) {
-    const order = ['feedback', 'user', 'project', 'reference'];
-    const grouped = memories.reduce<Record<string, typeof memories>>((acc, m) => {
-      (acc[m.type] ??= []).push(m);
-      return acc;
-    }, {});
-    const memParts = order
-      .filter(t => grouped[t]?.length)
-      .map(t => `## ${t.charAt(0).toUpperCase() + t.slice(1)} Memories\n\n` +
-        grouped[t].map(m => `### ${m.name}\n${m.content}`).join('\n\n'));
-    sections.push(`# Agent Memory\n\n${memParts.join('\n\n')}`);
-  }
+  // Memories are shown separately in the Memory tab — not appended to CLAUDE.md preview.
 
   return new NextResponse(sections.join('\n\n'), {
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
