@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "dev": "sh scripts/dev.sh",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "postinstall": "cd cli && npm install"
   },
   "engines": {
     "node": ">=20.0.0"
