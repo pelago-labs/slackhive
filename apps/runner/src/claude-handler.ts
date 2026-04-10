@@ -416,10 +416,26 @@ export class ClaudeHandler {
     // Bash(pattern) rules go into settings.permissions.allow — this is the only place
     // the SDK supports command-level scoping (not in allowedTools/tools).
     if (hasBashRules) {
+      const agentNamespace = `/tmp/agents/${this.agent.slug}`;
+      // Block access to /tmp/agents/ broadly, then allow back in via the allow list
+      // which is scoped to this agent's namespace only.
+      const bashDeny = [
+        ...denied,
+        'Bash(rm *)', 'Bash(curl *)', 'Bash(wget *)', 'Bash(chmod *)', 'Bash(sudo *)', 'Bash(kill *)',
+        // Block access to ALL agent namespaces — the allow list re-opens only this agent's own
+        `Bash(cat /tmp/agents/*)`, `Bash(ls /tmp/agents/*)`,
+        `Bash(find /tmp/agents/*)`, `Bash(grep * /tmp/agents/*)`,
+        `Bash(python3 /tmp/agents/*)`, `Bash(python3 -m pytest /tmp/agents/*)`,
+        `Bash(pytest /tmp/agents/*)`, `Bash(git clone * /tmp/agents/*)`,
+        `Bash(git -C /tmp/agents/*)`, `Bash(git log /tmp/agents/*)`,
+        `Bash(/graphify /tmp/agents/*)`, `Bash(graphify /tmp/agents/*)`
+      ];
+      // Re-allow this agent's own namespace — substitute {agent} placeholder with actual slug.
+      const bashAllow = bashRules.map(r => r.replace(/\{agent\}/g, this.agent.slug));
       options.settings = {
         permissions: {
-          allow: bashRules,
-          deny: [...denied, 'Bash(rm *)','Bash(curl *)','Bash(wget *)','Bash(chmod *)','Bash(sudo *)','Bash(kill *)','Bash(cat /tmp/agents/*)','Bash(ls /tmp/agents/*)','Bash(find /tmp/agents/*)','Bash(grep * /tmp/agents/*)'],
+          allow: bashAllow,
+          deny: bashDeny,
         },
       };
     }
