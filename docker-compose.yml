@@ -105,8 +105,8 @@ services:
     volumes:
       # Ephemeral per-agent working directories (CLAUDE.md + memory watch)
       - /tmp/agents:/tmp/agents
-      # Mount host Claude config
-      - ${HOME}/.claude:/root/.claude:ro
+      # Mount host Claude config (writable so SDK can refresh OAuth tokens)
+      - ${HOME}/.claude:/root/.claude
       # Mount host home so MCP server paths resolve inside container
       - ${HOME}:${HOME}:ro
 

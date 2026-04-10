@@ -278,6 +278,13 @@ export class ClaudeHandler {
           retried = true;
           continue outer;
         }
+        // Retry once on authentication failure — the SDK will auto-refresh
+        // using the refresh token from ~/.claude/.credentials.json
+        if (!retried && (errMsg.includes('authentication_error') || errMsg.includes('401') || errMsg.includes('Invalid authentication credentials'))) {
+          this.log.warn('Authentication failed, retrying (SDK will attempt token refresh)', { sessionKey });
+          retried = true;
+          continue outer;
+        }
         this.log.error('Claude query failed', { sessionKey, error: errMsg });
         throw err;
       }
