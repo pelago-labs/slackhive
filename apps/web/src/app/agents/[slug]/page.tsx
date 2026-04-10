@@ -2066,7 +2066,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             boxShadow: 'var(--shadow-card)', padding: '28px 20px',
             textAlign: 'center',
           }}>
-            <Camera size={22} style={{ marginBottom: 10, color: 'var(--border-2)' }} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Camera size={22} style={{ color: 'var(--border-2)' }} /></div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No snapshots yet</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
               Snapshots are saved automatically when you change skills, MCPs, or permissions.

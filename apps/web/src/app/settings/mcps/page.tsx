@@ -11,7 +11,8 @@
 import { useState, useEffect, useRef } from 'react';
 import type { McpServer, McpServerType } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
-import { Settings } from 'lucide-react';
+import { Plug, Library, Search, X, Check, Loader2 } from 'lucide-react';
+import { Portal } from '@/lib/portal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,17 @@ export default function McpSettingsPage() {
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message?: string; error?: string } | 'testing'>>({});
   const formRef = useRef<HTMLDivElement>(null);
 
+  // Template library state
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [categories, setCategories] = useState<Record<string, { label: string; description: string }>>({});
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [installingTemplate, setInstallingTemplate] = useState<string | null>(null);
+  const [templateEnvValues, setTemplateEnvValues] = useState<Record<string, string>>({});
+  const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
+  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
+
   useEffect(() => { load(); }, []);
   useEffect(() => {
     if (showForm && formRef.current) {
@@ -88,6 +100,67 @@ export default function McpSettingsPage() {
       setServers(await r.json());
     } finally { setLoading(false); }
   };
+
+  // ─── Template library ──────────────────────────────────────────────────────
+
+  const loadTemplates = async () => {
+    try {
+      const r = await fetch('/api/mcps/templates');
+      const data = await r.json();
+      setTemplates(data.templates);
+      setCategories(data.categories);
+      // Mark already-installed servers
+      const installed = new Set(servers.map(s => s.name));
+      setInstalledIds(installed as Set<string>);
+    } catch { /* ignore */ }
+  };
+
+  const openLibrary = () => {
+    loadTemplates();
+    setShowLibrary(true);
+    setTemplateSearch('');
+    setSelectedCategory(null);
+    setSelectedTemplate(null);
+  };
+
+  const installTemplate = async (template: any) => {
+    // If template has required env vars, show the config step
+    const requiredKeys = template.envKeys.filter((k: any) => k.required);
+    if (requiredKeys.length > 0 && !selectedTemplate) {
+      setSelectedTemplate(template);
+      setTemplateEnvValues({});
+      return;
+    }
+
+    setInstallingTemplate(template.id);
+    try {
+      const r = await fetch('/api/mcps/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateId: template.id, envValues: templateEnvValues }),
+      });
+      if (r.ok) {
+        setInstalledIds(prev => new Set([...prev, template.id]));
+        setSelectedTemplate(null);
+        setTemplateEnvValues({});
+        await load(); // Refresh server list
+      } else {
+        const err = await r.json();
+        alert(err.error || 'Failed to install');
+      }
+    } finally {
+      setInstallingTemplate(null);
+    }
+  };
+
+  const filteredTemplates = templates.filter(t => {
+    if (selectedCategory && t.category !== selectedCategory) return false;
+    if (templateSearch) {
+      const q = templateSearch.toLowerCase();
+      return t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.tags?.some((tag: string) => tag.includes(q));
+    }
+    return true;
+  });
 
   // ─── Config builder ─────────────────────────────────────────────────────────
 
@@ -240,7 +313,7 @@ export default function McpSettingsPage() {
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 860 }} className="fade-up">
+    <div style={{ padding: '36px 40px' }} className="fade-up">
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
@@ -253,19 +326,34 @@ export default function McpSettingsPage() {
           </p>
         </div>
         {canEdit && !showForm && (
-          <button onClick={() => setShowForm(true)} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--accent)', color: 'var(--accent-fg)',
-            padding: '8px 16px', borderRadius: 8, border: 'none',
-            fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            transition: 'opacity 0.15s',
-          }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-          >
-            <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span>
-            Add Server
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={openLibrary} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--surface)', color: 'var(--text)',
+              padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)',
+              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              transition: 'opacity 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+            >
+              <Library size={14} />
+              Browse Library
+            </button>
+            <button onClick={() => setShowForm(true)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--accent)', color: 'var(--accent-fg)',
+              padding: '8px 16px', borderRadius: 8, border: 'none',
+              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              transition: 'opacity 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span>
+              Custom Server
+            </button>
+          </div>
         )}
       </div>
 
@@ -277,14 +365,21 @@ export default function McpSettingsPage() {
           border: '1px dashed var(--border)', borderRadius: 12, padding: '48px',
           textAlign: 'center', color: 'var(--subtle)',
         }}>
-          <div style={{ marginBottom: 10, color: 'var(--subtle)' }}><Settings size={28} /></div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Plug size={28} style={{ color: 'var(--border-2)' }} /></div>
           <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No MCP servers yet</p>
-          <p style={{ margin: '0 0 16px', fontSize: 13 }}>Add servers to the catalog to enable agent tools.</p>
-          {canEdit && <button onClick={() => setShowForm(true)} style={{
-            background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
-            padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-            fontFamily: 'var(--font-sans)',
-          }}>Add First Server</button>}
+          <p style={{ margin: '0 0 16px', fontSize: 13 }}>Add tools like GitHub, Notion, Figma, and 50+ more from the library.</p>
+          {canEdit && <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            <button onClick={openLibrary} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
+              padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              fontFamily: 'var(--font-sans)',
+            }}><Library size={14} /> Browse Library</button>
+            <button onClick={() => setShowForm(true)} style={{
+              background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '8px 16px', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            }}>Add Custom</button>
+          </div>}
         </div>
       ) : (
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
@@ -418,6 +513,193 @@ export default function McpSettingsPage() {
             </div>
           </form>
         </div>
+      )}
+
+      {/* ─── Template Library Modal ─────────────────────────────────────────── */}
+      {showLibrary && (
+        <Portal><div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '40px 20px',
+        }}>
+          <div style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          }} onClick={() => { setShowLibrary(false); setSelectedTemplate(null); }} />
+          <div style={{
+            position: 'relative', background: 'var(--bg)', borderRadius: 16,
+            width: '100%', maxWidth: 720, height: '100%', maxHeight: '100%',
+            display: 'flex', flexDirection: 'column',
+            border: '1px solid var(--border)', boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
+          }}>
+            {/* Modal header */}
+            <div style={{
+              padding: '20px 24px 16px', borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>
+                  MCP Server Library
+                </h2>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                  {templates.length} pre-configured servers — click to add
+                </p>
+              </div>
+              <button onClick={() => { setShowLibrary(false); setSelectedTemplate(null); }} style={{
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4,
+              }}><X size={18} /></button>
+            </div>
+
+            {/* Search + category filter */}
+            <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Search servers..."
+                  value={templateSearch}
+                  onChange={e => setTemplateSearch(e.target.value)}
+                  style={{
+                    width: '100%', padding: '7px 10px 7px 30px', borderRadius: 8,
+                    border: '1px solid var(--border)', background: 'var(--surface-2)',
+                    fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none',
+                  }}
+                />
+              </div>
+              <select
+                value={selectedCategory ?? ''}
+                onChange={e => setSelectedCategory(e.target.value || null)}
+                style={{
+                  padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)',
+                  background: 'var(--surface-2)', fontSize: 12, color: 'var(--text)',
+                  fontFamily: 'var(--font-sans)', cursor: 'pointer',
+                }}
+              >
+                <option value="">All Categories</option>
+                {Object.entries(categories).map(([key, cat]) => (
+                  <option key={key} value={key}>{cat.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Template list */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 24px 24px' }}>
+              {selectedTemplate ? (
+                /* Env var configuration step */
+                <div style={{ padding: '16px 0' }}>
+                  <button onClick={() => setSelectedTemplate(null)} style={{
+                    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
+                    fontSize: 12, padding: 0, marginBottom: 12, fontFamily: 'var(--font-sans)',
+                  }}>&larr; Back to library</button>
+                  <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
+                    {selectedTemplate.logo ? <img src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${selectedTemplate.logo}.svg`} alt="" width={20} height={20} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8, borderRadius: 3, opacity: 0.8 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} /> : null}{selectedTemplate.name}
+                  </h3>
+                  <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--muted)' }}>
+                    {selectedTemplate.description}
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {selectedTemplate.envKeys.map((env: any) => (
+                      <div key={env.key}>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}>
+                          {env.label} {env.required && <span style={{ color: '#ef4444' }}>*</span>}
+                        </label>
+                        <input
+                          type="password"
+                          placeholder={env.placeholder || env.key}
+                          value={templateEnvValues[env.key] || ''}
+                          onChange={e => setTemplateEnvValues(prev => ({ ...prev, [env.key]: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '8px 12px', borderRadius: 8,
+                            border: '1px solid var(--border)', background: 'var(--surface-2)',
+                            fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)',
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => installTemplate(selectedTemplate)}
+                    disabled={installingTemplate === selectedTemplate.id}
+                    style={{
+                      marginTop: 16, background: 'var(--accent)', color: 'var(--accent-fg)',
+                      border: 'none', borderRadius: 8, padding: '9px 24px', fontSize: 13,
+                      fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}
+                  >
+                    {installingTemplate === selectedTemplate.id
+                      ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Installing...</>
+                      : 'Add to Catalog'}
+                  </button>
+                </div>
+              ) : (
+                /* Template grid */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, paddingTop: 8 }}>
+                  {filteredTemplates.map(t => {
+                    const isInstalled = installedIds.has(t.id);
+                    const isInstalling = installingTemplate === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => !isInstalled && installTemplate(t)}
+                        disabled={isInstalled || isInstalling}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px',
+                          background: isInstalled ? 'var(--surface-2)' : 'var(--surface)',
+                          border: '1px solid var(--border)', borderRadius: 10,
+                          cursor: isInstalled ? 'default' : 'pointer', textAlign: 'left',
+                          fontFamily: 'var(--font-sans)', transition: 'border-color 0.15s, box-shadow 0.15s',
+                          opacity: isInstalled ? 0.6 : 1,
+                        }}
+                        onMouseEnter={e => { if (!isInstalled) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 1px var(--accent)'; } }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
+                      >
+                        <span style={{ width: 24, height: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {t.logo ? (
+                            <img
+                              src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${t.logo}.svg`}
+                              alt={t.name}
+                              width={20} height={20}
+                              style={{ borderRadius: 3, opacity: 0.8 }}
+                              onError={e => {
+                                const el = e.target as HTMLImageElement;
+                                el.style.display = 'none';
+                                el.parentElement!.querySelector('span')!.style.display = 'flex';
+                              }}
+                            />
+                          ) : null}
+                          <span style={{
+                            display: t.logo ? 'none' : 'flex',
+                            width: 24, height: 24, borderRadius: 6,
+                            background: 'var(--border)', color: 'var(--muted)',
+                            alignItems: 'center', justifyContent: 'center',
+                            fontSize: 12, fontWeight: 700,
+                          }}>{t.name.charAt(0)}</span>
+                        </span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {t.name}
+                            {isInstalled && <Check size={13} style={{ color: 'var(--success, #22c55e)' }} />}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
+                            {t.description}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--subtle)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {t.transport === 'http' ? 'Remote' : 'Local'}{t.official && ' · Official'}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {filteredTemplates.length === 0 && !selectedTemplate && (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: 13 }}>
+                  No servers match your search.
+                </div>
+              )}
+            </div>
+          </div>
+        </div></Portal>
       )}
     </div>
   );

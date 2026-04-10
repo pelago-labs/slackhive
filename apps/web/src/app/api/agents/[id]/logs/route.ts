@@ -33,7 +33,17 @@ export async function GET(
   const stream = new ReadableStream({
     start(controller) {
       function send(line: string) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(line)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(line)}\n\n`));
+        } catch { /* stream closed */ }
+      }
+
+      // Match lines for this agent OR general system lines (no agent field)
+      function isRelevantLine(line: string): boolean {
+        if (line.includes(`"agent":"${slug}"`)) return true;
+        // Also show system-level logs (startup, errors without agent context)
+        if (!line.includes('"agent":')) return true;
+        return false;
       }
 
       function processLines(data: string, partialBuffer: { value: string }) {
@@ -41,7 +51,7 @@ export async function GET(
         const lines = partialBuffer.value.split('\n');
         partialBuffer.value = lines.pop() ?? '';
         for (const line of lines) {
-          if (line.includes(`"agent":"${slug}"`)) send(line);
+          if (line.trim() && isRelevantLine(line)) send(line);
         }
       }
 
@@ -71,14 +81,15 @@ export async function GET(
         const logFile = path.join(logDir, 'runner.log');
 
         if (!fs.existsSync(logFile)) {
-          send(JSON.stringify({ level: 'info', message: 'Waiting for runner logs...' }));
+          send(JSON.stringify({ level: 'info', message: 'Waiting for runner logs...', timestamp: new Date().toISOString() }));
         }
 
-        // Use tail -f to stream the log file
-        const proc = spawn('tail', ['-n', '200', '-f', logFile]);
+        // Use tail -F (capital F follows by name, survives rotation)
+        const proc = spawn('tail', ['-n', '200', '-F', logFile]);
 
         const buffer = { value: '' };
         proc.stdout.on('data', (chunk: Buffer) => processLines(chunk.toString(), buffer));
+        proc.stderr.on('data', () => {}); // Suppress tail stderr (e.g. "file truncated")
         proc.on('close', () => {
           try { controller.close(); } catch { /* already closed */ }
         });

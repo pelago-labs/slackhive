@@ -66,6 +66,10 @@ function translateSql(sql: string): string {
   // ILIKE → LIKE
   out = out.replace(/\bILIKE\b/gi, 'LIKE');
 
+  // Boolean literals: true/false → 1/0
+  out = out.replace(/\b= true\b/gi, '= 1');
+  out = out.replace(/\b= false\b/gi, '= 0');
+
   // Remove COALESCE wrapping for simple cases — SQLite supports COALESCE natively
 
   return out;
@@ -94,8 +98,10 @@ const JSON_COLUMNS = new Set([
  */
 function serializeParam(value: unknown): unknown {
   if (value === undefined) return null;
+  if (typeof value === 'boolean') return value ? 1 : 0;
   if (Array.isArray(value)) return JSON.stringify(value);
-  if (value !== null && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Buffer)) {
+  if (value instanceof Date) return value.toISOString();
+  if (value !== null && typeof value === 'object' && !(value instanceof Buffer)) {
     return JSON.stringify(value);
   }
   return value;
