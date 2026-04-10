@@ -151,6 +151,8 @@ CREATE TABLE sessions (
   session_key       TEXT        NOT NULL,
   -- Returned by Claude Code SDK system:init message. Passed as options.resume.
   claude_session_id TEXT,
+  -- Hash of MCP server config to detect changes and invalidate session.
+  mcp_hash          TEXT,
   last_activity     TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (agent_id, session_key)
 );

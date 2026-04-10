@@ -87,7 +87,7 @@ export default function EnvVarsPage() {
         {canEdit && !showForm && (
           <button onClick={() => setShowForm(true)} style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--accent)', color: '#fff',
+            background: 'var(--accent)', color: 'var(--accent-fg)',
             padding: '8px 16px', borderRadius: 8, border: 'none',
             fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
           }}
@@ -155,7 +155,7 @@ export default function EnvVarsPage() {
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
             <button onClick={save} disabled={saving} style={{
-              background: saving ? 'var(--border)' : 'var(--accent)', color: '#fff', border: 'none',
+              background: saving ? 'var(--border)' : 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
               borderRadius: 7, padding: '9px 22px', fontSize: 13, fontWeight: 500,
               cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
             }}>{saving ? 'Saving…' : editKey ? 'Update' : 'Save'}</button>
@@ -182,7 +182,7 @@ export default function EnvVarsPage() {
           </p>
           {canEdit && (
             <button onClick={() => setShowForm(true)} style={{
-              background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8,
+              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
               padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
             }}>Add First Env Var</button>
           )}

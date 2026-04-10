@@ -8,6 +8,8 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/web/package.json ./apps/web/
+COPY cli/package.json ./cli/
+COPY cli/src ./cli/src
 RUN npm ci
 
 # Build

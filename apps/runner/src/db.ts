@@ -447,31 +447,15 @@ export async function upsertMemorySafe(
   name: string,
   content: string
 ): Promise<void> {
-  const client: PoolClient = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    const existing = await client.query(
-      'SELECT id FROM memories WHERE agent_id = $1 AND name = $2',
-      [agentId, name]
-    );
-    if (existing.rows.length > 0) {
-      await client.query(
-        'UPDATE memories SET content = $1, type = $2, updated_at = now() WHERE id = $3',
-        [content, type, existing.rows[0].id]
-      );
-    } else {
-      await client.query(
-        'INSERT INTO memories (agent_id, type, name, content) VALUES ($1, $2, $3, $4)',
-        [agentId, type, name, content]
-      );
-    }
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  await getPool().query(
+    `INSERT INTO memories (agent_id, type, name, content)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (agent_id, name) DO UPDATE
+       SET content = EXCLUDED.content,
+           type = EXCLUDED.type,
+           updated_at = now()`,
+    [agentId, type, name, content]
+  );
 }
 
 // =============================================================================

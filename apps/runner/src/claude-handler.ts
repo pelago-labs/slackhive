@@ -20,15 +20,13 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
-import type { Agent, McpServer, McpServerConfig, McpStdioConfig, Permission } from '@slackhive/shared';
+import type { Agent, McpServer, McpServerConfig, McpServerType, McpStdioConfig, Permission } from '@slackhive/shared';
 import {
   getSession,
   upsertSession,
   cleanupStaleSessions,
-  upsertMemorySafe,
 } from './db';
 import { agentLogger } from './logger';
-import { parseMemoryFile } from './memory-watcher';
 import { McpProcessManager } from './mcp-process-manager.js';
 import type { Logger } from 'winston';
 
@@ -351,34 +349,6 @@ export class ClaudeHandler {
     }
 
     await upsertSession(this.agent.id, sessionKey, newSessionId ?? claudeSessionId, currentMcpHash);
-    await this.syncSessionMemories(sessionWorkDir);
-  }
-
-  /**
-   * Scans the session's .claude/memory/ directory after a query completes and
-   * upserts any valid memory files to the database. Belt-and-suspenders alongside
-   * the MemoryWatcher to ensure memories are never lost due to missed fs events.
-   */
-  private async syncSessionMemories(sessionWorkDir: string): Promise<void> {
-    const memDir = path.join(sessionWorkDir, 'memory');
-    if (!fs.existsSync(memDir)) return;
-
-    const files = fs.readdirSync(memDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
-    for (const file of files) {
-      const filePath = path.join(memDir, file);
-      try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const parsed = parseMemoryFile(content);
-        if (!parsed) {
-          this.log.warn('Memory file has invalid frontmatter, skipping', { file });
-          continue;
-        }
-        await upsertMemorySafe(this.agent.id, parsed.type as 'user' | 'feedback' | 'project' | 'reference', parsed.name, content);
-        this.log.info('Memory synced from session', { file, name: parsed.name, type: parsed.type });
-      } catch (err) {
-        this.log.error('Failed to sync memory file', { file, error: (err as Error).message });
-      }
-    }
   }
 
   /**
@@ -391,7 +361,7 @@ export class ClaudeHandler {
    * @param {McpServerConfig} config - Raw config from the DB.
    * @returns {McpServerConfig} Resolved config safe to pass to the SDK.
    */
-  private resolveServerConfig(serverName: string, config: McpServerConfig): McpServerConfig {
+  private resolveServerConfig(serverName: string, config: McpServerConfig, serverType: McpServerType): McpServerConfig {
     const c = config as McpStdioConfig & Record<string, unknown>;
 
     if (c.tsSource) {
@@ -410,7 +380,10 @@ export class ClaudeHandler {
     if (c.envRefs && Object.keys(c.envRefs as object).length > 0) {
       const resolvedEnv = this.resolveEnvRefs(c);
       const { envRefs: _, tsSource: __, ...rest } = c;
-      const resolved = { ...rest };
+      const resolved: Record<string, unknown> = { ...rest };
+
+      // Inject type so the SDK can distinguish HTTP/SSE from stdio
+      if (serverType === 'http' || serverType === 'sse') resolved.type = serverType;
 
       // For HTTP/SSE servers, resolve envRefs into headers
       if (resolved.headers && typeof resolved.headers === 'object') {
@@ -418,7 +391,6 @@ export class ClaudeHandler {
         for (const [key, value] of Object.entries(resolved.headers as Record<string, string>)) {
           const envKey = (c.envRefs as Record<string, string>)[key];
           if (envKey && this.envVarValues[envKey]) {
-            // Prepend existing header value (e.g. "Bearer ") to the env var value
             resolvedHeaders[key] = value ? `${value}${this.envVarValues[envKey]}` : this.envVarValues[envKey];
           } else {
             resolvedHeaders[key] = value;
@@ -428,7 +400,12 @@ export class ClaudeHandler {
       }
 
       if (Object.keys(resolvedEnv).length > 0) resolved.env = resolvedEnv;
-      return resolved as McpServerConfig;
+      return resolved as unknown as McpServerConfig;
+    }
+
+    // Passthrough — inject type for HTTP/SSE so SDK recognises the transport
+    if (serverType === 'http' || serverType === 'sse') {
+      return { ...config, type: serverType } as unknown as McpServerConfig;
     }
 
     return config;
@@ -475,25 +452,64 @@ export class ClaudeHandler {
       abortController: abortController ?? new AbortController(),
     };
 
-    const baseAllowed: string[] = this.permissions?.allowedTools?.length
+    const rawAllowed: string[] = this.permissions?.allowedTools?.length
       ? this.permissions.allowedTools
       : [];
     const denied: string[] = this.permissions?.deniedTools ?? [];
     const mcpToolPrefixes = this.mcpServers.map((s) => `mcp__${s.name}`);
 
-    // Read and Write are always available — Read for project context, Write for the memory system.
-    // These cannot be overridden by agent permissions.
+    // Read and Write are always available — cannot be overridden.
     const alwaysAllowed = ['Read', 'Write'];
-    const availableTools = [...new Set([...alwaysAllowed, ...baseAllowed, ...mcpToolPrefixes])].filter(
+
+    // Separate Bash(pattern) rules from plain tool names.
+    // e.g. "Bash(git *)" is a permission rule, "Bash" is a plain tool name.
+    const bashRules = rawAllowed.filter((t) => t.startsWith('Bash('));
+    const plainTools = rawAllowed.filter((t) => !t.startsWith('Bash('));
+
+    // If there are Bash rules, add plain "Bash" to the tool list so the model can see/use it,
+    // but scope auto-execution via options.permissions.allow patterns.
+    const hasBashRules = bashRules.length > 0;
+    const baseTools = hasBashRules ? [...plainTools, 'Bash'] : plainTools;
+
+    const availableTools = [...new Set([...alwaysAllowed, ...baseTools, ...mcpToolPrefixes])].filter(
       (tool) => !denied.includes(tool)
     );
-    // `tools` controls which tools the model can see/use; `allowedTools` controls auto-execution.
+
+    // `tools` controls which tools the model can see/use.
+    // `allowedTools` controls auto-execution (no prompting). Both use plain tool names.
     options.tools = availableTools;
     options.allowedTools = availableTools;
 
+    // Bash(pattern) rules go into settings.permissions.allow — this is the only place
+    // the SDK supports command-level scoping (not in allowedTools/tools).
+    if (hasBashRules) {
+      const agentNamespace = `/tmp/agents/${this.agent.slug}`;
+      // Block access to /tmp/agents/ broadly, then allow back in via the allow list
+      // which is scoped to this agent's namespace only.
+      const bashDeny = [
+        ...denied,
+        'Bash(rm *)', 'Bash(curl *)', 'Bash(wget *)', 'Bash(chmod *)', 'Bash(sudo *)', 'Bash(kill *)',
+        // Block access to ALL agent namespaces — the allow list re-opens only this agent's own
+        `Bash(cat /tmp/agents/*)`, `Bash(ls /tmp/agents/*)`,
+        `Bash(find /tmp/agents/*)`, `Bash(grep * /tmp/agents/*)`,
+        `Bash(python3 /tmp/agents/*)`, `Bash(python3 -m pytest /tmp/agents/*)`,
+        `Bash(pytest /tmp/agents/*)`, `Bash(git clone * /tmp/agents/*)`,
+        `Bash(git -C /tmp/agents/*)`, `Bash(git log /tmp/agents/*)`,
+        `Bash(/graphify /tmp/agents/*)`, `Bash(graphify /tmp/agents/*)`
+      ];
+      // Re-allow this agent's own namespace — substitute {agent} placeholder with actual slug.
+      const bashAllow = bashRules.map(r => r.replace(/\{agent\}/g, this.agent.slug));
+      options.settings = {
+        permissions: {
+          allow: bashAllow,
+          deny: bashDeny,
+        },
+      };
+    }
+
     if (this.mcpServers.length > 0) {
       options.mcpServers = Object.fromEntries(
-        this.mcpServers.map((server) => [server.name, this.resolveServerConfig(server.name, server.config)])
+        this.mcpServers.map((server) => [server.name, this.resolveServerConfig(server.name, server.config, server.type)])
       );
       this.log.debug('MCP servers configured', { servers: this.mcpServers.map((s) => s.name) });
     }

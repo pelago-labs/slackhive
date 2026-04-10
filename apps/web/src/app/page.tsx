@@ -86,7 +86,7 @@ export default function Dashboard() {
           {canEdit && (
             <Link href="/agents/new" style={{
               display: 'inline-flex', alignItems: 'center', gap: 7,
-              background: 'var(--accent)', color: '#fff',
+              background: 'var(--accent)', color: 'var(--accent-fg)',
               padding: '10px 20px', borderRadius: 8,
               fontSize: 13.5, fontWeight: 500, textDecoration: 'none',
               boxShadow: 'var(--shadow-sm)',
@@ -140,7 +140,7 @@ function ViewBtn({ active, onClick, title, children }: {
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         width: 30, height: 30, borderRadius: 6, border: 'none',
-        background: active ? '#fff' : 'transparent',
+        background: active ? 'var(--surface)' : 'transparent',
         color: active ? 'var(--text)' : 'var(--muted)',
         cursor: 'pointer',
         boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
@@ -311,7 +311,7 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
       className="fade-up"
       style={{
         display: 'block', textDecoration: 'none',
-        background: '#fff',
+        background: 'var(--surface)',
         border: highlight ? '1.5px solid rgba(217,119,6,0.25)' : 'none',
         borderRadius: 'var(--radius-lg)',
         padding: compact ? '14px 16px' : '22px 24px',
@@ -460,7 +460,7 @@ function StatCard({ label, value, color, sub }: {
 }) {
   return (
     <div className="fade-up" style={{
-      background: '#fff',
+      background: 'var(--surface)',
       border: 'none',
       borderRadius: 'var(--radius-lg)',
       padding: '20px 24px',
@@ -495,7 +495,7 @@ function SkeletonGrid() {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
       {[1, 2, 3].map(i => (
         <div key={i} style={{
-          background: '#fff', borderRadius: 'var(--radius-lg)', padding: '22px 24px',
+          background: 'var(--surface)', borderRadius: 'var(--radius-lg)', padding: '22px 24px',
           boxShadow: 'var(--shadow-card)', opacity: 1 - (i - 1) * 0.2,
         }}>
           <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
@@ -553,7 +553,7 @@ function EmptyState() {
       {canEdit && (
         <Link href="/agents/new" style={{
           display: 'inline-flex', alignItems: 'center', gap: 7,
-          background: 'var(--accent)', color: '#fff',
+          background: 'var(--accent)', color: 'var(--accent-fg)',
           padding: '10px 22px', borderRadius: 8,
           fontSize: 14, fontWeight: 500, textDecoration: 'none',
           boxShadow: 'var(--shadow-sm)',

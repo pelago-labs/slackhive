@@ -4,8 +4,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Design Tokens — Light only ─────────────────────────────────────────────── */
-:root {
+/* ─── Design Tokens — Light ──────────────────────────────────────────────────── */
+:root, [data-theme="light"] {
   --bg:        #fafafa;
   --surface:   #ffffff;
   --surface-2: #f5f5f5;
@@ -14,6 +14,7 @@
   --border-2:  #d4d4d4;
   --accent:    #171717;
   --accent-2:  #404040;
+  --accent-fg: #ffffff;
   --blue:      #2563eb;
   --green:     #059669;
   --red:       #dc2626;
@@ -35,6 +36,48 @@
   --radius-md:    14px;
   --radius-lg:    20px;
   --radius-xl:    28px;
+  --red-soft-bg:  #fef2f2;
+  --red-soft-border: #fecaca;
+  --amber-soft-bg: #fffbeb;
+  --amber-soft-border: #fde68a;
+}
+
+/* ─── Design Tokens — Dark ───────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:        #0a0a0a;
+  --surface:   #141414;
+  --surface-2: #1c1c1c;
+  --surface-3: #262626;
+  --border:    #2a2a2a;
+  --border-2:  #3a3a3a;
+  --accent:    #f5f5f5;
+  --accent-2:  #d4d4d4;
+  --accent-fg: #0a0a0a;
+  --blue:      #3b82f6;
+  --green:     #10b981;
+  --red:       #ef4444;
+  --amber:     #f59e0b;
+  --text:      #f5f5f5;
+  --text-2:    #e5e5e5;
+  --muted:     #a3a3a3;
+  --subtle:    #737373;
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md:    0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg:    0 12px 40px rgba(0,0,0,0.4);
+  --shadow-card:  rgba(255,255,255,0.03) 0px 0px 0px 1px, rgba(0,0,0,0.2) 0px 2px 6px, rgba(0,0,0,0.3) 0px 4px 12px;
+  --shadow-hover: rgba(0,0,0,0.4) 0px 8px 24px;
+  --shadow-modal: 0 20px 60px rgba(0,0,0,0.5);
+  --red-soft-bg:  rgba(239,68,68,0.1);
+  --red-soft-border: rgba(239,68,68,0.25);
+  --amber-soft-bg: rgba(245,158,11,0.1);
+  --amber-soft-border: rgba(245,158,11,0.25);
+}
+
+/* ─── Form elements — inherit theme ─────────────────────────────────────────── */
+input, textarea, select {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
 }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
@@ -51,6 +94,7 @@ body {
 }
 
 ::selection { background: rgba(23,23,23,0.12); }
+[data-theme="dark"] ::selection { background: rgba(255,255,255,0.15); }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }

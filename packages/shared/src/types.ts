@@ -42,10 +42,13 @@ export interface McpStdioConfig {
  * Used for remote MCP servers that stream over HTTP.
  */
 export interface McpSseConfig {
+  type?: 'sse';
   /** The SSE endpoint URL. */
   url: string;
   /** HTTP headers to include in requests (e.g., Authorization). */
   headers?: Record<string, string>;
+  /** Maps header name → key in platform env_vars store (resolved by runner). */
+  envRefs?: Record<string, string>;
 }
 
 /**
@@ -53,10 +56,13 @@ export interface McpSseConfig {
  * Used for remote MCP servers with HTTP transport.
  */
 export interface McpHttpConfig {
+  type?: 'http';
   /** The HTTP endpoint URL. */
   url: string;
   /** HTTP headers to include in requests (e.g., Authorization). */
   headers?: Record<string, string>;
+  /** Maps header name → key in platform env_vars store (resolved by runner). */
+  envRefs?: Record<string, string>;
 }
 
 /** Union of all supported MCP server configuration shapes. */
@@ -320,6 +326,8 @@ export interface Session {
   claudeSessionId?: string;
   /** Last time this session had activity. Used for cleanup of stale sessions. */
   lastActivity: Date;
+  /** Hash of MCP config at session creation — used to detect config changes requiring session invalidation. */
+  mcpHash?: string;
 }
 
 // =============================================================================

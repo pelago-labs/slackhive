@@ -13,6 +13,7 @@ import { useContext, useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar, SidebarContext } from './sidebar';
 import { AuthProvider } from '@/lib/auth-context';
+import { ThemeProvider } from '@/lib/theme-context';
 
 /**
  * Renders auth provider + sidebar + main content.
@@ -28,9 +29,11 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthProvider>
-      <ResponsiveLayout>{children}</ResponsiveLayout>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <ResponsiveLayout>{children}</ResponsiveLayout>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
@@ -72,7 +75,7 @@ function Main({ children, isMobile, onHamburger }: { children: React.ReactNode; 
           style={{
             position: 'fixed', top: 12, left: 12, zIndex: 48,
             width: 36, height: 36, borderRadius: 8,
-            background: '#fff', border: '1px solid var(--border)',
+            background: 'var(--surface)', border: '1px solid var(--border)',
             boxShadow: 'var(--shadow-md)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', color: 'var(--text)',

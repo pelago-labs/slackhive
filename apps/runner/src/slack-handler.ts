@@ -221,8 +221,8 @@ interface HandleMessageOpts {
 }
 
 async function handleMessage(opts: HandleMessageOpts): Promise<void> {
-  const { app, agent, claudeHandler, correctionHandler, client, log, activeControllers, currentReactions, updateReaction,
-    userId, channelId, threadTs, messageTs, rawText, files, restrictions } = opts;
+  const { app, agent, claudeHandler, correctionHandler, client, log, activeControllers, currentReactions,
+    updateReaction, userId, channelId, threadTs, messageTs, rawText, files, restrictions } = opts;
 
   const userText = stripBotMention(rawText, agent.slackBotUserId).trim();
   if (!userText && (!files || files.length === 0)) return;
@@ -384,6 +384,7 @@ async function handleMessage(opts: HandleMessageOpts): Promise<void> {
       await client.chat.update({ channel: channelId, ts: statusTs, text: '*Done*' }).catch(() => {});
     }
     await updateReaction(client, channelId, messageTs, sessionKey, 'white_check_mark');
+
 
   } catch (error: any) {
     if (error?.name === 'AbortError') {

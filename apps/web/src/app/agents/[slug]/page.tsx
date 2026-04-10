@@ -186,7 +186,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
                 ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
                 : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 14, fontWeight: 700, color: '#fff',
+              fontSize: 14, fontWeight: 700, color: 'var(--accent-fg)',
             }}>
               {agent.name.charAt(0)}
             </div>
@@ -260,7 +260,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }} onClick={() => setImportPreview(null)}>
             <div style={{
-              background: '#fff', borderRadius: 14, padding: '28px 32px',
+              background: 'var(--surface)', borderRadius: 14, padding: '28px 32px',
               maxWidth: 480, width: '90%',
               boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
             }} onClick={e => e.stopPropagation()}>
@@ -271,7 +271,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               {/* Danger warning — shown first */}
               <div style={{
                 display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
-                background: '#fff1f2', border: '1.5px solid #fecdd3', borderRadius: 8,
+                background: 'var(--surface-2)', border: '1.5px solid var(--red-soft-border)', borderRadius: 8,
               }}>
                 <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
                 <div>
@@ -452,7 +452,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
           >
             <div style={{
               position: 'absolute', top: 3, left: form.isBoss ? 23 : 3,
-              width: 18, height: 18, borderRadius: '50%', background: '#fff',
+              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
               transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
             }} />
           </button>
@@ -494,9 +494,9 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
                         style={{ accentColor: '#d97706', width: 14, height: 14 }}
                       />
                       <div style={{
-                        width: 24, height: 24, borderRadius: 6, background: '#171717',
+                        width: 24, height: 24, borderRadius: 6, background: 'var(--accent)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 600, color: '#fff', flexShrink: 0,
+                        fontSize: 11, fontWeight: 600, color: 'var(--accent-fg)', flexShrink: 0,
                       }}>
                         {boss.name.charAt(0).toUpperCase()}
                       </div>
@@ -538,7 +538,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
             borderRadius: 7, padding: '10px 14px', fontSize: 12,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
               <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to Slack</span>
               <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>{slackInfo.teamName}</span>
             </div>
@@ -560,7 +560,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
             background: '#f0fdf4', border: '1px solid #bbf7d0',
             borderRadius: 7, padding: '8px 12px', fontSize: 12,
           }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
             <span style={{ color: '#15803d' }}>Connected ·</span>
             <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>Bot User ID: {agent.slackBotUserId}</span>
           </div>
@@ -625,14 +625,14 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
       {/* ── Danger Zone ── */}
       {isAdmin && (
         <div style={{
-          marginTop: 40, borderTop: '1px solid #fecaca', paddingTop: 28,
+          marginTop: 40, borderTop: '1px solid var(--red-soft-border)', paddingTop: 28,
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
             Danger Zone
           </div>
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: '#fff8f8', border: '1px solid #fecaca', borderRadius: 8, padding: '14px 18px',
+            background: 'var(--surface-2)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '14px 18px',
           }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>Delete this agent</div>
@@ -644,7 +644,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
               style={{
                 flexShrink: 0, marginLeft: 24,
                 padding: '8px 18px', borderRadius: 7, border: '1px solid #dc2626',
-                background: deleting ? '#fef2f2' : '#fff', color: '#dc2626',
+                background: deleting ? 'var(--surface-2)' : 'var(--surface)', color: '#dc2626',
                 fontSize: 13, fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer',
                 fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
               }}
@@ -719,7 +719,7 @@ function ClaudeMdTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }
               <button onClick={() => { setEditing(false); setDraft(content); }} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>
                 Cancel
               </button>
-              <button onClick={save} disabled={saving} style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
+              <button onClick={save} disabled={saving} style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </>
@@ -897,7 +897,7 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
                   onClick={save} disabled={saving}
                   style={{
                     background: saving ? 'var(--border)' : 'var(--accent)',
-                    color: '#fff', border: 'none', borderRadius: 6,
+                    color: 'var(--accent-fg)', border: 'none', borderRadius: 6,
                     padding: '5px 14px', fontSize: 12, fontWeight: 500,
                     cursor: saving ? 'not-allowed' : 'pointer',
                     fontFamily: 'var(--font-sans)',
@@ -1149,7 +1149,7 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
 const MEM_TYPE_STYLE: Record<string, { bg: string; color: string }> = {
   user:      { bg: '#f3f0ff', color: '#7c3aed' },
   feedback:  { bg: '#eff6ff', color: '#2563eb' },
-  project:   { bg: '#fffbeb', color: '#b45309' },
+  project:   { bg: 'var(--amber-soft-bg)', color: '#b45309' },
   reference: { bg: '#f0fdf4', color: '#15803d' },
 };
 
@@ -1307,8 +1307,8 @@ const LOG_META: Record<LogLevel, { label: string; color: string; bg: string; bor
   all:   { label: 'ALL',   color: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', rowBg: 'transparent' },
   info:  { label: 'INFO',  color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', rowBg: 'transparent' },
   debug: { label: 'DEBUG', color: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb', rowBg: 'transparent' },
-  warn:  { label: 'WARN',  color: '#92400e', bg: '#fffbeb', border: '#fde68a', rowBg: '#fffdf0' },
-  error: { label: 'ERR',   color: '#991b1b', bg: '#fef2f2', border: '#fecaca', rowBg: '#fff8f8' },
+  warn:  { label: 'WARN',  color: '#92400e', bg: 'var(--amber-soft-bg)', border: 'var(--amber-soft-border)', rowBg: 'var(--amber-soft-bg)' },
+  error: { label: 'ERR',   color: '#991b1b', bg: 'var(--red-soft-bg)', border: 'var(--red-soft-border)', rowBg: 'var(--red-soft-bg)' },
 };
 
 function LogRow({ log }: { log: ParsedLog }) {
@@ -1473,7 +1473,7 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
         const el = e.currentTarget;
         setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 40);
       }} style={{
-        background: '#fff', border: '1px solid var(--border)', borderRadius: 8,
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
         height: 520, overflow: 'auto', fontFamily: 'var(--font-mono)',
       }}>
         {visibleLines.length === 0 ? (
@@ -1578,7 +1578,7 @@ function PrimaryBtn({ children, onClick, loading }: {
   return (
     <button onClick={onClick} disabled={loading} style={{
       background: loading ? 'var(--border)' : 'var(--accent)',
-      color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+      color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
       padding: '10px 22px', fontSize: 14, fontWeight: 600,
       letterSpacing: '-0.01em',
       cursor: loading ? 'not-allowed' : 'pointer',
@@ -2008,7 +2008,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
         </div>
         {[1, 2, 3, 4].map(i => (
           <div key={i} style={{
-            background: '#fff', borderRadius: 'var(--radius)', padding: '14px 16px',
+            background: 'var(--surface)', borderRadius: 'var(--radius)', padding: '14px 16px',
             boxShadow: 'var(--shadow-card)', opacity: 1 - (i - 1) * 0.2,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -2019,7 +2019,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
           </div>
         ))}
       </div>
-      <div style={{ flex: 1, background: '#fff', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ flex: 1, background: 'var(--surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ fontSize: 13, color: 'var(--subtle)' }}>Loading history…</div>
       </div>
     </div>
@@ -2040,7 +2040,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
           </span>
           {canEdit && (
             <button onClick={handleCreateManual} style={{
-              background: 'var(--accent)', color: '#fff', border: 'none',
+              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
               borderRadius: 'var(--radius-sm)', padding: '7px 13px',
               fontSize: 12, fontWeight: 600, cursor: 'pointer',
               fontFamily: 'var(--font-sans)', letterSpacing: '-0.01em',
@@ -2062,7 +2062,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
 
         {snapshots.length === 0 ? (
           <div style={{
-            background: '#fff', borderRadius: 'var(--radius)',
+            background: 'var(--surface)', borderRadius: 'var(--radius)',
             boxShadow: 'var(--shadow-card)', padding: '28px 20px',
             textAlign: 'center',
           }}>
@@ -2081,7 +2081,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
                   key={snap.id}
                   onClick={() => { setSelectedId(isSelected ? null : snap.id); setCompareId('__current__'); setCompareSnapshot(null); }}
                   style={{
-                    background: '#fff',
+                    background: 'var(--surface)',
                     borderRadius: 'var(--radius)',
                     boxShadow: isSelected ? '0 0 0 2px var(--accent), var(--shadow-card)' : 'var(--shadow-card)',
                     padding: '13px 15px', cursor: 'pointer',
@@ -2117,7 +2117,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
                         disabled={restoring}
                         style={{
                           flex: 1, fontSize: 12, padding: '6px 0', borderRadius: 6, cursor: restoring ? 'not-allowed' : 'pointer',
-                          background: '#16a34a', color: '#fff', border: 'none',
+                          background: 'var(--green)', color: 'var(--accent-fg)', border: 'none',
                           fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
                         }}
                         onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
@@ -2131,7 +2131,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
                           border: '1.5px solid rgba(220,38,38,0.25)',
                           fontFamily: 'var(--font-sans)', fontWeight: 500, transition: 'all 0.15s',
                         }}
-                        onMouseEnter={e => { (e.currentTarget.style.background = 'var(--red)'); (e.currentTarget.style.color = '#fff'); (e.currentTarget.style.borderColor = 'var(--red)'); }}
+                        onMouseEnter={e => { (e.currentTarget.style.background = 'var(--red)'); (e.currentTarget.style.color = 'var(--accent-fg)'); (e.currentTarget.style.borderColor = 'var(--red)'); }}
                         onMouseLeave={e => { (e.currentTarget.style.background = 'transparent'); (e.currentTarget.style.color = 'var(--red)'); (e.currentTarget.style.borderColor = 'rgba(220,38,38,0.25)'); }}
                       >Delete</button>
                     </div>
@@ -2147,13 +2147,13 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
       {loadingDetail ? (
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Compare bar skeleton */}
-          <div style={{ background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 90, height: 14, borderRadius: 4, background: 'var(--surface-2)' }} />
             <div style={{ flex: 1, height: 34, borderRadius: 8, background: 'var(--surface-2)' }} />
           </div>
           {/* Section skeletons */}
           {[120, 80, 60, 200].map((h, i) => (
-            <div key={i} style={{ background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', opacity: 1 - i * 0.15 }}>
+            <div key={i} style={{ background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', opacity: 1 - i * 0.15 }}>
               <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ width: 70, height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
               </div>
@@ -2168,7 +2168,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
 
           {/* Compare bar */}
           <div style={{
-            background: '#fff', borderRadius: 'var(--radius)',
+            background: 'var(--surface)', borderRadius: 'var(--radius)',
             boxShadow: 'var(--shadow-card)', padding: '14px 18px',
             display: 'flex', alignItems: 'center', gap: 12,
           }}>
@@ -2196,7 +2196,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
           {/* Diff sections — wait for compare target to load */}
           {!currentAsSnapshot ? (
             <div style={{
-              background: '#fff', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
+              background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
               padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
             }}>
               Loading comparison…
@@ -2234,7 +2234,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             },
           ].map(({ title, content }) => (
             <div key={title} style={{
-              background: '#fff', borderRadius: 'var(--radius)',
+              background: 'var(--surface)', borderRadius: 'var(--radius)',
               boxShadow: 'var(--shadow-card)', overflow: 'hidden',
             }}>
               <div style={{
@@ -2249,7 +2249,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
       ) : (
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          background: '#fff', borderRadius: 'var(--radius-lg)',
+          background: 'var(--surface)', borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-card)', gap: 10, padding: 40,
         }}>
           <History size={32} style={{ color: 'var(--border-2)' }} />

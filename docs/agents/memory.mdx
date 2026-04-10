@@ -1,26 +1,54 @@
 ---
 title: "Agent Memory"
-description: "How agents learn from conversations and accumulate persistent knowledge."
+description: "How agents learn from conversations and recall knowledge on demand."
 ---
 
 ## How memory works
 
-Every conversation is an opportunity for an agent to learn. At the end of each session, the Claude Code writes structured memory files to the agent's working directory. SlackHive's `MemoryWatcher` detects these files in real time, parses them, and persists them to Postgres.
-
-On next restart — or when hot-reloaded — all stored memories are compiled back into the agent's `CLAUDE.md` as a **Learned Memory** section. The agent starts every conversation with its full accumulated knowledge.
+Agents learn over time by writing structured memory files during conversations. SlackHive persists these to Postgres and materializes them back to disk on the next startup — so every agent picks up exactly where it left off.
 
 ```
-Conversation
-  └─► Claude writes memory/feedback_xyz.md
-        └─► MemoryWatcher detects change (fs.watch)
-              └─► Parses YAML frontmatter (name, type, description)
-                    └─► Upserts into memories table (Postgres)
-                          └─► Included in CLAUDE.md on next reload
+Agent writes memory/{type}_{name}.md
+  └─► MemoryWatcher detects change (fs.watch, 200ms debounce)
+        └─► Parses YAML frontmatter (name, type)
+              └─► Upserts into memories table (Postgres)
+
+On next agent start:
+  DB memories ──► materializeMemoryFiles ──► /tmp/agents/{slug}/memory/
+                                                └─► Agent uses /recall to read them
 ```
+
+## Recalling memories
+
+Agents use the built-in `/recall` skill to load relevant memories on demand. This keeps the context window clean — memories are only loaded when they're relevant, not stuffed into every conversation.
+
+**The agent runs `/recall` automatically** at the start of each conversation and when the topic shifts. It reads `memory/MEMORY.md` for the index, then loads specific files that match.
+
+```
+/recall database preferences
+  └─► Reads memory/MEMORY.md (index)
+        └─► Reads memory/feedback_avoid_mocking.md
+              └─► Applies the knowledge to the current response
+```
+
+You can also trigger it manually in Slack:
+
+```
+/recall Kai's preferences
+```
+
+## When agents save memories
+
+Agents are instructed to save memories when they learn something worth keeping:
+
+- **User explicitly corrects or guides** — "don't do X", "always do Y"
+- **Recurring pattern detected** — same question asked repeatedly, same mistake made, same preference shown multiple times
+- **User role or working style** — who someone is, what tools they use, how they like to communicate
+- **Project decisions or constraints** — goals, deadlines, architectural choices that affect future work
+
+Memories are saved using the Write tool to create a file in `memory/`. The agent must actually write the file — not just say it saved.
 
 ## Memory file format
-
-Memory files are Markdown with YAML frontmatter. Agents write them to `memory/{name}.md` in their session working directory:
 
 ```markdown
 ---
@@ -34,17 +62,13 @@ without lengthy preamble. They use BigQuery, not Redshift.
 They prefer SQL examples over written explanations.
 ```
 
-The frontmatter fields are:
-
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Short snake_case identifier for this memory (used as a unique key) |
-| `description` | No | One-line summary shown in the memory viewer UI |
-| `type` | Yes | Memory category — one of `user`, `feedback`, `project`, `reference` |
+| `name` | Yes | Snake_case identifier — used as the unique key per agent |
+| `type` | Yes | One of `user`, `feedback`, `project`, `reference` |
+| `description` | No | One-line summary shown in the Memory tab |
 
 ## Memory types
-
-Agents are instructed to categorize memories into four types:
 
 | Type | Purpose | Example |
 |------|---------|---------|
@@ -53,75 +77,37 @@ Agents are instructed to categorize memories into four types:
 | `project` | Ongoing work context, goals, decisions, deadlines | "Merge freeze starts March 5 for mobile release" |
 | `reference` | Pointers to external systems and resources | "Pipeline bugs tracked in Linear project INGEST" |
 
-## Memory instructions
+## Memory storage layout
 
-SlackHive injects a `# Memory System` section into every agent's `CLAUDE.md` at the framework level — not as a skill. This section instructs the agent to:
-
-- Save a memory whenever it learns who a user is, their preferences, a correction, a recurring task, or where resources live
-- Default to saving — a slightly over-captured memory is better than a missed one
-- Update existing memories when new information supersedes them (overwrite the file rather than creating a duplicate)
-- Maintain a `memory/MEMORY.md` index with one-line entries for each memory file
-
-The instruction text is:
-
-> "At the end of every conversation, proactively save anything useful you learned — this is how you get smarter over time. Memories persist across all future conversations with every user."
-
-## Memory storage path
-
-Each Slack thread gets its own isolated session working directory:
+Each agent has two memory locations:
 
 ```
-/tmp/agents/{slug}/sessions/{userId}-{channelId}-{threadTs}/
-  memory/
+/tmp/agents/{slug}/
+  memory/                          ← read-only, materialized from DB on startup
+    MEMORY.md                      ← index file listing all memories
     user_kai_team_lead.md
     feedback_avoid_mocking.md
     project_mobile_release.md
-    MEMORY.md
+
+  sessions/{userId}-{channelId}-{threadTs}/
+    memory/                        ← where agent writes new memories during conversations
+      feedback_new_learning.md
 ```
 
-`MemoryWatcher` watches both the root `memory/` directory and all per-session `memory/` directories. A 200ms debounce prevents duplicate writes on rapid file changes.
+The root `memory/` directory is read-only — written once at startup from the database. New memories are written to the session's `memory/` directory, picked up by `MemoryWatcher`, and persisted to Postgres. On the next restart, they appear in the root directory.
 
-## Memory sync is belt-and-suspenders
+## Viewing and managing memories
 
-Memories are synced to Postgres via two mechanisms:
+Open any agent's detail page and click the **Memory** tab. You can:
 
-1. **MemoryWatcher** — `fs.watch` detects file changes in real time and upserts to DB immediately
-2. **Post-query scan** — after every conversation, `ClaudeHandler` scans the session's memory directory and upserts any valid memory files. This ensures memories are never lost even if the fs.watch event was missed.
-
-## How memories appear in CLAUDE.md
-
-All stored memories are compiled into a structured section appended to the agent's `CLAUDE.md` on each reload. Memories are grouped by type in this order: `feedback`, `user`, `project`, `reference`.
-
-```markdown
-# Learned Memory
-
-> The following was learned from past interactions. Apply this knowledge in all responses.
-
-## Feedback Memory
-
-### avoid_mocking_db
-
-Don't mock the database in integration tests. Use a real test database instead.
-
-## User Memory
-
-### kai_team_lead
-
-Kai is the data team lead. Prefers concise answers. Uses BigQuery.
-```
-
-## Viewing memories in the UI
-
-Open any agent's detail page and click the **Memory** tab. Memories are displayed grouped by type. For each memory you can:
-
-- View the full content
+- View the full content of each memory
 - See the memory type and description
-- Delete a memory (this removes it from both the UI and the database; it will not be included in future `CLAUDE.md` compilations)
+- Delete a memory (removes it from the database and it won't appear on next reload)
 
 ## Updating a memory
 
-If an agent learns new information that supersedes an existing memory, it overwrites the file with the same `name` field. The upsert logic in the database uses `name` as the unique key per agent — so updating a memory never creates a duplicate.
+When an agent learns something that supersedes an existing memory, it overwrites the file with the same `name`. The database uses `(agent_id, name)` as the unique key — so updating never creates a duplicate.
 
 ## Memory does not expire
 
-Memories persist until you explicitly delete them from the Memory tab. There is no TTL or automatic expiry. This is intentional — agents are meant to accumulate knowledge over time.
+Memories persist until you explicitly delete them. There is no TTL. Agents accumulate knowledge over time and build a richer understanding of their users and projects with every conversation.

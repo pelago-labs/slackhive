@@ -8,7 +8,7 @@
  * @module web/settings/mcps/page
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { McpServer, McpServerType } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { Settings } from 'lucide-react';
@@ -68,8 +68,14 @@ export default function McpSettingsPage() {
   const [showForm, setShowForm]     = useState(false);
   const [envVarKeys, setEnvVarKeys] = useState<string[]>([]);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message?: string; error?: string } | 'testing'>>({});
+  const formRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (showForm && formRef.current) {
+      formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [showForm, editingId]);
   useEffect(() => {
     // Load available env var keys for the ref dropdown
     fetch('/api/env-vars').then(r => r.json()).then((rows: { key: string }[]) => setEnvVarKeys(rows.map(r => r.key))).catch(() => {});
@@ -249,7 +255,7 @@ export default function McpSettingsPage() {
         {canEdit && !showForm && (
           <button onClick={() => setShowForm(true)} style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--accent)', color: '#fff',
+            background: 'var(--accent)', color: 'var(--accent-fg)',
             padding: '8px 16px', borderRadius: 8, border: 'none',
             fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
             transition: 'opacity 0.15s',
@@ -275,7 +281,7 @@ export default function McpSettingsPage() {
           <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No MCP servers yet</p>
           <p style={{ margin: '0 0 16px', fontSize: 13 }}>Add servers to the catalog to enable agent tools.</p>
           {canEdit && <button onClick={() => setShowForm(true)} style={{
-            background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8,
+            background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
             padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
             fontFamily: 'var(--font-sans)',
           }}>Add First Server</button>}
@@ -299,7 +305,7 @@ export default function McpSettingsPage() {
 
       {/* Add/Edit form */}
       {showForm && (
-        <div style={{
+        <div ref={formRef} style={{
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 14, padding: '28px', marginTop: 4,
         }}>
@@ -399,7 +405,7 @@ export default function McpSettingsPage() {
             <div style={{ display: 'flex', gap: 10 }}>
               <button type="submit" disabled={saving} style={{
                 background: saving ? 'var(--border)' : 'var(--accent)',
-                color: '#fff', border: 'none', borderRadius: 7,
+                color: 'var(--accent-fg)', border: 'none', borderRadius: 7,
                 padding: '9px 22px', fontSize: 13, fontWeight: 500,
                 cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
                 transition: 'opacity 0.15s',

@@ -11,4 +11,3 @@ coverage
 .env.*.local
 .DS_Store
 docs
-cli

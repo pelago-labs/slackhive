@@ -229,7 +229,7 @@ export default function NewAgentWizard() {
                 onClick={next} disabled={!canNext()}
                 style={{
                   background: canNext() ? 'var(--accent)' : 'var(--border)',
-                  color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+                  color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
                   padding: '10px 24px', fontSize: 14, fontWeight: 600,
                   cursor: canNext() ? 'pointer' : 'not-allowed',
                   fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
@@ -245,7 +245,7 @@ export default function NewAgentWizard() {
                 disabled={submitting || !state.slackBotToken || !state.slackAppToken || !state.slackSigningSecret}
                 style={{
                   background: submitting ? 'var(--border)' : '#16a34a',
-                  color: '#fff', border: 'none', borderRadius: 'var(--radius)',
+                  color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
                   padding: '10px 24px', fontSize: 14, fontWeight: 600,
                   cursor: submitting ? 'not-allowed' : 'pointer',
                   fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
@@ -436,7 +436,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
             <button type="button" onClick={() => ref.current?.click()} style={{
               display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
               padding: '6px 12px', borderRadius: 6,
-              border: '1px solid var(--border-2)', background: '#fff',
+              border: '1px solid var(--border-2)', background: 'var(--surface)',
               fontSize: 12, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
             }}>
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -487,7 +487,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
           <button type="button" onClick={() => ref.current?.click()} style={{
             display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
             padding: '7px 14px', borderRadius: 7,
-            border: '1.5px solid var(--border-2)', background: '#fff',
+            border: '1.5px solid var(--border-2)', background: 'var(--surface)',
             fontSize: 12.5, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
             transition: 'all 0.15s',
           }}
@@ -572,7 +572,7 @@ function Step2SlackApp({ state }: { state: WizardState }) {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 32, flexShrink: 0 }}>
               <div style={{
                 width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                background: 'var(--accent)', color: '#fff',
+                background: 'var(--accent)', color: 'var(--accent-fg)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 11, fontWeight: 700, zIndex: 1,
               }}>{n}</div>
@@ -673,7 +673,7 @@ function TokenCard({ label, prefix, path, note, screenshot, placeholder, value, 
     <div style={{
       borderRadius: 'var(--radius)',
       border: `1.5px solid ${isDirty ? (isValid ? '#86efac' : '#fca5a5') : 'var(--border)'}`,
-      background: '#fff',
+      background: 'var(--surface)',
       overflow: 'hidden',
       transition: 'border-color 0.2s',
     }}>
@@ -766,15 +766,15 @@ const slackStyles = {
     fontFamily: 'Lato, -apple-system, sans-serif', fontSize: 12,
   } as React.CSSProperties,
   chrome: {
-    background: '#f1f1f1', padding: '6px 10px',
-    borderBottom: '1px solid #ddd', display: 'flex', alignItems: 'center', gap: 8,
+    background: 'var(--surface-2)', padding: '6px 10px',
+    borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8,
   } as React.CSSProperties,
   urlBar: {
-    flex: 1, background: '#fff', border: '1px solid #ddd', borderRadius: 4,
+    flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4,
     padding: '3px 8px', fontSize: 10.5, color: '#555',
     fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
-  body: { background: '#fff', padding: '14px 16px' } as React.CSSProperties,
+  body: { background: 'var(--surface)', padding: '14px 16px' } as React.CSSProperties,
   sectionTitle: { fontSize: 12, fontWeight: 700, color: '#1d1c1d', marginBottom: 10 } as React.CSSProperties,
   row: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -783,7 +783,7 @@ const slackStyles = {
   label: { fontSize: 11.5, color: '#616061' } as React.CSSProperties,
   token: { fontSize: 11, fontFamily: 'monospace', color: '#1d1c1d', letterSpacing: 1 } as React.CSSProperties,
   greenBtn: {
-    background: '#007a5a', color: '#fff', border: 'none', borderRadius: 4,
+    background: 'var(--green)', color: 'var(--accent-fg)', border: 'none', borderRadius: 4,
     padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'default',
     boxShadow: '0 0 0 3px rgba(0,122,90,0.25)',
   } as React.CSSProperties,
@@ -814,7 +814,7 @@ function SlackLayout({ url, activeNav, children }: { url: string; activeNav: str
   return (
     <div style={slackStyles.wrap}>
       <ChromeBar url={url} />
-      <div style={{ display: 'flex', background: '#fff' }}>
+      <div style={{ display: 'flex', background: 'var(--surface)' }}>
         {/* Sidebar */}
         <div style={{ width: 148, background: '#f8f8f8', borderRight: '1px solid #e0e0e0', padding: '10px 0', flexShrink: 0 }}>
           {navItems.map(item => (
@@ -838,13 +838,13 @@ function BotTokenScreenshot() {
   return (
     <SlackLayout url="api.slack.com/apps/A.../oauth" activeNav="OAuth & Permissions">
       {/* Install notice */}
-      <div style={{ background: '#fff8e6', border: '1px solid #f5c842', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontSize: 11, color: '#7a5c00', lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+      <div style={{ background: 'var(--surface-2)', border: '1px solid var(--amber)', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontSize: 11, color: 'var(--amber)', lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
         <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
         <span>Token only appears after <strong>Install to Workspace</strong> (sidebar → Install App)</span>
       </div>
       <div style={slackStyles.sectionTitle}>OAuth Tokens</div>
       <div style={{ border: '1px solid #e8e8e8', borderRadius: 5, overflow: 'hidden' }}>
-        <div style={{ padding: '8px 10px', background: '#fafafa', borderBottom: '1px solid #e8e8e8' }}>
+        <div style={{ padding: '8px 10px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
           <div style={{ fontSize: 11, color: '#616061', marginBottom: 1 }}>Bot User OAuth Token</div>
           <div style={{ ...slackStyles.token, fontSize: 10.5 }}>xoxb-••••••••••••-••••••••••••-••••••••••••</div>
           <div style={{ fontSize: 10, color: '#616061', marginTop: 2 }}>Access Level: Workspace</div>

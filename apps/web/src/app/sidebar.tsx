@@ -12,6 +12,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState, createContext } from 'react';
 import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
+import { useTheme } from '@/lib/theme-context';
 
 const STATUS_DOT: Record<string, string> = {
   running: '#059669', stopped: '#d4d4d4', error: '#dc2626',
@@ -30,6 +31,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
   const [isMobile, setIsMobile] = useState(false);
   const [branding, setBranding] = useState({ appName: 'SlackHive', tagline: 'AI agent teams on Slack', logoUrl: '' });
   const { username, role, canEdit, logout } = useAuth();
+  const { theme, toggle: toggleTheme } = useTheme();
   const w = isMobile ? 0 : (collapsed ? W_CLOSED : W_OPEN);
 
   useEffect(() => {
@@ -60,7 +62,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         }} />
       )}
       <aside style={{
-        width: W_OPEN, flexShrink: 0, background: '#fff',
+        width: W_OPEN, flexShrink: 0, background: 'var(--surface)',
         borderRight: '1px solid var(--border)',
         display: 'flex', flexDirection: 'column',
         position: 'fixed', top: 0, bottom: 0, zIndex: 50,
@@ -98,8 +100,10 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         </div>
 
         {/* ── Nav ─────────────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '12px 12px' }}>
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
+        {/* Scrollable agents section */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 4px' }}>
           <NavItem href="/" active={pathname === '/'} collapsed={collapsed} icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <rect x="1.5" y="1.5" width="5" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -151,7 +155,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                   <div className={agent.status === 'running' ? 'status-running' : ''} style={{
                     position: 'absolute', bottom: -1, right: -1,
                     width: 8, height: 8, borderRadius: '50%',
-                    background: dot, border: '2px solid #fff',
+                    background: dot, border: '2px solid var(--surface)',
                   }} />
                 </div>
                 {!collapsed && (
@@ -194,7 +198,10 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
             {!collapsed && 'Add agent'}
           </Link>}
 
-          <div style={{ height: 1, background: 'var(--border)', margin: '12px 6px' }} />
+        </div>
+
+        {/* Fixed bottom nav — always visible */}
+        <div style={{ padding: '4px 12px 8px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
 
           <NavItem href="/settings/mcps" active={pathname === '/settings/mcps'} collapsed={collapsed} icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -224,6 +231,8 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2"/>
             </svg>
           }>Settings</NavItem>
+
+        </div>
         </div>
 
         {/* ── Footer — Profile ──────────────────────────────────────────── */}
@@ -244,9 +253,9 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
           >
             <div style={{
               width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-              background: '#171717',
+              background: 'var(--accent)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 12, fontWeight: 600, color: '#fff',
+              fontSize: 12, fontWeight: 600, color: 'var(--accent-fg)',
             }}>
               {(username || '?').charAt(0).toUpperCase()}
             </div>
@@ -273,7 +282,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               bottom: collapsed ? 60 : 64,
               left: collapsed ? 8 : 12,
               right: collapsed ? 8 : 12,
-              background: '#fff',
+              background: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: 10,
               boxShadow: 'var(--shadow-lg)',
@@ -288,16 +297,42 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                 </div>
               )}
               <button
+                onClick={toggleTheme}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  width: '100%', padding: '10px 14px',
+                  background: 'transparent', border: 'none',
+                  color: 'var(--muted)', fontSize: 13, cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)',
+                  transition: 'background 0.12s',
+                  borderBottom: '1px solid var(--border)',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                {theme === 'light' ? (
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M14 9.2A6 6 0 116.8 2a4.8 4.8 0 007.2 7.2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                    <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3"/>
+                  </svg>
+                )}
+                {theme === 'light' ? 'Dark mode' : 'Light mode'}
+              </button>
+              <button
                 onClick={() => { setProfileOpen(false); logout(); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   width: '100%', padding: '10px 14px',
                   background: 'transparent', border: 'none',
-                  color: '#dc2626', fontSize: 13, cursor: 'pointer',
+                  color: 'var(--red)', fontSize: 13, cursor: 'pointer',
                   fontFamily: 'var(--font-sans)',
                   transition: 'background 0.12s',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(220,38,38,0.05)')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--red-soft-bg)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none">

@@ -199,10 +199,10 @@ export class AgentRunner {
       getAllEnvVarValues(),
     ]);
 
-    // Compile CLAUDE.md (skills + memories → temp workspace)
+    // Compile CLAUDE.md (identity + skills → temp workspace)
     const workDir = await compileClaudeMd(agent);
 
-    // Materialize memory files so the SDK can read/update them
+    // Materialize memory files so the /recall skill can read them
     materializeMemoryFiles(agent, memories);
 
     // Create Claude Code SDK handler

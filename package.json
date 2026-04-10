@@ -1,17 +1,25 @@
 {
   "name": "slackhive",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.44",
+  "private": false,
   "description": "Open-source platform for managing teams of Claude Code Slack agents with a boss agent orchestrator",
   "workspaces": [
     "apps/*",
     "packages/*",
     "cli"
   ],
+  "bin": {
+    "slackhive": "cli/dist/index.js"
+  },
   "scripts": {
     "dev": "sh scripts/dev.sh",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "prepare": "npm run build -w cli"
   },
+  "files": [
+    "cli/dist",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
@@ -22,6 +30,7 @@
   },
   "overrides": {
     "dompurify": "^3.3.3",
-    "vite": "^6.4.2"
+    "vite": "^6.4.2",
+    "axios": "^1.15.0"
   }
 }
