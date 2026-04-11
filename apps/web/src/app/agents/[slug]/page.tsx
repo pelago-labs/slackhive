@@ -23,6 +23,9 @@ type Tab = 'overview' | 'instructions' | 'tools' | 'memory' | 'logs' | 'history'
 interface AgentExportPayload {
   version: number;
   exportedAt?: string;
+  name?: string;
+  persona?: string;
+  description?: string;
   claudeMd: string;
   skills: { category: string; filename: string; content: string; sortOrder: number }[];
 }
@@ -104,6 +107,8 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       const payload: AgentExportPayload = {
         version: 1,
         exportedAt: new Date().toISOString(),
+        persona: agent.persona ?? '',
+        description: agent.description ?? '',
         claudeMd,
         skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
       };
@@ -124,11 +129,22 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
     reader.onload = (ev) => {
       try {
         const data = JSON.parse(ev.target?.result as string);
-        if (typeof data.claudeMd !== 'string' || !Array.isArray(data.skills)) {
-          setImportError('Invalid export file'); return;
+
+        // Validate required fields
+        if (!data || typeof data !== 'object') { setImportError('Invalid file: not a JSON object'); return; }
+        if (typeof data.claudeMd !== 'string') { setImportError('Invalid file: missing claudeMd field'); return; }
+        if (!Array.isArray(data.skills)) { setImportError('Invalid file: missing skills array'); return; }
+
+        // Validate each skill
+        for (let i = 0; i < data.skills.length; i++) {
+          const s = data.skills[i];
+          if (!s.category || typeof s.category !== 'string') { setImportError(`Invalid skill #${i + 1}: missing category`); return; }
+          if (!s.filename || typeof s.filename !== 'string') { setImportError(`Invalid skill #${i + 1}: missing filename`); return; }
+          if (typeof s.content !== 'string') { setImportError(`Invalid skill #${i + 1}: missing content`); return; }
         }
+
         setImportPreview(data);
-      } catch { setImportError('Could not parse file'); }
+      } catch { setImportError('Could not parse file — must be valid JSON'); }
     };
     reader.readAsText(file);
   };
@@ -137,19 +153,35 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
     if (!agent || !importPreview) return;
     setImporting(true);
     try {
+      // Update persona/description if present in the export
+      if (importPreview.persona !== undefined || importPreview.description !== undefined) {
+        await fetch(`/api/agents/${agent.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...(importPreview.persona !== undefined && { persona: importPreview.persona }),
+            ...(importPreview.description !== undefined && { description: importPreview.description }),
+          }),
+        });
+      }
+
+      // Update system prompt
       await fetch(`/api/agents/${agent.id}/claude-md`, {
         method: 'PUT', headers: { 'Content-Type': 'text/plain' },
         body: importPreview.claudeMd,
       });
+
+      // Upsert skills
       await Promise.all(importPreview.skills.map(s =>
         fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(s),
         })
       ));
+
       const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
       setAgent(updated);
       setImportPreview(null);
+      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
     } finally { setImporting(false); }
   };
 
