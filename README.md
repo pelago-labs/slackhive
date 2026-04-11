@@ -18,6 +18,8 @@
 
 [**Documentation**](https://slackhive.mintlify.app) · [Quick Start](#-quick-start) · [Features](#-features) · [Architecture](#-architecture) · [Contributing](#-contributing)
 
+https://github.com/user-attachments/assets/cd1b435c-04f3-455d-8b3f-775687ddb1ca
+
 </div>
 
 ---
