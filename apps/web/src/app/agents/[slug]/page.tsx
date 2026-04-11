@@ -901,9 +901,8 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>CLAUDE.md</h3>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            {editing ? 'Editing raw system prompt — this overrides all individual skills.' : 'Compiled system prompt sent to Claude.'}
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+            {editing ? 'Editing system prompt — defines the agent\'s core behavior.' : ''}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
