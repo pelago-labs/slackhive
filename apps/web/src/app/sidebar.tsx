@@ -56,7 +56,10 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
     loadSidebarData();
     // Poll every 5 seconds to keep sidebar in sync after mutations
     const interval = setInterval(loadSidebarData, 5000);
-    return () => clearInterval(interval);
+    // Also listen for instant refresh signals from other components
+    const handler = () => loadSidebarData();
+    window.addEventListener('slackhive:sidebar-refresh', handler);
+    return () => { clearInterval(interval); window.removeEventListener('slackhive:sidebar-refresh', handler); };
   }, []);
 
   return (

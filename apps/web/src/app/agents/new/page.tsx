@@ -124,6 +124,7 @@ export default function NewAgentWizard() {
         ));
       }
 
+      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
       router.push(`/agents/${data.slug}`);
     } finally { setSubmitting(false); }
   };

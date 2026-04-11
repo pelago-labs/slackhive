@@ -90,6 +90,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
     setAgent(await r.json());
     setActionMsg('Done');
     setTimeout(() => setActionMsg(''), 2000);
+    window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
   };
 
   const handleExport = async () => {
@@ -406,6 +407,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
     setDeleting(true);
     const r = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
     if (r.ok) {
+      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
       router.push('/');
     } else {
       const err = await r.json();

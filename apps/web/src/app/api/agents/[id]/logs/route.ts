@@ -40,12 +40,9 @@ export async function GET(
         } catch { /* stream closed */ }
       }
 
-      // Match lines for this agent OR general system lines (no agent field)
+      // Only show logs for this specific agent
       function isRelevantLine(line: string): boolean {
-        if (line.includes(`"agent":"${slug}"`)) return true;
-        // Also show system-level logs (startup, errors without agent context)
-        if (!line.includes('"agent":')) return true;
-        return false;
+        return line.includes(`"agent":"${slug}"`);
       }
 
       function processLines(data: string, partialBuffer: { value: string }) {
