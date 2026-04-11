@@ -123,6 +123,13 @@ export default function McpSettingsPage() {
     fetch('/api/env-vars').then(r => r.json()).then((rows: { key: string }[]) => setEnvVarKeys(rows.map(r => r.key))).catch(() => {});
   }, []);
 
+  // CLI-detected MCPs
+  const [cliMcps, setCliMcps] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/mcps/detected').then(r => r.json()).then(d => setCliMcps(d.detected ?? [])).catch(() => {});
+  }, []);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -444,6 +451,54 @@ export default function McpSettingsPage() {
               canEdit={canEdit}
             />
           ))}
+        </div>
+      )}
+
+      {/* Detected from Claude Code CLI */}
+      {cliMcps.length > 0 && !showForm && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Detected from Claude Code
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            {cliMcps.filter(d => !servers.find(s => s.name === d.name)).map((d, i, arr) => {
+              const tpl = MCP_TEMPLATES.find(t => t.id === d.name || t.name.toLowerCase() === d.name.toLowerCase());
+              return (
+                <div key={d.name} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px',
+                  borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+                }}>
+                  {tpl?.logo ? (
+                    <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
+                      alt="" width={18} height={18} style={{ borderRadius: 3, opacity: 0.7, flexShrink: 0 }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : (
+                    <span style={{ width: 18, height: 18, borderRadius: 4, background: 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>{d.name.charAt(0).toUpperCase()}</span>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{d.name}</span>
+                    <span style={{ fontSize: 11, color: 'var(--subtle)', marginLeft: 8 }}>{d.type} · {d.url || d.command}</span>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)', flexShrink: 0 }}>CLI</span>
+                  {canEdit && (
+                    <button onClick={async () => {
+                      const config = d.url ? { url: d.url } : { command: d.command, args: [] };
+                      await fetch('/api/mcps', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: d.name, type: d.type === 'http' ? 'http' : d.type === 'sse' ? 'sse' : 'stdio', config, enabled: true }),
+                      });
+                      setCliMcps(prev => prev.filter(m => m.name !== d.name));
+                      await load();
+                    }} style={{
+                      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 5,
+                      background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
+                      cursor: 'pointer', fontFamily: 'var(--font-sans)', flexShrink: 0,
+                    }}>Add to Catalog</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
