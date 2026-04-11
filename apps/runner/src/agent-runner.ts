@@ -405,6 +405,16 @@ export class AgentRunner {
                 logger.error('Optimize failed', { error: err.message })
               );
               break;
+            default: {
+              // Handle mcp-auth and other custom events
+              const raw = event as any;
+              if (raw.type === 'mcp-auth') {
+                this.authenticateMcp(raw.requestId, raw.mcpUrl, raw.mcpName).catch(err =>
+                  logger.error('MCP auth failed', { error: err.message })
+                );
+              }
+              break;
+            }
           }
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -624,6 +634,65 @@ Guidelines:
    * 3. On auth error → refresh token via OAuth endpoint → retry
    * 4. On auth error → throw AUTH_NEEDS_LOGIN
    */
+  /**
+   * Authenticates an MCP server via Claude Code SDK.
+   * The SDK has pre-registered OAuth credentials for Figma, etc.
+   * It opens the user's browser for authorization.
+   * Works on macOS and Linux with a display. On headless servers,
+   * falls back to asking user to run `claude mcp add` in terminal.
+   */
+  private async authenticateMcp(requestId: string, mcpUrl: string, mcpName: string): Promise<void> {
+    logger.info('Authenticating MCP via SDK', { requestId, mcpName, mcpUrl });
+
+    try {
+      await setOptimizeResult(`mcp_auth_${requestId}`, JSON.stringify({ status: 'running', mcpName }));
+
+      // Call Claude SDK with the MCP — this triggers the SDK's OAuth flow
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+      const os = await import('os');
+
+      // Short prompt that forces the SDK to connect to the MCP
+      for await (const msg of query({
+        prompt: `List available tools from the ${mcpName} MCP server. Just list the tool names, nothing else.`,
+        options: {
+          maxTurns: 1,
+          tools: [],
+          allowedTools: [],
+          permissionMode: 'acceptEdits',
+          cwd: os.tmpdir(),
+          mcpServers: {
+            [mcpName]: { url: mcpUrl, type: 'http' } as any,
+          },
+        },
+      })) {
+        // Just consume the stream — we only care that the SDK connected (which requires auth)
+        if (msg.type === 'result') break;
+      }
+
+      // If we got here, auth succeeded — the SDK stored the token in ~/.claude/.credentials.json
+      await setOptimizeResult(`mcp_auth_${requestId}`, JSON.stringify({
+        status: 'done',
+        message: `${mcpName} authenticated successfully. Token saved.`,
+      }));
+      logger.info('MCP auth completed', { requestId, mcpName });
+
+    } catch (err) {
+      const message = (err as Error).message ?? String(err);
+      logger.error('MCP auth failed', { requestId, mcpName, error: message });
+
+      let userError: string;
+      if (message.includes('browser') || message.includes('display') || message.includes('DISPLAY')) {
+        userError = `Cannot open browser on this server. Run \`claude mcp add --transport http ${mcpName} ${mcpUrl}\` in your terminal instead.`;
+      } else if (message.includes('401') || message.includes('auth')) {
+        userError = `Authentication was cancelled or failed. Try again.`;
+      } else {
+        userError = `MCP auth failed: ${message.slice(0, 200)}`;
+      }
+
+      await setOptimizeResult(`mcp_auth_${requestId}`, JSON.stringify({ status: 'error', error: userError }));
+    }
+  }
+
   private async callClaudeWithRetry(prompt: string): Promise<string> {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     const os = await import('os');

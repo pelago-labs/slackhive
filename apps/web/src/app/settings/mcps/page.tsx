@@ -653,24 +653,37 @@ export default function McpSettingsPage() {
                     }}>
                       <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Connect to {selectedTemplate.name}</div>
 
-                      {/* OAuth connect button — tries real OAuth first, falls back to token page */}
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                      {/* Connect via SDK or OAuth */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
                         <button
                           onClick={async () => {
                             try {
-                              const r = await fetch('/api/oauth/start', {
+                              // Step 1: Try OAuth discovery (Notion, Linear, Asana)
+                              const oauthRes = await fetch('/api/oauth/start', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ mcpUrl: selectedTemplate.url, templateId: selectedTemplate.id }),
                               });
-                              const data = await r.json();
-                              if (data.authUrl) {
-                                // Real OAuth flow — redirect to provider
-                                window.open(data.authUrl, '_blank');
-                              } else {
-                                // Fallback — open token generation page
-                                window.open(selectedTemplate.tokenUrl || selectedTemplate.docsUrl, '_blank');
+                              const oauthData = await oauthRes.json();
+                              if (oauthData.authUrl) {
+                                window.open(oauthData.authUrl, '_blank');
+                                return;
                               }
+
+                              // Step 2: Try Claude SDK auth (Figma, etc.)
+                              const sdkRes = await fetch('/api/mcps/auth', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ mcpUrl: selectedTemplate.url, mcpName: selectedTemplate.id, templateId: selectedTemplate.id }),
+                              });
+                              const sdkData = await sdkRes.json();
+                              if (sdkData.status === 'started') {
+                                alert('A browser window should open for authentication. After authorizing, come back here and click "Add to Catalog".');
+                                return;
+                              }
+
+                              // Step 3: Fallback — open token page
+                              window.open(selectedTemplate.tokenUrl || selectedTemplate.docsUrl, '_blank');
                             } catch {
                               window.open(selectedTemplate.tokenUrl || selectedTemplate.docsUrl, '_blank');
                             }
@@ -682,13 +695,11 @@ export default function McpSettingsPage() {
                             fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
                           }}
                         >Connect {selectedTemplate.name}</button>
-                      </div>
 
-                      {selectedTemplate.tokenHint && (
-                        <p style={{ fontSize: 11.5, color: 'var(--subtle)', margin: '0 0 10px', lineHeight: 1.5 }}>
-                          Or manually: {selectedTemplate.tokenHint}
+                        <p style={{ fontSize: 11.5, color: 'var(--subtle)', margin: 0, lineHeight: 1.5 }}>
+                          {selectedTemplate.tokenHint ? `Or manually: ${selectedTemplate.tokenHint}` : 'Or paste an access token below'}
                         </p>
-                      )}
+                      </div>
 
                       {/* Paste token */}
                       <div>
