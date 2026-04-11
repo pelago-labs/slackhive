@@ -35,6 +35,7 @@ import {
   getAllEnvVarValues,
   updateAgentStatus,
   setOptimizeResult,
+  setResult,
   getPendingOptimizeRequests,
 } from './db';
 import { compileClaudeMd, materializeMemoryFiles } from './compile-claude-md';
@@ -406,11 +407,16 @@ export class AgentRunner {
               );
               break;
             default: {
-              // Handle mcp-auth and other custom events
+              // Handle mcp-auth, analyze-memories, and other custom events
               const raw = event as any;
               if (raw.type === 'mcp-auth') {
                 this.authenticateMcp(raw.requestId, raw.mcpUrl, raw.mcpName).catch(err =>
                   logger.error('MCP auth failed', { error: err.message })
+                );
+              }
+              if (raw.type === 'analyze-memories') {
+                this.analyzeMemories(raw.agentId, raw.requestId).catch(err =>
+                  logger.error('Memory analysis failed', { error: err.message })
                 );
               }
               break;
@@ -525,7 +531,8 @@ ${agent.claudeMd || '(empty — the agent has no custom system prompt yet)'}
 ## Current Skills (${skills.length} files)
 ${skillsList || '(no skills created yet)'}
 
-## Learned Memories: ${memories.length} entries
+## Learned Memories (${memories.length})
+${memories.length > 0 ? memories.map(m => `- **${m.type}**: ${m.name} — ${m.content.slice(0, 150)}`).join('\n') : '(no memories yet)'}
 
 ## Return this JSON structure:
 {
@@ -543,6 +550,13 @@ ${skillsList || '(no skills created yet)'}
       "action": "improve" | "create" | "delete",
       "suggestion": "<full content>",
       "explanation": "<why>"
+    }
+  ],
+  "memoryActions": [
+    {
+      "memoryId": "<id or name>",
+      "action": "move_to_skill" | "update_prompt" | "merge" | "delete" | "keep",
+      "reason": "<brief explanation>"
     }
   ],
   "tips": ["<actionable tip>"]
@@ -634,6 +648,110 @@ Guidelines:
    * 3. On auth error → refresh token via OAuth endpoint → retry
    * 4. On auth error → throw AUTH_NEEDS_LOGIN
    */
+  /**
+   * Analyzes an agent's memories and suggests actions: move_to_skill, update_prompt, merge, delete.
+   * Result is stored in the DB for the web UI to poll.
+   */
+  private async analyzeMemories(agentId: string, requestId: string): Promise<void> {
+    logger.info('Analyzing memories', { agentId, requestId });
+
+    try {
+      const agent = await getAgentById(agentId);
+      if (!agent) {
+        await setResult(`analyze:${requestId}`, JSON.stringify({ status: 'error', error: 'Agent not found' }));
+        return;
+      }
+
+      const [memories, skills] = await Promise.all([
+        getAgentMemories(agentId),
+        getAgentSkills(agentId),
+      ]);
+
+      if (memories.length === 0) {
+        await setResult(`analyze:${requestId}`, JSON.stringify({ status: 'done', suggestions: [] }));
+        return;
+      }
+
+      const memoriesList = memories.map(m =>
+        `- [${m.id}] **${m.type}**: ${m.name} — ${m.content.slice(0, 200)}`
+      ).join('\n');
+
+      const skillsList = skills.map(s => `- ${s.category}/${s.filename}`).join('\n');
+
+      const prompt = `You are analyzing an AI agent's learned memories to suggest improvements.
+
+CRITICAL: Your entire response must be a single JSON object. No text before or after. No markdown fences. Start with { end with }.
+
+## Agent: ${agent.name}
+${agent.description || ''}
+
+## Current Skills
+${skillsList || '(none)'}
+
+## Current System Prompt
+${agent.claudeMd || '(empty)'}
+
+## Memories to analyze (${memories.length})
+${memoriesList}
+
+## For each memory, suggest ONE action:
+- **move_to_skill**: Memory contains reusable knowledge that belongs in a skill file
+- **update_prompt**: Memory contains a behavioral rule that should be in the system prompt
+- **merge**: Memory overlaps with another memory and they should be combined
+- **delete**: Memory is outdated, trivial, or redundant with existing skills/prompt
+- **keep**: Memory is fine as-is
+
+Return this JSON:
+{
+  "suggestions": [
+    {
+      "memoryId": "<id>",
+      "action": "move_to_skill" | "update_prompt" | "merge" | "delete" | "keep",
+      "reason": "<brief explanation>",
+      "mergeWith": "<other memory id, only if action is merge>"
+    }
+  ]
+}`;
+
+      // Mark as running
+      await setResult(`analyze:${requestId}`, JSON.stringify({ status: 'running' }));
+
+      const fullResponse = await this.callClaudeWithRetry(prompt);
+
+      // Parse JSON from response
+      let parsed: any = null;
+      const strategies = [
+        () => JSON.parse(fullResponse),
+        () => { const m = fullResponse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/); return m ? JSON.parse(m[1]) : null; },
+        () => { const s = fullResponse.indexOf('{'); const e = fullResponse.lastIndexOf('}'); return s >= 0 && e > s ? JSON.parse(fullResponse.slice(s, e + 1)) : null; },
+      ];
+      for (const strategy of strategies) {
+        try { parsed = strategy(); if (parsed) break; } catch { /* try next */ }
+      }
+      if (!parsed) throw new Error('JSON_PARSE: Could not extract JSON from Claude response');
+
+      await setResult(`analyze:${requestId}`, JSON.stringify({ status: 'done', ...parsed }));
+      logger.info('Memory analysis complete', { agentId, requestId, suggestions: parsed.suggestions?.length ?? 0 });
+
+    } catch (err) {
+      const message = (err as Error).message ?? String(err);
+      logger.error('Memory analysis failed', { agentId, requestId, error: message });
+
+      let userError = 'Memory analysis failed. ';
+      if (message.includes('AUTH_NEEDS_LOGIN')) {
+        userError = 'Run `claude login` in your terminal, then restart SlackHive.';
+      } else if (message.includes('401') || message.includes('auth')) {
+        userError += 'Claude not authenticated. Run `claude login` in your terminal.';
+      } else if (message.includes('JSON')) {
+        userError += 'Claude returned an unexpected format. Try again.';
+      } else {
+        userError += message;
+      }
+
+      await setResult(`analyze:${requestId}`, JSON.stringify({ status: 'error', error: userError }));
+    }
+  }
+
   /**
    * Handles MCP authentication requests.
    * The Claude SDK's query() API doesn't support interactive OAuth.

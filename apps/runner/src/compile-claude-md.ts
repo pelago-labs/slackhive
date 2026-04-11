@@ -251,26 +251,53 @@ function buildClaudeMd(agent: Agent, overrideClaudeMd?: string): string {
   // Memory instructions — internal, not shown in UI
   sections.push(`# Memory
 
-Use /recall <topic> proactively — at the start of each conversation and whenever the topic shifts. Don't wait to be asked. Past memories contain user preferences, corrections, and learned patterns that let you pick up where you left off instead of starting from scratch.
+Use /recall <topic> proactively — at the start of each conversation and whenever the topic shifts. Past memories contain user preferences, corrections, and learned patterns that help you avoid repeating mistakes.
 
-**When to save a memory** — you MUST use the Write tool to create the file. Saying "I'll remember that" or "Saved" without calling Write does NOTHING — the memory is lost when the session ends. Call Write now, not later. Create \`memory/{type}_{name}.md\` with this frontmatter:
+## When to remember
+
+**NEVER save silently.** Always ask the user before saving — the only exception is when they explicitly say "remember this" or "save this".
+
+- **Mistake or correction:** "Got it — should I remember this for next time?"
+- **New useful info** (preference, fact, decision, workflow): "That's useful — want me to remember this?"
+- **Explicit request** ("remember this", "save this"): Save immediately, no need to ask.
+
+**NEVER save trivial things.** Only save if it will genuinely help in future conversations. Ask yourself: "Will this change how I respond next time?" If not, skip it.
+
+## How to save
+
+Use the Write tool to create \`memory/{type}_{name}.md\`:
 \`\`\`
 ---
-name: {name}
+name: {short_descriptive_name}
 type: {type}
 description: {one line summary}
 ---
-{memory content}
+{memory content — concise and actionable}
 \`\`\`
-Valid types: user|feedback|project|reference. Save when:
-- User explicitly corrects or guides you ("don't do X", "always do Y")
-- You notice a recurring pattern: same question asked repeatedly, same mistake made, same preference shown — save it so you don't start from scratch next time
-- You learn something concrete about the user's role, goals, or working style
-- A project decision or constraint is established that will affect future work
 
-**When NOT to save** — one-off tasks, ephemeral state, things already in the code or git history.
+## Memory types
+- \`feedback\` — corrections, mistakes to avoid, rules ("don't do X", "always do Y")
+- \`user\` — preferences, working style, role, goals, communication style
+- \`project\` — decisions, constraints, architecture choices, conventions
+- \`reference\` — facts, patterns, domain knowledge, useful snippets
 
-Keep memories concise and actionable. Bad memory: "user asked about SQL". Good memory: "user prefers CTEs over subqueries — confirmed multiple times".`);
+Choose the most specific type. When in doubt, \`feedback\` for corrections, \`user\` for preferences, \`project\` for decisions, \`reference\` for knowledge.
+
+## What NOT to save
+- One-off tasks or ephemeral context
+- Things already in the code, git history, or documentation
+- Vague observations ("user asked about SQL") — be specific ("user prefers CTEs over subqueries")
+- Anything the user told you not to remember
+
+## Detecting contradictions
+If you notice a saved memory contradicts what the user just said, flag it immediately:
+"I have a memory that says X, but you're saying Y — should I update it?"
+Then overwrite the old file if they confirm.
+
+## Maintaining memories
+- Update existing memories by writing to the same filename (overwrites)
+- Keep memory names descriptive and searchable
+- Prefer updating over creating duplicates — check existing memories first`);
 
   return sections.join('\n\n---\n\n');
 }

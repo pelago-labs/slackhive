@@ -18,7 +18,7 @@ import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import { lineDiff, type DiffLine } from '@/lib/diff';
 
-type Tab = 'overview' | 'instructions' | 'tools' | 'memory' | 'logs' | 'history';
+type Tab = 'overview' | 'instructions' | 'tools' | 'logs' | 'history';
 
 interface AgentExportPayload {
   version: number;
@@ -34,7 +34,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',      label: 'Overview'      },
   { id: 'instructions',  label: 'Instructions'  },
   { id: 'tools',         label: 'Tools'         },
-  { id: 'memory',        label: 'Memory'        },
   { id: 'logs',          label: 'Logs'          },
   { id: 'history',       label: 'History'       },
 ];
@@ -359,7 +358,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'memory'      && <MemoryTab      agentId={agent.id} canEdit={canEdit} />}
+        {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
       </div>
@@ -890,16 +889,50 @@ function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean })
         )}
       </div>
 
-      {/* ── Skills ──────────────────────────────────────────────────────── */}
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 4 }}>
-          Skills
-        </div>
-        <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-          Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.
-        </p>
-        <SkillsTab agentId={agent.id} canEdit={canEdit} />
+      {/* ── Skills / Memory sub-tabs ──────────────────────────────────── */}
+      <InstructionsSubTabs agentId={agent.id} canEdit={canEdit} />
+    </div>
+  );
+}
+
+function InstructionsSubTabs({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+  const [subTab, setSubTab] = useState<'skills' | 'memory'>('skills');
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
+        {(['skills', 'memory'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setSubTab(t)}
+            style={{
+              padding: '8px 18px', fontSize: 13, fontWeight: subTab === t ? 600 : 400,
+              color: subTab === t ? 'var(--text)' : 'var(--muted)',
+              background: 'none', border: 'none', borderBottom: subTab === t ? '2px solid var(--accent)' : '2px solid transparent',
+              cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              transition: 'color 0.15s, border-color 0.15s',
+            }}
+          >
+            {t === 'skills' ? 'Skills' : 'Memory'}
+          </button>
+        ))}
       </div>
+      {subTab === 'skills' && (
+        <div>
+          <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
+            Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.
+          </p>
+          <SkillsTab agentId={agentId} canEdit={canEdit} />
+        </div>
+      )}
+      {subTab === 'memory' && (
+        <div>
+          <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
+            Learned from conversations — the agent asks before saving. Use Analyze to suggest improvements.
+          </p>
+          <MemorySection agentId={agentId} canEdit={canEdit} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1383,12 +1416,32 @@ const MEM_TYPE_STYLE: Record<string, { bg: string; color: string }> = {
   reference: { bg: '#f0fdf4', color: '#15803d' },
 };
 
-function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeResult, setAnalyzeResult] = useState<any>(null);
+  const [analyzeError, setAnalyzeError] = useState('');
 
   const load = () => fetch(`/api/agents/${agentId}/memories`).then(r => r.json()).then(setMemories);
   useEffect(() => { load(); }, [agentId]);
+
+  const runAnalyze = async () => {
+    setAnalyzing(true); setAnalyzeResult(null); setAnalyzeError('');
+    try {
+      const r = await fetch(`/api/agents/${agentId}/analyze-memories`, { method: 'POST' });
+      const { requestId } = await r.json();
+      for (let i = 0; i < 60; i++) {
+        await new Promise(res => setTimeout(res, 2000));
+        const poll = await fetch(`/api/agents/${agentId}/analyze-memories?requestId=${requestId}`);
+        const data = await poll.json();
+        if (data.status === 'done') { setAnalyzeResult(data); setAnalyzing(false); return; }
+        if (data.status === 'error') { setAnalyzeError(data.error); setAnalyzing(false); return; }
+      }
+      setAnalyzeError('Analysis timed out.');
+    } catch (err) { setAnalyzeError((err as Error).message); }
+    finally { setAnalyzing(false); }
+  };
 
   const remove = async (id: string) => {
     await fetch(`/api/agents/${agentId}/memories/${id}`, { method: 'DELETE' });
@@ -1419,11 +1472,86 @@ function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
     );
   }
 
+  const ACTION_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+    move_to_skill: { label: 'Move to Skill', color: 'var(--blue)', bg: 'rgba(59,130,246,0.1)' },
+    update_prompt: { label: 'Update Prompt', color: 'var(--green)', bg: 'rgba(16,185,129,0.1)' },
+    merge: { label: 'Merge', color: 'var(--amber)', bg: 'var(--amber-soft-bg)' },
+    delete: { label: 'Delete', color: 'var(--red)', bg: 'var(--red-soft-bg)' },
+  };
+
   return (
-    <div style={{ maxWidth: 720 }} className="fade-up">
-      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 18 }}>
-        {memories.length} memories across {Object.keys(grouped).length} categories
+    <div style={{ maxWidth: 720 }}>
+      {/* Header with Analyze */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+          {memories.length} memor{memories.length === 1 ? 'y' : 'ies'}
+        </span>
+        {canEdit && memories.length > 0 && (
+          <button onClick={runAnalyze} disabled={analyzing} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            background: analyzing ? 'var(--surface-2)' : 'var(--surface)',
+            border: '1px solid var(--border)', borderRadius: 7,
+            padding: '5px 12px', fontSize: 12, fontWeight: 500,
+            cursor: analyzing ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+            color: analyzing ? 'var(--muted)' : 'var(--text)',
+          }}>
+            {analyzing ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Analyzing...</> : <><Wand2 size={13} /> Analyze</>}
+          </button>
+        )}
       </div>
+
+      {/* Analyze error */}
+      {analyzeError && (
+        <div style={{ background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--red)' }}>
+          {analyzeError}
+        </div>
+      )}
+
+      {/* Analyze results */}
+      {analyzeResult?.suggestions?.length > 0 && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Wand2 size={14} style={{ color: 'var(--muted)' }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Suggestions</span>
+          </div>
+          {analyzeResult.summary && <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>{analyzeResult.summary}</p>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {analyzeResult.suggestions.map((s: any, i: number) => {
+              const style = ACTION_LABELS[s.action] ?? ACTION_LABELS.delete;
+              return (
+                <div key={i} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 3, background: style.bg, color: style.color }}>{style.label}</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{s.memoryName}</span>
+                  </div>
+                  <p style={{ fontSize: 11.5, color: 'var(--subtle)', margin: '2px 0 6px' }}>{s.reason}</p>
+                  {s.action === 'move_to_skill' && s.content && (
+                    <button onClick={async () => {
+                      await fetch(`/api/agents/${agentId}/skills`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category: '01-knowledge', filename: `${s.memoryName.replace(/[^a-z0-9_-]/gi, '_')}.md`, content: s.content }) });
+                      setAnalyzeResult((prev: any) => ({ ...prev, suggestions: prev.suggestions.map((x: any, j: number) => j === i ? { ...x, applied: true } : x) }));
+                    }} disabled={s.applied} style={{ fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 5, background: s.applied ? 'var(--green)' : 'var(--surface)', border: `1px solid ${s.applied ? 'var(--green)' : 'var(--border)'}`, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: s.applied ? '#fff' : 'var(--text)' }}>{s.applied ? 'Applied' : 'Create Skill'}</button>
+                  )}
+                  {s.action === 'update_prompt' && s.content && (
+                    <button onClick={async () => {
+                      const current = await fetch(`/api/agents/${agentId}/claude-md`).then(r => r.text());
+                      await fetch(`/api/agents/${agentId}/claude-md`, { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: current + '\n\n' + s.content });
+                      setAnalyzeResult((prev: any) => ({ ...prev, suggestions: prev.suggestions.map((x: any, j: number) => j === i ? { ...x, applied: true } : x) }));
+                    }} disabled={s.applied} style={{ fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 5, background: s.applied ? 'var(--green)' : 'var(--surface)', border: `1px solid ${s.applied ? 'var(--green)' : 'var(--border)'}`, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: s.applied ? '#fff' : 'var(--text)' }}>{s.applied ? 'Applied' : 'Add to Prompt'}</button>
+                  )}
+                  {s.action === 'delete' && (
+                    <button onClick={async () => {
+                      const mem = memories.find(m => m.name === s.memoryName);
+                      if (mem) { await fetch(`/api/agents/${agentId}/memories/${mem.id}`, { method: 'DELETE' }); load(); }
+                      setAnalyzeResult((prev: any) => ({ ...prev, suggestions: prev.suggestions.map((x: any, j: number) => j === i ? { ...x, applied: true } : x) }));
+                    }} disabled={s.applied} style={{ fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 5, background: s.applied ? 'var(--red)' : 'var(--surface)', border: `1px solid ${s.applied ? 'var(--red)' : 'var(--border)'}`, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: s.applied ? '#fff' : 'var(--red)' }}>{s.applied ? 'Deleted' : 'Delete Memory'}</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={() => setAnalyzeResult(null)} style={{ marginTop: 10, fontSize: 11, color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Dismiss</button>
+        </div>
+      )}
       {(['feedback', 'user', 'project', 'reference'] as const).map(type => {
         const items = grouped[type];
         if (!items?.length) return null;

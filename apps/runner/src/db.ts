@@ -421,6 +421,15 @@ export async function getOptimizeResult(requestId: string): Promise<string | nul
   return r.rows.length ? r.rows[0].value as string : null;
 }
 
+/** Write a result to the settings table with the exact key (no prefix). */
+export async function setResult(key: string, value: string): Promise<void> {
+  await getDb().query(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, value]
+  );
+}
+
 /**
  * Find all pending optimize requests.
  * Returns array of { requestId, agentId }.
