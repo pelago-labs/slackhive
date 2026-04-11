@@ -94,9 +94,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (template.transport === 'stdio') {
     type = 'stdio';
+    const args = [...(template.args ?? [])];
+
+    // Some MCPs need env values as command args (e.g. filesystem path, postgres connection string)
+    const ARG_KEYS = new Set(['FILESYSTEM_PATH', 'DATABASE_URL', 'SQLITE_PATH']);
+    if (envValues) {
+      for (const [key, value] of Object.entries(envValues)) {
+        if (ARG_KEYS.has(key) && value) {
+          args.push(value);
+          delete envRefs[key]; // Don't also set as env var
+        }
+      }
+    }
+
     config = {
       command: template.command,
-      args: template.args ?? [],
+      args,
     };
     if (Object.keys(envRefs).length > 0) {
       config.envRefs = envRefs;

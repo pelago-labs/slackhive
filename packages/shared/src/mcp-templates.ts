@@ -136,7 +136,9 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     transport: 'stdio',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-filesystem'],
-    envKeys: [],
+    envKeys: [
+      { key: 'FILESYSTEM_PATH', label: 'Allowed Directory Path', required: true, placeholder: '/path/to/project' },
+    ],
     tags: ['files', 'directories', 'read', 'write'],
     official: true,
   },
@@ -344,7 +346,9 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     transport: 'stdio',
     command: 'uvx',
     args: ['mcp-server-sqlite'],
-    envKeys: [],
+    envKeys: [
+      { key: 'SQLITE_PATH', label: 'SQLite Database File Path', required: true, placeholder: '/path/to/database.db' },
+    ],
     tags: ['database', 'sql', 'local'],
     official: true,
   },
