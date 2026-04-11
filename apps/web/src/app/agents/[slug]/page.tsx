@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -416,19 +416,19 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
 
   return (
     <div style={{ maxWidth: 640 }} className="fade-up">
-      <Section title="Identity">
+      <Section title="Configuration">
         <Grid2>
           <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
-            hint="This is the internal agent name. To update the Slack bot display name, change it in your Slack App settings → App Home." />
+            hint="Internal agent name." />
           <Field label="Model" value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))}
             hint="claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001" readOnly={!canEdit} />
         </Grid2>
         <Field label="Description" value={form.description}
           onChange={v => setForm(f => ({ ...f, description: v }))}
-          hint="Shown to the boss agent for delegation decisions." readOnly={!canEdit} />
+          hint="Short summary — used by boss agents for delegation." readOnly={!canEdit} />
         <TextArea label="Persona" value={form.persona}
           onChange={v => setForm(f => ({ ...f, persona: v }))}
-          hint="Injected into CLAUDE.md — who is this agent?" rows={4} readOnly={!canEdit} />
+          hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
       </Section>
 
       <Section title="Role & Hierarchy">
@@ -701,26 +701,6 @@ function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean })
 
   return (
     <div className="fade-up">
-      {/* ── Header with Optimize button ──────────────────────────────── */}
-      {canEdit && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-          <button onClick={runOptimize} disabled={optimizing} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: optimizing ? 'var(--surface-2)' : 'var(--surface)',
-            border: '1px solid var(--border)', borderRadius: 8,
-            padding: '7px 14px', fontSize: 12.5, fontWeight: 500,
-            cursor: optimizing ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
-            color: optimizing ? 'var(--muted)' : 'var(--text)',
-          }}>
-            {optimizing ? (
-              <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', fontSize: 14 }}>&#9881;</span> Analyzing...</>
-            ) : (
-              <><span style={{ fontSize: 14 }}>&#10024;</span> Optimize</>
-            )}
-          </button>
-        </div>
-      )}
-
       {/* ── Optimize error ───────────────────────────────────────────── */}
       {optimizeError && (
         <div style={{
@@ -739,8 +719,8 @@ function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean })
           borderRadius: 10, padding: '18px 20px', marginBottom: 20,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 14 }}>&#10024;</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Wand2 size={15} style={{ color: 'var(--muted)' }} />
               <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Optimization Suggestions</span>
             </div>
             <div style={{
@@ -835,8 +815,26 @@ function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean })
 
       {/* ── System Prompt ───────────────────────────────────────────────── */}
       <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 4 }}>
-          System Prompt
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            System Prompt
+          </div>
+          {canEdit && (
+            <button onClick={runOptimize} disabled={optimizing} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              background: optimizing ? 'var(--surface-2)' : 'var(--surface)',
+              border: '1px solid var(--border)', borderRadius: 7,
+              padding: '5px 12px', fontSize: 12, fontWeight: 500,
+              cursor: optimizing ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+              color: optimizing ? 'var(--muted)' : 'var(--text)',
+            }}>
+              {optimizing ? (
+                <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Analyzing...</>
+              ) : (
+                <><Wand2 size={13} /> Optimize</>
+              )}
+            </button>
+          )}
         </div>
         <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
           Define how this agent should behave — its rules, workflows, and response style. This is always in the agent&apos;s context.
@@ -1060,7 +1058,8 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
                   }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.filename}</span>
-                  {canEdit && <button
+                  {s.filename === 'identity.md' && <span style={{ fontSize: 9, color: 'var(--subtle)', flexShrink: 0 }}>locked</span>}
+                  {canEdit && s.filename !== 'identity.md' && <button
                     onClick={e => { e.stopPropagation(); remove(s); }}
                     className="delete-btn"
                     style={{
@@ -1081,19 +1080,23 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
         flex: 1, background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
-        {selected ? (
-          <>
+        {selected ? (() => {
+          const isIdentity = selected.filename === 'identity.md';
+          return <>
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '10px 16px', borderBottom: '1px solid var(--border)',
               background: 'var(--surface-2)',
             }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-                {selected.category}/{selected.filename}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                  {selected.category}/{selected.filename}
+                </span>
+                {isIdentity && <span style={{ fontSize: 10, color: 'var(--subtle)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3 }}>read-only · edit in Overview</span>}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 {msg && <span style={{ fontSize: 11.5, color: '#16a34a' }}>{msg}</span>}
-                {canEdit && <button
+                {canEdit && !isIdentity && <button
                   onClick={save} disabled={saving}
                   style={{
                     background: saving ? 'var(--border)' : 'var(--accent)',
@@ -1110,7 +1113,7 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
             <textarea
               value={content}
               onChange={e => setContent(e.target.value)}
-              readOnly={!canEdit}
+              readOnly={!canEdit || isIdentity}
               style={{
                 flex: 1, border: 'none', outline: 'none', resize: 'none',
                 background: 'transparent', color: 'var(--text)',
@@ -1119,8 +1122,8 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
               }}
               spellCheck={false}
             />
-          </>
-        ) : (
+          </>;
+        })() : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)', fontSize: 13 }}>
             Select a file to edit
           </div>
