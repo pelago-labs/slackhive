@@ -651,59 +651,12 @@ export default function McpSettingsPage() {
                       background: 'var(--surface-2)', border: '1px solid var(--border)',
                       borderRadius: 10, padding: '16px 18px', marginBottom: 16,
                     }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Connect to {selectedTemplate.name}</div>
-
-                      {/* Connect via SDK or OAuth */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
-                        <button
-                          onClick={async () => {
-                            try {
-                              // Step 1: Try OAuth discovery (Notion, Linear, Asana)
-                              const oauthRes = await fetch('/api/oauth/start', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ mcpUrl: selectedTemplate.url, templateId: selectedTemplate.id }),
-                              });
-                              const oauthData = await oauthRes.json();
-                              if (oauthData.authUrl) {
-                                window.open(oauthData.authUrl, '_blank');
-                                return;
-                              }
-
-                              // Step 2: Fallback — show terminal command and open token page
-                              window.open(selectedTemplate.tokenUrl || selectedTemplate.docsUrl, '_blank');
-                            } catch {
-                              window.open(selectedTemplate.tokenUrl || selectedTemplate.docsUrl, '_blank');
-                            }
-                          }}
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
-                            background: 'var(--accent)', color: 'var(--accent-fg)',
-                            border: 'none', borderRadius: 7, padding: '8px 16px',
-                            fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                          }}
-                        >Connect {selectedTemplate.name}</button>
-
-                        <div style={{
-                          background: 'var(--surface)', border: '1px solid var(--border)',
-                          borderRadius: 6, padding: '8px 12px', marginTop: 2,
-                          fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        }}>
-                          <code>claude mcp add --transport http {selectedTemplate.id} {selectedTemplate.url}</code>
-                          <button onClick={() => { navigator.clipboard.writeText(`claude mcp add --transport http ${selectedTemplate.id} ${selectedTemplate.url}`); }} style={{
-                            background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', fontSize: 11, fontFamily: 'var(--font-sans)', flexShrink: 0, marginLeft: 8,
-                          }}>Copy</button>
-                        </div>
-                        <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '6px 0 0', lineHeight: 1.5 }}>
-                          Run this in your terminal to authenticate. Then paste the token below, or add to catalog directly if already authenticated.
-                        </p>
-                      </div>
+                      <OAuthConnectSection template={selectedTemplate} />
 
                       {/* Paste token */}
                       <div>
                         <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}>
-                          Paste access token <span style={{ color: '#ef4444' }}>*</span>
+                          Paste access token <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>(optional if already authenticated via CLI)</span>
                         </label>
                         <input
                           type="password"
@@ -1159,6 +1112,85 @@ function ServerRow({
 }
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
+
+/**
+ * OAuth connect section — auto-detects if provider supports OAuth discovery.
+ * Shows "Connect" button for providers with discovery (Notion, Linear, Asana).
+ * Shows CLI command for others (Figma, Stripe).
+ */
+function OAuthConnectSection({ template }: { template: any }) {
+  const [checking, setChecking] = useState(false);
+  const [oauthSupported, setOauthSupported] = useState<boolean | null>(null);
+
+  // Check once on mount if this provider supports OAuth discovery
+  useEffect(() => {
+    setChecking(true);
+    fetch('/api/oauth/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mcpUrl: template.url, templateId: template.id }),
+    })
+      .then(r => r.json())
+      .then(data => setOauthSupported(!!data.authUrl))
+      .catch(() => setOauthSupported(false))
+      .finally(() => setChecking(false));
+  }, [template.id]);
+
+  if (checking) {
+    return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Checking connection method...</p>;
+  }
+
+  if (oauthSupported) {
+    // Provider supports OAuth — show Connect button
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <button
+          onClick={() => {
+            fetch('/api/oauth/start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mcpUrl: template.url, templateId: template.id }),
+            })
+              .then(r => r.json())
+              .then(data => { if (data.authUrl) window.open(data.authUrl, '_blank'); });
+          }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'var(--accent)', color: 'var(--accent-fg)',
+            border: 'none', borderRadius: 7, padding: '8px 16px',
+            fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+          }}
+        >Connect {template.name}</button>
+        <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '6px 0 0' }}>
+          Opens {template.name} authorization page. After approving, you&apos;ll be redirected back.
+        </p>
+      </div>
+    );
+  }
+
+  // No OAuth discovery — show CLI command
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+        Authenticate via Claude Code CLI:
+      </p>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 6, padding: '8px 12px',
+        fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+      }}>
+        <code style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>claude mcp add --transport http {template.id} {template.url}</code>
+        <button onClick={() => navigator.clipboard.writeText(`claude mcp add --transport http ${template.id} ${template.url}`)} style={{
+          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', fontSize: 11, fontFamily: 'var(--font-sans)', flexShrink: 0,
+        }}>Copy</button>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '6px 0 0', lineHeight: 1.5 }}>
+        Run in terminal, authorize in browser, then paste token below or add directly.
+      </p>
+    </div>
+  );
+}
 
 function FField({ label, hint, children, style: s, required: req }: {
   label: string; hint?: string; children: React.ReactNode;
