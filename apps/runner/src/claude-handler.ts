@@ -454,7 +454,7 @@ export class ClaudeHandler {
 
     const rawAllowed: string[] = this.permissions?.allowedTools?.length
       ? this.permissions.allowedTools
-      : [];
+      : ['Read', 'Write', 'Edit', 'Glob', 'Grep'];
     const denied: string[] = this.permissions?.deniedTools ?? [];
     const mcpToolPrefixes = this.mcpServers.map((s) => `mcp__${s.name}`);
 

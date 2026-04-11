@@ -1034,114 +1034,107 @@ function McpsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
 
 // ─── Permissions ──────────────────────────────────────────────────────────────
 
-const QUICK_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch'];
+const BASE_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep'];
+const INTERNET_TOOLS = ['WebSearch', 'WebFetch'];
+const SHELL_TOOLS = ['Bash'];
 
 function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
-  const [allowed, setAllowed] = useState('');
-  const [denied,  setDenied]  = useState('');
+  const [allowed, setAllowed] = useState<string[]>([]);
+  const [denied,  setDenied]  = useState<string[]>([]);
   const [saving,  setSaving]  = useState(false);
   const [msg,     setMsg]     = useState('');
 
+  const internetOn = INTERNET_TOOLS.every(t => allowed.includes(t));
+  const shellOn = SHELL_TOOLS.some(t => allowed.includes(t));
+
   useEffect(() => {
     fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()).then((p: Permission) => {
-      setAllowed((p.allowedTools ?? []).join('\n'));
-      setDenied((p.deniedTools ?? []).join('\n'));
+      setAllowed(p.allowedTools ?? []);
+      setDenied(p.deniedTools ?? []);
     });
   }, [agentId]);
 
-  const addTool = (tool: string, list: 'allowed' | 'denied') => {
-    const setter = list === 'allowed' ? setAllowed : setDenied;
-    const current = (list === 'allowed' ? allowed : denied).split('\n').map(s => s.trim()).filter(Boolean);
-    if (!current.includes(tool)) setter([...current, tool].join('\n'));
-  };
-
-  const save = async () => {
+  const save = async (newAllowed: string[], newDenied: string[]) => {
     setSaving(true);
     await fetch(`/api/agents/${agentId}/permissions`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        allowedTools: allowed.split('\n').map(s => s.trim()).filter(Boolean),
-        deniedTools:  denied.split('\n').map(s => s.trim()).filter(Boolean),
-      }),
+      body: JSON.stringify({ allowedTools: newAllowed, deniedTools: newDenied }),
     });
-    setSaving(false); setMsg('Saved & reload triggered');
-    setTimeout(() => setMsg(''), 3000);
+    setSaving(false); setMsg('Saved'); setTimeout(() => setMsg(''), 2000);
+  };
+
+  const toggleCapability = (tools: string[], enable: boolean) => {
+    let next = enable
+      ? [...new Set([...allowed, ...tools])]
+      : allowed.filter(t => !tools.includes(t));
+    for (const t of BASE_TOOLS) { if (!next.includes(t)) next = [t, ...next]; }
+    setAllowed(next);
+    save(next, denied);
   };
 
   return (
-    <div style={{ maxWidth: 660 }} className="fade-up">
-      {/* Quick add */}
+    <div style={{ maxWidth: 500 }} className="fade-up">
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, padding: '12px 16px', marginBottom: 18,
+        borderRadius: 10, overflow: 'hidden',
       }}>
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-          Quick add built-in tools
+        {/* Internet Access */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px', borderBottom: '1px solid var(--border)',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Internet Access</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+              Web search and fetch
+            </div>
+          </div>
+          <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, flexShrink: 0 }}>
+            <input type="checkbox" checked={internetOn} disabled={!canEdit}
+              onChange={e => toggleCapability(INTERNET_TOOLS, e.target.checked)}
+              style={{ opacity: 0, width: 0, height: 0 }} />
+            <span style={{
+              position: 'absolute', cursor: canEdit ? 'pointer' : 'default', inset: 0, borderRadius: 11,
+              background: internetOn ? 'var(--green)' : 'var(--border-2)', transition: 'background 0.2s',
+            }}>
+              <span style={{
+                position: 'absolute', width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                top: 3, left: internetOn ? 21 : 3, transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
+            </span>
+          </label>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {QUICK_TOOLS.map(t => (
-            <button
-              key={t}
-              onClick={() => addTool(t, 'allowed')}
-              disabled={!canEdit}
-              style={{
-                background: 'var(--border)', border: '1px solid var(--border-2)',
-                color: 'var(--text)', padding: '3px 10px', borderRadius: 5,
-                fontSize: 11.5, fontFamily: 'var(--font-mono)', cursor: 'pointer',
-                transition: 'background 0.12s, border-color 0.12s',
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'var(--border)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
-            >{t}</button>
-          ))}
-        </div>
-        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-          MCP tools pattern: <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>mcp__serverName__toolName</code>
-        </p>
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
-        <div>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
-            Allowed Tools <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>· one per line</span>
+        {/* Shell Access */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Shell Access</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+              Terminal commands (dangerous commands auto-blocked)
+            </div>
+          </div>
+          <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, flexShrink: 0 }}>
+            <input type="checkbox" checked={shellOn} disabled={!canEdit}
+              onChange={e => toggleCapability(SHELL_TOOLS, e.target.checked)}
+              style={{ opacity: 0, width: 0, height: 0 }} />
+            <span style={{
+              position: 'absolute', cursor: canEdit ? 'pointer' : 'default', inset: 0, borderRadius: 11,
+              background: shellOn ? 'var(--green)' : 'var(--border-2)', transition: 'background 0.2s',
+            }}>
+              <span style={{
+                position: 'absolute', width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                top: 3, left: shellOn ? 21 : 3, transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
+            </span>
           </label>
-          <textarea
-            value={allowed} onChange={e => setAllowed(e.target.value)}
-            rows={12} readOnly={!canEdit}
-            style={{
-              width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
-              fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7,
-              outline: 'none', resize: 'vertical',
-            }}
-            onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-            onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-            placeholder={'Read\nWrite\nmcp__redshift-mcp__query'}
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
-            Denied Tools <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>· overrides allowed</span>
-          </label>
-          <textarea
-            value={denied} onChange={e => setDenied(e.target.value)}
-            rows={12} readOnly={!canEdit}
-            style={{
-              width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 8, padding: '10px 12px', color: 'var(--danger)',
-              fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7,
-              outline: 'none', resize: 'vertical',
-            }}
-            onFocus={e => (e.currentTarget.style.borderColor = '#ef4444')}
-            onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-            placeholder={'Bash'}
-          />
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Permissions</PrimaryBtn>}
-        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
-      </div>
+      {msg && <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 10 }}>{msg}</div>}
     </div>
   );
 }

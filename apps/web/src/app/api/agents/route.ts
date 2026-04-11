@@ -80,8 +80,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Create default permissions (Read + selected MCP tools)
-    const allowedTools = ['Read'];
+    // Create default permissions — safe tools for file access + code search
+    const allowedTools = ['Read', 'Write', 'Edit', 'Glob', 'Grep'];
     await upsertPermissions(agent.id, allowedTools, []);
 
     // Signal the runner to start this agent
