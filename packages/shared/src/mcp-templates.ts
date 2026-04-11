@@ -486,10 +486,10 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['design', 'ui', 'components', 'layouts'],
     official: true,
-    docsUrl: 'https://developers.figma.com/docs/figma-mcp-server/local-server-installation/',
+    docsUrl: 'https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/',
     auth: 'oauth',
-    tokenUrl: 'https://www.figma.com/developers/api#access-tokens',
-    tokenHint: 'Settings → Personal Access Tokens → Generate',
+    tokenUrl: 'https://www.figma.com/developers',
+    tokenHint: 'Create a Figma app → get OAuth credentials, or use the Figma MCP plugin in Claude Code first',
   },
 
   // ─── Cloud & Infrastructure ───────────────────────────────────────────────
