@@ -444,6 +444,7 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   }
 
   // Create triggers to auto-update updated_at on UPDATE
+  // Use rowid for universal compatibility (env_vars uses 'key' not 'id')
   const tablesWithUpdatedAt = [
     'agents', 'skills', 'memories', 'env_vars', 'agent_restrictions',
   ];
@@ -454,7 +455,7 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
       BEFORE UPDATE ON ${table}
       FOR EACH ROW
       BEGIN
-        UPDATE ${table} SET updated_at = datetime('now') WHERE id = NEW.id;
+        UPDATE ${table} SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
       END;
     `);
   }
