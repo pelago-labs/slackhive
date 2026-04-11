@@ -2,15 +2,15 @@
  * @fileoverview POST /api/agents/[id]/optimize — trigger instruction optimization
  *               GET  /api/agents/[id]/optimize?requestId=xxx — poll for result
  *
- * Routes optimization through the runner via event bus. The runner calls Claude
- * SDK to analyze the agent's system prompt + skills and suggest improvements.
+ * POSTs optimize event to the runner's internal HTTP server.
+ * Runner calls Claude SDK and stores result in DB for polling.
  *
  * @module web/api/agents/[id]/optimize
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { getAgentById, getSetting, setSetting, getAllSettings } from '@/lib/db';
+import { getAgentById, getSetting, setSetting, getAllSettings, publishAgentEvent } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,19 +41,17 @@ export async function POST(
     }
   }
 
-  // Store new request in DB — runner polls for pending optimize requests
-  await setSetting(`optimize:${requestId}`, JSON.stringify({
-    status: 'pending',
-    agentId: id,
-    createdAt: new Date().toISOString(),
-  }));
+  // Store initial status for polling
+  await setSetting(`optimize:${requestId}`, JSON.stringify({ status: 'pending', agentId: id }));
+
+  // Send directly to runner's internal HTTP server
+  await publishAgentEvent({ type: 'optimize', agentId: id, requestId });
 
   return NextResponse.json({ requestId });
 }
 
 /**
  * GET — poll for optimization result.
- * Returns the stored result JSON or { status: 'pending' }.
  */
 export async function GET(
   req: NextRequest,
@@ -65,9 +63,7 @@ export async function GET(
   }
 
   const raw = await getSetting(`optimize:${requestId}`);
-  if (!raw) {
-    return NextResponse.json({ status: 'pending' });
-  }
+  if (!raw) return NextResponse.json({ status: 'pending' });
 
   try {
     return NextResponse.json(JSON.parse(raw));

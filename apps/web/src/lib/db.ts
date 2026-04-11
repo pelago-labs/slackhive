@@ -53,14 +53,31 @@ async function db(): Promise<DbAdapter> {
 
 /**
  * Publishes an agent lifecycle event to the runner.
- * Uses Redis if REDIS_URL is set, otherwise in-process EventEmitter.
+ * - Redis mode: uses Redis pub/sub
+ * - Native mode: POSTs to runner's internal HTTP server (cross-process safe)
  *
  * @param {AgentEvent} event - The lifecycle event to publish.
  * @returns {Promise<void>}
  */
 export async function publishAgentEvent(event: AgentEvent): Promise<void> {
-  const bus = getEventBus();
-  await bus.publish(event);
+  const redisUrl = process.env.REDIS_URL;
+  if (redisUrl) {
+    // Docker/Redis mode — use event bus
+    const bus = getEventBus();
+    await bus.publish(event);
+  } else {
+    // Native mode — POST to runner's internal HTTP server
+    const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
+    try {
+      await fetch(`http://127.0.0.1:${port}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(event),
+      });
+    } catch {
+      // Runner might not be running — silently ignore
+    }
+  }
 }
 
 // =============================================================================

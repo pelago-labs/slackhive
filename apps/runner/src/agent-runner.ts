@@ -75,6 +75,9 @@ export class AgentRunner {
   /** Timer for polling pending optimize requests from DB. */
   private optimizePollerTimer: NodeJS.Timeout | null = null;
 
+  /** Internal HTTP server for receiving events from the web process. */
+  private internalServer: import('http').Server | null = null;
+
   constructor() {
     this.jobScheduler = new JobScheduler((agentId: string) => this.getRunningAgent(agentId));
   }
@@ -100,6 +103,7 @@ export class AgentRunner {
     logger.info('AgentRunner starting...');
 
     await this.connectEventBus();
+    await this.startInternalServer();
     await this.loadAllAgents();
     await this.jobScheduler.start();
     this.startOptimizePoller();
@@ -116,6 +120,8 @@ export class AgentRunner {
   async stop(): Promise<void> {
     logger.info('AgentRunner stopping...');
 
+    // Stop internal server
+    if (this.internalServer) { this.internalServer.close(); this.internalServer = null; }
     // Stop optimize poller
     if (this.optimizePollerTimer) { clearInterval(this.optimizePollerTimer); this.optimizePollerTimer = null; }
 
@@ -355,6 +361,65 @@ export class AgentRunner {
     });
 
     logger.info('Event bus connected', { type: this.eventBus.type });
+  }
+
+  // ===========================================================================
+  // Internal HTTP server — receives events from the web process
+  // ===========================================================================
+
+  /**
+   * Starts a lightweight HTTP server on RUNNER_INTERNAL_PORT (default 3002).
+   * The web process POSTs agent lifecycle events here instead of using
+   * the in-memory event bus (which doesn't cross process boundaries).
+   */
+  private async startInternalServer(): Promise<void> {
+    const http = await import('http');
+    const port = parseInt(process.env.RUNNER_INTERNAL_PORT ?? '3002', 10);
+
+    this.internalServer = http.createServer(async (req, res) => {
+      if (req.method !== 'POST') { res.writeHead(405); res.end(); return; }
+
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('end', async () => {
+        try {
+          const event = JSON.parse(body) as AgentEvent;
+          logger.info('Internal event received', { event });
+
+          switch (event.type) {
+            case 'reload':
+              await this.reloadAgent(event.agentId);
+              break;
+            case 'start':
+              const agent = await getAgentById(event.agentId);
+              if (agent) await this.startAgent(agent);
+              break;
+            case 'stop':
+              await this.stopAgent(event.agentId);
+              break;
+            case 'reload-jobs':
+              await this.jobScheduler.reload();
+              break;
+            case 'optimize':
+              this.optimizeAgent(event.agentId, event.requestId).catch(err =>
+                logger.error('Optimize failed', { error: err.message })
+              );
+              break;
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          logger.error('Internal event error', { error: (err as Error).message });
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      });
+    });
+
+    this.internalServer.listen(port, '127.0.0.1', () => {
+      logger.info('Internal event server started', { port });
+    });
   }
 
   // ===========================================================================
