@@ -132,7 +132,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     name: template.id,
     type,
     config: config as any,
-    description: `${template.icon} ${template.name} — ${template.description}`,
+    description: template.description,
     enabled: true,
   });
 
