@@ -96,13 +96,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     type = 'stdio';
     const args = [...(template.args ?? [])];
 
-    // Some MCPs need env values as command args (e.g. filesystem path, postgres connection string)
-    const ARG_KEYS = new Set(['FILESYSTEM_PATH', 'DATABASE_URL', 'SQLITE_PATH']);
+    // Some MCPs need env values as command args, not env vars
+    // Map: env key → how to add as args (simple = just value, prefixed = --flag value)
+    const ARG_MAP: Record<string, string | null> = {
+      FILESYSTEM_PATH: null,           // just append value
+      DATABASE_URL: null,              // just append value
+      SQLITE_PATH: null,               // just append value
+      GIT_REPOSITORY_PATH: '--repository',  // --repository /path
+      MEMORY_FILE_PATH: '--file',           // --file /path (if set)
+    };
     if (envValues) {
       for (const [key, value] of Object.entries(envValues)) {
-        if (ARG_KEYS.has(key) && value) {
-          args.push(value);
-          delete envRefs[key]; // Don't also set as env var
+        if (key in ARG_MAP && value) {
+          const flag = ARG_MAP[key];
+          if (flag) args.push(flag, value);
+          else args.push(value);
+          delete envRefs[key];
         }
       }
     }
