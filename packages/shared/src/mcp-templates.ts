@@ -729,7 +729,7 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['browser', 'testing', 'automation', 'e2e'],
     official: true,
-    docsUrl: 'https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-server-playwright',
+    docsUrl: 'https://playwright.dev/docs/mcp',
     auth: 'none',
   },
   {

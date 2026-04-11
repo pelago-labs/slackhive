@@ -1193,7 +1193,7 @@ export async function setEnvVar(key: string, value: string, description?: string
        ON CONFLICT (key) DO UPDATE SET
          value = $2,
          description = COALESCE($3, env_vars.description),
-         updated_at = CURRENT_TIMESTAMP`,
+         updated_at = now()`,
       [key, encrypted, description ?? null],
     );
     return;
