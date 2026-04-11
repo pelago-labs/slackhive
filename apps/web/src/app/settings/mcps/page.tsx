@@ -84,6 +84,35 @@ export default function McpSettingsPage() {
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
 
   useEffect(() => { load(); }, []);
+
+  // Handle OAuth callback redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('oauth') === 'success' && params.get('state')) {
+      const state = params.get('state')!;
+      // Fetch the stored token and auto-install
+      fetch(`/api/settings?key=oauth_token:${state}`).catch(() => {});
+      (async () => {
+        try {
+          const r = await fetch('/api/settings');
+          const settings = await r.json();
+          const tokenData = settings[`oauth_token:${state}`];
+          if (tokenData) {
+            const parsed = JSON.parse(tokenData);
+            // Install the MCP with the OAuth token
+            await fetch('/api/mcps/templates', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ templateId: parsed.templateId, envValues: { __OAUTH_ACCESS_TOKEN: parsed.accessToken } }),
+            });
+            await load();
+          }
+        } catch { /* ignore */ }
+        // Clean URL
+        window.history.replaceState({}, '', '/settings/mcps');
+      })();
+    }
+  }, []);
   useEffect(() => {
     if (showForm && formRef.current) {
       formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -622,32 +651,47 @@ export default function McpSettingsPage() {
                       background: 'var(--surface-2)', border: '1px solid var(--border)',
                       borderRadius: 10, padding: '16px 18px', marginBottom: 16,
                     }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Get access token</div>
-                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 4px', lineHeight: 1.5 }}>
-                        Generate a token from {selectedTemplate.name} and paste it below.
-                      </p>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Connect to {selectedTemplate.name}</div>
+
+                      {/* OAuth connect button — tries real OAuth first, falls back to token page */}
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const r = await fetch('/api/oauth/start', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ mcpUrl: selectedTemplate.url, templateId: selectedTemplate.id }),
+                              });
+                              const data = await r.json();
+                              if (data.authUrl) {
+                                // Real OAuth flow — redirect to provider
+                                window.open(data.authUrl, '_blank');
+                              } else {
+                                // Fallback — open token generation page
+                                window.open(selectedTemplate.tokenUrl || selectedTemplate.docsUrl, '_blank');
+                              }
+                            } catch {
+                              window.open(selectedTemplate.tokenUrl || selectedTemplate.docsUrl, '_blank');
+                            }
+                          }}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            background: 'var(--accent)', color: 'var(--accent-fg)',
+                            border: 'none', borderRadius: 7, padding: '8px 16px',
+                            fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                          }}
+                        >Connect {selectedTemplate.name}</button>
+                      </div>
+
                       {selectedTemplate.tokenHint && (
-                        <p style={{ fontSize: 11.5, color: 'var(--subtle)', margin: '0 0 12px', lineHeight: 1.5 }}>
-                          {selectedTemplate.tokenHint}
+                        <p style={{ fontSize: 11.5, color: 'var(--subtle)', margin: '0 0 10px', lineHeight: 1.5 }}>
+                          Or manually: {selectedTemplate.tokenHint}
                         </p>
                       )}
 
-                      {/* Open token page */}
-                      <a
-                        href={selectedTemplate.tokenUrl || selectedTemplate.docsUrl || selectedTemplate.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 6,
-                          background: 'var(--accent)', color: 'var(--accent-fg)',
-                          border: 'none', borderRadius: 7, padding: '8px 16px',
-                          fontSize: 12.5, fontWeight: 500, textDecoration: 'none',
-                          cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                        }}
-                      >Get {selectedTemplate.name} token</a>
-
                       {/* Paste token */}
-                      <div style={{ marginTop: 14 }}>
+                      <div>
                         <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}>
                           Paste access token <span style={{ color: '#ef4444' }}>*</span>
                         </label>
