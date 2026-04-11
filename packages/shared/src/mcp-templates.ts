@@ -59,6 +59,10 @@ export interface McpTemplate {
   tags: string[];
   /** Whether this is an official/first-party integration. */
   official: boolean;
+  /** Link to setup documentation. */
+  docsUrl?: string;
+  /** Auth method: 'oauth' (HTTP servers with OAuth flow), 'env' (needs env vars), 'none' (local tools). */
+  auth?: 'oauth' | 'env' | 'none';
 }
 
 export type McpCategory =
@@ -90,11 +94,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'github',
     transport: 'http',
     url: 'https://api.githubcopilot.com/mcp/',
-    envKeys: [
-      { key: 'GITHUB_TOKEN', label: 'GitHub Personal Access Token', required: true, placeholder: 'ghp_...' },
-    ],
+    envKeys: [],
     tags: ['git', 'code', 'pr', 'issues', 'repository'],
     official: true,
+    docsUrl: 'https://github.com/github/github-mcp-server',
+    auth: 'oauth',
   },
   {
     id: 'gitlab',
@@ -112,6 +116,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['git', 'code', 'merge-request', 'ci-cd'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab',
+    auth: 'env',
   },
   {
     id: 'git',
@@ -123,9 +129,13 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     transport: 'stdio',
     command: 'uvx',
     args: ['mcp-server-git'],
-    envKeys: [],
+    envKeys: [
+      { key: 'GIT_REPOSITORY_PATH', label: 'Repository Path', required: false, placeholder: '/path/to/repo (optional — uses cwd if empty)' },
+    ],
     tags: ['git', 'version-control', 'commits', 'branches'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/git',
+    auth: 'none',
   },
   {
     id: 'filesystem',
@@ -141,6 +151,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['files', 'directories', 'read', 'write'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem',
+    auth: 'none',
   },
   {
     id: 'context7',
@@ -153,6 +165,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['documentation', 'libraries', 'code-examples'],
     official: false,
+    docsUrl: 'https://github.com/upstash/context7',
+    auth: 'none',
   },
   {
     id: 'postman',
@@ -163,11 +177,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'postman',
     transport: 'http',
     url: 'https://mcp.postman.com/minimal',
-    envKeys: [
-      { key: 'POSTMAN_API_KEY', label: 'Postman API Key', required: true, placeholder: 'PMAK-...' },
-    ],
+    envKeys: [],
     tags: ['api', 'testing', 'http', 'collections'],
     official: true,
+    docsUrl: 'https://learning.postman.com/docs/postman-ai-agent-builder/mcp/',
+    auth: 'oauth',
   },
 
   // ─── Productivity ─────────────────────────────────────────────────────────
@@ -181,11 +195,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'notion',
     transport: 'http',
     url: 'https://mcp.notion.com/mcp',
-    envKeys: [
-      { key: 'NOTION_API_KEY', label: 'Notion Integration Token', required: true, placeholder: 'ntn_...' },
-    ],
+    envKeys: [],
     tags: ['wiki', 'docs', 'database', 'workspace'],
     official: true,
+    docsUrl: 'https://developers.notion.com/docs/get-started-with-mcp',
+    auth: 'oauth',
   },
   {
     id: 'linear',
@@ -196,11 +210,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'linear',
     transport: 'http',
     url: 'https://mcp.linear.app/mcp',
-    envKeys: [
-      { key: 'LINEAR_API_KEY', label: 'Linear API Key', required: true, placeholder: 'lin_api_...' },
-    ],
+    envKeys: [],
     tags: ['issues', 'project-management', 'sprints', 'bugs'],
     official: true,
+    docsUrl: 'https://linear.app/docs/mcp',
+    auth: 'oauth',
   },
   {
     id: 'asana',
@@ -211,11 +225,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'asana',
     transport: 'http',
     url: 'https://mcp.asana.com/mcp',
-    envKeys: [
-      { key: 'ASANA_ACCESS_TOKEN', label: 'Asana Personal Access Token', required: true },
-    ],
+    envKeys: [],
     tags: ['tasks', 'project-management', 'teams'],
     official: true,
+    docsUrl: 'https://developers.asana.com/docs/using-asanas-mcp-server',
+    auth: 'oauth',
   },
   {
     id: 'atlassian',
@@ -234,6 +248,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['jira', 'confluence', 'tickets', 'wiki', 'project-management'],
     official: true,
+    docsUrl: 'https://www.atlassian.com/solutions/ai/mcp',
+    auth: 'env',
   },
   {
     id: 'clickup',
@@ -244,11 +260,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'clickup',
     transport: 'http',
     url: 'https://mcp.clickup.com/mcp',
-    envKeys: [
-      { key: 'CLICKUP_API_TOKEN', label: 'ClickUp API Token', required: true },
-    ],
+    envKeys: [],
     tags: ['tasks', 'project-management', 'docs'],
     official: true,
+    docsUrl: 'https://developer.clickup.com/docs/connect-an-ai-assistant-to-clickups-mcp-server-1',
+    auth: 'oauth',
   },
   {
     id: 'monday',
@@ -259,11 +275,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'mondaydotcom',
     transport: 'http',
     url: 'https://mcp.monday.com/mcp',
-    envKeys: [
-      { key: 'MONDAY_API_TOKEN', label: 'Monday.com API Token', required: true },
-    ],
+    envKeys: [],
     tags: ['project-management', 'boards', 'workflows'],
     official: true,
+    docsUrl: 'https://monday.com/developers/apps',
+    auth: 'oauth',
   },
   {
     id: 'google-drive',
@@ -281,6 +297,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['google', 'drive', 'files', 'docs', 'sheets'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/gdrive',
+    auth: 'env',
   },
   {
     id: 'box',
@@ -291,11 +309,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'box',
     transport: 'http',
     url: 'https://mcp.box.com/mcp',
-    envKeys: [
-      { key: 'BOX_ACCESS_TOKEN', label: 'Box Developer Token', required: true },
-    ],
+    envKeys: [],
     tags: ['files', 'content-management', 'storage'],
     official: true,
+    docsUrl: 'https://developer.box.com/guides/mcp/',
+    auth: 'oauth',
   },
 
   // ─── Communication ────────────────────────────────────────────────────────
@@ -313,9 +331,12 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [
       { key: 'SLACK_BOT_TOKEN', label: 'Slack Bot Token', required: true, placeholder: 'xoxb-...' },
       { key: 'SLACK_TEAM_ID', label: 'Slack Team/Workspace ID', required: true, placeholder: 'T...' },
+      { key: 'SLACK_CHANNEL_IDS', label: 'Allowed Channel IDs (comma-separated)', required: false, placeholder: 'C01234,C05678' },
     ],
     tags: ['messaging', 'channels', 'chat', 'team'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/slack',
+    auth: 'env',
   },
 
   // ─── Data ─────────────────────────────────────────────────────────────────
@@ -335,6 +356,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['database', 'sql', 'schema', 'queries'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/postgres',
+    auth: 'env',
   },
   {
     id: 'sqlite',
@@ -351,6 +374,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['database', 'sql', 'local'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite',
+    auth: 'none',
   },
   {
     id: 'supabase',
@@ -361,11 +386,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'supabase',
     transport: 'http',
     url: 'https://mcp.supabase.com/mcp',
-    envKeys: [
-      { key: 'SUPABASE_ACCESS_TOKEN', label: 'Supabase Access Token', required: true },
-    ],
+    envKeys: [],
     tags: ['database', 'postgres', 'edge-functions', 'auth'],
     official: true,
+    docsUrl: 'https://supabase.com/docs/guides/getting-started/byo-mcp',
+    auth: 'oauth',
   },
   {
     id: 'mongodb',
@@ -378,10 +403,12 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     command: 'npx',
     args: ['-y', 'mongodb-mcp-server'],
     envKeys: [
-      { key: 'MONGODB_URI', label: 'MongoDB Connection String', required: true, placeholder: 'mongodb://localhost:27017/mydb' },
+      { key: 'MDB_MCP_CONNECTION_STRING', label: 'MongoDB Connection String', required: true, placeholder: 'mongodb://localhost:27017/mydb' },
     ],
     tags: ['database', 'nosql', 'documents'],
     official: false,
+    docsUrl: 'https://github.com/mongodb-js/mongodb-mcp-server',
+    auth: 'env',
   },
   {
     id: 'redis',
@@ -398,6 +425,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['cache', 'key-value', 'pubsub'],
     official: false,
+    docsUrl: 'https://github.com/redis/mcp-redis',
+    auth: 'env',
   },
   {
     id: 'mysql',
@@ -417,6 +446,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['database', 'sql'],
     official: false,
+    docsUrl: 'https://github.com/benborla29/mcp-server-mysql',
+    auth: 'env',
   },
 
   // ─── Design ───────────────────────────────────────────────────────────────
@@ -430,11 +461,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'figma',
     transport: 'http',
     url: 'https://mcp.figma.com/mcp',
-    envKeys: [
-      { key: 'FIGMA_ACCESS_TOKEN', label: 'Figma Personal Access Token', required: true },
-    ],
+    envKeys: [],
     tags: ['design', 'ui', 'components', 'layouts'],
     official: true,
+    docsUrl: 'https://developers.figma.com/docs/figma-mcp-server/local-server-installation/',
+    auth: 'oauth',
   },
 
   // ─── Cloud & Infrastructure ───────────────────────────────────────────────
@@ -456,6 +487,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['aws', 's3', 'lambda', 'ec2', 'cloud'],
     official: true,
+    docsUrl: 'https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp.html',
+    auth: 'env',
   },
   {
     id: 'vercel',
@@ -472,6 +505,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['deployment', 'serverless', 'hosting'],
     official: true,
+    docsUrl: 'https://vercel.com/docs/mcp',
+    auth: 'env',
   },
   {
     id: 'cloudflare',
@@ -489,6 +524,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['cdn', 'workers', 'dns', 'edge'],
     official: true,
+    docsUrl: 'https://developers.cloudflare.com/agents/model-context-protocol/mcp-servers-for-cloudflare/',
+    auth: 'env',
   },
   {
     id: 'docker',
@@ -503,6 +540,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['containers', 'images', 'docker-compose'],
     official: false,
+    docsUrl: 'https://github.com/ckreiling/mcp-server-docker',
+    auth: 'none',
   },
 
   // ─── Analytics & Monitoring ───────────────────────────────────────────────
@@ -523,6 +562,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['errors', 'monitoring', 'performance', 'debugging'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/sentry',
+    auth: 'env',
   },
   {
     id: 'datadog',
@@ -541,6 +582,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['metrics', 'logs', 'apm', 'monitoring'],
     official: true,
+    docsUrl: 'https://docs.datadoghq.com/bits_ai/mcp_server/',
+    auth: 'env',
   },
   {
     id: 'amplitude',
@@ -551,11 +594,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'amplitude',
     transport: 'http',
     url: 'https://mcp.amplitude.com/mcp',
-    envKeys: [
-      { key: 'AMPLITUDE_API_KEY', label: 'Amplitude API Key', required: true },
-    ],
+    envKeys: [],
     tags: ['analytics', 'events', 'product', 'metrics'],
     official: true,
+    docsUrl: 'https://www.docs.developers.amplitude.com/mcp/',
+    auth: 'oauth',
   },
 
   // ─── Search ───────────────────────────────────────────────────────────────
@@ -575,6 +618,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['search', 'web', 'local'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search',
+    auth: 'env',
   },
   {
     id: 'tavily',
@@ -590,6 +635,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['search', 'research', 'ai-search'],
     official: false,
+    docsUrl: 'https://docs.tavily.com/documentation/mcp',
+    auth: 'env',
   },
   {
     id: 'exa',
@@ -605,6 +652,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['search', 'neural', 'semantic'],
     official: false,
+    docsUrl: 'https://docs.exa.ai/reference/mcp',
+    auth: 'env',
   },
   {
     id: 'fetch',
@@ -618,6 +667,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['web', 'scraping', 'content', 'html'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/fetch',
+    auth: 'none',
   },
   {
     id: 'firecrawl',
@@ -633,6 +684,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['scraping', 'crawling', 'markdown'],
     official: false,
+    docsUrl: 'https://docs.firecrawl.dev/mcp',
+    auth: 'env',
   },
 
   // ─── Automation ───────────────────────────────────────────────────────────
@@ -650,6 +703,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['browser', 'testing', 'automation', 'e2e'],
     official: true,
+    docsUrl: 'https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-server-playwright',
+    auth: 'none',
   },
   {
     id: 'puppeteer',
@@ -664,6 +719,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['browser', 'screenshots', 'automation'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/puppeteer',
+    auth: 'none',
   },
   {
     id: 'zapier',
@@ -674,11 +731,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'zapier',
     transport: 'http',
     url: 'https://actions.zapier.com/mcp/',
-    envKeys: [
-      { key: 'ZAPIER_MCP_SERVER_ID', label: 'Zapier MCP Server ID (from zapier.com/mcp)', required: true },
-    ],
+    envKeys: [],
     tags: ['automation', 'integrations', 'workflows', 'zaps'],
     official: true,
+    docsUrl: 'https://zapier.com/mcp',
+    auth: 'oauth',
   },
   {
     id: 'apify',
@@ -695,6 +752,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['scraping', 'data-extraction', 'crawling'],
     official: true,
+    docsUrl: 'https://docs.apify.com/platform/integrations/mcp',
+    auth: 'env',
   },
 
   // ─── Finance ──────────────────────────────────────────────────────────────
@@ -708,11 +767,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'stripe',
     transport: 'http',
     url: 'https://mcp.stripe.com',
-    envKeys: [
-      { key: 'STRIPE_SECRET_KEY', label: 'Stripe Secret Key', required: true, placeholder: 'sk_...' },
-    ],
+    envKeys: [],
     tags: ['payments', 'billing', 'subscriptions', 'invoices'],
     official: true,
+    docsUrl: 'https://docs.stripe.com/mcp',
+    auth: 'oauth',
   },
   {
     id: 'paypal',
@@ -723,12 +782,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'paypal',
     transport: 'http',
     url: 'https://mcp.paypal.com/http',
-    envKeys: [
-      { key: 'PAYPAL_CLIENT_ID', label: 'PayPal Client ID', required: true },
-      { key: 'PAYPAL_CLIENT_SECRET', label: 'PayPal Client Secret', required: true },
-    ],
+    envKeys: [],
     tags: ['payments', 'orders', 'transactions'],
     official: true,
+    docsUrl: 'https://docs.paypal.ai/developer/tools/ai/mcp-quickstart',
+    auth: 'oauth',
   },
 
   // ─── CRM & Sales ─────────────────────────────────────────────────────────
@@ -742,11 +800,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'salesforce',
     transport: 'http',
     url: 'https://mcp.salesforce.com/mcp',
-    envKeys: [
-      { key: 'SALESFORCE_ACCESS_TOKEN', label: 'Salesforce Access Token', required: true },
-    ],
+    envKeys: [],
     tags: ['crm', 'sales', 'leads', 'reports'],
     official: true,
+    docsUrl: 'https://developer.salesforce.com/docs/einstein/genai/guide/mcp.html',
+    auth: 'oauth',
   },
   {
     id: 'hubspot',
@@ -763,6 +821,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['crm', 'marketing', 'sales', 'contacts'],
     official: false,
+    docsUrl: 'https://developers.hubspot.com/docs/guides/apps/authentication/mcp',
+    auth: 'env',
   },
 
   // ─── AI & Knowledge ───────────────────────────────────────────────────────
@@ -776,9 +836,13 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     transport: 'stdio',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-memory'],
-    envKeys: [],
+    envKeys: [
+      { key: 'MEMORY_FILE_PATH', label: 'Memory Storage File Path', required: false, placeholder: '/path/to/memory.json (optional — uses default if empty)' },
+    ],
     tags: ['memory', 'knowledge-graph', 'persistence'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/memory',
+    auth: 'none',
   },
   {
     id: 'sequential-thinking',
@@ -792,6 +856,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['reasoning', 'thinking', 'problem-solving'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking',
+    auth: 'none',
   },
   {
     id: 'elevenlabs',
@@ -808,6 +874,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['tts', 'voice', 'audio', 'speech'],
     official: true,
+    docsUrl: 'https://elevenlabs.io/docs/product/mcp-server/overview',
+    auth: 'env',
   },
 
   // ─── SEO & Marketing ─────────────────────────────────────────────────────
@@ -821,11 +889,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'ahrefs',
     transport: 'http',
     url: 'https://api.ahrefs.com/mcp/mcp',
-    envKeys: [
-      { key: 'AHREFS_API_KEY', label: 'Ahrefs API Key', required: true },
-    ],
+    envKeys: [],
     tags: ['seo', 'backlinks', 'keywords', 'analytics'],
     official: true,
+    docsUrl: 'https://ahrefs.com/api',
+    auth: 'oauth',
   },
   {
     id: 'semrush',
@@ -836,11 +904,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     logo: 'semrush',
     transport: 'http',
     url: 'https://mcp.semrush.com/v1/mcp',
-    envKeys: [
-      { key: 'SEMRUSH_API_KEY', label: 'Semrush API Key', required: true },
-    ],
+    envKeys: [],
     tags: ['seo', 'marketing', 'competitive-analysis'],
     official: true,
+    docsUrl: 'https://www.semrush.com/api-analytics/',
+    auth: 'oauth',
   },
 
   // ─── E-Commerce ───────────────────────────────────────────────────────────
@@ -861,6 +929,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['ecommerce', 'products', 'orders', 'store'],
     official: false,
+    docsUrl: 'https://shopify.dev/docs/api/admin-mcp',
+    auth: 'env',
   },
 
   // ─── Misc Utilities ───────────────────────────────────────────────────────
@@ -877,6 +947,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     envKeys: [],
     tags: ['time', 'timezone', 'conversion'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/time',
+    auth: 'none',
   },
   {
     id: 'google-maps',
@@ -893,6 +965,8 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     ],
     tags: ['maps', 'geocoding', 'directions', 'places'],
     official: true,
+    docsUrl: 'https://github.com/modelcontextprotocol/servers/tree/main/src/google-maps',
+    auth: 'env',
   },
   {
     id: 'hex',
@@ -902,11 +976,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     icon: '🔮',
     transport: 'http',
     url: 'https://mcp.hex.tech/mcp',
-    envKeys: [
-      { key: 'HEX_API_TOKEN', label: 'Hex API Token', required: true },
-    ],
+    envKeys: [],
     tags: ['data', 'notebooks', 'sql', 'python', 'analytics'],
     official: true,
+    docsUrl: 'https://learn.hex.tech/docs/develop-logic/hex-api',
+    auth: 'oauth',
   },
   {
     id: 'clay',
@@ -916,11 +990,11 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     icon: '🧱',
     transport: 'http',
     url: 'https://mcp.clay.com/mcp',
-    envKeys: [
-      { key: 'CLAY_API_KEY', label: 'Clay API Key', required: true },
-    ],
+    envKeys: [],
     tags: ['enrichment', 'contacts', 'data', 'automation'],
     official: true,
+    docsUrl: 'https://clay.com/university',
+    auth: 'oauth',
   },
 ];
 

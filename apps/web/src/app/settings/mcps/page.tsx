@@ -684,8 +684,14 @@ export default function McpSettingsPage() {
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
                             {t.description}
                           </div>
-                          <div style={{ fontSize: 10, color: 'var(--subtle)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            {t.transport === 'http' ? 'Remote' : 'Local'}{t.official && ' · Official'}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                            <span style={{ fontSize: 10, color: 'var(--subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              {t.auth === 'oauth' ? 'OAuth' : t.transport === 'http' ? 'Remote' : 'Local'}{t.official && ' · Official'}
+                            </span>
+                            {t.docsUrl && (
+                              <a href={t.docsUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                style={{ fontSize: 10, color: 'var(--blue)', textDecoration: 'none' }}>Docs</a>
+                            )}
                           </div>
                         </div>
                       </button>
