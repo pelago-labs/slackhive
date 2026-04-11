@@ -175,7 +175,7 @@ export default function EnvVarsPage() {
           border: '1px dashed var(--border)', borderRadius: 12, padding: '48px',
           textAlign: 'center', color: 'var(--subtle)',
         }}>
-          <div style={{ marginBottom: 10, color: 'var(--subtle)' }}><KeyRound size={28} /></div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><KeyRound size={28} style={{ color: 'var(--border-2)' }} /></div>
           <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No env vars yet</p>
           <p style={{ margin: '0 0 16px', fontSize: 13 }}>
             Add secrets here and reference them in MCP configs instead of pasting raw values.
