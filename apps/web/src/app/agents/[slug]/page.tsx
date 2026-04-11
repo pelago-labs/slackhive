@@ -1457,11 +1457,13 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
 
   if (memories.length === 0) {
     return (
-      <div className="fade-up" style={{
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, padding: '40px 20px',
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        paddingTop: 80, color: 'var(--muted)',
+        color: 'var(--muted)',
       }}>
-        <Brain size={36} style={{ marginBottom: 12, color: 'var(--border-2)' }} />
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Brain size={32} style={{ color: 'var(--border-2)' }} /></div>
         <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
           No memories yet
         </p>
@@ -1480,7 +1482,10 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
   };
 
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 10, padding: '16px 18px',
+    }}>
       {/* Header with Analyze */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>
