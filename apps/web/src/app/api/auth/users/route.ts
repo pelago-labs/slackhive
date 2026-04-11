@@ -11,6 +11,8 @@ import { NextResponse } from 'next/server';
 import { requireRole, hashPassword } from '@/lib/auth';
 import { getAllUsers, createUser } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Lists all platform users (excluding password hashes).
  *

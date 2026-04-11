@@ -20,6 +20,8 @@ import {
 } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * POST /api/agents/[id]/snapshots/[sid]/restore
  * Restores an agent to the state captured in a snapshot.

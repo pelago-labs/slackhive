@@ -11,6 +11,8 @@ import { NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
 import { getAllJobs, createJob, publishAgentEvent } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Lists all scheduled jobs with their most recent run.
  *

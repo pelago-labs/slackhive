@@ -11,6 +11,8 @@ import { NextResponse } from 'next/server';
 import { getAllSettings, setSetting } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Returns every stored setting as a flat `{ key: value }` JSON object.
  *

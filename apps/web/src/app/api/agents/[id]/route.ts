@@ -14,6 +14,8 @@ import type { UpdateAgentRequest } from '@slackhive/shared';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
 import { guardAgentWrite, guardUserAdmin } from '@/lib/api-guard';
 
+export const dynamic = 'force-dynamic';
+
 type RouteParams = { params: Promise<{ id: string }> };
 
 /**

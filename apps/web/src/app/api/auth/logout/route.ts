@@ -9,6 +9,8 @@
 import { NextResponse } from 'next/server';
 import { COOKIE_NAME } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Clears the auth session cookie.
  *

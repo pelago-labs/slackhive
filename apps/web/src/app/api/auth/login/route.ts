@@ -9,6 +9,8 @@
 import { NextResponse } from 'next/server';
 import { authenticateUser, signSession, COOKIE_NAME } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Authenticates a user and sets an HMAC-signed session cookie.
  *

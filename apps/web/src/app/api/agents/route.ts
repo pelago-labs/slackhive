@@ -22,6 +22,8 @@ import { regenerateBossRegistry } from '@/lib/boss-registry';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/agents
  * Returns all registered agents ordered boss-first.

@@ -11,6 +11,8 @@ import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth';
 import { deleteUser, updateUserRole } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 const VALID_ROLES = ['admin', 'editor', 'viewer'];
 
 /**

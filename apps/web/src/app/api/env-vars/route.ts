@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAllEnvVars, setEnvVar } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/env-vars
  * Returns all env var keys and descriptions. Values are never included.

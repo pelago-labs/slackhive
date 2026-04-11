@@ -14,6 +14,8 @@ import type { UpsertMcpServerRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
 import { maskMcpServer, mergeMcpConfig } from '@/lib/mcp-mask';
 
+export const dynamic = 'force-dynamic';
+
 type RouteParams = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: RouteParams): Promise<NextResponse> {

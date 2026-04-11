@@ -13,6 +13,8 @@ import { guardAgentWrite } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { skillToSnapshotSkill } from '@/lib/compile';
 
+export const dynamic = 'force-dynamic';
+
 type RouteParams = { params: Promise<{ id: string }> };
 
 /**

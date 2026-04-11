@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/agents/[id]/slack-info
  * Fetches live bot display name and @handle from Slack using the agent's bot token.

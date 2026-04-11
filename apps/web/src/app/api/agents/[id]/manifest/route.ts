@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById } from '@/lib/db';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 
+export const dynamic = 'force-dynamic';
+
 type RouteParams = { params: Promise<{ id: string }> };
 
 /**

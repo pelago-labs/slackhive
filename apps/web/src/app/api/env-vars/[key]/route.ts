@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { setEnvVar, updateEnvVarDescription, deleteEnvVar } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * PUT /api/env-vars/[key]
  * Updates an env var. Supply value to replace it, description to update label.

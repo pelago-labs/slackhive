@@ -9,6 +9,8 @@
 import { NextResponse } from 'next/server';
 import { getJobRuns } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 type Ctx = { params: Promise<{ id: string }> };
 
 /**

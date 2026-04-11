@@ -16,6 +16,8 @@ import type { UpsertMcpServerRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
 import { maskMcpServer } from '@/lib/mcp-mask';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/mcps
  * Returns all MCP servers in the global catalog, ordered by name.

@@ -20,6 +20,8 @@ import {
 import type { McpCategory } from '@slackhive/shared';
 import { createMcpServer, setEnvVar } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/mcps/templates
  * Returns templates with optional filtering.

@@ -12,6 +12,8 @@ import { NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
 import { getJobById, updateJob, deleteJob, publishAgentEvent } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 type Ctx = { params: Promise<{ id: string }> };
 
 /**

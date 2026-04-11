@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAgentById, publishAgentEvent } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
 
+export const dynamic = 'force-dynamic';
+
 type RouteParams = { params: Promise<{ id: string }> };
 
 /**

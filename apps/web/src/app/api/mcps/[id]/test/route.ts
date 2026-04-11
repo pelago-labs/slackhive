@@ -22,6 +22,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { McpStdioConfig, McpSseConfig } from '@slackhive/shared';
 
+export const dynamic = 'force-dynamic';
+
 type RouteParams = { params: Promise<{ id: string }> };
 
 const TIMEOUT_MS = 30_000;

@@ -12,6 +12,8 @@ import { getAgentMemories, upsertMemory } from '@/lib/db';
 import type { UpsertMemoryRequest } from '@slackhive/shared';
 import { guardAgentWrite } from '@/lib/api-guard';
 
+export const dynamic = 'force-dynamic';
+
 type RouteParams = { params: Promise<{ id: string }> };
 
 /**

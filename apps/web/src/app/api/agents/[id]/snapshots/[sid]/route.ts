@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSnapshotById, deleteSnapshot } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/agents/[id]/snapshots/[sid]
  * Returns the full snapshot including compiledMd.

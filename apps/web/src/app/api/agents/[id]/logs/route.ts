@@ -15,6 +15,8 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/agents/[id]/logs
  * Returns an SSE stream of filtered log lines for the agent.
