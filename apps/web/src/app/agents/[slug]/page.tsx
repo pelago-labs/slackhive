@@ -18,7 +18,7 @@ import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import { lineDiff, type DiffLine } from '@/lib/diff';
 
-type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memory' | 'logs' | 'history';
+type Tab = 'overview' | 'skills' | 'claude-md' | 'tools' | 'memory' | 'logs' | 'history';
 
 interface AgentExportPayload {
   version: number;
@@ -31,8 +31,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',     label: 'Overview'     },
   { id: 'skills',       label: 'Skills'       },
   { id: 'claude-md',    label: 'System Prompt' },
-  { id: 'mcps',         label: 'MCPs'          },
-  { id: 'permissions',  label: 'Tools'         },
+  { id: 'tools',        label: 'Tools'         },
   { id: 'memory',       label: 'Memory'       },
   { id: 'logs',         label: 'Logs'         },
   { id: 'history',      label: 'History'      },
@@ -329,8 +328,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} />}
         {tab === 'skills'      && <SkillsTab      agentId={agent.id} canEdit={canEdit} />}
         {tab === 'claude-md'   && <ClaudeMdTab    agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'mcps'        && <McpsTab        agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'permissions' && <PermissionsTab agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'tools'       && <ToolsTab        agentId={agent.id} canEdit={canEdit} />}
         {tab === 'memory'      && <MemoryTab      agentId={agent.id} canEdit={canEdit} />}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
@@ -950,7 +948,29 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
 
 // ─── MCPs ─────────────────────────────────────────────────────────────────────
 
-function McpsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function ToolsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+  return (
+    <div className="fade-up">
+      {/* Section 1: Connected Apps (MCPs) */}
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
+          Connected Apps
+        </div>
+        <McpsSection agentId={agentId} canEdit={canEdit} />
+      </div>
+
+      {/* Section 2: Capabilities */}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
+          Capabilities
+        </div>
+        <PermissionsTab agentId={agentId} canEdit={canEdit} />
+      </div>
+    </div>
+  );
+}
+
+function McpsSection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [all, setAll]         = useState<McpServer[]>([]);
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [saving, setSaving]   = useState(false);
@@ -1073,7 +1093,7 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
   };
 
   return (
-    <div style={{ maxWidth: 500 }} className="fade-up">
+    <div style={{ maxWidth: 500 }}>
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 10, overflow: 'hidden',
@@ -1888,7 +1908,7 @@ const TRIGGER_COLORS: Record<string, { bg: string; color: string }> = {
 function TriggerBadge({ trigger }: { trigger: string }) {
   const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--surface-2)', color: 'var(--muted)' };
   const label: Record<string, string> = {
-    skills: 'Skills', permissions: 'Tools', mcps: 'MCPs',
+    skills: 'Skills', permissions: 'Capabilities', mcps: 'Connected Apps',
     'claude-md': 'System Prompt', manual: 'Manual', restrictions: 'Channels',
   };
   return (
