@@ -591,7 +591,7 @@ export default function McpSettingsPage() {
                     fontSize: 12, padding: 0, marginBottom: 12, fontFamily: 'var(--font-sans)',
                   }}>&larr; Back to library</button>
                   <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
-                    {selectedTemplate.logo ? <img src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${selectedTemplate.logo}.svg`} alt="" width={20} height={20} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8, borderRadius: 3, opacity: 0.8 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} /> : null}{selectedTemplate.name}
+                    {selectedTemplate.logo ? <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${selectedTemplate.logo}.svg`} alt="" width={20} height={20} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8, borderRadius: 3, opacity: 0.8 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} /> : null}{selectedTemplate.name}
                   </h3>
                   <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--muted)' }}>
                     {selectedTemplate.description}
@@ -656,6 +656,7 @@ export default function McpSettingsPage() {
                         <span style={{ width: 24, height: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           {t.logo ? (
                             <img
+                              className="icon-adaptive"
                               src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${t.logo}.svg`}
                               alt={t.name}
                               width={20} height={20}
