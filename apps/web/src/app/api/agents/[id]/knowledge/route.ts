@@ -72,13 +72,57 @@ export async function POST(
     return NextResponse.json({ error: 'repoUrl required for repo sources' }, { status: 400 });
   }
 
+  // For URL sources, fetch and convert to markdown at add time
+  let resolvedContent = content ?? null;
+  if (type === 'url' && !resolvedContent) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; SlackHive/1.0; +https://slackhive.com)',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const { Readability } = await import('@mozilla/readability');
+        const { parseHTML } = await import('linkedom');
+        const TurndownService = (await import('turndown')).default;
+
+        // Extract article content with Readability (like Firefox Reader View)
+        const { document } = parseHTML(html);
+        const reader = new Readability(document as any);
+        const article = reader.parse();
+
+        const td = new TurndownService({
+          headingStyle: 'atx',
+          codeBlockStyle: 'fenced',
+          bulletListMarker: '-',
+        });
+
+        if (article?.content) {
+          const md = td.turndown(article.content);
+          // If extracted content is too short, page is likely JS-rendered
+          if (md.split(/\s+/).length < 20) {
+            resolvedContent = `[Warning: This page appears to be JavaScript-rendered. Content may be incomplete.]\n\n${md}`;
+          } else {
+            resolvedContent = `# ${article.title || name}\n\n${md}`.slice(0, 100000);
+          }
+        } else {
+          // Fallback: convert full HTML
+          resolvedContent = td.turndown(html).slice(0, 100000);
+        }
+      }
+    } catch { /* fetch failed — content stays null, wiki builder will skip */ }
+  }
+
   const sourceId = randomUUID();
-  const wordCount = content ? content.split(/\s+/).length : 0;
+  const wordCount = resolvedContent ? resolvedContent.split(/\s+/).length : 0;
 
   await (await db()).query(
     `INSERT INTO knowledge_sources (id, agent_id, type, name, url, repo_url, branch, pat_env_ref, sync_cron, content, status, word_count)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-    [sourceId, agentId, type, name, url ?? null, repoUrl ?? null, branch ?? 'main', patEnvRef ?? null, syncCron ?? null, content ?? null, 'pending', wordCount]
+    [sourceId, agentId, type, name, url ?? null, repoUrl ?? null, branch ?? 'main', patEnvRef ?? null, syncCron ?? null, resolvedContent, 'pending', wordCount]
   );
 
   const r = await (await db()).query('SELECT * FROM knowledge_sources WHERE id = $1', [sourceId]);

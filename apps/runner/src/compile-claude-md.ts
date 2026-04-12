@@ -54,11 +54,19 @@ If no relevant memories are found, say so briefly and continue.`;
  */
 const WIKI_SKILL = `Search the knowledge wiki for information about: $ARGUMENTS
 
-Use the Read tool to read \`knowledge/wiki/index.md\` first to see all available articles.
-Then read specific articles that match the topic.
-The wiki contains compiled knowledge from URLs, documents, and code repositories.
-Use this information to give accurate, well-informed answers.
-If no relevant articles are found, say so and answer from your general knowledge.`;
+## How to search
+1. Read \`knowledge/wiki/index.md\` — this is the catalog organized by category with one-line summaries for every page
+2. Identify relevant pages from the index (check modules/, concepts/, entities/, flows/ sections)
+3. Read the specific articles that match the topic
+4. Follow cross-references — articles link to related pages via relative paths. Follow "See also" sections for deeper context
+5. Check \`knowledge/wiki/log.md\` for recent ingests if the user asks about what sources were processed
+
+## Tips
+- The wiki follows the Karpathy LLM Wiki pattern — pages are richly interlinked
+- Entity pages describe data models/classes, module pages describe code components, flow pages trace function call chains
+- Every page has source attribution showing where the information came from
+- If no relevant articles are found, say so and answer from your general knowledge`;
+
 
 /**
  * Memory system instructions injected into every agent's CLAUDE.md.
@@ -207,6 +215,11 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
         fs.rmSync(path.join(sessionCommandsDir, existing), { force: true });
       }
       fs.writeFileSync(path.join(sessionCommandsDir, 'recall.md'), RECALL_SKILL, 'utf-8');
+      // Wiki skill — propagate to sessions if wiki exists
+      const sessionWikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
+      if (fs.existsSync(sessionWikiDir) && fs.readdirSync(sessionWikiDir).length > 0) {
+        fs.writeFileSync(path.join(sessionCommandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
+      }
       for (const skill of skills) {
         const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
         fs.writeFileSync(path.join(sessionCommandsDir, filename), skill.content, 'utf-8');

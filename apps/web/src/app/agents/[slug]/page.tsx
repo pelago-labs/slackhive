@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -1626,6 +1626,106 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
   );
 }
 
+// ─── Wiki Tree ──────────────────────────────────────────────────────────────
+
+type WikiArticle = { path: string; title: string; size: number };
+type TreeNode = { name: string; path?: string; title?: string; size?: number; children: TreeNode[] };
+
+function buildTree(articles: WikiArticle[]): TreeNode[] {
+  const root: TreeNode = { name: '', children: [] };
+  for (const article of articles) {
+    const parts = article.path.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isFile = i === parts.length - 1;
+      let child = node.children.find(c => c.name === part);
+      if (!child) {
+        child = isFile
+          ? { name: part, path: article.path, title: article.title, size: article.size, children: [] }
+          : { name: part, children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    }
+  }
+  // Sort: folders first, then files, alphabetical within each
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      const aIsFolder = a.children.length > 0 && !a.path;
+      const bIsFolder = b.children.length > 0 && !b.path;
+      if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const n of nodes) sortNodes(n.children);
+  };
+  sortNodes(root.children);
+  return root.children;
+}
+
+const FOLDER_LABELS: Record<string, string> = {
+  concepts: 'Concepts',
+  entities: 'Entities',
+  flows: 'Flows',
+  modules: 'Modules',
+};
+
+function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; depth: number; onSelect: (path: string) => void; selected: string | null }) {
+  const [open, setOpen] = useState(true);
+  const isFolder = !node.path && node.children.length > 0;
+  const label = isFolder ? (FOLDER_LABELS[node.name] || node.name) : (node.title || node.name.replace('.md', ''));
+  const isActive = node.path === selected;
+
+  if (isFolder) {
+    return (
+      <div>
+        <div onClick={() => setOpen(!open)} style={{
+          display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+          padding: `6px 6px 2px ${6 + depth * 12}px`,
+          fontSize: 10.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
+        }}>
+          {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          {label}/
+        </div>
+        {open && node.children.map(child => (
+          <WikiTreeNode key={child.path || child.name} node={child} depth={depth + 1} onSelect={onSelect} selected={selected} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={() => node.path && onSelect(node.path)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        padding: `4px 8px 4px ${8 + depth * 12}px`, borderRadius: 6, cursor: 'pointer',
+        fontSize: 12, fontFamily: 'var(--font-mono)',
+        background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
+        color: isActive ? 'var(--accent)' : 'var(--muted)',
+        transition: 'background 0.12s, color 0.12s',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}
+      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
+      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+    >
+      <FileText size={12} style={{ flexShrink: 0 }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name.replace('.md', '')}</span>
+    </div>
+  );
+}
+
+function WikiTree({ articles, onSelect, selected }: { articles: WikiArticle[]; onSelect: (path: string) => void; selected: string | null }) {
+  const tree = buildTree(articles);
+  return (
+    <div style={{ padding: '6px 6px', flex: 1, overflow: 'auto' }}>
+      {tree.map(node => (
+        <WikiTreeNode key={node.path || node.name} node={node} depth={0} onSelect={onSelect} selected={selected} />
+      ))}
+    </div>
+  );
+}
+
 // ─── Knowledge ──────────────────────────────────────────────────────────────
 
 function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
@@ -1637,18 +1737,67 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
   const [addBranch, setAddBranch] = useState('main');
   const [addPat, setAddPat] = useState('');
   const [addContent, setAddContent] = useState('');
-  const [addSync, setAddSync] = useState('daily');
+  const [syncing, setSyncing] = useState<string | null>(null); // sourceId being synced
   const [saving, setSaving] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [buildStep, setBuildStep] = useState('');
   const [buildResult, setBuildResult] = useState<any>(null);
   const [buildError, setBuildError] = useState('');
-  const [wikiArticles, setWikiArticles] = useState<string[]>([]);
+  const [wikiData, setWikiData] = useState<{ articles: { path: string; title: string; size: number }[]; totalWords: number; lastBuilt: string | null } | null>(null);
+  const [selectedArticle, setSelectedArticle] = useState<string | null>(null);
+  const [articleContent, setArticleContent] = useState('');
+  const [loadingArticle, setLoadingArticle] = useState(false);
 
-  const load = () => {
+  const loadSources = () => {
     fetch(`/api/agents/${agentId}/knowledge`).then(r => r.json()).then(setSources).catch(() => {});
-    // Load wiki article list from a known endpoint or just count
   };
-  useEffect(() => { load(); }, [agentId]);
+  const loadWiki = () => {
+    fetch(`/api/agents/${agentId}/knowledge/wiki`).then(r => r.json()).then(data => {
+      if (data.articles?.length > 0) setWikiData(data);
+      else setWikiData(null);
+    }).catch(() => {});
+  };
+  const load = () => { loadSources(); loadWiki(); };
+
+  // Poll for an active build by requestId
+  const pollBuild = async (reqId: string) => {
+    setBuilding(true); setBuildError(''); setBuildStep('');
+    for (let i = 0; i < 120; i++) {
+      await new Promise(res => setTimeout(res, 2000));
+      try {
+        const poll = await fetch(`/api/agents/${agentId}/knowledge/build?requestId=${reqId}`);
+        const data = await poll.json();
+        if (data.step) setBuildStep(data.step);
+        if (data.status === 'done') { setBuildResult(data); setBuilding(false); setBuildStep(''); load(); return; }
+        if (data.status === 'error') { setBuildError(data.error); setBuilding(false); setBuildStep(''); return; }
+      } catch { /* retry */ }
+    }
+    setBuildError('Build timed out.');
+    setBuilding(false); setBuildStep('');
+  };
+
+  useEffect(() => {
+    load();
+    // Check if there's an active build in progress
+    fetch(`/api/agents/${agentId}/knowledge/build`).then(r => r.json()).then(data => {
+      if (data.status === 'pending' || data.status === 'building') {
+        pollBuild(data.requestId);
+      } else if (data.status === 'done') {
+        setBuildResult(data);
+      }
+    }).catch(() => {});
+  }, [agentId]);
+
+  const viewArticle = async (articlePath: string) => {
+    setSelectedArticle(articlePath);
+    setLoadingArticle(true);
+    try {
+      const r = await fetch(`/api/agents/${agentId}/knowledge/wiki?path=${encodeURIComponent(articlePath)}`);
+      const data = await r.json();
+      setArticleContent(data.content ?? '');
+    } catch { setArticleContent('Failed to load article.'); }
+    finally { setLoadingArticle(false); }
+  };
 
   const addSource = async () => {
     setSaving(true);
@@ -1659,7 +1808,7 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
       body.repoUrl = addUrl;
       body.branch = addBranch;
       if (addPat) body.patEnvRef = addPat;
-      body.syncCron = addSync === 'daily' ? '0 0 * * *' : '0 0 * * 0';
+      // no cron — manual sync only
     }
     await fetch(`/api/agents/${agentId}/knowledge`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -1676,20 +1825,27 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
   };
 
   const buildWiki = async () => {
-    setBuilding(true); setBuildResult(null); setBuildError('');
+    setBuildResult(null); setBuildError('');
     try {
       const r = await fetch(`/api/agents/${agentId}/knowledge/build`, { method: 'POST' });
       const { requestId } = await r.json();
-      for (let i = 0; i < 120; i++) {
-        await new Promise(res => setTimeout(res, 3000));
-        const poll = await fetch(`/api/agents/${agentId}/knowledge/build?requestId=${requestId}`);
-        const data = await poll.json();
-        if (data.status === 'done') { setBuildResult(data); setBuilding(false); load(); return; }
-        if (data.status === 'error') { setBuildError(data.error); setBuilding(false); return; }
-      }
-      setBuildError('Build timed out.');
+      await pollBuild(requestId);
+    } catch (err) { setBuildError((err as Error).message); setBuilding(false); }
+  };
+
+  const syncSource = async (sourceId: string) => {
+    if (building || syncing) return;
+    setSyncing(sourceId); setBuildResult(null); setBuildError('');
+    try {
+      const r = await fetch(`/api/agents/${agentId}/knowledge/build`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceId }),
+      });
+      const { requestId } = await r.json();
+      await pollBuild(requestId);
     } catch (err) { setBuildError((err as Error).message); }
-    finally { setBuilding(false); }
+    finally { setSyncing(null); }
   };
 
   const TypeIcon = ({ type }: { type: string }) => {
@@ -1732,6 +1888,17 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
         </div>
       </div>
 
+      {/* Build progress */}
+      {building && buildStep && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', marginBottom: 14,
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+        }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--accent)', flexShrink: 0 }} />
+          <span style={{ fontSize: 12.5, color: 'var(--text)' }}>{buildStep}</span>
+        </div>
+      )}
+
       {/* Build result */}
       {buildError && (
         <div style={{ background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--red)' }}>
@@ -1771,23 +1938,67 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
             )}
 
             {addType === 'file' && (
-              <textarea value={addContent} onChange={e => setAddContent(e.target.value)} placeholder="Paste document content here..."
-                rows={6} style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)', resize: 'vertical' }} />
+              <>
+                <div style={{
+                  border: '2px dashed var(--border)', borderRadius: 8, padding: '20px 16px',
+                  textAlign: 'center', cursor: 'pointer', background: 'var(--surface-2)',
+                  transition: 'border-color 0.15s',
+                }} onClick={() => document.getElementById('knowledge-file-input')?.click()}
+                   onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                   onDragLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                   onDrop={e => {
+                     e.preventDefault();
+                     e.currentTarget.style.borderColor = 'var(--border)';
+                     const file = e.dataTransfer.files[0];
+                     if (file) {
+                       const reader = new FileReader();
+                       reader.onload = () => {
+                         setAddContent(reader.result as string);
+                         if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
+                       };
+                       reader.readAsText(file);
+                     }
+                   }}>
+                  <Upload size={20} style={{ color: 'var(--muted)', marginBottom: 6 }} />
+                  <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
+                    {addContent ? 'File loaded — click to replace' : 'Click to upload or drag and drop'}
+                  </p>
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+                    .txt, .md, .csv, .json, .pdf (text only)
+                  </p>
+                  <input id="knowledge-file-input" type="file" accept=".txt,.md,.csv,.json,.pdf,.rst,.yaml,.yml,.xml,.html"
+                    style={{ display: 'none' }} onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          setAddContent(reader.result as string);
+                          if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
+                        };
+                        reader.readAsText(file);
+                      }
+                    }} />
+                </div>
+                {addContent && (
+                  <div style={{ fontSize: 11, color: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>{addContent.split(/\s+/).length.toLocaleString()} words loaded</span>
+                    <button onClick={() => setAddContent('')} style={{
+                      background: 'none', border: 'none', color: 'var(--red)', fontSize: 11,
+                      cursor: 'pointer', fontFamily: 'var(--font-sans)', opacity: 0.7,
+                    }}>Clear</button>
+                  </div>
+                )}
+                <textarea value={addContent} onChange={e => setAddContent(e.target.value)} placeholder="Or paste content here..."
+                  rows={4} style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)', resize: 'vertical' }} />
+              </>
             )}
 
             {addType === 'repo' && (
               <>
                 <input value={addUrl} onChange={e => setAddUrl(e.target.value)} placeholder="https://github.com/org/repo"
                   style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input value={addBranch} onChange={e => setAddBranch(e.target.value)} placeholder="Branch (default: main)"
-                    style={{ flex: 1, padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
-                  <select value={addSync} onChange={e => setAddSync(e.target.value)}
-                    style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 12, fontFamily: 'var(--font-sans)', color: 'var(--text)' }}>
-                    <option value="daily">Sync daily</option>
-                    <option value="weekly">Sync weekly</option>
-                  </select>
-                </div>
+                <input value={addBranch} onChange={e => setAddBranch(e.target.value)} placeholder="Branch (default: main)"
+                  style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
                 <input value={addPat} onChange={e => setAddPat(e.target.value)} placeholder="PAT env var key (optional, for private repos)"
                   style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
               </>
@@ -1837,6 +2048,13 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
                 background: src.status === 'compiled' ? 'rgba(16,185,129,0.1)' : src.status === 'error' ? 'var(--red-soft-bg)' : 'var(--surface-2)',
                 color: src.status === 'compiled' ? 'var(--green)' : src.status === 'error' ? 'var(--red)' : 'var(--subtle)',
               }}>{src.status}</span>
+              {canEdit && src.status === 'compiled' && (
+                <button onClick={() => syncSource(src.id)} disabled={!!syncing || building} style={{
+                  background: 'none', border: 'none', fontSize: 12, cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)', opacity: syncing === src.id ? 1 : 0.6,
+                  color: syncing === src.id ? 'var(--accent)' : 'var(--text)',
+                }}>{syncing === src.id ? 'Syncing...' : 'Sync'}</button>
+              )}
               {canEdit && (
                 <button onClick={() => deleteSource(src.id)} style={{
                   background: 'none', border: 'none', color: 'var(--red)', fontSize: 12,
@@ -1845,6 +2063,82 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Wiki — two-panel file browser */}
+      {wikiData && wikiData.articles.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <BookOpen size={14} style={{ color: 'var(--muted)' }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Wiki</span>
+              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                {wikiData.articles.length} articles · {wikiData.totalWords.toLocaleString()} words
+              </span>
+            </div>
+            {wikiData.lastBuilt && (
+              <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                Built {new Date(wikiData.lastBuilt).toLocaleDateString()} {new Date(wikiData.lastBuilt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 14, height: 480 }}>
+            {/* Sidebar — file tree */}
+            <div style={{
+              width: 220, flexShrink: 0,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, overflow: 'auto', display: 'flex', flexDirection: 'column',
+            }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 12px', borderBottom: '1px solid var(--border)',
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Articles
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--subtle)' }}>{wikiData.articles.length}</span>
+              </div>
+              <WikiTree articles={wikiData.articles} onSelect={viewArticle} selected={selectedArticle} />
+            </div>
+
+            {/* Main — article content */}
+            <div style={{
+              flex: 1, background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            }}>
+              {selectedArticle ? (
+                <>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                    borderBottom: '1px solid var(--border)', flexShrink: 0,
+                  }}>
+                    <FileText size={13} style={{ color: 'var(--muted)' }} />
+                    <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>{selectedArticle}</span>
+                  </div>
+                  <div style={{ flex: 1, padding: '16px 18px', overflow: 'auto' }}>
+                    {loadingArticle ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12 }}>
+                        <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Loading...
+                      </div>
+                    ) : (
+                      <pre style={{
+                        margin: 0, fontSize: 12.5, lineHeight: 1.7, color: 'var(--text)',
+                        fontFamily: 'var(--font-sans)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                      }}>{articleContent}</pre>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
+                  <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Select an article to view</p>
+                  <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>Browse the folder tree on the left</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

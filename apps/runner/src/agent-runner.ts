@@ -424,6 +424,11 @@ export class AgentRunner {
                   logger.error('Knowledge build failed', { error: err.message })
                 );
               }
+              if (raw.type === 'ingest-source') {
+                this.ingestSingleSource(raw.agentId, raw.sourceId, raw.requestId).catch(err =>
+                  logger.error('Source ingest failed', { error: err.message })
+                );
+              }
               break;
             }
           }
@@ -663,6 +668,361 @@ Guidelines:
    * For URLs/files: reads content from DB.
    * Calls Claude to compile structured wiki articles.
    */
+  // ─── Knowledge Wiki (Karpathy Incremental Ingest) ────────────────────────
+
+  /**
+   * Reads a git repo into a content string for wiki compilation.
+   * Clones to temp dir, reads deeply, deletes clone.
+   */
+  private async readRepoContent(src: Record<string, unknown>): Promise<string> {
+    const fs = await import('fs');
+    const path = await import('path');
+    const { execSync } = await import('child_process');
+    const tmpDir = path.join('/tmp', `slackhive-repo-${src.id}`);
+
+    try {
+      let cloneUrl = src.repo_url as string;
+      if (src.pat_env_ref) {
+        const envVars = await getAllEnvVarValues();
+        const pat = envVars[src.pat_env_ref as string];
+        if (pat && cloneUrl.startsWith('https://')) {
+          cloneUrl = cloneUrl.replace('https://', `https://${pat}@`);
+        }
+      }
+
+      const branch = (src.branch as string) || 'main';
+      execSync(`git clone --depth 1 --branch ${branch} "${cloneUrl}" "${tmpDir}"`, { stdio: 'ignore', timeout: 120000 });
+
+      // README and docs
+      let readme = '';
+      for (const f of ['README.md', 'readme.md', 'README.rst', 'README', 'docs/README.md']) {
+        const p = path.join(tmpDir, f);
+        if (fs.existsSync(p)) { readme = fs.readFileSync(p, 'utf-8'); break; }
+      }
+
+      let extraDocs = '';
+      for (const f of ['CONTRIBUTING.md', 'ARCHITECTURE.md', 'docs/ARCHITECTURE.md', 'docs/api.md', 'API.md', 'CLAUDE.md', 'AGENTS.md']) {
+        const p = path.join(tmpDir, f);
+        if (fs.existsSync(p)) {
+          extraDocs += `\n### ${f}\n${fs.readFileSync(p, 'utf-8').slice(0, 5000)}\n`;
+        }
+      }
+
+      // Directory tree (5 levels)
+      let tree = '';
+      try {
+        tree = execSync(
+          `find "${tmpDir}" -maxdepth 5 -type f ` +
+          `-not -path "*/node_modules/*" -not -path "*/.git/*" ` +
+          `-not -path "*/dist/*" -not -path "*/.next/*" ` +
+          `-not -path "*/__pycache__/*" -not -path "*/venv/*" ` +
+          `-not -path "*/target/*" -not -path "*/.cache/*" ` +
+          `| head -300`,
+          { encoding: 'utf-8', timeout: 10000 }
+        );
+      } catch { /* ok */ }
+      tree = tree.replace(new RegExp(tmpDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.');
+
+      // Config files
+      let keyFiles = '';
+      for (const f of ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'tsconfig.json', 'setup.py', 'Makefile', 'Dockerfile', 'docker-compose.yml', '.env.example', 'requirements.txt']) {
+        const p = path.join(tmpDir, f);
+        if (fs.existsSync(p)) {
+          keyFiles += `\n### ${f}\n\`\`\`\n${fs.readFileSync(p, 'utf-8').slice(0, 4000)}\n\`\`\`\n`;
+        }
+      }
+
+      // Sub-package.jsons (monorepo)
+      try {
+        const subPkgs = execSync(`find "${tmpDir}" -maxdepth 3 -name "package.json" -not -path "*/node_modules/*" | head -20`, { encoding: 'utf-8', timeout: 5000 }).trim().split('\n').filter(Boolean);
+        for (const p of subPkgs) {
+          if (p === path.join(tmpDir, 'package.json')) continue;
+          keyFiles += `\n### ${p.replace(tmpDir + '/', '')}\n\`\`\`\n${fs.readFileSync(p, 'utf-8').slice(0, 2000)}\n\`\`\`\n`;
+        }
+      } catch { /* ok */ }
+
+      // Source files — prioritized, NO hard cap
+      const srcExts = '\\( -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.js" -o -name "*.jsx" -o -name "*.rb" \\)';
+      const excludes = '-not -path "*/node_modules/*" -not -path "*/dist/*" -not -path "*/.next/*" -not -path "*/__pycache__/*" -not -path "*/venv/*" -not -path "*/target/*" -not -path "*/.cache/*" -not -path "*.d.ts" -not -path "*.test.*" -not -path "*.spec.*" -not -path "*__tests__*"';
+
+      let allFiles: string[] = [];
+      try {
+        allFiles = execSync(`find "${tmpDir}" -type f ${srcExts} ${excludes} | head -500`, { encoding: 'utf-8', timeout: 10000 }).trim().split('\n').filter(Boolean);
+      } catch { /* ok */ }
+
+      const priority = (f: string): number => {
+        const rel = f.replace(tmpDir + '/', '').toLowerCase();
+        if (/^(index|main|app|server|cli)\.(ts|js|py|go|rs)/.test(rel.split('/').pop() ?? '')) return 0;
+        if (/\/(index|main|mod|__init__)\.(ts|js|py|go|rs)$/.test(rel)) return 1;
+        if (/(types?|models?|schema|interfaces?)\.(ts|py|go|rs)/.test(rel)) return 2;
+        if (/(route|handler|controller|view|endpoint|api)\b/.test(rel)) return 3;
+        if (/(service|manager|provider|client|adapter)\b/.test(rel)) return 4;
+        if (/(util|helper|lib|common|shared)\b/.test(rel)) return 5;
+        return 6;
+      };
+      allFiles.sort((a, b) => priority(a) - priority(b));
+
+      // Read up to 100 files, 5000 chars for high-priority, 3000 for others — no total cap
+      let srcFiles = '';
+      for (const file of allFiles.slice(0, 100)) {
+        const relPath = file.replace(tmpDir + '/', '');
+        const pri = priority(file);
+        const maxChars = pri <= 2 ? 5000 : 3000;
+        srcFiles += `\n### ${relPath}\n\`\`\`\n${fs.readFileSync(file, 'utf-8').slice(0, maxChars)}\n\`\`\`\n`;
+      }
+
+      // Sample test files
+      let testFiles = '';
+      try {
+        const tests = execSync(`find "${tmpDir}" -type f \\( -name "*.test.*" -o -name "*.spec.*" -o -name "test_*" \\) | head -5`, { encoding: 'utf-8', timeout: 5000 }).trim().split('\n').filter(Boolean);
+        for (const file of tests) {
+          testFiles += `\n### ${file.replace(tmpDir + '/', '')}\n\`\`\`\n${fs.readFileSync(file, 'utf-8').slice(0, 2000)}\n\`\`\`\n`;
+        }
+      } catch { /* ok */ }
+
+      return [
+        `# Repository: ${src.name}`,
+        `Branch: ${branch} | Clone URL: ${src.repo_url}`,
+        `\n## README\n${readme}`,
+        extraDocs ? `\n## Additional Documentation\n${extraDocs}` : '',
+        `\n## Directory Structure (${allFiles.length} source files)\n\`\`\`\n${tree}\n\`\`\``,
+        `\n## Config Files\n${keyFiles}`,
+        `\n## Source Files\n${srcFiles}`,
+        testFiles ? `\n## Test Files (sample)\n${testFiles}` : '',
+      ].filter(Boolean).join('\n');
+
+    } finally {
+      try { (await import('child_process')).execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
+    }
+  }
+
+  /** Parse JSON from Claude response, trying multiple strategies. */
+  private parseWikiJson(response: string): any | null {
+    for (const strategy of [
+      () => JSON.parse(response),
+      () => { const m = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/); return m ? JSON.parse(m[1]) : null; },
+      () => { const s = response.indexOf('{'); const e = response.lastIndexOf('}'); return s >= 0 && e > s ? JSON.parse(response.slice(s, e + 1)) : null; },
+    ]) {
+      try { const p = strategy(); if (p) return p; } catch { /* try next */ }
+    }
+    return null;
+  }
+
+  /** Read existing wiki state: article paths + titles + first lines. */
+  private readExistingWiki(wikiDir: string): string {
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    if (!fs.existsSync(wikiDir)) return '(empty — no wiki yet)';
+
+    const articles: string[] = [];
+    const walk = (dir: string, prefix: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          walk(path.join(dir, entry.name), prefix ? `${prefix}/${entry.name}` : entry.name);
+        } else if (entry.name.endsWith('.md')) {
+          const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+          const content = fs.readFileSync(path.join(dir, entry.name), 'utf-8');
+          const titleMatch = content.match(/^#\s+(.+)/m);
+          const title = titleMatch ? titleMatch[1] : entry.name.replace('.md', '');
+          // First 2 meaningful lines after title
+          const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#')).slice(0, 2).join(' ').slice(0, 200);
+          articles.push(`- [${title}](${relPath}) — ${lines}`);
+        }
+      }
+    };
+    walk(wikiDir, '');
+    return articles.length > 0 ? articles.join('\n') : '(empty — no wiki yet)';
+  }
+
+  /**
+   * Ingest a single source into the wiki (Karpathy incremental pattern).
+   * Reads the source fully, sees existing wiki, updates/creates articles.
+   */
+  private async ingestSource(
+    agentId: string,
+    sourceId: string,
+    requestId: string,
+    mode: 'ingest' | 'sync' = 'ingest',
+  ): Promise<{ created: number; updated: number }> {
+    const fs = await import('fs');
+    const path = await import('path');
+    const { getDb } = await import('@slackhive/shared');
+    const { getAgentWorkDir } = await import('./compile-claude-md');
+
+    const agent = await getAgentById(agentId);
+    if (!agent) throw new Error('Agent not found');
+
+    const r = await getDb().query('SELECT * FROM knowledge_sources WHERE id = $1', [sourceId]);
+    const src = r.rows[0];
+    if (!src) throw new Error('Source not found');
+
+    const srcName = src.name as string;
+    const srcType = src.type as string;
+    const wikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
+    fs.mkdirSync(wikiDir, { recursive: true });
+
+    const updateStatus = async (step: string) => {
+      await setResult(`knowledge-build:${requestId}`, JSON.stringify({
+        status: 'building', startedAt: Date.now(), step,
+      }));
+    };
+
+    // 1. Read source content fully
+    let content = '';
+    if (srcType === 'url' || srcType === 'file') {
+      content = (src.content as string) || '';
+      if (!content) throw new Error(`Source "${srcName}" has no content`);
+    } else if (srcType === 'repo') {
+      await updateStatus(`Cloning ${srcName}...`);
+      content = await this.readRepoContent(src);
+    }
+
+    // 2. Read existing wiki state
+    await updateStatus(`Reading existing wiki...`);
+    const existingWiki = this.readExistingWiki(wikiDir);
+    const isFirstIngest = existingWiki === '(empty — no wiki yet)';
+
+    // 3. Call Claude: existing wiki + full source → incremental update
+    await updateStatus(`${mode === 'sync' ? 'Syncing' : 'Ingesting'} ${srcName}...`);
+    const now = new Date().toISOString().split('T')[0];
+
+    const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.
+${mode === 'sync' ? 'A source is being re-synced — update any pages with changed information.' : 'A new source is being ingested.'}
+
+CRITICAL: Return ONLY a JSON object. No text before or after.
+
+## Existing wiki
+${existingWiki}
+
+## ${mode === 'sync' ? 'Re-synced' : 'New'} source: ${srcName} (${srcType})
+
+${content}
+
+## Your task
+
+1. Read the source thoroughly
+2. ${isFirstIngest
+  ? 'Create the initial wiki: overview.md, module pages, concept pages, entity pages, flow pages'
+  : 'Identify which EXISTING articles need updates (new info, corrections, new cross-references) and which NEW articles to create'}
+3. ${isFirstIngest ? 'Create' : 'Update'} index.md — full catalog of all articles
+4. Write a log entry for this ${mode}
+
+## Article types
+- \`modules/xxx.md\` — one per major module/directory/component
+- \`concepts/xxx.md\` — one per important pattern, algorithm, or idea
+- \`entities/xxx.md\` — one per key data model, class, or type
+- \`flows/xxx.md\` — trace data/control flows with function call chains
+
+## Rules
+- Cross-reference between articles: \`[Name](entities/name.md)\`
+- "See also" section at bottom of each page
+- Source attribution: \`Source: ${srcName}\`
+- For code: actual function names, class names, file paths, signatures
+- For flows: \`funcA() → funcB() → funcC()\` with links
+- Every article: 200+ words, real substance
+${!isFirstIngest ? `- When this source mentions entities/concepts that already have wiki pages, UPDATE those pages with the new information from this source
+- Preserve existing content in updated pages — add to it, don't replace` : ''}
+
+## Return format
+
+{
+  ${isFirstIngest ? '' : '"updated": [\n    { "path": "entities/user-profile.md", "title": "UserProfile", "content": "full updated page content" }\n  ],'}
+  "created": [
+    { "path": "modules/xxx.md", "title": "Module Name", "content": "# Module Name\\n\\n..." }
+  ],
+  ${isFirstIngest ? '"overview": "# System Overview\\n\\n...",' : ''}
+  "index": "# Wiki Index\\n\\n- [Overview](overview.md) — ...\\n...",
+  "logEntry": "## [${now}] ${mode} | ${srcName}\\n- ${isFirstIngest ? 'Initial wiki created' : 'Added/updated articles'}\\n- Key topics: ..."
+}`;
+
+    const response = await this.callClaudeWithRetry(prompt);
+    const parsed = this.parseWikiJson(response);
+
+    if (!parsed) throw new Error('Could not parse Claude response');
+
+    // 4. Write results
+    await updateStatus(`Writing wiki articles...`);
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    // Write created articles
+    if (parsed.created) {
+      for (const article of parsed.created) {
+        const articlePath = path.join(wikiDir, article.path);
+        fs.mkdirSync(path.dirname(articlePath), { recursive: true });
+        fs.writeFileSync(articlePath, article.content, 'utf-8');
+        createdCount++;
+      }
+    }
+
+    // Write updated articles
+    if (parsed.updated) {
+      for (const article of parsed.updated) {
+        const articlePath = path.join(wikiDir, article.path);
+        fs.mkdirSync(path.dirname(articlePath), { recursive: true });
+        fs.writeFileSync(articlePath, article.content, 'utf-8');
+        updatedCount++;
+      }
+    }
+
+    // Write overview (first ingest only)
+    if (parsed.overview) {
+      fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
+    }
+
+    // Write/update index.md
+    if (parsed.index) {
+      fs.writeFileSync(path.join(wikiDir, 'index.md'), parsed.index, 'utf-8');
+    }
+
+    // Append to log.md (never overwrite)
+    if (parsed.logEntry) {
+      const logPath = path.join(wikiDir, 'log.md');
+      const existingLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8') : '# Wiki Log\n';
+      fs.writeFileSync(logPath, existingLog + '\n' + parsed.logEntry + '\n', 'utf-8');
+    }
+
+    // 5. Update source status
+    await getDb().query(
+      "UPDATE knowledge_sources SET status = 'compiled', last_synced = datetime('now') WHERE id = $1",
+      [sourceId]
+    );
+
+    logger.info('Source ingested', { source: srcName, mode, created: createdCount, updated: updatedCount });
+
+    // Reload agent to pick up knowledge in CLAUDE.md
+    await this.reloadAgent(agentId);
+
+    return { created: createdCount, updated: updatedCount };
+  }
+
+  /**
+   * Ingest a single source (triggered by adding a source or clicking Ingest).
+   */
+  private async ingestSingleSource(agentId: string, sourceId: string, requestId: string): Promise<void> {
+    try {
+      const result = await this.ingestSource(agentId, sourceId, requestId, 'sync');
+      await setResult(`knowledge-build:${requestId}`, JSON.stringify({
+        status: 'done',
+        articles: result.created + result.updated,
+        created: result.created,
+        updated: result.updated,
+        summary: `Ingested: ${result.created} new, ${result.updated} updated`,
+      }));
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      logger.error('Ingest failed', { agentId, sourceId, requestId, error: msg });
+      await setResult(`knowledge-build:${requestId}`, JSON.stringify({
+        status: 'error',
+        error: msg.includes('AUTH_NEEDS_LOGIN') ? 'Run `claude login` in your terminal.' : `Ingest failed: ${msg.slice(0, 200)}`,
+      }));
+    }
+  }
+
+  /**
+   * Build Wiki — ingests only sources not yet compiled (status != 'compiled').
+   * Each source is processed one by one, wiki compounds incrementally.
+   */
   private async buildKnowledgeWiki(agentId: string, requestId: string): Promise<void> {
     logger.info('Building knowledge wiki', { agentId, requestId });
 
@@ -670,198 +1030,63 @@ Guidelines:
       const agent = await getAgentById(agentId);
       if (!agent) { await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'error', error: 'Agent not found' })); return; }
 
-      // Load all sources
       const { getDb } = await import('@slackhive/shared');
-      const r = await getDb().query('SELECT * FROM knowledge_sources WHERE agent_id = $1', [agentId]);
-      const sources = r.rows;
-
-      if (sources.length === 0) {
-        await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'done', articles: 0, message: 'No sources to compile.' }));
-        return;
-      }
-
-      await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'building' }));
-
-      // Collect content from each source
-      const sourceContents: { name: string; type: string; content: string }[] = [];
       const fs = await import('fs');
       const path = await import('path');
-      const { execSync } = await import('child_process');
+      const { getAgentWorkDir } = await import('./compile-claude-md');
 
-      for (const src of sources) {
-        if (src.type === 'url' || src.type === 'file') {
-          if (src.content) {
-            sourceContents.push({ name: src.name as string, type: src.type as string, content: src.content as string });
-          }
-        } else if (src.type === 'repo') {
-          // Clone to temp, read key files, delete
-          const tmpDir = path.join('/tmp', `slackhive-repo-${src.id}`);
-          try {
-            // Build clone URL with PAT if private
-            let cloneUrl = src.repo_url as string;
-            if (src.pat_env_ref) {
-              const envVars = await getAllEnvVarValues();
-              const pat = envVars[src.pat_env_ref as string];
-              if (pat && cloneUrl.startsWith('https://')) {
-                cloneUrl = cloneUrl.replace('https://', `https://${pat}@`);
-              }
-            }
+      // Check total vs pending sources
+      const allR = await getDb().query('SELECT count(*) as cnt FROM knowledge_sources WHERE agent_id = $1', [agentId]);
+      const totalCount = parseInt(allR.rows[0]?.cnt as string ?? '0', 10);
+      const pendingR = await getDb().query(
+        "SELECT * FROM knowledge_sources WHERE agent_id = $1 AND status != 'compiled' ORDER BY created_at ASC",
+        [agentId]
+      );
+      const pendingSources = pendingR.rows;
 
-            const branch = (src.branch as string) || 'main';
-            execSync(`git clone --depth 1 --branch ${branch} "${cloneUrl}" "${tmpDir}"`, { stdio: 'ignore', timeout: 60000 });
-
-            // Read README
-            let readme = '';
-            for (const f of ['README.md', 'readme.md', 'README.rst', 'README']) {
-              const p = path.join(tmpDir, f);
-              if (fs.existsSync(p)) { readme = fs.readFileSync(p, 'utf-8'); break; }
-            }
-
-            // Read directory tree (top 3 levels)
-            let tree = '';
-            try { tree = execSync(`find "${tmpDir}" -maxdepth 3 -type f | head -100`, { encoding: 'utf-8', timeout: 5000 }); } catch { /* ok */ }
-            tree = tree.replace(new RegExp(tmpDir, 'g'), '.');
-
-            // Read key files (package.json, config, etc.)
-            let keyFiles = '';
-            for (const f of ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'tsconfig.json', '.env.example']) {
-              const p = path.join(tmpDir, f);
-              if (fs.existsSync(p)) {
-                const content = fs.readFileSync(p, 'utf-8').slice(0, 2000);
-                keyFiles += `\n### ${f}\n\`\`\`\n${content}\n\`\`\`\n`;
-              }
-            }
-
-            // Read top-level source files (first 50 .ts/.py/.go/.rs files, max 1500 chars each)
-            let srcFiles = '';
-            try {
-              const files = execSync(`find "${tmpDir}" -maxdepth 4 -type f \\( -name "*.ts" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" \\) | head -50`, { encoding: 'utf-8', timeout: 5000 }).trim().split('\n').filter(Boolean);
-              for (const file of files) {
-                const relPath = file.replace(tmpDir + '/', '');
-                if (relPath.includes('node_modules') || relPath.includes('dist/') || relPath.includes('.next/')) continue;
-                const content = fs.readFileSync(file, 'utf-8').slice(0, 1500);
-                srcFiles += `\n### ${relPath}\n\`\`\`\n${content}\n\`\`\`\n`;
-              }
-            } catch { /* ok */ }
-
-            sourceContents.push({
-              name: src.name as string,
-              type: 'repo',
-              content: `# Repository: ${src.name}\n\n## README\n${readme}\n\n## Directory Structure\n\`\`\`\n${tree}\n\`\`\`\n\n## Key Config Files\n${keyFiles}\n\n## Source Files\n${srcFiles}`,
-            });
-          } catch (err) {
-            logger.warn('Failed to clone repo', { name: src.name, error: (err as Error).message });
-            sourceContents.push({ name: src.name as string, type: 'repo', content: `Failed to clone: ${(err as Error).message}` });
-          } finally {
-            // Always delete the temp clone
-            try { execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
-          }
-        }
-      }
-
-      // Call Claude to compile wiki
-      const allContent = sourceContents.map(s => `# Source: ${s.name} (${s.type})\n\n${s.content}`).join('\n\n---\n\n');
-
-      const prompt = `You are building a knowledge wiki from the following sources. These sources may be interconnected — identify relationships and cross-references.
-
-CRITICAL: Return ONLY a JSON object. No text before or after.
-
-## Sources (${sourceContents.length})
-${allContent.slice(0, 100000)}
-
-## Your task
-Compile these sources into structured wiki articles. Create:
-- An index page listing all articles
-- Concept articles for key ideas/patterns
-- Module/component articles for code structures
-- Cross-reference articles showing how things connect
-- A system overview if multiple repos/sources are related
-
-Return JSON:
-{
-  "articles": [
-    {
-      "path": "index.md",
-      "title": "Knowledge Base Index",
-      "content": "# Knowledge Base\\n\\n- [Overview](overview.md)\\n..."
-    },
-    {
-      "path": "overview.md",
-      "title": "System Overview",
-      "content": "# System Overview\\n\\n..."
-    }
-  ],
-  "summary": "<one line summary of what was compiled>"
-}
-
-Guidelines:
-- Create 5-20 articles depending on source complexity
-- Use markdown with headers, code blocks, lists
-- Cross-reference between articles using relative links
-- Be comprehensive but concise
-- For repos: focus on architecture, key modules, patterns, APIs
-- For docs/URLs: summarize key concepts and reference points`;
-
-      const fullResponse = await this.callClaudeWithRetry(prompt);
-
-      // Parse JSON
-      let parsed: any = null;
-      for (const strategy of [
-        () => JSON.parse(fullResponse),
-        () => { const m = fullResponse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/); return m ? JSON.parse(m[1]) : null; },
-        () => { const s = fullResponse.indexOf('{'); const e = fullResponse.lastIndexOf('}'); return s >= 0 && e > s ? JSON.parse(fullResponse.slice(s, e + 1)) : null; },
-      ]) {
-        try { parsed = strategy(); if (parsed?.articles) break; } catch { /* try next */ }
-      }
-
-      if (!parsed?.articles) {
-        await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'error', error: 'Could not parse wiki articles from Claude response' }));
+      if (pendingSources.length === 0) {
+        await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'done', articles: 0, message: 'All sources already compiled.' }));
         return;
       }
 
-      // Write wiki articles to agent workspace
-      const { getAgentWorkDir } = await import('./compile-claude-md');
-      const wikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
-      fs.mkdirSync(wikiDir, { recursive: true });
+      const startedAt = Date.now();
 
-      // Clear old wiki
-      try {
-        const existing = fs.readdirSync(wikiDir, { recursive: true }) as string[];
-        // Simple clear: remove all .md files
-        for (const file of existing) {
-          const fullPath = path.join(wikiDir, file);
-          if (fs.statSync(fullPath).isFile()) fs.unlinkSync(fullPath);
+      // Smart mode: if ALL sources are pending (e.g. after a delete), clear wiki first for clean rebuild
+      const isFullRebuild = pendingSources.length === totalCount;
+      if (isFullRebuild) {
+        await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'building', startedAt, step: 'Clearing wiki for rebuild...' }));
+        const wikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
+        try { fs.rmSync(wikiDir, { recursive: true, force: true }); } catch { /* ok */ }
+      }
+
+      let totalCreated = 0;
+      let totalUpdated = 0;
+
+      for (let i = 0; i < pendingSources.length; i++) {
+        const src = pendingSources[i];
+        await setResult(`knowledge-build:${requestId}`, JSON.stringify({
+          status: 'building', startedAt,
+          step: `${isFullRebuild ? 'Rebuilding' : 'Ingesting'} ${src.name} (${i + 1}/${pendingSources.length})...`,
+        }));
+
+        try {
+          const result = await this.ingestSource(agentId, src.id as string, requestId, 'ingest');
+          totalCreated += result.created;
+          totalUpdated += result.updated;
+        } catch (err) {
+          logger.warn('Source ingest failed', { source: src.name, error: (err as Error).message });
         }
-      } catch { /* dir might not exist yet */ }
-
-      // Write new articles
-      for (const article of parsed.articles) {
-        const articlePath = path.join(wikiDir, article.path);
-        fs.mkdirSync(path.dirname(articlePath), { recursive: true });
-        fs.writeFileSync(articlePath, article.content, 'utf-8');
       }
-
-      // Update source statuses
-      for (const src of sources) {
-        await getDb().query(
-          "UPDATE knowledge_sources SET status = 'compiled', last_synced = datetime('now') WHERE id = $1",
-          [src.id]
-        );
-      }
-
-      const totalWords = parsed.articles.reduce((sum: number, a: any) => sum + (a.content?.split(/\s+/).length ?? 0), 0);
 
       await setResult(`knowledge-build:${requestId}`, JSON.stringify({
         status: 'done',
-        articles: parsed.articles.length,
-        words: totalWords,
-        summary: parsed.summary ?? `Compiled ${parsed.articles.length} articles from ${sourceContents.length} sources`,
+        articles: totalCreated + totalUpdated,
+        created: totalCreated,
+        updated: totalUpdated,
+        summary: `Ingested ${pendingSources.length} source(s): ${totalCreated} created, ${totalUpdated} updated`,
       }));
 
-      logger.info('Knowledge wiki built', { agentId, articles: parsed.articles.length, words: totalWords });
-
-      // Reload agent to pick up knowledge in CLAUDE.md
-      await this.reloadAgent(agentId);
+      logger.info('Knowledge wiki built', { agentId, sources: pendingSources.length, created: totalCreated, updated: totalUpdated });
 
     } catch (err) {
       const msg = (err as Error).message ?? String(err);

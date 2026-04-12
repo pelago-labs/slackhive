@@ -26,11 +26,17 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.89",
-    "@anthropic-ai/claude-code": "^2.1.89"
+    "@anthropic-ai/claude-code": "^2.1.89",
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "^0.18.12",
+    "turndown": "^7.2.4"
   },
   "overrides": {
     "dompurify": "^3.3.3",
     "vite": "^6.4.2",
     "axios": "^1.15.0"
+  },
+  "devDependencies": {
+    "@types/turndown": "^5.0.6"
   }
 }

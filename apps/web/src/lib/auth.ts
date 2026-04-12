@@ -11,13 +11,24 @@ import * as crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { getUserByUsername } from './db';
 
-if (process.env.NODE_ENV === 'production' && !process.env.CI && (!process.env.AUTH_SECRET || !process.env.ADMIN_PASSWORD)) {
-  throw new Error('AUTH_SECRET and ADMIN_PASSWORD must be set in production. See .env.example.');
+/** Read env lazily so the build step can collect pages without AUTH_SECRET set. */
+function getAuthSecret(): string {
+  const s = process.env.AUTH_SECRET;
+  if (!s && process.env.NODE_ENV === 'production' && !process.env.CI) {
+    throw new Error('AUTH_SECRET must be set in production. See .env.example.');
+  }
+  return s || 'change-this-secret-in-production';
 }
 
-const AUTH_SECRET = process.env.AUTH_SECRET || 'change-this-secret-in-production';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
+
+function getAdminPassword(): string {
+  const p = process.env.ADMIN_PASSWORD;
+  if (!p && process.env.NODE_ENV === 'production' && !process.env.CI) {
+    throw new Error('ADMIN_PASSWORD must be set in production. See .env.example.');
+  }
+  return p || 'changeme';
+}
 const COOKIE_NAME = 'auth_session';
 
 export type Role = 'superadmin' | 'admin' | 'editor' | 'viewer';
@@ -35,7 +46,7 @@ export interface SessionPayload {
  */
 export function signSession(payload: SessionPayload): string {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(data).digest('base64url');
+  const sig = crypto.createHmac('sha256', getAuthSecret()).update(data).digest('base64url');
   return `${data}.${sig}`;
 }
 
@@ -49,7 +60,7 @@ export function verifySession(cookie: string): SessionPayload | null {
   const parts = cookie.split('.');
   if (parts.length !== 2) return null;
   const [data, sig] = parts;
-  const expected = crypto.createHmac('sha256', AUTH_SECRET).update(data).digest('base64url');
+  const expected = crypto.createHmac('sha256', getAuthSecret()).update(data).digest('base64url');
   if (sig !== expected) return null;
   try {
     return JSON.parse(Buffer.from(data, 'base64url').toString()) as SessionPayload;
@@ -68,7 +79,7 @@ export function verifySession(cookie: string): SessionPayload | null {
  */
 export async function authenticateUser(username: string, password: string): Promise<SessionPayload | null> {
   // Check superadmin
-  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+  if (username === ADMIN_USERNAME && password === getAdminPassword()) {
     return { username, role: 'superadmin' };
   }
 
