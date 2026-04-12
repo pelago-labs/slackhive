@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2 } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -1692,7 +1692,12 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
     finally { setBuilding(false); }
   };
 
-  const TYPE_ICON: Record<string, string> = { url: '🔗', file: '📄', repo: '📦' };
+  const TypeIcon = ({ type }: { type: string }) => {
+    const style = { color: 'var(--muted)', flexShrink: 0 } as const;
+    if (type === 'url') return <Link2 size={16} style={style} />;
+    if (type === 'repo') return <GitBranch size={16} style={style} />;
+    return <FileText size={16} style={style} />;
+  };
 
   return (
     <div className="fade-up">
@@ -1752,7 +1757,7 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
                 color: addType === t ? 'var(--accent-fg)' : 'var(--muted)',
                 border: `1px solid ${addType === t ? 'var(--accent)' : 'var(--border)'}`,
                 cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              }}>{TYPE_ICON[t]} {t === 'url' ? 'URL' : t === 'file' ? 'File' : 'Git Repo'}</button>
+              }}><TypeIcon type={t} /> {t === 'url' ? 'URL' : t === 'file' ? 'File' : 'Git Repo'}</button>
             ))}
           </div>
 
@@ -1819,7 +1824,7 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
               display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
               borderBottom: i < sources.length - 1 ? '1px solid var(--border)' : 'none',
             }}>
-              <span style={{ fontSize: 18, flexShrink: 0 }}>{TYPE_ICON[src.type] ?? '📄'}</span>
+              <TypeIcon type={src.type} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{src.name}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
