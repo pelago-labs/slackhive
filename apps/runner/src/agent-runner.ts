@@ -205,8 +205,22 @@ export class AgentRunner {
       getAllEnvVarValues(),
     ]);
 
-    // Compile CLAUDE.md (identity + skills → temp workspace)
-    const workDir = await compileClaudeMd(agent);
+    // Load platform integration from DB (needed for formatting rules in CLAUDE.md)
+    const { getPlatformIntegration, updateAgentSlackUserId } = await import('./db');
+    const integration = await getPlatformIntegration(agent.id, 'slack');
+    if (!integration) {
+      logger.warn('No platform integration found, skipping agent', { agent: agent.slug });
+      return;
+    }
+
+    // Create platform adapter
+    const adapter = new SlackAdapter(
+      { platform: 'slack', botToken: integration.credentials.botToken, appToken: integration.credentials.appToken, signingSecret: integration.credentials.signingSecret },
+      agent.slug,
+    );
+
+    // Compile CLAUDE.md with platform-specific formatting rules
+    const workDir = await compileClaudeMd(agent, undefined, adapter.getFormattingRules());
 
     // Materialize memory files so the /recall skill can read them
     materializeMemoryFiles(agent, memories);
@@ -218,22 +232,6 @@ export class AgentRunner {
     // Create memory watcher (persists SDK memory writes back to DB)
     const memoryWatcher = new MemoryWatcher(agent);
     memoryWatcher.start();
-
-    // Load platform integration from DB
-    const { getPlatformIntegration, updateAgentSlackUserId } = await import('./db');
-    const integration = await getPlatformIntegration(agent.id, 'slack');
-    if (!integration) {
-      logger.warn('No platform integration found, skipping agent', { agent: agent.slug });
-      memoryWatcher.stop();
-      claudeHandler.destroy();
-      return;
-    }
-
-    // Create platform adapter
-    const adapter = new SlackAdapter(
-      { platform: 'slack', botToken: integration.credentials.botToken, appToken: integration.credentials.appToken, signingSecret: integration.credentials.signingSecret },
-      agent.slug,
-    );
 
     // Wire message handler: adapter → MessageHandler → ClaudeHandler
     const messageHandler = new MessageHandler(adapter, claudeHandler, agent, restrictions);

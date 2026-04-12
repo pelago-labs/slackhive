@@ -260,7 +260,7 @@ export async function createAgent(req: CreateAgentRequest, createdBy = 'system')
     await d.query(
       `INSERT INTO platform_integrations (id, agent_id, platform, credentials)
        VALUES ($1, $2, $3, $4)`,
-      [randomUUID(), id, req.platform, encrypt(JSON.stringify(req.platformCredentials), getEnvSecretKey())]
+      [randomUUID(), id, req.platform, encrypt(JSON.stringify(req.platformCredentials), process.env.ENV_SECRET_KEY ?? process.env.AUTH_SECRET ?? 'slackhive-default-key')]
     );
   }
 
@@ -313,7 +313,7 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
     const d = await db();
     await d.query(
       `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = 'slack'`,
-      [encrypt(JSON.stringify(req.platformCredentials), getEnvSecretKey()), id]
+      [encrypt(JSON.stringify(req.platformCredentials), process.env.ENV_SECRET_KEY ?? process.env.AUTH_SECRET ?? 'slackhive-default-key'), id]
     );
   }
 
