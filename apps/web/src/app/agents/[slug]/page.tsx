@@ -413,7 +413,21 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
       const [r] = await Promise.all([
         fetch(`/api/agents/${agent.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
+          body: JSON.stringify({
+            name: form.name,
+            persona: form.persona,
+            description: form.description,
+            model: form.model,
+            isBoss: form.isBoss,
+            reportsTo: form.reportsTo,
+            ...(form.slackBotToken && {
+              platformCredentials: {
+                botToken: form.slackBotToken,
+                appToken: form.slackAppToken,
+                signingSecret: form.slackSigningSecret,
+              },
+            }),
+          }),
         }),
         fetch(`/api/agents/${agent.id}/restrictions`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },

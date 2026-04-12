@@ -103,8 +103,21 @@ export default function NewAgentWizard() {
       const r = await fetch('/api/agents', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...state,
+          slug: state.slug,
+          name: state.name,
+          persona: state.persona,
+          description: state.description,
+          model: state.model,
+          isBoss: state.isBoss,
           reportsTo: state.isBoss ? [] : state.reportsToIds,
+          skillTemplate: state.skillTemplate,
+          mcpServerIds: state.mcpServerIds,
+          platform: 'slack',
+          platformCredentials: {
+            botToken: state.slackBotToken,
+            appToken: state.slackAppToken,
+            signingSecret: state.slackSigningSecret,
+          },
         }),
       });
       const data = await r.json();
