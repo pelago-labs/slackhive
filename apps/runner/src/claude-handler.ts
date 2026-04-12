@@ -370,10 +370,15 @@ export class ClaudeHandler {
       fs.mkdirSync(scriptDir, { recursive: true });
       fs.writeFileSync(scriptPath, c.tsSource as string, 'utf8');
       const resolvedEnv = this.resolveEnvRefs(c);
+      // Resolve tsx from project node_modules (works in both Docker and native)
+      const projectRoot = path.resolve(__dirname, '..');
+      const tsxPath = fs.existsSync(path.join(projectRoot, 'node_modules', '.bin', 'tsx'))
+        ? path.join(projectRoot, 'node_modules', '.bin', 'tsx')
+        : 'tsx';
       return {
-        command: '/app/node_modules/.bin/tsx',
+        command: tsxPath,
         args: [scriptPath],
-        env: { NODE_PATH: '/app/node_modules', ...resolvedEnv },
+        env: { NODE_PATH: path.join(projectRoot, 'node_modules'), ...resolvedEnv },
       } as McpServerConfig;
     }
 
