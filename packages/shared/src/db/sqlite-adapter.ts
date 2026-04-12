@@ -378,6 +378,7 @@ CREATE TABLE IF NOT EXISTS knowledge_sources (
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_knowledge_agent ON knowledge_sources(agent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_agent_name ON knowledge_sources(agent_id, name);
 
 -- Other indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_agent_key      ON sessions(agent_id, session_key);
