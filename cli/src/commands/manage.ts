@@ -27,22 +27,24 @@ function saveProjectDir(dir: string): void {
 }
 
 function findProjectDir(): string {
+  const isSlackHiveDir = (d: string) => existsSync(join(d, 'package.json')) && existsSync(join(d, 'apps', 'runner'));
+
   // 1. Check current directory
-  if (existsSync(join(process.cwd(), 'package.json'))) {
+  if (isSlackHiveDir(process.cwd())) {
     const dir = process.cwd();
     saveProjectDir(dir);
     return dir;
   }
   // 2. Check ./slackhive subdirectory
   const sub = join(process.cwd(), 'slackhive');
-  if (existsSync(join(sub, 'package.json'))) {
+  if (isSlackHiveDir(sub)) {
     saveProjectDir(sub);
     return sub;
   }
   // 3. Read saved project path from config
   try {
     const config = JSON.parse(readFileSync(getConfigPath(), 'utf-8'));
-    if (config.projectDir && existsSync(join(config.projectDir, 'package.json'))) {
+    if (config.projectDir && existsSync(join(config.projectDir, 'apps', 'runner'))) {
       return config.projectDir;
     }
   } catch { /* no saved config */ }
