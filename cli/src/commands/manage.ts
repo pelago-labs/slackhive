@@ -31,28 +31,11 @@ function findProjectDir(): string {
   process.exit(1);
 }
 
-function isDockerAvailable(): boolean {
-  try {
-    execSync('docker info', { stdio: 'ignore', timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Determines whether to use Docker or native mode.
- * Native mode is used when:
- * - --native flag is passed
- * - Docker is not available
- * - .slackhive/native marker file exists
+ * Always uses native mode (non-Docker).
  */
-function useNativeMode(dir: string): boolean {
-  const nativeMarker = join(dir, '.slackhive-native');
-  if (existsSync(nativeMarker)) return true;
-  if (!isDockerAvailable()) return true;
-  if (!existsSync(join(dir, 'docker-compose.yml'))) return true;
-  return false;
+function useNativeMode(_dir: string): boolean {
+  return true;
 }
 
 // =============================================================================
@@ -157,9 +140,15 @@ function dockerUpdate(dir: string): void {
 function nativeStart(dir: string): void {
   const existingPid = readPid();
   if (existingPid) {
-    console.log(chalk.yellow(`  SlackHive is already running (PID ${existingPid})`));
-    console.log(chalk.gray('  Web UI: http://localhost:3001'));
-    return;
+    // SlackHive already running — stop it first, then restart
+    const stopSpinner = ora('Stopping existing instance...').start();
+    try { process.kill(-existingPid, 'SIGTERM'); } catch { /* try individual */ }
+    try { process.kill(existingPid, 'SIGTERM'); } catch { /* already dead */ }
+    for (const port of ['3001', '3002']) {
+      try { execSync(`lsof -ti:${port} | xargs kill -9`, { stdio: 'ignore' }); } catch { /* clean */ }
+    }
+    try { unlinkSync(getPidFile()); } catch { /* ignore */ }
+    stopSpinner.succeed('Stopped existing instance');
   }
 
   const spinner = ora('Starting SlackHive (native mode)...').start();
@@ -172,9 +161,26 @@ function nativeStart(dir: string): void {
       execSync('npm run build', { cwd: dir, stdio: 'ignore', timeout: 120000 });
     }
 
-    // Start standalone process in background
+    // Find free ports — prefer 3001/3002, auto-pick next free if something else uses them
+    const isPortFree = (port: number): boolean => {
+      try { execSync(`lsof -ti:${port}`, { stdio: ['pipe', 'pipe', 'pipe'] }); return false; } catch { return true; }
+    };
+    let webPort = 3001;
+    while (!isPortFree(webPort) && webPort < 3100) webPort++;
+    let internalPort = 3002;
+    while ((!isPortFree(internalPort) || internalPort === webPort) && internalPort < 3100) internalPort++;
+
+    env.PORT = String(webPort);
+    env.RUNNER_INTERNAL_PORT = String(internalPort);
+    if (webPort !== 3001) console.log(chalk.yellow(`  Port 3001 in use, using ${webPort}`));
+
+    // Build clean env — load from .env but strip stale OAuth tokens
     const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
+      PATH: process.env.PATH ?? '',
+      HOME: process.env.HOME ?? '',
+      USER: process.env.USER ?? '',
+      SHELL: process.env.SHELL ?? '',
+      TERM: process.env.TERM ?? '',
       DATABASE_TYPE: 'sqlite',
       NODE_ENV: 'production',
     };
@@ -188,11 +194,19 @@ function nativeStart(dir: string): void {
         if (!trimmed || trimmed.startsWith('#')) continue;
         const eqIdx = trimmed.indexOf('=');
         if (eqIdx > 0) {
-          env[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
+          const key = trimmed.slice(0, eqIdx);
+          const val = trimmed.slice(eqIdx + 1);
+          // Skip stale OAuth tokens — SDK reads from system Keychain/credentials file
+          if (key === 'CLAUDE_CODE_OAUTH_TOKEN' || key === 'CLAUDE_CODE_OAUTH_REFRESH_TOKEN') continue;
+          env[key] = val;
         }
       }
     }
 
+    // Ensure DATABASE_TYPE is always sqlite in native mode
+    env.DATABASE_TYPE = 'sqlite';
+
+    spinner.text = 'Starting...';
     const child = spawn('node', [standaloneJs], {
       cwd: dir,
       env,
@@ -204,7 +218,7 @@ function nativeStart(dir: string): void {
     writePid(child.pid!);
 
     spinner.succeed(`SlackHive started (PID ${child.pid})`);
-    console.log(chalk.gray('  Web UI: http://localhost:3001'));
+    console.log(chalk.gray(`  Web UI: http://localhost:${webPort}`));
     console.log(chalk.gray('  Mode:   native (SQLite, no Docker)'));
     console.log(chalk.gray(`  Data:   ${getSlackhiveDir()}/data.db`));
     console.log(chalk.gray(`  Logs:   ${getSlackhiveDir()}/logs/runner.log`));
@@ -222,8 +236,15 @@ function nativeStop(): void {
 
   const spinner = ora('Stopping SlackHive...').start();
   try {
-    process.kill(pid, 'SIGTERM');
-    // Wait briefly for clean shutdown
+    // Kill main process and all children (process group)
+    try { process.kill(-pid, 'SIGTERM'); } catch { /* try individual */ }
+    try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
+
+    // Clean up stuck ports
+    for (const port of ['3001', '3002']) {
+      try { execSync(`lsof -ti:${port} | xargs kill -9`, { stdio: 'ignore' }); } catch { /* clean */ }
+    }
+
     try { unlinkSync(getPidFile()); } catch { /* ignore */ }
     spinner.succeed('SlackHive stopped');
   } catch {
@@ -237,8 +258,11 @@ function nativeStatus(): void {
   console.log(chalk.bold('  SlackHive Status (Native Mode)'));
   console.log('');
   if (pid) {
+    // Detect which port the web UI is on
+    let webPort = '3001';
+    try { const p = execSync(`lsof -Pan -p ${pid} -iTCP -sTCP:LISTEN 2>/dev/null | grep -o ':\\d\\+' | head -1 | tr -d ':'`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim(); if (p) webPort = p; } catch { /* fallback */ }
     console.log(chalk.green(`  Status:   Running (PID ${pid})`));
-    console.log(chalk.gray(`  Web UI:   http://localhost:3001`));
+    console.log(chalk.gray(`  Web UI:   http://localhost:${webPort}`));
     console.log(chalk.gray(`  Database: ${getSlackhiveDir()}/data.db`));
     console.log(chalk.gray(`  Logs:     ${getSlackhiveDir()}/logs/runner.log`));
   } else {
