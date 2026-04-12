@@ -41,8 +41,9 @@ export async function POST(
     }
   }
 
-  // Store initial status for polling
+  // Store initial status for polling + track latest per agent
   await setSetting(`optimize:${requestId}`, JSON.stringify({ status: 'pending', agentId: id }));
+  await setSetting(`optimize-latest:${id}`, requestId);
 
   // Send directly to runner's internal HTTP server
   await publishAgentEvent({ type: 'optimize', agentId: id, requestId });
@@ -57,16 +58,21 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
-  const requestId = req.nextUrl.searchParams.get('requestId');
+  let requestId = req.nextUrl.searchParams.get('requestId');
+
+  // If no requestId, check the latest for this agent
   if (!requestId) {
-    return NextResponse.json({ error: 'requestId required' }, { status: 400 });
+    const { id } = await params;
+    const latestId = await getSetting(`optimize-latest:${id}`);
+    if (!latestId) return NextResponse.json({ status: 'none' });
+    requestId = latestId;
   }
 
   const raw = await getSetting(`optimize:${requestId}`);
-  if (!raw) return NextResponse.json({ status: 'pending' });
+  if (!raw) return NextResponse.json({ status: 'pending', requestId });
 
   try {
-    return NextResponse.json(JSON.parse(raw));
+    return NextResponse.json({ ...JSON.parse(raw), requestId });
   } catch {
     return NextResponse.json({ status: 'error', error: 'Invalid result data' });
   }

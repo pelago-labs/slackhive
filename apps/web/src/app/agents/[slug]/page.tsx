@@ -694,7 +694,30 @@ function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean })
   const [optimizeResult, setOptimizeResult] = useState<any>(null);
   const [optimizeError, setOptimizeError] = useState('');
 
+  // Load last optimize result on mount
+  useEffect(() => {
+    fetch(`/api/agents/${agent.id}/optimize`).then(r => r.json()).then(data => {
+      if (data.status === 'done') setOptimizeResult(data);
+      else if (data.status === 'pending' || data.status === 'running') {
+        // Resume polling
+        setOptimizing(true);
+        const poll = async () => {
+          for (let i = 0; i < 60; i++) {
+            await new Promise(res => setTimeout(res, 2000));
+            const r = await fetch(`/api/agents/${agent.id}/optimize?requestId=${data.requestId}`);
+            const d = await r.json();
+            if (d.status === 'done') { setOptimizeResult(d); setOptimizing(false); return; }
+            if (d.status === 'error') { setOptimizeError(d.error); setOptimizing(false); return; }
+          }
+          setOptimizing(false);
+        };
+        poll();
+      }
+    }).catch(() => {});
+  }, [agent.id]);
+
   const runOptimize = async () => {
+    if (optimizing) { setOptimizeError('Optimization already running.'); return; }
     setOptimizing(true);
     setOptimizeResult(null);
     setOptimizeError('');
@@ -2070,11 +2093,17 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
                   {src.branch && src.type === 'repo' && ` · ${src.branch}`}
                 </div>
               </div>
-              <span style={{
-                fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-                background: src.status === 'compiled' ? 'rgba(16,185,129,0.1)' : src.status === 'error' ? 'var(--red-soft-bg)' : 'var(--surface-2)',
-                color: src.status === 'compiled' ? 'var(--green)' : src.status === 'error' ? 'var(--red)' : 'var(--subtle)',
-              }}>{src.status}</span>
+              {(syncing === src.id || (building && buildStep.toLowerCase().includes(src.name.toLowerCase()))) ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--accent)' }}>
+                  <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> {syncing === src.id ? 'syncing' : 'building'}
+                </span>
+              ) : (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
+                  background: src.status === 'compiled' ? 'rgba(16,185,129,0.1)' : src.status === 'error' ? 'var(--red-soft-bg)' : 'var(--surface-2)',
+                  color: src.status === 'compiled' ? 'var(--green)' : src.status === 'error' ? 'var(--red)' : 'var(--subtle)',
+                }}>{src.status}</span>
+              )}
               {canEdit && src.type === 'file' && (
                 <button onClick={() => startEditSource(src)} style={{
                   background: 'none', border: 'none', fontSize: 12, cursor: 'pointer',

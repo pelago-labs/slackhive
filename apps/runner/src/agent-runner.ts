@@ -1064,62 +1064,82 @@ Guidelines:
       content = await this.readRepoContent(src);
     }
 
-    // 2. Read existing wiki state
-    await updateStatus(`Reading existing wiki...`);
+    // 2. Read existing wiki state + manifest
     const existingWiki = this.readExistingWiki(wikiDir);
-    const isFirstIngest = existingWiki === '(empty — no wiki yet)';
+    const wikiIsEmpty = existingWiki === '(empty — no wiki yet)';
 
-    // 3. Call Claude: existing wiki + full source → incremental update
-    await updateStatus(`${mode === 'sync' ? 'Syncing' : 'Ingesting'} ${srcName}...`);
+    // Read manifest to check if this source was ever ingested
+    const manifestPath = path.join(wikiDir, 'manifest.json');
+    let manifest: Record<string, { created: string[]; updated: string[] }> = {};
+    try {
+      if (fs.existsSync(manifestPath)) manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    } catch { /* ok */ }
+    const sourceEverIngested = !!manifest[srcName];
+
+    // Determine effective mode: new source that was never ingested gets full treatment
+    const effectiveMode = wikiIsEmpty ? 'first' : (sourceEverIngested && mode === 'sync') ? 'sync' : 'new-source';
+
+    // 3. Call Claude
+    await updateStatus(`${effectiveMode === 'sync' ? 'Syncing' : 'Ingesting'} ${srcName}...`);
     const now = new Date().toISOString().split('T')[0];
 
+    const modeInstruction = effectiveMode === 'first'
+      ? `This is the FIRST source being ingested into an empty wiki. Create a comprehensive wiki from scratch — 20-40 articles covering every module, concept, entity, and flow.`
+      : effectiveMode === 'new-source'
+      ? `This is a NEW source being added to an existing wiki. This is a DIFFERENT codebase from what's already there. Create COMPREHENSIVE articles for EVERYTHING in this source — every module, every concept, every entity, every flow. Aim for 15-30+ new articles. Also update existing articles where this source adds relevant cross-references or shared concepts.`
+      : `This source was previously ingested and is being RE-SYNCED. Check what changed and update affected articles. Add new articles for any new code or concepts.`;
+
     const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.
-${mode === 'sync' ? 'A source is being re-synced — update any pages with changed information.' : 'A new source is being ingested.'}
+
+${modeInstruction}
 
 CRITICAL: Return ONLY a JSON object. No text before or after.
 
 ## Existing wiki
 ${existingWiki}
 
-## ${mode === 'sync' ? 'Re-synced' : 'New'} source: ${srcName} (${srcType})
+## Source: ${srcName} (${srcType})
 
 ${content}
 
 ## Your task
 
-1. Read the source thoroughly
-2. ${isFirstIngest
-  ? 'Create the initial wiki: overview.md, module pages, concept pages, entity pages, flow pages'
-  : 'Identify which EXISTING articles need updates (new info, corrections, new cross-references) and which NEW articles to create'}
-3. ${isFirstIngest ? 'Create' : 'Update'} index.md — full catalog of all articles
-4. Write a log entry for this ${mode}
+1. Read the source thoroughly — understand every module, class, function, pattern
+2. ${effectiveMode === 'first'
+  ? 'Create the initial wiki: overview.md + module pages + concept pages + entity pages + flow pages. Be exhaustive — 20-40 articles.'
+  : effectiveMode === 'new-source'
+  ? 'Create COMPREHENSIVE articles for everything in this source. Each module, concept, entity, and flow deserves its own article. Do NOT skip anything because a similar concept exists from another source — this is a different codebase. Also update existing articles where this source adds new information.'
+  : 'Check what changed vs existing wiki. Update affected articles. Add new articles for new code/concepts.'}
+3. ${effectiveMode === 'first' ? 'Create' : 'Update'} index.md — full catalog of ALL articles
+4. Write a log entry
 
-## Article types
-- \`modules/xxx.md\` — one per major module/directory/component
-- \`concepts/xxx.md\` — one per important pattern, algorithm, or idea
-- \`entities/xxx.md\` — one per key data model, class, or type
-- \`flows/xxx.md\` — trace data/control flows with function call chains
+## Article types — create ALL that apply
+- \`modules/xxx.md\` — one per major module, directory, service, or component
+- \`concepts/xxx.md\` — one per pattern, algorithm, architectural decision, or important idea
+- \`entities/xxx.md\` — one per data model, class, database table, or key type
+- \`flows/xxx.md\` — one per end-to-end flow showing function call chains
 
 ## Rules
 - Cross-reference between articles: \`[Name](entities/name.md)\`
 - "See also" section at bottom of each page
-- Source attribution: \`Source: ${srcName}\`
+- Source attribution: \`Source: ${srcName}\` (articles can have multiple sources)
 - For code: actual function names, class names, file paths, signatures
 - For flows: \`funcA() → funcB() → funcC()\` with links
 - Every article: 200+ words, real substance
-${!isFirstIngest ? `- When this source mentions entities/concepts that already have wiki pages, UPDATE those pages with the new information from this source
-- Preserve existing content in updated pages — add to it, don't replace` : ''}
+${effectiveMode !== 'first' ? `- When this source mentions entities/concepts that already have wiki pages, UPDATE those pages to add info from this source
+- Preserve existing content in updated pages — add to it, don't replace
+- Do NOT skip creating new articles just because similar concepts exist — each source deserves thorough coverage` : ''}
 
 ## Return format
 
 {
-  ${isFirstIngest ? '' : '"updated": [\n    { "path": "entities/user-profile.md", "title": "UserProfile", "content": "full updated page content" }\n  ],'}
+  ${effectiveMode !== 'first' ? '"updated": [\n    { "path": "entities/product.md", "title": "Product", "content": "full updated page content with info from both sources" }\n  ],' : ''}
   "created": [
     { "path": "modules/xxx.md", "title": "Module Name", "content": "# Module Name\\n\\n..." }
   ],
-  ${isFirstIngest ? '"overview": "# System Overview\\n\\n...",' : ''}
+  ${effectiveMode === 'first' ? '"overview": "# System Overview\\n\\n...",' : ''}
   "index": "# Wiki Index\\n\\n- [Overview](overview.md) — ...\\n...",
-  "logEntry": "## [${now}] ${mode} | ${srcName}\\n- ${isFirstIngest ? 'Initial wiki created' : 'Added/updated articles'}\\n- Key topics: ..."
+  "logEntry": "## [${now}] ${effectiveMode === 'sync' ? 'sync' : 'ingest'} | ${srcName}\\n- ..."
 }`;
 
     let lastProgressUpdate = 0;
@@ -1169,6 +1189,15 @@ ${!isFirstIngest ? `- When this source mentions entities/concepts that already h
     if (parsed.index) {
       fs.writeFileSync(path.join(wikiDir, 'index.md'), parsed.index, 'utf-8');
     }
+
+    // Update manifest — track which source created/updated which articles
+    const createdPaths = (parsed.created ?? []).map((a: any) => a.path);
+    const updatedPaths = (parsed.updated ?? []).map((a: any) => a.path);
+    manifest[srcName] = {
+      created: [...(manifest[srcName]?.created ?? []), ...createdPaths].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+      updated: [...(manifest[srcName]?.updated ?? []), ...updatedPaths].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+    };
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 
     // Append to log.md (never overwrite)
     if (parsed.logEntry) {
