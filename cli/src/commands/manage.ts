@@ -1,9 +1,7 @@
 /**
  * @fileoverview Management commands — start, stop, status, logs, update.
  *
- * Supports two modes:
- * - Docker mode: uses docker compose (default when docker-compose.yml exists)
- * - Native mode: runs Node.js processes directly (when --native flag or no Docker)
+ * Runs SlackHive as a native Node.js process with SQLite.
  *
  * @module cli/commands/manage
  */
@@ -19,23 +17,16 @@ import ora from 'ora';
 // =============================================================================
 
 function findProjectDir(): string {
-  if (existsSync(join(process.cwd(), 'docker-compose.yml')) || existsSync(join(process.cwd(), 'package.json'))) {
+  if (existsSync(join(process.cwd(), 'package.json'))) {
     return process.cwd();
   }
   const sub = join(process.cwd(), 'slackhive');
-  if (existsSync(join(sub, 'docker-compose.yml')) || existsSync(join(sub, 'package.json'))) {
+  if (existsSync(join(sub, 'package.json'))) {
     return sub;
   }
   console.log(chalk.red('  Could not find SlackHive project.'));
   console.log(chalk.gray('  Run this command from the SlackHive directory, or run `slackhive init` first.'));
   process.exit(1);
-}
-
-/**
- * Always uses native mode (non-Docker).
- */
-function useNativeMode(_dir: string): boolean {
-  return true;
 }
 
 // =============================================================================
@@ -80,70 +71,6 @@ function readPidInfo(): PidInfo | null {
 function readPid(): number | null {
   const info = readPidInfo();
   return info?.pid ?? null;
-  }
-}
-
-// =============================================================================
-// Docker mode commands
-// =============================================================================
-
-function dockerStart(dir: string): void {
-  const spinner = ora('Starting SlackHive services (Docker)...').start();
-  try {
-    execSync('docker compose up -d', { cwd: dir, stdio: 'ignore' });
-    spinner.succeed('All services started');
-    console.log(chalk.gray('  Web UI: http://localhost:3001'));
-  } catch {
-    spinner.fail('Failed to start services');
-  }
-}
-
-function dockerStop(dir: string): void {
-  const spinner = ora('Stopping SlackHive services (Docker)...').start();
-  try {
-    execSync('docker compose stop', { cwd: dir, stdio: 'ignore' });
-    spinner.succeed('All services stopped');
-  } catch {
-    spinner.fail('Failed to stop services');
-  }
-}
-
-function dockerStatus(dir: string): void {
-  try {
-    const output = execSync('docker compose ps', { cwd: dir, encoding: 'utf-8' });
-    console.log('');
-    console.log(chalk.bold('  SlackHive Status (Docker)'));
-    console.log('');
-    console.log(output);
-  } catch {
-    console.log(chalk.red('  Failed to get status'));
-  }
-}
-
-function dockerLogs(dir: string, follow: boolean): void {
-  const args = ['compose', 'logs', 'runner'];
-  if (follow) args.push('-f');
-  const proc = spawn('docker', args, { cwd: dir, stdio: 'inherit' });
-  proc.on('error', () => console.log(chalk.red('  Failed to tail logs')));
-}
-
-function dockerUpdate(dir: string): void {
-  const pullSpinner = ora('Pulling latest changes...').start();
-  try {
-    execSync('git pull', { cwd: dir, stdio: 'ignore' });
-    pullSpinner.succeed('Code updated');
-  } catch {
-    pullSpinner.fail('Failed to pull — do you have uncommitted changes?');
-    return;
-  }
-  const buildSpinner = ora('Rebuilding services (this may take a minute)...').start();
-  try {
-    execSync('docker compose up -d --build', { cwd: dir, stdio: 'ignore', timeout: 600000 });
-    buildSpinner.succeed('Services rebuilt and restarted');
-    console.log(chalk.gray('  Web UI: http://localhost:3001'));
-  } catch {
-    buildSpinner.fail('Failed to rebuild');
-  }
 }
 
 // =============================================================================
@@ -174,19 +101,6 @@ function nativeStart(dir: string): void {
       execSync('npm run build', { cwd: dir, stdio: 'ignore', timeout: 120000 });
     }
 
-    // Find free ports — prefer 3001/3002, auto-pick next free if something else uses them
-    const isPortFree = (port: number): boolean => {
-      try { execSync(`lsof -ti:${port}`, { stdio: ['pipe', 'pipe', 'pipe'] }); return false; } catch { return true; }
-    };
-    let webPort = 3001;
-    while (!isPortFree(webPort) && webPort < 3100) webPort++;
-    let internalPort = 3002;
-    while ((!isPortFree(internalPort) || internalPort === webPort) && internalPort < 3100) internalPort++;
-
-    env.PORT = String(webPort);
-    env.RUNNER_INTERNAL_PORT = String(internalPort);
-    if (webPort !== 3001) console.log(chalk.yellow(`  Port 3001 in use, using ${webPort}`));
-
     // Build clean env — load from .env but strip stale OAuth tokens
     const env: Record<string, string> = {
       PATH: process.env.PATH ?? '',
@@ -216,8 +130,20 @@ function nativeStart(dir: string): void {
       }
     }
 
-    // Ensure DATABASE_TYPE is always sqlite in native mode
+    // Ensure DATABASE_TYPE is always sqlite
     env.DATABASE_TYPE = 'sqlite';
+
+    // Find free ports
+    const isPortFree = (port: number): boolean => {
+      try { execSync(`lsof -ti:${port}`, { stdio: ['pipe', 'pipe', 'pipe'] }); return false; } catch { return true; }
+    };
+    let webPort = 3001;
+    while (!isPortFree(webPort) && webPort < 3100) webPort++;
+    let internalPort = 3002;
+    while ((!isPortFree(internalPort) || internalPort === webPort) && internalPort < 3100) internalPort++;
+    env.PORT = String(webPort);
+    env.RUNNER_INTERNAL_PORT = String(internalPort);
+    if (webPort !== 3001) console.log(chalk.yellow(`  Port 3001 in use, using ${webPort}`));
 
     spinner.text = 'Starting...';
     const child = spawn('node', [standaloneJs], {
@@ -328,46 +254,21 @@ function nativeUpdate(dir: string): void {
 // =============================================================================
 
 export async function start(): Promise<void> {
-  const dir = findProjectDir();
-  if (useNativeMode(dir)) {
-    nativeStart(dir);
-  } else {
-    dockerStart(dir);
-  }
+  nativeStart(findProjectDir());
 }
 
 export async function stop(): Promise<void> {
-  const dir = findProjectDir();
-  if (useNativeMode(dir)) {
-    nativeStop();
-  } else {
-    dockerStop(dir);
-  }
+  nativeStop();
 }
 
 export async function status(): Promise<void> {
-  const dir = findProjectDir();
-  if (useNativeMode(dir)) {
-    nativeStatus();
-  } else {
-    dockerStatus(dir);
-  }
+  nativeStatus();
 }
 
 export async function logs(opts: { follow?: boolean }): Promise<void> {
-  const dir = findProjectDir();
-  if (useNativeMode(dir)) {
-    nativeLogs(opts.follow !== false);
-  } else {
-    dockerLogs(dir, opts.follow !== false);
-  }
+  nativeLogs(opts.follow !== false);
 }
 
 export async function update(): Promise<void> {
-  const dir = findProjectDir();
-  if (useNativeMode(dir)) {
-    nativeUpdate(dir);
-  } else {
-    dockerUpdate(dir);
-  }
+  nativeUpdate(findProjectDir());
 }

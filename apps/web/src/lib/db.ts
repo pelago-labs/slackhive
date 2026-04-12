@@ -30,7 +30,7 @@ import type {
   SnapshotTrigger,
   Restriction,
 } from '@slackhive/shared';
-import { getDb, initDb, getEventBus, encrypt, decrypt } from '@slackhive/shared';
+import { getDb, initDb, encrypt, decrypt } from '@slackhive/shared';
 import type { DbAdapter } from '@slackhive/shared';
 
 // =============================================================================
@@ -52,31 +52,21 @@ async function db(): Promise<DbAdapter> {
 }
 
 /**
- * Publishes an agent lifecycle event to the runner.
- * - Redis mode: uses Redis pub/sub
- * - Native mode: POSTs to runner's internal HTTP server (cross-process safe)
+ * Publishes an agent lifecycle event to the runner via internal HTTP server.
  *
  * @param {AgentEvent} event - The lifecycle event to publish.
  * @returns {Promise<void>}
  */
 export async function publishAgentEvent(event: AgentEvent): Promise<void> {
-  const redisUrl = process.env.REDIS_URL;
-  if (redisUrl) {
-    // Docker/Redis mode — use event bus
-    const bus = getEventBus();
-    await bus.publish(event);
-  } else {
-    // Native mode — POST to runner's internal HTTP server
-    const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
-    try {
-      await fetch(`http://127.0.0.1:${port}/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(event),
-      });
-    } catch {
-      // Runner might not be running — silently ignore
-    }
+  const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+    });
+  } catch {
+    // Runner might not be running — silently ignore
   }
 }
 
@@ -1140,22 +1130,10 @@ function getEnvSecretKey(): string {
  */
 export async function getEnvVarValues(): Promise<Record<string, string>> {
   const encKey = getEnvSecretKey();
-  const adapter = await db();
-
-  if (adapter.type === 'sqlite') {
-    // SQLite: values are stored as base64-encoded ciphertext; decrypt in JS
-    const r = await adapter.query('SELECT key, value FROM env_vars');
-    return Object.fromEntries(
-      r.rows.map((row) => [row.key as string, decrypt(row.value as string, encKey)])
-    );
-  }
-
-  // Postgres: decrypt in SQL via pgcrypto
-  const r = await adapter.query(
-    'SELECT key, pgp_sym_decrypt(value::bytea, $1::text)::text AS value FROM env_vars',
-    [encKey],
+  const r = await (await db()).query('SELECT key, value FROM env_vars');
+  return Object.fromEntries(
+    r.rows.map((row) => [row.key as string, decrypt(row.value as string, encKey)])
   );
-  return Object.fromEntries(r.rows.map((row) => [row.key as string, row.value as string]));
 }
 
 /**
@@ -1182,32 +1160,15 @@ export async function getAllEnvVars(): Promise<Array<{ key: string; description?
  */
 export async function setEnvVar(key: string, value: string, description?: string): Promise<void> {
   const encKey = getEnvSecretKey();
-  const adapter = await db();
-
-  if (adapter.type === 'sqlite') {
-    // SQLite: encrypt in JS, store base64 ciphertext as TEXT
-    const encrypted = encrypt(value, encKey);
-    await adapter.query(
-      `INSERT INTO env_vars (key, value, description)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (key) DO UPDATE SET
-         value = $2,
-         description = COALESCE($3, env_vars.description),
-         updated_at = now()`,
-      [key, encrypted, description ?? null],
-    );
-    return;
-  }
-
-  // Postgres: encrypt in SQL via pgcrypto
-  await adapter.query(
+  const encrypted = encrypt(value, encKey);
+  await (await db()).query(
     `INSERT INTO env_vars (key, value, description)
-     VALUES ($1, pgp_sym_encrypt($2, $3, 'cipher-algo=aes256'), $4)
+     VALUES ($1, $2, $3)
      ON CONFLICT (key) DO UPDATE SET
-       value = pgp_sym_encrypt(EXCLUDED.value, $3, 'cipher-algo=aes256'),
-       description = COALESCE(EXCLUDED.description, env_vars.description),
+       value = $2,
+       description = COALESCE($3, env_vars.description),
        updated_at = now()`,
-    [key, value, encKey, description ?? null],
+    [key, encrypted, description ?? null],
   );
 }
 

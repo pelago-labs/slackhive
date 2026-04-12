@@ -376,28 +376,16 @@ export async function getAllEnvVarValues(): Promise<Record<string, string>> {
     return {};
   }
 
-  const db = getDb();
-
-  if (db.type === 'postgres') {
-    // PostgreSQL: decrypt with pgp_sym_decrypt
-    const r = await db.query(
-      'SELECT key, pgp_sym_decrypt(value::bytea, $1::text)::text AS value FROM env_vars',
-      [encKey],
-    );
-    return Object.fromEntries(r.rows.map((row) => [row.key as string, row.value as string]));
-  } else {
-    // SQLite: decrypt with Node.js crypto
-    const r = await db.query('SELECT key, value FROM env_vars');
-    const result: Record<string, string> = {};
-    for (const row of r.rows) {
-      try {
-        result[row.key as string] = decrypt(row.value as string, encKey);
-      } catch (err) {
-        logger.warn('Failed to decrypt env var', { key: row.key, error: (err as Error).message });
-      }
+  const r = await getDb().query('SELECT key, value FROM env_vars');
+  const result: Record<string, string> = {};
+  for (const row of r.rows) {
+    try {
+      result[row.key as string] = decrypt(row.value as string, encKey);
+    } catch (err) {
+      logger.warn('Failed to decrypt env var', { key: row.key, error: (err as Error).message });
     }
-    return result;
   }
+  return result;
 }
 
 // =============================================================================

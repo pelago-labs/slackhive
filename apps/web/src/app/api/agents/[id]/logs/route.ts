@@ -1,10 +1,7 @@
 /**
  * @fileoverview GET /api/agents/[id]/logs
  * Server-Sent Events (SSE) stream of live runner logs for a specific agent.
- *
- * Supports two modes:
- * - Docker mode: reads from runner container's stdout via `docker logs`
- * - Native mode: reads from the log file at ~/.slackhive/logs/runner.log
+ * Reads from the log file at ~/.slackhive/logs/runner.log.
  *
  * @module web/api/agents/[id]/logs
  */
@@ -17,10 +14,6 @@ import * as path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * GET /api/agents/[id]/logs
- * Returns an SSE stream of filtered log lines for the agent.
- */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -30,7 +23,6 @@ export async function GET(
   const slug = agent?.slug ?? id;
 
   const encoder = new TextEncoder();
-  const isDocker = process.env.DATABASE_TYPE !== 'sqlite' && fs.existsSync('/var/run/docker.sock');
 
   const stream = new ReadableStream({
     start(controller) {
@@ -40,7 +32,6 @@ export async function GET(
         } catch { /* stream closed */ }
       }
 
-      // Only show logs for this specific agent
       function isRelevantLine(line: string): boolean {
         return line.includes(`"agent":"${slug}"`);
       }
@@ -54,49 +45,28 @@ export async function GET(
         }
       }
 
-      if (isDocker) {
-        // Docker mode: tail container logs
-        const proc = spawn('docker', [
-          'logs', '--follow', '--tail=200',
-          'slackhive-runner-1',
-        ]);
+      const logDir = process.env.LOG_DIR ?? path.join(
+        process.env.HOME ?? process.env.USERPROFILE ?? '/tmp',
+        '.slackhive', 'logs'
+      );
+      const logFile = path.join(logDir, 'runner.log');
 
-        const buffer = { value: '' };
-        proc.stdout.on('data', (chunk: Buffer) => processLines(chunk.toString(), buffer));
-        proc.stderr.on('data', (chunk: Buffer) => processLines(chunk.toString(), buffer));
-        proc.on('close', () => {
-          try { controller.close(); } catch { /* already closed */ }
-        });
-        _req.signal.addEventListener('abort', () => {
-          proc.kill();
-          try { controller.close(); } catch { /* already closed */ }
-        });
-      } else {
-        // Native mode: tail the log file
-        const logDir = process.env.LOG_DIR ?? path.join(
-          process.env.HOME ?? process.env.USERPROFILE ?? '/tmp',
-          '.slackhive', 'logs'
-        );
-        const logFile = path.join(logDir, 'runner.log');
-
-        if (!fs.existsSync(logFile)) {
-          send(JSON.stringify({ level: 'info', message: 'Waiting for runner logs...', timestamp: new Date().toISOString() }));
-        }
-
-        // Use tail -F (capital F follows by name, survives rotation)
-        const proc = spawn('tail', ['-n', '200', '-F', logFile]);
-
-        const buffer = { value: '' };
-        proc.stdout.on('data', (chunk: Buffer) => processLines(chunk.toString(), buffer));
-        proc.stderr.on('data', () => {}); // Suppress tail stderr (e.g. "file truncated")
-        proc.on('close', () => {
-          try { controller.close(); } catch { /* already closed */ }
-        });
-        _req.signal.addEventListener('abort', () => {
-          proc.kill();
-          try { controller.close(); } catch { /* already closed */ }
-        });
+      if (!fs.existsSync(logFile)) {
+        send(JSON.stringify({ level: 'info', message: 'Waiting for runner logs...', timestamp: new Date().toISOString() }));
       }
+
+      const proc = spawn('tail', ['-n', '200', '-F', logFile]);
+
+      const buffer = { value: '' };
+      proc.stdout.on('data', (chunk: Buffer) => processLines(chunk.toString(), buffer));
+      proc.stderr.on('data', () => {});
+      proc.on('close', () => {
+        try { controller.close(); } catch { /* already closed */ }
+      });
+      _req.signal.addEventListener('abort', () => {
+        proc.kill();
+        try { controller.close(); } catch { /* already closed */ }
+      });
     },
   });
 

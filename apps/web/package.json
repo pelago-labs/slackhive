@@ -23,10 +23,8 @@
     "dompurify": "^3.3.3",
     "lucide-react": "^0.469.0",
     "next": "15.5.14",
-    "pg": "^8.11.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "redis": "^4.6.0",
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {

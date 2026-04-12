@@ -50,7 +50,7 @@ export interface DbAdapter {
   close(): Promise<void>;
 
   /** The database backend type. */
-  readonly type: 'postgres' | 'sqlite';
+  readonly type: 'sqlite';
 }
 
 // =============================================================================
@@ -60,25 +60,15 @@ export interface DbAdapter {
 let _db: DbAdapter | null = null;
 
 /**
- * Initialize the database adapter based on environment configuration.
- *
- * - `DATABASE_TYPE=sqlite` (default for non-Docker): uses better-sqlite3
- * - `DATABASE_TYPE=postgres` or `DATABASE_URL` set: uses pg Pool
+ * Initialize the SQLite database adapter.
  *
  * @returns The initialized adapter.
  */
 export async function initDb(): Promise<DbAdapter> {
   if (_db) return _db;
 
-  const dbType = process.env.DATABASE_TYPE ?? (process.env.DATABASE_URL ? 'postgres' : 'sqlite');
-
-  if (dbType === 'sqlite') {
-    const { createSqliteAdapter } = await import('./sqlite-adapter');
-    _db = createSqliteAdapter(process.env.SQLITE_PATH);
-  } else {
-    const { createPgAdapter } = await import('./pg-adapter');
-    _db = await createPgAdapter(process.env.DATABASE_URL);
-  }
+  const { createSqliteAdapter } = await import('./sqlite-adapter');
+  _db = createSqliteAdapter(process.env.SQLITE_PATH);
 
   return _db;
 }

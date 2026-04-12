@@ -29,16 +29,8 @@ process.on('unhandledRejection', (reason) => {
 async function main(): Promise<void> {
   logger.info('Starting Slack Claude Code Agent Team — Runner Service');
 
-  // DATABASE_URL is required for postgres mode; SQLite mode uses SQLITE_PATH or default
-  const dbType = process.env.DATABASE_TYPE ?? (process.env.DATABASE_URL ? 'postgres' : 'sqlite');
-  if (dbType === 'postgres' && !process.env.DATABASE_URL) {
-    logger.error('DATABASE_URL is required for PostgreSQL mode');
-    process.exit(1);
-  }
-
-  // Initialize the database adapter (postgres or sqlite)
   await initDb();
-  logger.info('Database initialized', { type: dbType });
+  logger.info('Database initialized');
 
   const runner = new AgentRunner();
 
