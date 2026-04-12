@@ -6,6 +6,10 @@
  */
 
 export * from './types';
+export type {
+  PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment,
+  MessagePayload, PlatformCredentials, SlackCredentials,
+} from './platform';
 export { initDb, getDb, closeDb, setDb } from './db/adapter';
 export type { DbAdapter, DbResult, DbRow } from './db/adapter';
 export { encrypt, decrypt } from './db/crypto';

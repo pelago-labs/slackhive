@@ -20,9 +20,10 @@
  * @module runner/agent-runner
  */
 
-import { App, LogLevel } from '@slack/bolt';
-import type { Agent } from '@slackhive/shared';
+import type { Agent, PlatformAdapter } from '@slackhive/shared';
 import { type AgentEvent, getEventBus, type EventBus } from '@slackhive/shared';
+import { SlackAdapter } from './adapters/slack-adapter';
+import { MessageHandler } from './message-handler';
 import { JobScheduler } from './job-scheduler';
 import {
   getAllAgents,
@@ -41,7 +42,6 @@ import {
 import { compileClaudeMd, materializeMemoryFiles } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
 import { MemoryWatcher } from './memory-watcher';
-import { registerSlackHandlers } from './slack-handler';
 import { logger } from './logger';
 
 /**
@@ -50,7 +50,7 @@ import { logger } from './logger';
  */
 interface RunningAgent {
   agent: Agent;
-  app: App;
+  adapter: PlatformAdapter;
   claudeHandler: ClaudeHandler;
   memoryWatcher: MemoryWatcher;
 }
@@ -86,9 +86,9 @@ export class AgentRunner {
   /**
    * Returns any running agent by ID, or undefined if not running.
    */
-  getRunningAgent(agentId: string): { app: App; claudeHandler: import('./claude-handler').ClaudeHandler } | undefined {
+  getRunningAgent(agentId: string): { adapter: PlatformAdapter; claudeHandler: import('./claude-handler').ClaudeHandler } | undefined {
     const ra = this.runningAgents.get(agentId);
-    return ra ? { app: ra.app, claudeHandler: ra.claudeHandler } : undefined;
+    return ra ? { adapter: ra.adapter, claudeHandler: ra.claudeHandler } : undefined;
   }
 
   /**
@@ -228,35 +228,28 @@ export class AgentRunner {
     const memoryWatcher = new MemoryWatcher(agent);
     memoryWatcher.start();
 
-    // Create Slack Bolt App in Socket Mode
-    const app = new App({
-      token: agent.slackBotToken,
-      appToken: agent.slackAppToken,
-      signingSecret: agent.slackSigningSecret,
-      socketMode: true,
-      logLevel: process.env.LOG_LEVEL === 'debug' ? LogLevel.DEBUG : LogLevel.WARN,
-    });
+    // Create platform adapter (Slack for now — will support multiple platforms later)
+    const adapter = new SlackAdapter(
+      { platform: 'slack', botToken: agent.slackBotToken, appToken: agent.slackAppToken, signingSecret: agent.slackSigningSecret },
+      agent.slug,
+    );
 
-    // Register all Slack event listeners
-    registerSlackHandlers(app, agent, claudeHandler, restrictions);
+    // Wire message handler: adapter → MessageHandler → ClaudeHandler
+    const messageHandler = new MessageHandler(adapter, claudeHandler, agent, restrictions);
+    adapter.onMessage(msg => messageHandler.handleMessage(msg));
 
-    // Start the Bolt App
-    await app.start();
+    // Start the platform connection
+    await adapter.start();
 
-    // Fetch and store the bot's Slack user ID for @mention construction
-    try {
-      const authResult = await app.client.auth.test({ token: agent.slackBotToken });
-      if (authResult.user_id && authResult.user_id !== agent.slackBotUserId) {
-        await updateAgentStatus(agent.id, 'running'); // Will also trigger updateAgentSlackUserId below
-        const { updateAgentSlackUserId } = await import('./db');
-        await updateAgentSlackUserId(agent.id, authResult.user_id as string);
-        agent.slackBotUserId = authResult.user_id as string;
-      }
-    } catch (err) {
-      logger.warn('Failed to fetch bot user ID', { agent: agent.slug, error: err });
+    // Store bot user ID discovered during start
+    const botUserId = adapter.getBotUserId();
+    if (botUserId && botUserId !== agent.slackBotUserId) {
+      const { updateAgentSlackUserId } = await import('./db');
+      await updateAgentSlackUserId(agent.id, botUserId);
+      agent.slackBotUserId = botUserId;
     }
 
-    this.runningAgents.set(agent.id, { agent, app, claudeHandler, memoryWatcher });
+    this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, memoryWatcher });
     await updateAgentStatus(agent.id, 'running');
 
     logger.info('Agent started', {
@@ -275,16 +268,16 @@ export class AgentRunner {
     const running = this.runningAgents.get(agentId);
     if (!running) return;
 
-    const { agent, app, claudeHandler, memoryWatcher } = running;
+    const { agent, adapter, claudeHandler, memoryWatcher } = running;
     logger.info('Stopping agent', { agent: agent.slug });
 
     memoryWatcher.stop();
     claudeHandler.destroy();
 
     try {
-      await app.stop();
+      await adapter.stop();
     } catch (err) {
-      logger.warn('Error stopping Bolt App', { agent: agent.slug, error: err });
+      logger.warn('Error stopping platform adapter', { agent: agent.slug, error: err });
     }
 
     this.runningAgents.delete(agentId);

@@ -140,7 +140,7 @@ export function getClaudeMdPath(slug: string): string {
  * @returns {Promise<string>} The path to the agent's working directory (pass as cwd to SDK).
  * @throws {Error} If writing to the filesystem fails.
  */
-export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): Promise<string> {
+export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, formattingRules?: string): Promise<string> {
   const workDir = getAgentWorkDir(agent.slug);
   const claudeMdPath = getClaudeMdPath(agent.slug);
 
@@ -156,7 +156,7 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
   // -------------------------------------------------------------------------
   // 1. Write CLAUDE.md (identity + memory system instructions)
   // -------------------------------------------------------------------------
-  const claudeMdContent = buildClaudeMd(agent, overrideClaudeMd);
+  const claudeMdContent = buildClaudeMd(agent, overrideClaudeMd, formattingRules);
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
   logger.debug('CLAUDE.md written', {
@@ -256,13 +256,14 @@ export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
 
 /**
  * Builds the CLAUDE.md content for an agent.
- * Structure: identity → Slack formatting rules → memory system instructions.
+ * Structure: identity → platform formatting rules → memory system instructions.
  *
  * @param {Agent} agent - The agent.
  * @param {string} [overrideClaudeMd] - Override for identity content (boss registry use).
+ * @param {string} [formattingRules] - Platform-specific formatting rules (from adapter).
  * @returns {string} Full CLAUDE.md content.
  */
-function buildClaudeMd(agent: Agent, overrideClaudeMd?: string): string {
+function buildClaudeMd(agent: Agent, overrideClaudeMd?: string, formattingRules?: string): string {
   const sections: string[] = [];
 
   // Identity / instructions
@@ -276,8 +277,8 @@ function buildClaudeMd(agent: Agent, overrideClaudeMd?: string): string {
     sections.push(lines.join('\n'));
   }
 
-  // Slack formatting rules (framework-level, not a skill)
-  sections.push(SLACK_FORMATTING_SECTION);
+  // Platform formatting rules (provided by adapter, or fallback to Slack)
+  sections.push(formattingRules ?? SLACK_FORMATTING_SECTION);
 
   // Knowledge base instructions — injected only if wiki exists
   const knowledgeWikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
