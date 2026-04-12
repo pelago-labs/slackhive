@@ -473,7 +473,7 @@ export async function init(opts: InitOptions): Promise<void> {
         let ready = false;
         for (let i = 0; i < 60; i++) {
           try {
-            execSync('curl -sf http://localhost:3001/login', { stdio: 'ignore' });
+            execSync(`curl -sf http://localhost:${process.env.PORT ?? '3001'}/login`, { stdio: 'ignore' });
             ready = true;
             break;
           } catch {
@@ -497,13 +497,13 @@ export async function init(opts: InitOptions): Promise<void> {
   if (webReady) {
     console.log('  ' + chalk.bgHex('#D97757').black.bold('  SlackHive is ready!  '));
     console.log('');
-    console.log(`  ${chalk.bold('Open:')}     ${chalk.cyan('http://localhost:3001')}`);
+    console.log(`  ${chalk.bold('Open:')}     ${chalk.cyan(`http://localhost:${process.env.PORT ?? '3001'}`)}`);
   } else {
     console.log('  ' + chalk.bold('Setup complete!'));
     console.log('');
     console.log(chalk.gray('  Services are still starting. Once ready:'));
     console.log(`  ${chalk.bold('Run:')}      ${chalk.cyan('slackhive start')}`);
-    console.log(`  ${chalk.bold('Open:')}     ${chalk.cyan('http://localhost:3001')}`);
+    console.log(`  ${chalk.bold('Open:')}     ${chalk.cyan(`http://localhost:${process.env.PORT ?? '3001'}`)}`);
   }
   console.log(`  ${chalk.bold('Dir:')}      ${chalk.gray(dir)}`);
   console.log(`  ${chalk.bold('Mode:')}     ${chalk.gray(deployMode === 'native' ? 'Native (SQLite, no Docker)' : 'Docker (PostgreSQL + Redis)')}`);

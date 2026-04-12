@@ -51,22 +51,35 @@ function getPidFile(): string {
   return join(getSlackhiveDir(), 'slackhive.pid');
 }
 
-function writePid(pid: number): void {
+function writePid(pid: number, webPort = 3001, internalPort = 3002): void {
   const dir = getSlackhiveDir();
   mkdirSync(dir, { recursive: true });
-  writeFileSync(getPidFile(), String(pid));
+  writeFileSync(getPidFile(), JSON.stringify({ pid, webPort, internalPort }));
+}
+
+interface PidInfo { pid: number; webPort: number; internalPort: number; }
+
+function readPidInfo(): PidInfo | null {
+  try {
+    const raw = readFileSync(getPidFile(), 'utf-8').trim();
+    let info: PidInfo;
+    // Support old format (just a number) and new format (JSON)
+    if (raw.startsWith('{')) {
+      info = JSON.parse(raw);
+    } else {
+      info = { pid: parseInt(raw, 10), webPort: 3001, internalPort: 3002 };
+    }
+    process.kill(info.pid, 0); // Check if running
+    return info;
+  } catch {
+    try { unlinkSync(getPidFile()); } catch { /* ignore */ }
+    return null;
+  }
 }
 
 function readPid(): number | null {
-  try {
-    const pid = parseInt(readFileSync(getPidFile(), 'utf-8').trim(), 10);
-    // Check if process is still running
-    process.kill(pid, 0);
-    return pid;
-  } catch {
-    // Process not running or PID file doesn't exist
-    try { unlinkSync(getPidFile()); } catch { /* ignore */ }
-    return null;
+  const info = readPidInfo();
+  return info?.pid ?? null;
   }
 }
 
@@ -138,13 +151,13 @@ function dockerUpdate(dir: string): void {
 // =============================================================================
 
 function nativeStart(dir: string): void {
-  const existingPid = readPid();
-  if (existingPid) {
+  const existing = readPidInfo();
+  if (existing) {
     // SlackHive already running — stop it first, then restart
     const stopSpinner = ora('Stopping existing instance...').start();
-    try { process.kill(-existingPid, 'SIGTERM'); } catch { /* try individual */ }
-    try { process.kill(existingPid, 'SIGTERM'); } catch { /* already dead */ }
-    for (const port of ['3001', '3002']) {
+    try { process.kill(-existing.pid, 'SIGTERM'); } catch { /* try individual */ }
+    try { process.kill(existing.pid, 'SIGTERM'); } catch { /* already dead */ }
+    for (const port of [String(existing.webPort), String(existing.internalPort)]) {
       try { execSync(`lsof -ti:${port} | xargs kill -9`, { stdio: 'ignore' }); } catch { /* clean */ }
     }
     try { unlinkSync(getPidFile()); } catch { /* ignore */ }
@@ -215,7 +228,7 @@ function nativeStart(dir: string): void {
     });
 
     child.unref();
-    writePid(child.pid!);
+    writePid(child.pid!, webPort, internalPort);
 
     spinner.succeed(`SlackHive started (PID ${child.pid})`);
     console.log(chalk.gray(`  Web UI: http://localhost:${webPort}`));
@@ -228,20 +241,19 @@ function nativeStart(dir: string): void {
 }
 
 function nativeStop(): void {
-  const pid = readPid();
-  if (!pid) {
+  const info = readPidInfo();
+  if (!info) {
     console.log(chalk.yellow('  SlackHive is not running'));
     return;
   }
 
   const spinner = ora('Stopping SlackHive...').start();
   try {
-    // Kill main process and all children (process group)
-    try { process.kill(-pid, 'SIGTERM'); } catch { /* try individual */ }
-    try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
+    try { process.kill(-info.pid, 'SIGTERM'); } catch { /* try individual */ }
+    try { process.kill(info.pid, 'SIGTERM'); } catch { /* already dead */ }
 
-    // Clean up stuck ports
-    for (const port of ['3001', '3002']) {
+    // Clean up the actual ports this instance was using
+    for (const port of [String(info.webPort), String(info.internalPort)]) {
       try { execSync(`lsof -ti:${port} | xargs kill -9`, { stdio: 'ignore' }); } catch { /* clean */ }
     }
 
@@ -253,16 +265,13 @@ function nativeStop(): void {
 }
 
 function nativeStatus(): void {
-  const pid = readPid();
+  const info = readPidInfo();
   console.log('');
-  console.log(chalk.bold('  SlackHive Status (Native Mode)'));
+  console.log(chalk.bold('  SlackHive Status'));
   console.log('');
-  if (pid) {
-    // Detect which port the web UI is on
-    let webPort = '3001';
-    try { const p = execSync(`lsof -Pan -p ${pid} -iTCP -sTCP:LISTEN 2>/dev/null | grep -o ':\\d\\+' | head -1 | tr -d ':'`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim(); if (p) webPort = p; } catch { /* fallback */ }
-    console.log(chalk.green(`  Status:   Running (PID ${pid})`));
-    console.log(chalk.gray(`  Web UI:   http://localhost:${webPort}`));
+  if (info) {
+    console.log(chalk.green(`  Status:   Running (PID ${info.pid})`));
+    console.log(chalk.gray(`  Web UI:   http://localhost:${info.webPort}`));
     console.log(chalk.gray(`  Database: ${getSlackhiveDir()}/data.db`));
     console.log(chalk.gray(`  Logs:     ${getSlackhiveDir()}/logs/runner.log`));
   } else {
@@ -284,10 +293,10 @@ function nativeLogs(follow: boolean): void {
 
 function nativeUpdate(dir: string): void {
   // Stop first
-  const pid = readPid();
-  if (pid) {
+  const info = readPidInfo();
+  if (info) {
     const stopSpinner = ora('Stopping SlackHive...').start();
-    process.kill(pid, 'SIGTERM');
+    try { process.kill(info.pid, 'SIGTERM'); } catch { /* already dead */ }
     try { unlinkSync(getPidFile()); } catch { /* ignore */ }
     stopSpinner.succeed('Stopped');
   }
