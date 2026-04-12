@@ -208,10 +208,6 @@ CREATE TABLE IF NOT EXISTS agents (
   name                 TEXT NOT NULL,
   persona              TEXT,
   description          TEXT,
-  slack_bot_token      TEXT NOT NULL,
-  slack_app_token      TEXT NOT NULL,
-  slack_signing_secret TEXT NOT NULL,
-  slack_bot_user_id    TEXT,
   model                TEXT NOT NULL DEFAULT 'claude-opus-4-6',
   status               TEXT NOT NULL DEFAULT 'stopped'
                                      CHECK (status IN ('running', 'stopped', 'error')),
@@ -359,6 +355,17 @@ CREATE TABLE IF NOT EXISTS agent_restrictions (
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS platform_integrations (
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  platform    TEXT NOT NULL CHECK (platform IN ('slack','discord','telegram','whatsapp','teams')),
+  credentials TEXT NOT NULL,
+  bot_user_id TEXT,
+  enabled     INTEGER DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(agent_id, platform)
+);
+
 CREATE TABLE IF NOT EXISTS knowledge_sources (
   id          TEXT PRIMARY KEY,
   agent_id    TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -439,6 +446,28 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
 
   // Initialize schema
   db.exec(SQLITE_SCHEMA);
+
+  // Migrate: move slack credentials from agents to platform_integrations
+  try {
+    const cols = db.pragma('table_info(agents)') as any[];
+    const hasSlackCol = cols.some((c: any) => c.name === 'slack_bot_token');
+    if (hasSlackCol) {
+      // Use SQL-level migration to avoid quoting issues
+      db.exec(`
+        INSERT OR IGNORE INTO platform_integrations (id, agent_id, platform, credentials, bot_user_id)
+        SELECT
+          lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(6))),
+          id,
+          'slack',
+          json_object('botToken', slack_bot_token, 'appToken', slack_app_token, 'signingSecret', slack_signing_secret),
+          slack_bot_user_id
+        FROM agents
+        WHERE slack_bot_token IS NOT NULL
+          AND length(slack_bot_token) > 0
+          AND NOT EXISTS (SELECT 1 FROM platform_integrations WHERE agent_id = agents.id AND platform = 'slack')
+      `);
+    }
+  } catch { /* migration optional — table may not have old columns */ }
 
   // Install a custom function to generate UUIDs
   // This lets DEFAULT gen_random_uuid()-style behavior work via triggers

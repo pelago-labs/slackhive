@@ -165,16 +165,7 @@ export class AgentRunner {
         logger.info('Skipping disabled agent', { agent: agent.slug });
         continue;
       }
-      if (
-        !agent.slackBotToken.startsWith('xoxb-') ||
-        !agent.slackAppToken.startsWith('xapp-') ||
-        agent.slackBotToken.includes('placeholder') ||
-        agent.slackAppToken.includes('placeholder')
-      ) {
-        logger.warn('Skipping agent with invalid/placeholder tokens', { agent: agent.slug });
-        await updateAgentStatus(agent.id, 'stopped');
-        continue;
-      }
+      // Token validation happens in startAgent after loading platform integration
       try {
         await this.startAgent(agent);
       } catch (err) {
@@ -228,9 +219,19 @@ export class AgentRunner {
     const memoryWatcher = new MemoryWatcher(agent);
     memoryWatcher.start();
 
-    // Create platform adapter (Slack for now — will support multiple platforms later)
+    // Load platform integration from DB
+    const { getPlatformIntegration, updateAgentSlackUserId } = await import('./db');
+    const integration = await getPlatformIntegration(agent.id, 'slack');
+    if (!integration) {
+      logger.warn('No platform integration found, skipping agent', { agent: agent.slug });
+      memoryWatcher.stop();
+      claudeHandler.destroy();
+      return;
+    }
+
+    // Create platform adapter
     const adapter = new SlackAdapter(
-      { platform: 'slack', botToken: agent.slackBotToken, appToken: agent.slackAppToken, signingSecret: agent.slackSigningSecret },
+      { platform: 'slack', botToken: integration.credentials.botToken, appToken: integration.credentials.appToken, signingSecret: integration.credentials.signingSecret },
       agent.slug,
     );
 
@@ -243,8 +244,7 @@ export class AgentRunner {
 
     // Store bot user ID discovered during start
     const botUserId = adapter.getBotUserId();
-    if (botUserId && botUserId !== agent.slackBotUserId) {
-      const { updateAgentSlackUserId } = await import('./db');
+    if (botUserId && botUserId !== integration.botUserId) {
       await updateAgentSlackUserId(agent.id, botUserId);
       agent.slackBotUserId = botUserId;
     }

@@ -55,9 +55,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = (await request.json()) as CreateAgentRequest;
 
     // Validate required fields
-    if (!body.slug || !body.name || !body.slackBotToken || !body.slackAppToken || !body.slackSigningSecret) {
+    if (!body.slug || !body.name) {
       return NextResponse.json(
-        { error: 'slug, name, slackBotToken, slackAppToken, slackSigningSecret are required' },
+        { error: 'slug and name are required' },
         { status: 400 }
       );
     }

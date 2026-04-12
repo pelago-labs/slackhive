@@ -87,10 +87,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     name: row.name as string,
     persona: row.persona as string | undefined,
     description: row.description as string | undefined,
-    slackBotToken: row.slack_bot_token as string,
-    slackAppToken: row.slack_app_token as string,
-    slackSigningSecret: row.slack_signing_secret as string,
-    slackBotUserId: row.slack_bot_user_id as string | undefined,
+    // Slack credentials now in platform_integrations table
     model: row.model as string,
     status: row.status as AgentStatus,
     enabled: row.enabled !== false,
@@ -202,19 +199,29 @@ export async function getAgentBySlug(slug: string): Promise<Agent | null> {
  */
 export async function createAgent(req: CreateAgentRequest, createdBy = 'system'): Promise<Agent> {
   const id = randomUUID();
-  const r = await (await db()).query(
+  const d = await db();
+  const r = await d.query(
     `INSERT INTO agents
-       (id, slug, name, persona, description, slack_bot_token, slack_app_token,
-        slack_signing_secret, model, is_boss, reports_to, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       (id, slug, name, persona, description, model, is_boss, reports_to, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING *`,
     [
       id, req.slug, req.name, req.persona ?? null, req.description ?? null,
-      req.slackBotToken, req.slackAppToken, req.slackSigningSecret,
       req.model ?? 'claude-opus-4-6', req.isBoss ?? false, req.reportsTo ?? [],
       createdBy,
     ]
   );
+
+  // Create platform integration if credentials provided
+  if (req.platformCredentials && req.platform) {
+    const { encrypt } = await import('@slackhive/shared');
+    await d.query(
+      `INSERT INTO platform_integrations (id, agent_id, platform, credentials)
+       VALUES ($1, $2, $3, $4)`,
+      [randomUUID(), id, req.platform, encrypt(JSON.stringify(req.platformCredentials), getEnvSecretKey())]
+    );
+  }
+
   return rowToAgent(r.rows[0]);
 }
 
@@ -254,12 +261,19 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
   if (req.name !== undefined) { fields.push(`name = $${idx++}`); values.push(req.name); }
   if (req.persona !== undefined) { fields.push(`persona = $${idx++}`); values.push(req.persona); }
   if (req.description !== undefined) { fields.push(`description = $${idx++}`); values.push(req.description); }
-  if (req.slackBotToken !== undefined) { fields.push(`slack_bot_token = $${idx++}`); values.push(req.slackBotToken); }
-  if (req.slackAppToken !== undefined) { fields.push(`slack_app_token = $${idx++}`); values.push(req.slackAppToken); }
-  if (req.slackSigningSecret !== undefined) { fields.push(`slack_signing_secret = $${idx++}`); values.push(req.slackSigningSecret); }
   if (req.model !== undefined) { fields.push(`model = $${idx++}`); values.push(req.model); }
   if (req.isBoss !== undefined) { fields.push(`is_boss = $${idx++}`); values.push(req.isBoss); }
   if (req.reportsTo !== undefined) { fields.push(`reports_to = $${idx++}`); values.push(req.reportsTo); }
+
+  // Update platform credentials if provided
+  if (req.platformCredentials) {
+    const { encrypt } = await import('@slackhive/shared');
+    const d = await db();
+    await d.query(
+      `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = 'slack'`,
+      [encrypt(JSON.stringify(req.platformCredentials), getEnvSecretKey()), id]
+    );
+  }
 
   if (fields.length === 0) return getAgentById(id);
 

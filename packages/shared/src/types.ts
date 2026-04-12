@@ -104,17 +104,13 @@ export interface Agent {
    * @example "Data warehouse NLQ, Redshift queries, business metrics"
    */
   description?: string;
-  /** Slack bot token (xoxb-...) for sending messages. */
-  slackBotToken: string;
-  /** Slack app-level token (xapp-...) for Socket Mode connection. */
-  slackAppToken: string;
-  /** Slack signing secret for request verification. */
-  slackSigningSecret: string;
-  /**
-   * The bot's Slack user ID (e.g., U12345678).
-   * Populated automatically on first connection via auth.test API.
-   * Used by the boss agent to construct proper @mentions.
-   */
+  /** @deprecated — use platform_integrations table. Kept for type compat during migration. */
+  slackBotToken?: string;
+  /** @deprecated */
+  slackAppToken?: string;
+  /** @deprecated */
+  slackSigningSecret?: string;
+  /** @deprecated */
   slackBotUserId?: string;
   /**
    * The Claude model to use for this agent.
@@ -475,30 +471,22 @@ export interface CreateAgentRequest {
   name: string;
   persona?: string;
   description?: string;
-  slackBotToken: string;
-  slackAppToken: string;
-  slackSigningSecret: string;
+  /** Platform credentials (stored in platform_integrations table). */
+  platform?: string;
+  platformCredentials?: Record<string, string>;
   model?: string;
   isBoss?: boolean;
-  /** UUIDs of boss agents this agent reports to. */
   reportsTo?: string[];
-  /** IDs of MCP servers from the catalog to assign to this agent. */
   mcpServerIds?: string[];
-  /** Skill template to bootstrap: blank | data-analyst | writer | developer */
   skillTemplate?: SkillTemplate;
 }
 
-/**
- * Request body for updating an existing agent's configuration.
- * Used in PATCH /api/agents/[id].
- */
 export interface UpdateAgentRequest {
   name?: string;
   persona?: string;
   description?: string;
-  slackBotToken?: string;
-  slackAppToken?: string;
-  slackSigningSecret?: string;
+  /** Update platform credentials. */
+  platformCredentials?: Record<string, string>;
   model?: string;
   isBoss?: boolean;
   reportsTo?: string[];
@@ -579,6 +567,18 @@ export type KnowledgeSourceStatus = 'pending' | 'building' | 'compiled' | 'error
  * A knowledge source that feeds into the agent's wiki.
  * Sources are compiled by Claude into structured wiki articles.
  */
+
+/** Platform integration — connects an agent to a messaging platform. */
+export interface PlatformIntegration {
+  id: string;
+  agentId: string;
+  platform: 'slack' | 'discord' | 'telegram' | 'whatsapp' | 'teams';
+  credentials: Record<string, string>;
+  botUserId?: string;
+  enabled: boolean;
+  createdAt: Date;
+}
+
 export interface KnowledgeSource {
   id: string;
   agentId: string;

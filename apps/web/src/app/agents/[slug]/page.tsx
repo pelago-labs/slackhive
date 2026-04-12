@@ -554,13 +554,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
       </Section>
 
       <Section title="Slack Credentials">
-        <Field label="Bot Token" value={form.slackBotToken}
+        <Field label="Bot Token" value={form.slackBotToken ?? ''}
           onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
-        <Field label="App-Level Token" value={form.slackAppToken}
+        <Field label="App-Level Token" value={form.slackAppToken ?? ''}
           onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
           hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
-        <Field label="Signing Secret" value={form.slackSigningSecret}
+        <Field label="Signing Secret" value={form.slackSigningSecret ?? ''}
           onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
           hint="Basic Information → App Credentials → Signing Secret" />
         {slackInfo && (

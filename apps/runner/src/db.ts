@@ -34,10 +34,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     name: row.name as string,
     persona: row.persona as string | undefined,
     description: row.description as string | undefined,
-    slackBotToken: row.slack_bot_token as string,
-    slackAppToken: row.slack_app_token as string,
-    slackSigningSecret: row.slack_signing_secret as string,
-    slackBotUserId: row.slack_bot_user_id as string | undefined,
+    // Slack credentials now in platform_integrations table
     model: row.model as string,
     status: row.status as AgentStatus,
     enabled: row.enabled !== false && row.enabled !== 0,
@@ -142,9 +139,32 @@ export async function updateAgentStatus(id: string, status: AgentStatus): Promis
 
 export async function updateAgentSlackUserId(id: string, slackBotUserId: string): Promise<void> {
   await getDb().query(
-    'UPDATE agents SET slack_bot_user_id = $1, updated_at = now() WHERE id = $2',
-    [slackBotUserId, id]
+    'UPDATE platform_integrations SET bot_user_id = $1 WHERE agent_id = $2 AND platform = $3',
+    [slackBotUserId, id, 'slack']
   );
+}
+
+/** Get platform integration for an agent. */
+export async function getPlatformIntegration(agentId: string, platform: string): Promise<{ credentials: Record<string, string>; botUserId?: string } | null> {
+  const r = await getDb().query(
+    'SELECT credentials, bot_user_id FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
+    [agentId, platform]
+  );
+  if (r.rows.length === 0) return null;
+  const row = r.rows[0];
+  const raw = row.credentials as string;
+  try {
+    // Try encrypted first
+    const { decrypt } = await import('@slackhive/shared');
+    const key = process.env.ENV_SECRET_KEY ?? process.env.AUTH_SECRET ?? 'slackhive-default-key';
+    const creds = JSON.parse(decrypt(raw, key));
+    return { credentials: creds, botUserId: row.bot_user_id as string | undefined };
+  } catch {
+    // Fallback: plain JSON (migrated data or dev mode)
+    try {
+      return { credentials: JSON.parse(raw), botUserId: row.bot_user_id as string | undefined };
+    } catch { return null; }
+  }
 }
 
 // =============================================================================
