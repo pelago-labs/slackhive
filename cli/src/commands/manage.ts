@@ -16,14 +16,37 @@ import ora from 'ora';
 // Project & mode detection
 // =============================================================================
 
+function getConfigPath(): string {
+  return join(getSlackhiveDir(), 'config.json');
+}
+
+function saveProjectDir(dir: string): void {
+  const configPath = getConfigPath();
+  mkdirSync(join(configPath, '..'), { recursive: true });
+  writeFileSync(configPath, JSON.stringify({ projectDir: dir }));
+}
+
 function findProjectDir(): string {
+  // 1. Check current directory
   if (existsSync(join(process.cwd(), 'package.json'))) {
-    return process.cwd();
+    const dir = process.cwd();
+    saveProjectDir(dir);
+    return dir;
   }
+  // 2. Check ./slackhive subdirectory
   const sub = join(process.cwd(), 'slackhive');
   if (existsSync(join(sub, 'package.json'))) {
+    saveProjectDir(sub);
     return sub;
   }
+  // 3. Read saved project path from config
+  try {
+    const config = JSON.parse(readFileSync(getConfigPath(), 'utf-8'));
+    if (config.projectDir && existsSync(join(config.projectDir, 'package.json'))) {
+      return config.projectDir;
+    }
+  } catch { /* no saved config */ }
+
   console.log(chalk.red('  Could not find SlackHive project.'));
   console.log(chalk.gray('  Run this command from the SlackHive directory, or run `slackhive init` first.'));
   process.exit(1);
