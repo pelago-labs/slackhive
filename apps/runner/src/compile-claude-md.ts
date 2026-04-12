@@ -49,6 +49,18 @@ Apply what you find — past preferences, corrections, and patterns — so you d
 If no relevant memories are found, say so briefly and continue.`;
 
 /**
+ * Built-in /wiki skill — injected when agent has a knowledge wiki.
+ * Searches the compiled wiki for relevant articles.
+ */
+const WIKI_SKILL = `Search the knowledge wiki for information about: $ARGUMENTS
+
+Use the Read tool to read \`knowledge/wiki/index.md\` first to see all available articles.
+Then read specific articles that match the topic.
+The wiki contains compiled knowledge from URLs, documents, and code repositories.
+Use this information to give accurate, well-informed answers.
+If no relevant articles are found, say so and answer from your general knowledge.`;
+
+/**
  * Memory system instructions injected into every agent's CLAUDE.md.
  * Tells the agent to persist learned facts to .claude/memory/ in its cwd.
  */
@@ -159,6 +171,12 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string): 
   // Built-in recall skill — always injected, not user-visible in Skills tab
   fs.writeFileSync(path.join(commandsDir, 'recall.md'), RECALL_SKILL, 'utf-8');
 
+  // Built-in wiki skill — injected only if knowledge wiki exists
+  const wikiDir = path.join(workDir, 'knowledge', 'wiki');
+  if (fs.existsSync(wikiDir) && fs.readdirSync(wikiDir).length > 0) {
+    fs.writeFileSync(path.join(commandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
+  }
+
   for (const skill of skills) {
     const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
     fs.writeFileSync(path.join(commandsDir, filename), skill.content, 'utf-8');
@@ -247,6 +265,25 @@ function buildClaudeMd(agent: Agent, overrideClaudeMd?: string): string {
 
   // Slack formatting rules (framework-level, not a skill)
   sections.push(SLACK_FORMATTING_SECTION);
+
+  // Knowledge base instructions — injected only if wiki exists
+  const knowledgeWikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
+  if (fs.existsSync(knowledgeWikiDir)) {
+    try {
+      const wikiFiles = fs.readdirSync(knowledgeWikiDir, { recursive: true }) as string[];
+      const articleCount = wikiFiles.filter(f => f.endsWith('.md')).length;
+      if (articleCount > 0) {
+        sections.push(`# Knowledge Base
+
+You have a compiled knowledge base in \`knowledge/wiki/\` with ${articleCount} articles.
+Use /wiki <topic> to search it BEFORE answering questions about topics that may be covered.
+
+The wiki contains structured articles compiled from URLs, documents, and code repositories.
+Articles have cross-references — follow links to related topics for deeper context.
+Do NOT modify wiki files — they are auto-generated. Use the information as reference.`);
+      }
+    } catch { /* dir might not be readable */ }
+  }
 
   // Memory instructions — internal, not shown in UI
   sections.push(`# Memory

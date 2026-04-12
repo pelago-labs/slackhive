@@ -419,6 +419,11 @@ export class AgentRunner {
                   logger.error('Memory analysis failed', { error: err.message })
                 );
               }
+              if (raw.type === 'build-knowledge') {
+                this.buildKnowledgeWiki(raw.agentId, raw.requestId).catch(err =>
+                  logger.error('Knowledge build failed', { error: err.message })
+                );
+              }
               break;
             }
           }
@@ -652,6 +657,222 @@ Guidelines:
    * Analyzes an agent's memories and suggests actions: move_to_skill, update_prompt, merge, delete.
    * Result is stored in the DB for the web UI to poll.
    */
+  /**
+   * Builds the knowledge wiki from all sources for an agent.
+   * For git repos: clones to temp dir, reads files, deletes clone.
+   * For URLs/files: reads content from DB.
+   * Calls Claude to compile structured wiki articles.
+   */
+  private async buildKnowledgeWiki(agentId: string, requestId: string): Promise<void> {
+    logger.info('Building knowledge wiki', { agentId, requestId });
+
+    try {
+      const agent = await getAgentById(agentId);
+      if (!agent) { await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'error', error: 'Agent not found' })); return; }
+
+      // Load all sources
+      const { getDb } = await import('@slackhive/shared');
+      const r = await getDb().query('SELECT * FROM knowledge_sources WHERE agent_id = $1', [agentId]);
+      const sources = r.rows;
+
+      if (sources.length === 0) {
+        await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'done', articles: 0, message: 'No sources to compile.' }));
+        return;
+      }
+
+      await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'building' }));
+
+      // Collect content from each source
+      const sourceContents: { name: string; type: string; content: string }[] = [];
+      const fs = await import('fs');
+      const path = await import('path');
+      const { execSync } = await import('child_process');
+
+      for (const src of sources) {
+        if (src.type === 'url' || src.type === 'file') {
+          if (src.content) {
+            sourceContents.push({ name: src.name as string, type: src.type as string, content: src.content as string });
+          }
+        } else if (src.type === 'repo') {
+          // Clone to temp, read key files, delete
+          const tmpDir = path.join('/tmp', `slackhive-repo-${src.id}`);
+          try {
+            // Build clone URL with PAT if private
+            let cloneUrl = src.repo_url as string;
+            if (src.pat_env_ref) {
+              const envVars = await getAllEnvVarValues();
+              const pat = envVars[src.pat_env_ref as string];
+              if (pat && cloneUrl.startsWith('https://')) {
+                cloneUrl = cloneUrl.replace('https://', `https://${pat}@`);
+              }
+            }
+
+            const branch = (src.branch as string) || 'main';
+            execSync(`git clone --depth 1 --branch ${branch} "${cloneUrl}" "${tmpDir}"`, { stdio: 'ignore', timeout: 60000 });
+
+            // Read README
+            let readme = '';
+            for (const f of ['README.md', 'readme.md', 'README.rst', 'README']) {
+              const p = path.join(tmpDir, f);
+              if (fs.existsSync(p)) { readme = fs.readFileSync(p, 'utf-8'); break; }
+            }
+
+            // Read directory tree (top 3 levels)
+            let tree = '';
+            try { tree = execSync(`find "${tmpDir}" -maxdepth 3 -type f | head -100`, { encoding: 'utf-8', timeout: 5000 }); } catch { /* ok */ }
+            tree = tree.replace(new RegExp(tmpDir, 'g'), '.');
+
+            // Read key files (package.json, config, etc.)
+            let keyFiles = '';
+            for (const f of ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'tsconfig.json', '.env.example']) {
+              const p = path.join(tmpDir, f);
+              if (fs.existsSync(p)) {
+                const content = fs.readFileSync(p, 'utf-8').slice(0, 2000);
+                keyFiles += `\n### ${f}\n\`\`\`\n${content}\n\`\`\`\n`;
+              }
+            }
+
+            // Read top-level source files (first 50 .ts/.py/.go/.rs files, max 1500 chars each)
+            let srcFiles = '';
+            try {
+              const files = execSync(`find "${tmpDir}" -maxdepth 4 -type f \\( -name "*.ts" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" \\) | head -50`, { encoding: 'utf-8', timeout: 5000 }).trim().split('\n').filter(Boolean);
+              for (const file of files) {
+                const relPath = file.replace(tmpDir + '/', '');
+                if (relPath.includes('node_modules') || relPath.includes('dist/') || relPath.includes('.next/')) continue;
+                const content = fs.readFileSync(file, 'utf-8').slice(0, 1500);
+                srcFiles += `\n### ${relPath}\n\`\`\`\n${content}\n\`\`\`\n`;
+              }
+            } catch { /* ok */ }
+
+            sourceContents.push({
+              name: src.name as string,
+              type: 'repo',
+              content: `# Repository: ${src.name}\n\n## README\n${readme}\n\n## Directory Structure\n\`\`\`\n${tree}\n\`\`\`\n\n## Key Config Files\n${keyFiles}\n\n## Source Files\n${srcFiles}`,
+            });
+          } catch (err) {
+            logger.warn('Failed to clone repo', { name: src.name, error: (err as Error).message });
+            sourceContents.push({ name: src.name as string, type: 'repo', content: `Failed to clone: ${(err as Error).message}` });
+          } finally {
+            // Always delete the temp clone
+            try { execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
+          }
+        }
+      }
+
+      // Call Claude to compile wiki
+      const allContent = sourceContents.map(s => `# Source: ${s.name} (${s.type})\n\n${s.content}`).join('\n\n---\n\n');
+
+      const prompt = `You are building a knowledge wiki from the following sources. These sources may be interconnected — identify relationships and cross-references.
+
+CRITICAL: Return ONLY a JSON object. No text before or after.
+
+## Sources (${sourceContents.length})
+${allContent.slice(0, 100000)}
+
+## Your task
+Compile these sources into structured wiki articles. Create:
+- An index page listing all articles
+- Concept articles for key ideas/patterns
+- Module/component articles for code structures
+- Cross-reference articles showing how things connect
+- A system overview if multiple repos/sources are related
+
+Return JSON:
+{
+  "articles": [
+    {
+      "path": "index.md",
+      "title": "Knowledge Base Index",
+      "content": "# Knowledge Base\\n\\n- [Overview](overview.md)\\n..."
+    },
+    {
+      "path": "overview.md",
+      "title": "System Overview",
+      "content": "# System Overview\\n\\n..."
+    }
+  ],
+  "summary": "<one line summary of what was compiled>"
+}
+
+Guidelines:
+- Create 5-20 articles depending on source complexity
+- Use markdown with headers, code blocks, lists
+- Cross-reference between articles using relative links
+- Be comprehensive but concise
+- For repos: focus on architecture, key modules, patterns, APIs
+- For docs/URLs: summarize key concepts and reference points`;
+
+      const fullResponse = await this.callClaudeWithRetry(prompt);
+
+      // Parse JSON
+      let parsed: any = null;
+      for (const strategy of [
+        () => JSON.parse(fullResponse),
+        () => { const m = fullResponse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/); return m ? JSON.parse(m[1]) : null; },
+        () => { const s = fullResponse.indexOf('{'); const e = fullResponse.lastIndexOf('}'); return s >= 0 && e > s ? JSON.parse(fullResponse.slice(s, e + 1)) : null; },
+      ]) {
+        try { parsed = strategy(); if (parsed?.articles) break; } catch { /* try next */ }
+      }
+
+      if (!parsed?.articles) {
+        await setResult(`knowledge-build:${requestId}`, JSON.stringify({ status: 'error', error: 'Could not parse wiki articles from Claude response' }));
+        return;
+      }
+
+      // Write wiki articles to agent workspace
+      const { getAgentWorkDir } = await import('./compile-claude-md');
+      const wikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
+      fs.mkdirSync(wikiDir, { recursive: true });
+
+      // Clear old wiki
+      try {
+        const existing = fs.readdirSync(wikiDir, { recursive: true }) as string[];
+        // Simple clear: remove all .md files
+        for (const file of existing) {
+          const fullPath = path.join(wikiDir, file);
+          if (fs.statSync(fullPath).isFile()) fs.unlinkSync(fullPath);
+        }
+      } catch { /* dir might not exist yet */ }
+
+      // Write new articles
+      for (const article of parsed.articles) {
+        const articlePath = path.join(wikiDir, article.path);
+        fs.mkdirSync(path.dirname(articlePath), { recursive: true });
+        fs.writeFileSync(articlePath, article.content, 'utf-8');
+      }
+
+      // Update source statuses
+      for (const src of sources) {
+        await getDb().query(
+          "UPDATE knowledge_sources SET status = 'compiled', last_synced = datetime('now') WHERE id = $1",
+          [src.id]
+        );
+      }
+
+      const totalWords = parsed.articles.reduce((sum: number, a: any) => sum + (a.content?.split(/\s+/).length ?? 0), 0);
+
+      await setResult(`knowledge-build:${requestId}`, JSON.stringify({
+        status: 'done',
+        articles: parsed.articles.length,
+        words: totalWords,
+        summary: parsed.summary ?? `Compiled ${parsed.articles.length} articles from ${sourceContents.length} sources`,
+      }));
+
+      logger.info('Knowledge wiki built', { agentId, articles: parsed.articles.length, words: totalWords });
+
+      // Reload agent to pick up knowledge in CLAUDE.md
+      await this.reloadAgent(agentId);
+
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      logger.error('Knowledge build failed', { agentId, requestId, error: msg });
+      await setResult(`knowledge-build:${requestId}`, JSON.stringify({
+        status: 'error',
+        error: msg.includes('AUTH_NEEDS_LOGIN') ? 'Run `claude login` in your terminal.' : `Build failed: ${msg.slice(0, 200)}`,
+      }));
+    }
+  }
+
   private async analyzeMemories(agentId: string, requestId: string): Promise<void> {
     logger.info('Analyzing memories', { agentId, requestId });
 
