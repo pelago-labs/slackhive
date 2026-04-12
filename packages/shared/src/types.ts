@@ -566,6 +566,43 @@ export interface UpsertMemoryRequest {
 export type SkillTemplate = 'blank' | 'data-analyst' | 'writer' | 'developer';
 
 // =============================================================================
+// Knowledge Base
+// =============================================================================
+
+/** Source type for knowledge base. */
+export type KnowledgeSourceType = 'url' | 'file' | 'repo';
+
+/** Status of a knowledge source. */
+export type KnowledgeSourceStatus = 'pending' | 'building' | 'compiled' | 'error';
+
+/**
+ * A knowledge source that feeds into the agent's wiki.
+ * Sources are compiled by Claude into structured wiki articles.
+ */
+export interface KnowledgeSource {
+  id: string;
+  agentId: string;
+  type: KnowledgeSourceType;
+  name: string;
+  /** URL for 'url' type sources. */
+  url?: string;
+  /** Git repo URL for 'repo' type sources. */
+  repoUrl?: string;
+  /** Branch to track (default: 'main'). */
+  branch?: string;
+  /** Env var key referencing a PAT for private repos. */
+  patEnvRef?: string;
+  /** Cron schedule for auto-sync. */
+  syncCron?: string;
+  /** Raw content (for url/file types, not repos). */
+  content?: string;
+  status: KnowledgeSourceStatus;
+  wordCount: number;
+  lastSynced?: string;
+  createdAt: Date;
+}
+
+// =============================================================================
 // Scheduled Jobs
 // =============================================================================
 

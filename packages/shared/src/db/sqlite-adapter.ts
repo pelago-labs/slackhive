@@ -359,7 +359,27 @@ CREATE TABLE IF NOT EXISTS agent_restrictions (
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Indexes (mirror PostgreSQL indexes)
+CREATE TABLE IF NOT EXISTS knowledge_sources (
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL CHECK (type IN ('url', 'file', 'repo')),
+  name        TEXT NOT NULL,
+  url         TEXT,
+  repo_url    TEXT,
+  branch      TEXT DEFAULT 'main',
+  pat_env_ref TEXT,
+  sync_cron   TEXT,
+  content     TEXT,
+  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'building', 'compiled', 'error')),
+  word_count  INTEGER DEFAULT 0,
+  last_synced TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_knowledge_agent ON knowledge_sources(agent_id);
+
+-- Other indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_agent_key      ON sessions(agent_id, session_key);
 CREATE INDEX IF NOT EXISTS idx_sessions_activity       ON sessions(last_activity);
 CREATE INDEX IF NOT EXISTS idx_sessions_agent_activity ON sessions(agent_id, last_activity DESC);
