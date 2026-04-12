@@ -680,35 +680,59 @@ Guidelines:
     const { execSync } = await import('child_process');
     const tmpDir = path.join('/tmp', `slackhive-repo-${src.id}`);
 
+    // Helper: safe read file
+    const read = (p: string, max = 0) => {
+      try { const c = fs.readFileSync(p, 'utf-8'); return max ? c.slice(0, max) : c; } catch { return ''; }
+    };
+    // Helper: find files matching pattern, excluding noise
+    const findFiles = (pattern: string, maxDepth = 6, limit = 500): string[] => {
+      try {
+        return execSync(
+          `find "${tmpDir}" -maxdepth ${maxDepth} -type f ${pattern} ` +
+          `-not -path "*/node_modules/*" -not -path "*/.git/*" ` +
+          `-not -path "*/dist/*" -not -path "*/.next/*" -not -path "*/.nuxt/*" ` +
+          `-not -path "*/__pycache__/*" -not -path "*/venv/*" -not -path "*/.venv/*" ` +
+          `-not -path "*/target/*" -not -path "*/.cache/*" -not -path "*/build/*" ` +
+          `-not -path "*/vendor/*" -not -path "*/.tox/*" ` +
+          `| head -${limit}`,
+          { encoding: 'utf-8', timeout: 10000 }
+        ).trim().split('\n').filter(Boolean);
+      } catch { return []; }
+    };
+    const rel = (p: string) => p.replace(tmpDir + '/', '');
+    const section = (title: string, content: string) => content.trim() ? `\n## ${title}\n${content}` : '';
+    const fileBlock = (relPath: string, content: string) => `\n### ${relPath}\n\`\`\`\n${content}\n\`\`\`\n`;
+
     try {
       let cloneUrl = src.repo_url as string;
       if (src.pat_env_ref) {
         const envVars = await getAllEnvVarValues();
         const pat = envVars[src.pat_env_ref as string];
-        if (pat && cloneUrl.startsWith('https://')) {
-          cloneUrl = cloneUrl.replace('https://', `https://${pat}@`);
-        }
+        if (pat && cloneUrl.startsWith('https://')) cloneUrl = cloneUrl.replace('https://', `https://${pat}@`);
       }
 
       const branch = (src.branch as string) || 'main';
       execSync(`git clone --depth 1 --branch ${branch} "${cloneUrl}" "${tmpDir}"`, { stdio: 'ignore', timeout: 120000 });
 
-      // README and docs
+      const sections: string[] = [];
+      sections.push(`# Repository: ${src.name}\nBranch: ${branch} | URL: ${src.repo_url}`);
+
+      // ─── 1. Documentation ──────────────────────────────────────────
       let readme = '';
       for (const f of ['README.md', 'readme.md', 'README.rst', 'README', 'docs/README.md']) {
-        const p = path.join(tmpDir, f);
-        if (fs.existsSync(p)) { readme = fs.readFileSync(p, 'utf-8'); break; }
+        const c = read(path.join(tmpDir, f));
+        if (c) { readme = c; break; }
       }
+      sections.push(section('README', readme));
 
-      let extraDocs = '';
-      for (const f of ['CONTRIBUTING.md', 'ARCHITECTURE.md', 'docs/ARCHITECTURE.md', 'docs/api.md', 'API.md', 'CLAUDE.md', 'AGENTS.md']) {
-        const p = path.join(tmpDir, f);
-        if (fs.existsSync(p)) {
-          extraDocs += `\n### ${f}\n${fs.readFileSync(p, 'utf-8').slice(0, 5000)}\n`;
-        }
+      let docs = '';
+      for (const f of ['CONTRIBUTING.md', 'ARCHITECTURE.md', 'docs/ARCHITECTURE.md', 'docs/api.md', 'API.md', 'CLAUDE.md', 'AGENTS.md', 'docs/design.md', 'DESIGN.md']) {
+        const c = read(path.join(tmpDir, f), 8000);
+        if (c) docs += fileBlock(f, c);
       }
+      sections.push(section('Documentation', docs));
 
-      // Directory tree (5 levels)
+      // ─── 2. Directory tree (full picture first) ────────────────────
       let tree = '';
       try {
         tree = execSync(
@@ -716,80 +740,243 @@ Guidelines:
           `-not -path "*/node_modules/*" -not -path "*/.git/*" ` +
           `-not -path "*/dist/*" -not -path "*/.next/*" ` +
           `-not -path "*/__pycache__/*" -not -path "*/venv/*" ` +
-          `-not -path "*/target/*" -not -path "*/.cache/*" ` +
-          `| head -300`,
+          `-not -path "*/target/*" -not -path "*/.cache/*" -not -path "*/vendor/*" ` +
+          `| sort | head -400`,
           { encoding: 'utf-8', timeout: 10000 }
+        ).replace(new RegExp(tmpDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.');
+      } catch { /* ok */ }
+      sections.push(section('Directory Structure', '```\n' + tree + '\n```'));
+
+      // ─── 3. Code structure map (classes, functions, exports) ───────
+      // Extract structural outline from ALL source files — gives Claude
+      // a complete map even for files not read fully later.
+      const allSrcForMap = findFiles(
+        '\\( -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.go" ' +
+        '-o -name "*.rs" -o -name "*.java" -o -name "*.js" -o -name "*.jsx" ' +
+        '-o -name "*.rb" -o -name "*.kt" -o -name "*.swift" \\)',
+        6, 500
+      ).filter(f => !f.includes('node_modules') && !f.includes('.test.') && !f.includes('.spec.') && !f.includes('__tests__'));
+
+      let codeMap = '';
+      for (const f of allSrcForMap) {
+        const content = read(f);
+        if (!content) continue;
+        const relPath = rel(f);
+        const lines: string[] = [];
+
+        // Extract imports (first 30 lines typically)
+        const imports = content.split('\n').filter(l =>
+          /^\s*(import |from |require\(|use |using |#include)/.test(l)
+        ).slice(0, 15);
+        if (imports.length) lines.push('  imports: ' + imports.map(i => i.trim()).join('; ').slice(0, 300));
+
+        // Extract class/struct/interface definitions
+        const classMatches = content.matchAll(
+          /^(?:export\s+)?(?:abstract\s+)?(?:class|struct|interface|enum|type|trait|protocol)\s+(\w+)(?:\s*(?:extends|implements|<|:|\().*)?/gm
         );
-      } catch { /* ok */ }
-      tree = tree.replace(new RegExp(tmpDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.');
+        for (const m of classMatches) lines.push('  class: ' + m[0].trim().slice(0, 200));
 
-      // Config files
-      let keyFiles = '';
-      for (const f of ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'tsconfig.json', 'setup.py', 'Makefile', 'Dockerfile', 'docker-compose.yml', '.env.example', 'requirements.txt']) {
-        const p = path.join(tmpDir, f);
-        if (fs.existsSync(p)) {
-          keyFiles += `\n### ${f}\n\`\`\`\n${fs.readFileSync(p, 'utf-8').slice(0, 4000)}\n\`\`\`\n`;
+        // Python classes
+        const pyClasses = content.matchAll(/^class\s+(\w+)(?:\(.*?\))?:/gm);
+        for (const m of pyClasses) lines.push('  class: ' + m[0].trim());
+
+        // Function/method signatures (exported or top-level)
+        const fnMatches = content.matchAll(
+          /^(?:export\s+)?(?:async\s+)?(?:function\s+|const\s+)(\w+)\s*(?:=\s*(?:async\s*)?\(|[(<])/gm
+        );
+        for (const m of fnMatches) lines.push('  fn: ' + m[0].trim().slice(0, 150));
+
+        // Python functions
+        const pyFns = content.matchAll(/^(?:async\s+)?def\s+(\w+)\s*\(.*?\)(?:\s*->.*?)?:/gm);
+        for (const m of pyFns) lines.push('  fn: ' + m[0].trim().slice(0, 150));
+
+        // Go functions
+        const goFns = content.matchAll(/^func\s+(?:\(.*?\)\s+)?(\w+)\s*\(.*?\)(?:\s*(?:\(.*?\)|[\w.]+))?\s*\{/gm);
+        for (const m of goFns) lines.push('  fn: ' + m[0].replace('{', '').trim().slice(0, 150));
+
+        // Rust functions
+        const rsFns = content.matchAll(/^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)(?:<.*?>)?\s*\(.*?\)(?:\s*->.*?)?\s*\{/gm);
+        for (const m of rsFns) lines.push('  fn: ' + m[0].replace('{', '').trim().slice(0, 150));
+
+        // Java methods (inside classes)
+        const javaMethods = content.matchAll(/^\s+(?:public|private|protected)\s+(?:static\s+)?(?:async\s+)?[\w<>\[\]]+\s+(\w+)\s*\(/gm);
+        for (const m of javaMethods) lines.push('  method: ' + m[0].trim().slice(0, 150));
+
+        // Exports
+        const exports = content.matchAll(/^(?:export\s+(?:default\s+)?(?:const|let|var|function|class|interface|type|enum)\s+(\w+)|module\.exports\s*=)/gm);
+        const exportNames: string[] = [];
+        for (const m of exports) if (m[1]) exportNames.push(m[1]);
+        if (exportNames.length) lines.push('  exports: ' + exportNames.join(', '));
+
+        if (lines.length > 0) {
+          codeMap += `${relPath}\n${lines.join('\n')}\n`;
         }
       }
+      sections.push(section('Code Structure Map', '```\n' + codeMap + '\n```'));
 
-      // Sub-package.jsons (monorepo)
-      try {
-        const subPkgs = execSync(`find "${tmpDir}" -maxdepth 3 -name "package.json" -not -path "*/node_modules/*" | head -20`, { encoding: 'utf-8', timeout: 5000 }).trim().split('\n').filter(Boolean);
-        for (const p of subPkgs) {
-          if (p === path.join(tmpDir, 'package.json')) continue;
-          keyFiles += `\n### ${p.replace(tmpDir + '/', '')}\n\`\`\`\n${fs.readFileSync(p, 'utf-8').slice(0, 2000)}\n\`\`\`\n`;
-        }
-      } catch { /* ok */ }
-
-      // Source files — prioritized, NO hard cap
-      const srcExts = '\\( -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.js" -o -name "*.jsx" -o -name "*.rb" \\)';
-      const excludes = '-not -path "*/node_modules/*" -not -path "*/dist/*" -not -path "*/.next/*" -not -path "*/__pycache__/*" -not -path "*/venv/*" -not -path "*/target/*" -not -path "*/.cache/*" -not -path "*.d.ts" -not -path "*.test.*" -not -path "*.spec.*" -not -path "*__tests__*"';
-
-      let allFiles: string[] = [];
-      try {
-        allFiles = execSync(`find "${tmpDir}" -type f ${srcExts} ${excludes} | head -500`, { encoding: 'utf-8', timeout: 10000 }).trim().split('\n').filter(Boolean);
-      } catch { /* ok */ }
-
-      const priority = (f: string): number => {
-        const rel = f.replace(tmpDir + '/', '').toLowerCase();
-        if (/^(index|main|app|server|cli)\.(ts|js|py|go|rs)/.test(rel.split('/').pop() ?? '')) return 0;
-        if (/\/(index|main|mod|__init__)\.(ts|js|py|go|rs)$/.test(rel)) return 1;
-        if (/(types?|models?|schema|interfaces?)\.(ts|py|go|rs)/.test(rel)) return 2;
-        if (/(route|handler|controller|view|endpoint|api)\b/.test(rel)) return 3;
-        if (/(service|manager|provider|client|adapter)\b/.test(rel)) return 4;
-        if (/(util|helper|lib|common|shared)\b/.test(rel)) return 5;
-        return 6;
-      };
-      allFiles.sort((a, b) => priority(a) - priority(b));
-
-      // Read up to 100 files, 5000 chars for high-priority, 3000 for others — no total cap
-      let srcFiles = '';
-      for (const file of allFiles.slice(0, 100)) {
-        const relPath = file.replace(tmpDir + '/', '');
-        const pri = priority(file);
-        const maxChars = pri <= 2 ? 5000 : 3000;
-        srcFiles += `\n### ${relPath}\n\`\`\`\n${fs.readFileSync(file, 'utf-8').slice(0, maxChars)}\n\`\`\`\n`;
+      // ─── 4. Dependencies & libraries ───────────────────────────────
+      let deps = '';
+      // JS/TS ecosystem
+      for (const f of ['package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
+        const c = read(path.join(tmpDir, f), f === 'package.json' ? 8000 : 0);
+        if (c && f === 'package.json') deps += fileBlock(f, c);
       }
+      // Python ecosystem
+      for (const f of ['requirements.txt', 'Pipfile', 'pyproject.toml', 'setup.py', 'setup.cfg', 'poetry.lock']) {
+        const c = read(path.join(tmpDir, f), 6000);
+        if (c) deps += fileBlock(f, c);
+      }
+      // Other ecosystems
+      for (const f of ['Cargo.toml', 'go.mod', 'go.sum', 'Gemfile', 'build.gradle', 'pom.xml', 'mix.exs', 'composer.json']) {
+        const c = read(path.join(tmpDir, f), 4000);
+        if (c) deps += fileBlock(f, c);
+      }
+      // Monorepo: sub-package manifests
+      for (const f of findFiles('-name "package.json" -o -name "pyproject.toml" -o -name "Cargo.toml"', 3, 20)) {
+        if (f === path.join(tmpDir, 'package.json')) continue;
+        deps += fileBlock(rel(f), read(f, 3000));
+      }
+      sections.push(section('Dependencies & Libraries', deps));
 
-      // Sample test files
-      let testFiles = '';
-      try {
-        const tests = execSync(`find "${tmpDir}" -type f \\( -name "*.test.*" -o -name "*.spec.*" -o -name "test_*" \\) | head -5`, { encoding: 'utf-8', timeout: 5000 }).trim().split('\n').filter(Boolean);
-        for (const file of tests) {
-          testFiles += `\n### ${file.replace(tmpDir + '/', '')}\n\`\`\`\n${fs.readFileSync(file, 'utf-8').slice(0, 2000)}\n\`\`\`\n`;
+      // ─── 4. Database schemas & migrations ──────────────────────────
+      let dbSection = '';
+      // SQL migrations
+      const sqlFiles = findFiles('\\( -name "*.sql" \\)', 6, 30);
+      for (const f of sqlFiles.slice(0, 15)) {
+        dbSection += fileBlock(rel(f), read(f, 6000));
+      }
+      // ORM schema files (Prisma, SQLAlchemy, Django, TypeORM, Drizzle, Sequelize)
+      const schemaFiles = findFiles(
+        '\\( -name "schema.prisma" -o -name "schema.ts" -o -name "schema.py" ' +
+        '-o -name "models.py" -o -name "models.ts" -o -name "*.entity.ts" ' +
+        '-o -name "drizzle.config.*" -o -name "migration.*" ' +
+        '-o -name "*.model.ts" -o -name "*.model.py" -o -name "*.model.js" \\)',
+        6, 30
+      );
+      for (const f of schemaFiles) {
+        dbSection += fileBlock(rel(f), read(f, 6000));
+      }
+      sections.push(section('Database Schemas & Migrations', dbSection));
+
+      // ─── 5. API definitions ────────────────────────────────────────
+      let apiSection = '';
+      // OpenAPI / Swagger
+      const apiFiles = findFiles(
+        '\\( -name "openapi.*" -o -name "swagger.*" -o -name "*.graphql" ' +
+        '-o -name "*.gql" -o -name "*.proto" -o -name "schema.graphql" ' +
+        '-o -name "*.openapi.yaml" -o -name "*.openapi.json" \\)',
+        6, 20
+      );
+      for (const f of apiFiles) {
+        apiSection += fileBlock(rel(f), read(f, 8000));
+      }
+      sections.push(section('API Definitions', apiSection));
+
+      // ─── 6. Configuration & environment ────────────────────────────
+      let configSection = '';
+      for (const f of [
+        'tsconfig.json', 'Makefile', 'Dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
+        '.env.example', '.env.sample', 'config.yaml', 'config.yml', 'config.json',
+        'settings.py', 'config.py', 'application.yml', 'application.properties',
+        '.github/workflows/ci.yml', '.github/workflows/deploy.yml',
+        'nx.json', 'turbo.json', 'lerna.json', 'pnpm-workspace.yaml',
+        'next.config.js', 'next.config.ts', 'vite.config.ts', 'webpack.config.js',
+        'jest.config.js', 'jest.config.ts', 'vitest.config.ts',
+      ]) {
+        const c = read(path.join(tmpDir, f), 4000);
+        if (c) configSection += fileBlock(f, c);
+      }
+      sections.push(section('Configuration & Environment', configSection));
+
+      // ─── 7. Entry points & main files ──────────────────────────────
+      let entrySection = '';
+      const entryPatterns = [
+        'index.ts', 'index.js', 'main.ts', 'main.py', 'main.go', 'main.rs',
+        'app.ts', 'app.py', 'app.js', 'server.ts', 'server.py', 'server.js',
+        'cli.ts', 'cli.py', '__main__.py', 'manage.py', 'wsgi.py', 'asgi.py',
+        'cmd/main.go', 'src/main.rs', 'src/lib.rs',
+      ];
+      for (const f of entryPatterns) {
+        const c = read(path.join(tmpDir, f), 8000);
+        if (c) entrySection += fileBlock(f, c);
+      }
+      // Also find entry points in src/ directories
+      for (const f of findFiles('\\( -name "index.ts" -o -name "index.js" -o -name "main.py" -o -name "__init__.py" -o -name "mod.rs" \\)', 3, 30)) {
+        const r = rel(f);
+        if (!entryPatterns.includes(r) && !r.includes('node_modules')) {
+          entrySection += fileBlock(r, read(f, 5000));
         }
-      } catch { /* ok */ }
+      }
+      sections.push(section('Entry Points', entrySection));
 
-      return [
-        `# Repository: ${src.name}`,
-        `Branch: ${branch} | Clone URL: ${src.repo_url}`,
-        `\n## README\n${readme}`,
-        extraDocs ? `\n## Additional Documentation\n${extraDocs}` : '',
-        `\n## Directory Structure (${allFiles.length} source files)\n\`\`\`\n${tree}\n\`\`\``,
-        `\n## Config Files\n${keyFiles}`,
-        `\n## Source Files\n${srcFiles}`,
-        testFiles ? `\n## Test Files (sample)\n${testFiles}` : '',
-      ].filter(Boolean).join('\n');
+      // ─── 8. Types, models & interfaces ─────────────────────────────
+      let typesSection = '';
+      const typeFiles = findFiles(
+        '\\( -name "types.ts" -o -name "types.py" -o -name "interfaces.ts" ' +
+        '-o -name "*.types.ts" -o -name "*.interface.ts" -o -name "*.d.ts" ' +
+        '-o -name "types.go" -o -name "structs.go" ' +
+        '-o -name "schemas.py" -o -name "serializers.py" ' +
+        '-o -name "*.dto.ts" -o -name "*.input.ts" \\)',
+        6, 40
+      );
+      // Exclude .d.ts from dependencies
+      for (const f of typeFiles.filter(f => !f.includes('node_modules')).slice(0, 20)) {
+        typesSection += fileBlock(rel(f), read(f, 6000));
+      }
+      sections.push(section('Types, Models & Interfaces', typesSection));
+
+      // ─── 9. Routes, handlers & controllers ─────────────────────────
+      let routesSection = '';
+      const routeFiles = findFiles(
+        '\\( -name "*route*" -o -name "*router*" -o -name "*controller*" ' +
+        '-o -name "*handler*" -o -name "*endpoint*" -o -name "*view*" ' +
+        '-o -name "*resolver*" -o -name "urls.py" -o -name "views.py" \\)',
+        6, 40
+      );
+      for (const f of routeFiles.filter(f => !f.includes('node_modules') && !f.includes('.test.')).slice(0, 20)) {
+        routesSection += fileBlock(rel(f), read(f, 5000));
+      }
+      sections.push(section('Routes, Handlers & Controllers', routesSection));
+
+      // ─── 10. Services, business logic ──────────────────────────────
+      let servicesSection = '';
+      const serviceFiles = findFiles(
+        '\\( -name "*service*" -o -name "*manager*" -o -name "*provider*" ' +
+        '-o -name "*repository*" -o -name "*adapter*" -o -name "*client*" ' +
+        '-o -name "*worker*" -o -name "*processor*" -o -name "*engine*" ' +
+        '-o -name "*pipeline*" -o -name "*task*" \\)',
+        6, 60
+      );
+      for (const f of serviceFiles.filter(f => !f.includes('node_modules') && !f.includes('.test.') && !f.includes('.spec.')).slice(0, 25)) {
+        servicesSection += fileBlock(rel(f), read(f, 5000));
+      }
+      sections.push(section('Services & Business Logic', servicesSection));
+
+      // ─── 11. Remaining source files ────────────────────────────────
+      // Files not yet captured by any category above
+      const allSrcExts = '\\( -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.js" -o -name "*.jsx" -o -name "*.rb" -o -name "*.kt" -o -name "*.swift" -o -name "*.c" -o -name "*.cpp" -o -name "*.h" \\)';
+      const allSrc = findFiles(allSrcExts, 6, 500)
+        .filter(f => !f.includes('node_modules') && !f.includes('.test.') && !f.includes('.spec.') && !f.includes('__tests__'));
+      // Collect paths already included
+      const alreadyIncluded = new Set([
+        ...sqlFiles, ...schemaFiles, ...apiFiles, ...typeFiles, ...routeFiles, ...serviceFiles,
+      ]);
+      const remaining = allSrc.filter(f => !alreadyIncluded.has(f));
+      let otherFiles = '';
+      for (const f of remaining.slice(0, 40)) {
+        otherFiles += fileBlock(rel(f), read(f, 3000));
+      }
+      sections.push(section(`Other Source Files (${remaining.length} total, showing ${Math.min(40, remaining.length)})`, otherFiles));
+
+      // ─── 12. Test files (sample for patterns) ─────────────────────
+      let testSection = '';
+      const testFiles = findFiles('\\( -name "*.test.*" -o -name "*.spec.*" -o -name "test_*" -o -name "*_test.go" -o -name "*_test.py" \\)', 6, 20);
+      for (const f of testFiles.slice(0, 5)) {
+        testSection += fileBlock(rel(f), read(f, 3000));
+      }
+      sections.push(section('Test Files (sample)', testSection));
+
+      return sections.filter(s => s.trim()).join('\n');
 
     } finally {
       try { (await import('child_process')).execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
