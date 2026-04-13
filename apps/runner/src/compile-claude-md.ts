@@ -146,17 +146,25 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
 
   fs.mkdirSync(workDir, { recursive: true });
 
-  const skills = await getAgentSkills(agent.id);
+  const allSkills = await getAgentSkills(agent.id);
+
+  // Extract identity.md — embed its content into CLAUDE.md instead of slash command
+  const identitySkill = allSkills.find(s => s.filename === 'identity.md' || s.filename === 'identity');
+  const identityContent = identitySkill?.content;
+
+  // Skills that become slash commands (excludes identity.md)
+  const skills = allSkills.filter(s => s.filename !== 'identity.md' && s.filename !== 'identity');
 
   logger.info('Compiling agent workspace', {
     agent: agent.slug,
     skills: skills.length,
+    hasIdentitySkill: !!identitySkill,
   });
 
   // -------------------------------------------------------------------------
   // 1. Write CLAUDE.md (identity + memory system instructions)
   // -------------------------------------------------------------------------
-  const claudeMdContent = buildClaudeMd(agent, overrideClaudeMd, formattingRules);
+  const claudeMdContent = buildClaudeMd(agent, overrideClaudeMd, formattingRules, identityContent);
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
   logger.debug('CLAUDE.md written', {
@@ -263,18 +271,23 @@ export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
  * @param {string} [formattingRules] - Platform-specific formatting rules (from adapter).
  * @returns {string} Full CLAUDE.md content.
  */
-function buildClaudeMd(agent: Agent, overrideClaudeMd?: string, formattingRules?: string): string {
+function buildClaudeMd(agent: Agent, overrideClaudeMd?: string, formattingRules?: string, identityContent?: string): string {
   const sections: string[] = [];
 
-  // Identity / instructions
-  const identity = overrideClaudeMd ?? agent.claudeMd;
-  if (identity.trim()) {
-    sections.push(identity.trim());
+  // 1. Identity (from identity.md skill if present, else built from name/persona/description)
+  if (identityContent?.trim()) {
+    sections.push(identityContent.trim());
   } else {
     const lines = [`# ${agent.name}`];
     if (agent.persona) lines.push('', agent.persona);
     if (agent.description) lines.push('', agent.description);
     sections.push(lines.join('\n'));
+  }
+
+  // 2. System prompt / instructions (claudeMd field — Karpathy-style behavior/guardrails)
+  const claudeMd = overrideClaudeMd ?? agent.claudeMd;
+  if (claudeMd?.trim()) {
+    sections.push(claudeMd.trim());
   }
 
   // Platform formatting rules (provided by adapter, or fallback to Slack)
