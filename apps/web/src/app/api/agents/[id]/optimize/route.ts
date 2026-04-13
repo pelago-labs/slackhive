@@ -52,6 +52,23 @@ export async function POST(
 }
 
 /**
+ * DELETE — dismiss the latest optimization result so it doesn't reappear on reload.
+ */
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  const { id } = await params;
+  const latestId = await getSetting(`optimize-latest:${id}`);
+  const { getDb } = await import('@slackhive/shared');
+  if (latestId) {
+    await getDb().query('DELETE FROM settings WHERE key = $1', [`optimize:${latestId}`]);
+  }
+  await getDb().query('DELETE FROM settings WHERE key = $1', [`optimize-latest:${id}`]);
+  return new NextResponse(null, { status: 204 });
+}
+
+/**
  * GET — poll for optimization result.
  */
 export async function GET(

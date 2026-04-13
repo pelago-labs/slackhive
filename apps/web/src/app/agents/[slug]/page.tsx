@@ -881,7 +881,10 @@ function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean })
             </div>
           )}
 
-          <button onClick={() => setOptimizeResult(null)} style={{
+          <button onClick={() => {
+            setOptimizeResult(null);
+            fetch(`/api/agents/${agent.id}/optimize`, { method: 'DELETE' }).catch(() => {});
+          }} style={{
             marginTop: 12, fontSize: 11, color: 'var(--subtle)', background: 'none', border: 'none',
             cursor: 'pointer', fontFamily: 'var(--font-sans)',
           }}>Dismiss</button>
