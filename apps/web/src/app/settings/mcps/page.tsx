@@ -842,9 +842,17 @@ export default function McpSettingsPage() {
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
                             {t.description}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
+                              background: t.official ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
+                              color: t.official ? 'var(--green)' : '#d97706',
+                              textTransform: 'uppercase', letterSpacing: '0.04em',
+                            }}>
+                              {t.official ? '✓ Official' : 'Community'}
+                            </span>
                             <span style={{ fontSize: 10, color: 'var(--subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                              {t.auth === 'oauth' ? 'OAuth' : t.transport === 'http' ? 'Remote' : 'Local'}{t.official && ' · Official'}
+                              {t.auth === 'oauth' ? 'OAuth' : t.transport === 'http' ? 'Remote' : 'Local'}
                             </span>
                             {t.docsUrl && (
                               <a href={t.docsUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
