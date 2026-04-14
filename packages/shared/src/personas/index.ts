@@ -19,8 +19,10 @@ import DEVOPS_SRE from './devops-sre';
 import ML_AI_ENGINEER from './ml-ai-engineer';
 import QA_TEST_ENGINEER from './qa-test-engineer';
 import SECURITY_ENGINEER from './security-engineer';
+import DATA_ANALYST from './data-analyst';
 
 export const PERSONA_CATALOG: PersonaTemplate[] = [
+  // Engineering
   BACKEND_ENGINEER,
   FRONTEND_ENGINEER,
   FULLSTACK_ENGINEER,
@@ -29,6 +31,8 @@ export const PERSONA_CATALOG: PersonaTemplate[] = [
   ML_AI_ENGINEER,
   QA_TEST_ENGINEER,
   SECURITY_ENGINEER,
+  // Data
+  DATA_ANALYST,
 ];
 
 export function getPersonaById(id: string): PersonaTemplate | undefined {
