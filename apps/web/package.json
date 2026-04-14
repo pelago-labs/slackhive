@@ -33,6 +33,7 @@
     "@types/pg": "^8.11.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/tar-stream": "^3.1.4",
     "@vitest/coverage-v8": "^4.1.2",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.1",

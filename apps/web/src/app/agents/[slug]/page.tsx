@@ -59,19 +59,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState('');
-  const [exporting, setExporting] = useState(false);
-  const [importPreview, setImportPreview] = useState<AgentExportPayload | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Persona library
-  const [personaLibOpen, setPersonaLibOpen] = useState(false);
-  const [libSearch, setLibSearch] = useState('');
-  const [libCategory, setLibCategory] = useState<PersonaCategory | 'all'>('all');
-  const [libSelected, setLibSelected] = useState<PersonaTemplate | null>(null);
-  const [libSkillSel, setLibSkillSel] = useState<Set<string>>(new Set());
-  const [libApplying, setLibApplying] = useState(false);
 
   useEffect(() => {
     fetch('/api/agents')
@@ -102,98 +89,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
     setActionMsg('Done');
     setTimeout(() => setActionMsg(''), 2000);
     window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
-  };
-
-  const handleExport = async () => {
-    if (!agent) return;
-    setExporting(true);
-    try {
-      const [skillsRes, mdRes] = await Promise.all([
-        fetch(`/api/agents/${agent.id}/skills`),
-        fetch(`/api/agents/${agent.id}/claude-md`),
-      ]);
-      const skills: Skill[] = await skillsRes.json();
-      const claudeMd = await mdRes.text();
-      const payload: AgentExportPayload = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        persona: agent.persona ?? '',
-        description: agent.description ?? '',
-        claudeMd,
-        skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${agent.slug}-export.json`; a.click();
-      URL.revokeObjectURL(url);
-    } finally { setExporting(false); }
-  };
-
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-    setImportError('');
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target?.result as string);
-
-        // Validate required fields
-        if (!data || typeof data !== 'object') { setImportError('Invalid file: not a JSON object'); return; }
-        if (typeof data.claudeMd !== 'string') { setImportError('Invalid file: missing claudeMd field'); return; }
-        if (!Array.isArray(data.skills)) { setImportError('Invalid file: missing skills array'); return; }
-
-        // Validate each skill
-        for (let i = 0; i < data.skills.length; i++) {
-          const s = data.skills[i];
-          if (!s.category || typeof s.category !== 'string') { setImportError(`Invalid skill #${i + 1}: missing category`); return; }
-          if (!s.filename || typeof s.filename !== 'string') { setImportError(`Invalid skill #${i + 1}: missing filename`); return; }
-          if (typeof s.content !== 'string') { setImportError(`Invalid skill #${i + 1}: missing content`); return; }
-        }
-
-        setImportPreview(data);
-      } catch { setImportError('Could not parse file — must be valid JSON'); }
-    };
-    reader.readAsText(file);
-  };
-
-  const applyImport = async (payload?: AgentExportPayload) => {
-    const data = payload ?? importPreview;
-    if (!agent || !data) return;
-    setImporting(true);
-    try {
-      // Update persona/description if present in the export
-      if (data.persona !== undefined || data.description !== undefined) {
-        await fetch(`/api/agents/${agent.id}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...(data.persona !== undefined && { persona: data.persona }),
-            ...(data.description !== undefined && { description: data.description }),
-          }),
-        });
-      }
-
-      // Update system prompt
-      await fetch(`/api/agents/${agent.id}/claude-md`, {
-        method: 'PUT', headers: { 'Content-Type': 'text/plain' },
-        body: data.claudeMd,
-      });
-
-      // Upsert skills
-      await Promise.all(data.skills.map(s =>
-        fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(s),
-        })
-      ));
-
-      const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
-      setAgent(updated);
-      setImportPreview(null);
-      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
-    } finally { setImporting(false); }
   };
 
   if (loading) return <PageLoader />;
@@ -266,18 +161,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16 }}>
           {actionMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{actionMsg}</span>}
-          {importError && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{importError}</span>}
-
-          {/* Export + Import */}
-          <IconBtn title="Export config" onClick={handleExport} loading={exporting}>
-            <Download size={15} />
-          </IconBtn>
-          {canEdit && (
-            <IconBtn title="Import persona" onClick={() => setPersonaLibOpen(true)}>
-              <Upload size={15} />
-            </IconBtn>
-          )}
-          <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
 
           <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
 
@@ -292,118 +175,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
           )}
         </div>
       </div>
-
-      {/* Import confirmation modal */}
-      {importPreview && (
-        <Portal>
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }} onClick={() => setImportPreview(null)}>
-            <div style={{
-              background: 'var(--surface)', borderRadius: 14, padding: '28px 32px',
-              maxWidth: 480, width: '90%',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-            }} onClick={e => e.stopPropagation()}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-                Import agent config
-              </h3>
-
-              {/* Danger warning — shown first */}
-              <div style={{
-                display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
-                background: 'var(--surface-2)', border: '1.5px solid var(--red-soft-border)', borderRadius: 8,
-              }}>
-                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
-                    This will overwrite current CLAUDE.md and skills
-                  </div>
-                  <div style={{ fontSize: 12, color: '#9f1239' }}>
-                    Existing CLAUDE.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
-                <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <PrimaryBtn onClick={applyImport} loading={importing}>Apply Import</PrimaryBtn>
-                <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
-              </div>
-            </div>
-          </div>
-        </Portal>
-      )}
-
-      {/* ── Persona Library modal ────────────────────────────────────────── */}
-      {personaLibOpen && agent && (
-        <PersonaLibraryModal
-          agentId={agent.id}
-          fileInputRef={fileInputRef}
-          applying={libApplying}
-          search={libSearch}
-          onSearchChange={setLibSearch}
-          category={libCategory}
-          onCategoryChange={setLibCategory}
-          selected={libSelected}
-          onSelectPersona={(p) => {
-            setLibSelected(p);
-            setLibSkillSel(new Set(p.skills.map(s => s.filename)));
-          }}
-          onBack={() => setLibSelected(null)}
-          skillSel={libSkillSel}
-          onToggleSkill={(fn) => setLibSkillSel(prev => {
-            const next = new Set(prev);
-            if (next.has(fn)) next.delete(fn); else next.add(fn);
-            return next;
-          })}
-          onImportFull={async (template) => {
-            setLibApplying(true);
-            try {
-              // Delete all existing skills first
-              const existing = await fetch(`/api/agents/${agent.id}/skills`).then(r => r.json());
-              await Promise.all((existing as { id: string }[]).map(s =>
-                fetch(`/api/agents/${agent.id}/skills/${s.id}?noSnapshot=1`, { method: 'DELETE' })
-              ));
-              await applyImport({
-                version: 1,
-                persona: template.persona,
-                description: template.description,
-                claudeMd: template.claudeMd,
-                skills: template.skills,
-              });
-            } finally {
-              setLibApplying(false);
-              setPersonaLibOpen(false);
-              setLibSelected(null);
-            }
-          }}
-          onImportSkills={async (template, selected) => {
-            setLibApplying(true);
-            try {
-              const skills = template.skills.filter(s => selected.has(s.filename));
-              await Promise.all(skills.map(s =>
-                fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(s),
-                })
-              ));
-              const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
-              setAgent(updated);
-              window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
-            } finally {
-              setLibApplying(false);
-              setPersonaLibOpen(false);
-              setLibSelected(null);
-            }
-          }}
-          onClose={() => { setPersonaLibOpen(false); setLibSelected(null); setLibSearch(''); setLibCategory('all'); }}
-        />
-      )}
 
       {/* ── Tab bar ──────────────────────────────────────────────────────── */}
       <div style={{
@@ -434,9 +205,9 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
         {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} />}
-        {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} />}
+        {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
         {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
@@ -780,7 +551,102 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
 
 // ─── CLAUDE.md viewer ─────────────────────────────────────────────────────────
 
-function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean }) {
+function InstructionsTab({ agent, canEdit, onAgentUpdate }: { agent: Agent; canEdit: boolean; onAgentUpdate: (a: Agent) => void }) {
+  // ── Export / Import ────────────────────────────────────────────────────
+  const [exporting, setExporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<AgentExportPayload | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Persona library
+  const [personaLibOpen, setPersonaLibOpen] = useState(false);
+  const [libSearch, setLibSearch] = useState('');
+  const [libCategory, setLibCategory] = useState<PersonaCategory | 'all'>('all');
+  const [libSelected, setLibSelected] = useState<PersonaTemplate | null>(null);
+  const [libSkillSel, setLibSkillSel] = useState<Set<string>>(new Set());
+  const [libApplying, setLibApplying] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const [skillsRes, mdRes] = await Promise.all([
+        fetch(`/api/agents/${agent.id}/skills`),
+        fetch(`/api/agents/${agent.id}/claude-md`),
+      ]);
+      const skills: Skill[] = await skillsRes.json();
+      const claudeMd = await mdRes.text();
+      const payload: AgentExportPayload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        persona: agent.persona ?? '',
+        description: agent.description ?? '',
+        claudeMd,
+        skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${agent.slug}-export.json`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setImportError('');
+    if (!file.name.endsWith('.json')) { setImportError('File must be a .json export'); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (!data || typeof data !== 'object') { setImportError('Invalid file: not a JSON object'); return; }
+        if (typeof data.claudeMd !== 'string') { setImportError('Invalid file: missing claudeMd field'); return; }
+        if (!Array.isArray(data.skills)) { setImportError('Invalid file: missing skills array'); return; }
+        for (let i = 0; i < data.skills.length; i++) {
+          const s = data.skills[i];
+          if (!s.category || typeof s.category !== 'string') { setImportError(`Invalid skill #${i + 1}: missing category`); return; }
+          if (!s.filename || typeof s.filename !== 'string') { setImportError(`Invalid skill #${i + 1}: missing filename`); return; }
+          if (typeof s.content !== 'string') { setImportError(`Invalid skill #${i + 1}: missing content`); return; }
+        }
+        setImportPreview(data);
+      } catch { setImportError('Could not parse file — must be valid JSON'); }
+    };
+    reader.readAsText(file);
+  };
+
+  const applyImport = async (payload?: AgentExportPayload) => {
+    const data = payload ?? importPreview;
+    if (!data) return;
+    setImporting(true);
+    try {
+      if (data.persona !== undefined || data.description !== undefined) {
+        await fetch(`/api/agents/${agent.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...(data.persona !== undefined && { persona: data.persona }),
+            ...(data.description !== undefined && { description: data.description }),
+          }),
+        });
+      }
+      await fetch(`/api/agents/${agent.id}/claude-md`, {
+        method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: data.claudeMd,
+      });
+      await Promise.all(data.skills.map(s =>
+        fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
+        })
+      ));
+      const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
+      onAgentUpdate(updated);
+      setImportPreview(null);
+      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
+    } finally { setImporting(false); }
+  };
+
+  // ── Optimize ───────────────────────────────────────────────────────────
   const [optimizing, setOptimizing] = useState(false);
   const [optimizeResult, setOptimizeResult] = useState<any>(null);
   const [optimizeError, setOptimizeError] = useState('');
@@ -848,6 +714,114 @@ function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean })
 
   return (
     <div className="fade-up">
+      <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+
+      {/* ── Import confirmation modal ────────────────────────────────── */}
+      {importPreview && (
+        <Portal>
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }} onClick={() => setImportPreview(null)}>
+            <div style={{
+              background: 'var(--surface)', borderRadius: 14, padding: '28px 32px',
+              maxWidth: 480, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+            }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+                Import agent config
+              </h3>
+              <div style={{
+                display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
+                background: 'var(--surface-2)', border: '1.5px solid var(--red-soft-border)', borderRadius: 8,
+              }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
+                    This will overwrite current CLAUDE.md and skills
+                  </div>
+                  <div style={{ fontSize: 12, color: '#9f1239' }}>
+                    Existing CLAUDE.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
+                <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <PrimaryBtn onClick={() => applyImport()} loading={importing}>Apply Import</PrimaryBtn>
+                <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* ── Persona Library modal ────────────────────────────────────── */}
+      {personaLibOpen && (
+        <PersonaLibraryModal
+          agentId={agent.id}
+          fileInputRef={fileInputRef}
+          applying={libApplying}
+          search={libSearch}
+          onSearchChange={setLibSearch}
+          category={libCategory}
+          onCategoryChange={setLibCategory}
+          selected={libSelected}
+          onSelectPersona={(p) => {
+            setLibSelected(p);
+            setLibSkillSel(new Set(p.skills.map(s => s.filename)));
+          }}
+          onBack={() => setLibSelected(null)}
+          skillSel={libSkillSel}
+          onToggleSkill={(fn) => setLibSkillSel(prev => {
+            const next = new Set(prev);
+            if (next.has(fn)) next.delete(fn); else next.add(fn);
+            return next;
+          })}
+          onImportFull={async (template) => {
+            setLibApplying(true);
+            try {
+              const existing = await fetch(`/api/agents/${agent.id}/skills`).then(r => r.json());
+              await Promise.all((existing as { id: string }[]).map(s =>
+                fetch(`/api/agents/${agent.id}/skills/${s.id}?noSnapshot=1`, { method: 'DELETE' })
+              ));
+              await applyImport({
+                version: 1,
+                persona: template.persona,
+                description: template.description,
+                claudeMd: template.claudeMd,
+                skills: template.skills,
+              });
+            } finally {
+              setLibApplying(false);
+              setPersonaLibOpen(false);
+              setLibSelected(null);
+            }
+          }}
+          onImportSkills={async (template, selected) => {
+            setLibApplying(true);
+            try {
+              const skills = template.skills.filter(s => selected.has(s.filename));
+              await Promise.all(skills.map(s =>
+                fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
+                })
+              ));
+              const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
+              onAgentUpdate(updated);
+              window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
+            } finally {
+              setLibApplying(false);
+              setPersonaLibOpen(false);
+              setLibSelected(null);
+            }
+          }}
+          onClose={() => { setPersonaLibOpen(false); setLibSelected(null); setLibSearch(''); setLibCategory('all'); }}
+        />
+      )}
+
       {/* ── Optimize error ───────────────────────────────────────────── */}
       {optimizeError && (
         <div style={{
@@ -973,23 +947,37 @@ function InstructionsTab({ agent, canEdit }: { agent: Agent; canEdit: boolean })
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             System Prompt
+            {importError && <span style={{ fontSize: 11, color: 'var(--danger)', marginLeft: 8, fontWeight: 400, textTransform: 'none' }}>{importError}</span>}
           </div>
-          {canEdit && !agent.isBoss && (
-            <button onClick={runOptimize} disabled={optimizing} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              background: optimizing ? 'var(--surface-2)' : 'var(--surface)',
-              border: '1px solid var(--border)', borderRadius: 7,
-              padding: '5px 12px', fontSize: 12, fontWeight: 500,
-              cursor: optimizing ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
-              color: optimizing ? 'var(--muted)' : 'var(--text)',
-            }}>
-              {optimizing ? (
-                <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Analyzing...</>
-              ) : (
-                <><Wand2 size={13} /> Optimize</>
-              )}
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconBtn title="Export instructions as JSON" onClick={handleExport} loading={exporting}>
+              <Download size={14} />
+            </IconBtn>
+            {canEdit && (
+              <IconBtn title="Import persona" onClick={() => setPersonaLibOpen(true)}>
+                <Upload size={14} />
+              </IconBtn>
+            )}
+            {canEdit && !agent.isBoss && (
+              <>
+                <div style={{ width: 1, height: 16, background: 'var(--border)' }} />
+                <button onClick={runOptimize} disabled={optimizing} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: optimizing ? 'var(--surface-2)' : 'var(--surface)',
+                  border: '1px solid var(--border)', borderRadius: 7,
+                  padding: '5px 12px', fontSize: 12, fontWeight: 500,
+                  cursor: optimizing ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+                  color: optimizing ? 'var(--muted)' : 'var(--text)',
+                }}>
+                  {optimizing ? (
+                    <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Analyzing...</>
+                  ) : (
+                    <><Wand2 size={13} /> Optimize</>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
         {agent.isBoss ? (
           <>
@@ -1881,7 +1869,7 @@ function WikiTree({ articles, onSelect, selected }: { articles: WikiArticle[]; o
 
 // ─── Knowledge ──────────────────────────────────────────────────────────────
 
-function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentSlug: string; canEdit: boolean }) {
   const [sources, setSources] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [addType, setAddType] = useState<'url' | 'file' | 'repo'>('url');
@@ -1903,6 +1891,10 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
   const [selectedArticle, setSelectedArticle] = useState<string | null>(null);
   const [articleContent, setArticleContent] = useState('');
   const [loadingArticle, setLoadingArticle] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const wikiUploadRef = useRef<HTMLInputElement>(null);
 
   const loadSources = () => {
     fetch(`/api/agents/${agentId}/knowledge`).then(r => r.json()).then(setSources).catch(() => {});
@@ -2039,7 +2031,7 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
             {' '}<a href="https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 12 }}>Inspired by Karpathy's LLM Wiki</a>
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {canEdit && sources.length > 0 && (
             <button onClick={buildWiki} disabled={building} style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -2062,6 +2054,14 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
           )}
         </div>
       </div>
+
+      {/* Upload error */}
+      {uploadError && (
+        <div style={{ background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--red)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {uploadError}
+          <button onClick={() => setUploadError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red)', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
+        </div>
+      )}
 
       {/* Build progress */}
       {building && buildStep && (
@@ -2289,11 +2289,80 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; canEdit: boolean 
                 {wikiData.articles.length} articles · {wikiData.totalWords.toLocaleString()} words
               </span>
             </div>
-            {wikiData.lastBuilt && (
-              <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
-                Built {new Date(wikiData.lastBuilt).toLocaleDateString()} {new Date(wikiData.lastBuilt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {wikiData.lastBuilt && (
+                <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                  Built {new Date(wikiData.lastBuilt).toLocaleDateString()} {new Date(wikiData.lastBuilt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              <button
+                onClick={async () => {
+                  setDownloading(true);
+                  try {
+                    const r = await fetch(`/api/agents/${agentId}/knowledge/download`);
+                    if (!r.ok) { const d = await r.json(); setUploadError(d.error ?? 'Download failed'); return; }
+                    const blob = await r.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `${agentSlug}-wiki.tar.gz`; a.click();
+                    URL.revokeObjectURL(url);
+                  } catch { setUploadError('Download failed — check your connection'); }
+                  finally { setDownloading(false); }
+                }}
+                disabled={downloading}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
+                  padding: '5px 12px', fontSize: 12, fontWeight: 500,
+                  cursor: downloading ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+                  color: downloading ? 'var(--muted)' : 'var(--text)',
+                }}
+              >
+                {downloading ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Downloading...</> : <><Download size={13} /> Download</>}
+              </button>
+              {canEdit && (
+                <>
+                  <button
+                    onClick={() => wikiUploadRef.current?.click()}
+                    disabled={uploading}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
+                      padding: '5px 12px', fontSize: 12, fontWeight: 500,
+                      cursor: uploading ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+                      color: uploading ? 'var(--muted)' : 'var(--text)',
+                    }}
+                  >
+                    {uploading ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Uploading...</> : <><Upload size={13} /> Restore</>}
+                  </button>
+                  <input
+                    ref={wikiUploadRef}
+                    type="file"
+                    accept=".tar.gz,.tgz"
+                    style={{ display: 'none' }}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = '';
+                      setUploadError('');
+                      if (!file.name.endsWith('.tar.gz') && !file.name.endsWith('.tgz')) {
+                        setUploadError('File must be a .tar.gz archive');
+                        return;
+                      }
+                      setUploading(true);
+                      try {
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        const r = await fetch(`/api/agents/${agentId}/knowledge/upload`, { method: 'POST', body: fd });
+                        if (r.ok) { loadWiki(); }
+                        else { const d = await r.json(); setUploadError(d.error ?? 'Upload failed'); }
+                      } catch { setUploadError('Upload failed — check your connection'); }
+                      finally { setUploading(false); }
+                    }}
+                  />
+                </>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: 14, height: 480 }}>
