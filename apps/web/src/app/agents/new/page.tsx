@@ -150,8 +150,20 @@ export default function NewAgentWizard() {
         ));
       }
 
+      // Kick off bootstrap in the background — don't await. The route returns
+      // 202 quickly; the runner then drafts claude.md + skills and writes the
+      // result to the coach session. The Instructions tab polls it live.
+      const seed = [state.description?.trim(), state.persona?.trim()].filter(Boolean).join('\n\n');
+      if (!state.importPayload && !state.isBoss && seed.length > 0) {
+        fetch(`/api/agents/${data.id}/coach`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userMessage: seed, autoApply: true, detached: true }),
+        }).catch(() => { /* non-fatal; user can run Coach manually */ });
+      }
+
       window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
-      router.push(`/agents/${data.slug}`);
+      router.push(`/agents/${data.slug}?coach=open`);
     } finally { setSubmitting(false); }
   };
 

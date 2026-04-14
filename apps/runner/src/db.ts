@@ -410,25 +410,8 @@ export async function getAllEnvVarValues(): Promise<Record<string, string>> {
 }
 
 // =============================================================================
-// Optimize Results (stored in settings table with namespaced key)
+// Async result helper (namespaced settings row)
 // =============================================================================
-
-export async function setOptimizeResult(requestId: string, result: string): Promise<void> {
-  const id = randomUUID();
-  await getDb().query(
-    `INSERT INTO settings (key, value) VALUES ($1, $2)
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [`optimize:${requestId}`, result]
-  );
-}
-
-export async function getOptimizeResult(requestId: string): Promise<string | null> {
-  const r = await getDb().query(
-    'SELECT value FROM settings WHERE key = $1',
-    [`optimize:${requestId}`]
-  );
-  return r.rows.length ? r.rows[0].value as string : null;
-}
 
 /** Write a result to the settings table with the exact key (no prefix). */
 export async function setResult(key: string, value: string): Promise<void> {
@@ -437,25 +420,4 @@ export async function setResult(key: string, value: string): Promise<void> {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
     [key, value]
   );
-}
-
-/**
- * Find all pending optimize requests.
- * Returns array of { requestId, agentId }.
- */
-export async function getPendingOptimizeRequests(): Promise<{ requestId: string; agentId: string }[]> {
-  const r = await getDb().query(
-    "SELECT key, value FROM settings WHERE key LIKE 'optimize:%'"
-  );
-  const pending: { requestId: string; agentId: string }[] = [];
-  for (const row of r.rows) {
-    try {
-      const data = JSON.parse(row.value as string);
-      if (data.status === 'pending') {
-        const requestId = (row.key as string).replace('optimize:', '');
-        pending.push({ requestId, agentId: data.agentId });
-      }
-    } catch { /* skip malformed */ }
-  }
-  return pending;
 }

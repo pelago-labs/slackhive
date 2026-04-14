@@ -12,13 +12,14 @@
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
 import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
 import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared';
 import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import { lineDiff, type DiffLine } from '@/lib/diff';
+import { CoachPanel } from './coach-panel';
 
 type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'logs' | 'history';
 
@@ -53,10 +54,23 @@ const STATUS_COLOR = { running: '#16a34a', stopped: 'var(--border-2)', error: '#
 export default function AgentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const { role, canManageUsers } = useAuth();
+  // Auto-open coach when arriving from the new-agent wizard (?coach=open).
+  // useSearchParams is hydration-safe (returns the same value on server + client).
+  const initialCoachOpen = useSearchParams().get('coach') === 'open';
+  const [coachOpen, setCoachOpen] = useState(initialCoachOpen);
   const [agent, setAgent] = useState<Agent | null>(null);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [canEdit, setCanEdit] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
+
+  // Strip ?coach=open from the URL after the first render so refreshing
+  // the page doesn't keep reopening the panel.
+  useEffect(() => {
+    if (!initialCoachOpen) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('coach');
+    window.history.replaceState({}, '', url.toString());
+  }, [initialCoachOpen]);
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState('');
 
@@ -204,21 +218,31 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} />}
-        {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} onOpenCoach={() => setCoachOpen(true)} />}
+        {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
         {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
       </div>
+
+      {/* Coach is a slide-over — rendered once at page level so it floats over
+          any tab, not just Instructions. */}
+      <CoachPanel
+        agentId={agent.id}
+        agentName={agent.name}
+        open={coachOpen}
+        onClose={() => setCoachOpen(false)}
+        canEdit={canEdit && !agent.isBoss}
+      />
     </div>
   );
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null; onOpenCoach?: () => void }) {
   const [form, setForm] = useState({
     name:               agent.name,
     description:        agent.description ?? '',
@@ -577,7 +601,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
 
 // ─── CLAUDE.md viewer ─────────────────────────────────────────────────────────
 
-function InstructionsTab({ agent, canEdit, onAgentUpdate }: { agent: Agent; canEdit: boolean; onAgentUpdate: (a: Agent) => void }) {
+function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent: Agent; canEdit: boolean; onAgentUpdate: (a: Agent) => void; onOpenCoach?: () => void }) {
   // ── Export / Import ────────────────────────────────────────────────────
   const [exporting, setExporting] = useState(false);
   const [importPreview, setImportPreview] = useState<AgentExportPayload | null>(null);
@@ -670,72 +694,6 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate }: { agent: Agent; canE
       setImportPreview(null);
       window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
     } finally { setImporting(false); }
-  };
-
-  // ── Optimize ───────────────────────────────────────────────────────────
-  const [optimizing, setOptimizing] = useState(false);
-  const [optimizeResult, setOptimizeResult] = useState<any>(null);
-  const [optimizeError, setOptimizeError] = useState('');
-
-  // Load last optimize result on mount
-  useEffect(() => {
-    fetch(`/api/agents/${agent.id}/optimize`).then(r => r.json()).then(data => {
-      if (data.status === 'done') setOptimizeResult(data);
-      else if (data.status === 'pending' || data.status === 'running') {
-        // Resume polling
-        setOptimizing(true);
-        const poll = async () => {
-          for (let i = 0; i < 60; i++) {
-            await new Promise(res => setTimeout(res, 2000));
-            const r = await fetch(`/api/agents/${agent.id}/optimize?requestId=${data.requestId}`);
-            const d = await r.json();
-            if (d.status === 'done') { setOptimizeResult(d); setOptimizing(false); return; }
-            if (d.status === 'error') { setOptimizeError(d.error); setOptimizing(false); return; }
-          }
-          setOptimizing(false);
-        };
-        poll();
-      }
-    }).catch(() => {});
-  }, [agent.id]);
-
-  const runOptimize = async () => {
-    if (optimizing) { setOptimizeError('Optimization already running.'); return; }
-    setOptimizing(true);
-    setOptimizeResult(null);
-    setOptimizeError('');
-    try {
-      const r = await fetch(`/api/agents/${agent.id}/optimize`, { method: 'POST' });
-      if (!r.ok) {
-        const err = await r.json();
-        setOptimizeError(err.error || 'Failed to start optimization');
-        setOptimizing(false);
-        return;
-      }
-      const { requestId } = await r.json();
-
-      // Poll for result
-      for (let i = 0; i < 60; i++) {
-        await new Promise(res => setTimeout(res, 2000));
-        const poll = await fetch(`/api/agents/${agent.id}/optimize?requestId=${requestId}`);
-        const data = await poll.json();
-        if (data.status === 'done') {
-          setOptimizeResult(data);
-          setOptimizing(false);
-          return;
-        }
-        if (data.status === 'error') {
-          setOptimizeError(data.error || 'Optimization failed');
-          setOptimizing(false);
-          return;
-        }
-      }
-      setOptimizeError('Optimization timed out. Try again.');
-    } catch (err) {
-      setOptimizeError((err as Error).message);
-    } finally {
-      setOptimizing(false);
-    }
   };
 
   return (
@@ -848,126 +806,6 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate }: { agent: Agent; canE
         />
       )}
 
-      {/* ── Optimize error ───────────────────────────────────────────── */}
-      {optimizeError && (
-        <div style={{
-          background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)',
-          borderRadius: 8, padding: '10px 14px', marginBottom: 16,
-          fontSize: 12.5, color: 'var(--red)',
-        }}>
-          {optimizeError}
-        </div>
-      )}
-
-      {/* ── Optimize results ─────────────────────────────────────────── */}
-      {optimizeResult && (
-        <div style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 10, padding: '18px 20px', marginBottom: 20,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Wand2 size={15} style={{ color: 'var(--muted)' }} />
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Optimization Suggestions</span>
-            </div>
-            <div style={{
-              fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 12,
-              background: optimizeResult.score >= 70 ? 'rgba(16,185,129,0.1)' : optimizeResult.score >= 40 ? 'var(--amber-soft-bg)' : 'var(--red-soft-bg)',
-              color: optimizeResult.score >= 70 ? 'var(--green)' : optimizeResult.score >= 40 ? 'var(--amber)' : 'var(--red)',
-            }}>
-              Score: {optimizeResult.score}/100
-            </div>
-          </div>
-          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>{optimizeResult.summary}</p>
-
-          {/* System prompt suggestion */}
-          {optimizeResult.systemPrompt?.suggestion && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>System Prompt</div>
-              {optimizeResult.systemPrompt.issues?.length > 0 && (
-                <ul style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 12, color: 'var(--amber)' }}>
-                  {optimizeResult.systemPrompt.issues.map((issue: string, i: number) => <li key={i}>{issue}</li>)}
-                </ul>
-              )}
-              <pre style={{
-                background: 'var(--surface-2)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '10px 12px', fontSize: 11.5, color: 'var(--text)',
-                whiteSpace: 'pre-wrap', lineHeight: 1.5, maxHeight: 200, overflow: 'auto',
-                fontFamily: 'var(--font-mono)',
-              }}>{optimizeResult.systemPrompt.suggestion}</pre>
-              <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '4px 0 6px' }}>{optimizeResult.systemPrompt.explanation}</p>
-              <button onClick={async () => {
-                await fetch(`/api/agents/${agent.id}/claude-md`, { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: optimizeResult.systemPrompt.suggestion });
-                setOptimizeResult((prev: any) => ({ ...prev, systemPrompt: { ...prev.systemPrompt, applied: true } }));
-              }} disabled={optimizeResult.systemPrompt.applied} style={{
-                fontSize: 11.5, fontWeight: 500, padding: '5px 12px', borderRadius: 6,
-                background: optimizeResult.systemPrompt.applied ? 'var(--green)' : 'var(--accent)',
-                color: optimizeResult.systemPrompt.applied ? '#fff' : 'var(--accent-fg)', border: 'none', cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-              }}>{optimizeResult.systemPrompt.applied ? 'Applied' : 'Apply System Prompt'}</button>
-            </div>
-          )}
-
-          {/* Skill suggestions */}
-          {optimizeResult.skills?.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Skills</div>
-              {optimizeResult.skills.map((s: any, i: number) => (
-                <div key={i} style={{
-                  background: 'var(--surface-2)', border: '1px solid var(--border)',
-                  borderRadius: 6, padding: '10px 12px', marginBottom: 8,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 3,
-                      background: s.action === 'create' ? 'rgba(16,185,129,0.1)' : s.action === 'delete' ? 'var(--red-soft-bg)' : 'var(--amber-soft-bg)',
-                      color: s.action === 'create' ? 'var(--green)' : s.action === 'delete' ? 'var(--red)' : 'var(--amber)',
-                    }}>{s.action.toUpperCase()}</span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{s.category}/{s.filename}</span>
-                  </div>
-                  <p style={{ fontSize: 11.5, color: 'var(--subtle)', margin: '2px 0 6px' }}>{s.explanation}</p>
-                  {s.suggestion && s.action !== 'delete' && (
-                    <button onClick={async () => {
-                      await fetch(`/api/agents/${agent.id}/skills`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ category: s.category, filename: s.filename, content: s.suggestion }),
-                      });
-                      setOptimizeResult((prev: any) => ({
-                        ...prev,
-                        skills: prev.skills.map((sk: any) => sk.filename === s.filename ? { ...sk, applied: true } : sk),
-                      }));
-                    }} disabled={s.applied} style={{
-                      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 5,
-                      background: s.applied ? 'var(--green)' : 'var(--surface)',
-                      border: `1px solid ${s.applied ? 'var(--green)' : 'var(--border)'}`, cursor: 'pointer',
-                      fontFamily: 'var(--font-sans)', color: s.applied ? '#fff' : 'var(--text)',
-                    }}>{s.applied ? 'Applied' : 'Apply'}</button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Tips */}
-          {optimizeResult.tips?.length > 0 && (
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Tips</div>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
-                {optimizeResult.tips.map((tip: string, i: number) => <li key={i}>{tip}</li>)}
-              </ul>
-            </div>
-          )}
-
-          <button onClick={() => {
-            setOptimizeResult(null);
-            fetch(`/api/agents/${agent.id}/optimize`, { method: 'DELETE' }).catch(() => {});
-          }} style={{
-            marginTop: 12, fontSize: 11, color: 'var(--subtle)', background: 'none', border: 'none',
-            cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}>Dismiss</button>
-        </div>
-      )}
-
       {/* ── System Prompt ───────────────────────────────────────────────── */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -987,19 +825,15 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate }: { agent: Agent; canE
             {canEdit && !agent.isBoss && (
               <>
                 <div style={{ width: 1, height: 16, background: 'var(--border)' }} />
-                <button onClick={runOptimize} disabled={optimizing} style={{
+                <button onClick={() => onOpenCoach?.()} style={{
                   display: 'inline-flex', alignItems: 'center', gap: 5,
-                  background: optimizing ? 'var(--surface-2)' : 'var(--surface)',
+                  background: 'var(--surface)',
                   border: '1px solid var(--border)', borderRadius: 7,
                   padding: '5px 12px', fontSize: 12, fontWeight: 500,
-                  cursor: optimizing ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
-                  color: optimizing ? 'var(--muted)' : 'var(--text)',
+                  cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                  color: 'var(--text)',
                 }}>
-                  {optimizing ? (
-                    <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Analyzing...</>
-                  ) : (
-                    <><Wand2 size={13} /> Optimize</>
-                  )}
+                  <Wand2 size={13} /> Coach
                 </button>
               </>
             )}
@@ -1077,14 +911,24 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
   const [msg, setMsg] = useState('');
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
+  const refetch = () => {
     setLoading(true);
     fetch(`/api/agents/${agentId}/claude-md`)
       .then(r => r.text())
       .then(t => { setContent(t); setDirty(false); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [agentId]);
+  };
+
+  useEffect(() => { refetch(); }, [agentId]);
+
+  // Re-fetch when Coach applies / finishes bootstrapping, but don't clobber
+  // a user's in-flight edits.
+  useEffect(() => {
+    const h = () => { if (!dirty) refetch(); };
+    window.addEventListener('slackhive:instructions-refresh', h);
+    return () => window.removeEventListener('slackhive:instructions-refresh', h);
+  }, [agentId, dirty]);
 
   const save = async () => {
     setSaving(true);
@@ -1151,6 +995,13 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     fetch(`/api/agents/${agentId}/skills`).then(r => r.json()).then(setSkills);
 
   useEffect(() => { load(); }, [agentId]);
+
+  // Re-fetch when Coach applies / finishes bootstrapping.
+  useEffect(() => {
+    const h = () => load();
+    window.addEventListener('slackhive:instructions-refresh', h);
+    return () => window.removeEventListener('slackhive:instructions-refresh', h);
+  }, [agentId]);
 
   const select = (s: Skill) => { setSelected(s); setContent(s.content); };
 
