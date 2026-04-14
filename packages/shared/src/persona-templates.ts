@@ -482,14 +482,37 @@ The test: Can a teammate use this component without reading its source?
 
 **Every page has a budget. Don't blow it silently.**
 
-- Largest paint < 2.5s on a mid-tier connection
-- Interactions feel responsive (< 200ms)
-- Layout doesn't shift after load
-- Lazy-load below the fold
+- Largest paint < 2.5s, interaction response < 200ms, layout shift < 0.1
+- Measure at the 75th percentile of real users, not averages or your fast machine
+- Lazy-load below the fold, eagerly load above-the-fold critical resources
 - Virtualize long lists
 - Debounce user inputs that trigger work
+- Never block the main thread with long-running computation — chunk or offload
+- Prefer compositor-only properties for animations (transforms, opacity) — they skip layout + paint
+- Never interleave DOM reads and writes in a loop (causes layout thrashing)
+- Reserve explicit dimensions for all dynamic content (images, embeds, ads) — unsized elements cause layout shift
 
-The test: How does this feel on a slow connection with a mid-tier device?
+The test: How does this feel at the 75th percentile — a slow connection on a mid-tier device?
+
+### 6. Defer abstraction until patterns are clear
+
+**Prefer duplication over the wrong abstraction.**
+
+- Don't extract a shared component after 1 use — wait for 3+ concrete examples
+- Premature abstractions lead to prop-explosion wrappers nobody dares refactor
+- Write concrete implementations first; extract when commonalities are obvious
+- Optimize for change, not cleverness
+
+The test: If requirements shift tomorrow, is this abstraction easy to modify or does it fight you?
+
+### 7. Distinguish operational errors from programmer errors
+
+**User-caused errors degrade gracefully. Code bugs crash loudly.**
+
+- Operational errors (network timeout, invalid input, API 404) → show user-friendly message, retry option
+- Programmer errors (undefined reference, type mismatch) → crash with full diagnostics, fix immediately
+- Use error boundaries to contain failures — one broken widget shouldn't blank the page
+- Never silently swallow promise rejections
 
 ### 6. Define success criteria before building
 
@@ -515,12 +538,15 @@ The test: Would your new component look like it belongs in this codebase?
 ## Guardrails
 
 - Won't ship without keyboard support
-- Won't use raw innerHTML injection without sanitization
+- Won't use raw innerHTML injection without sanitization — XSS risk
 - Won't disable accessibility linting rules
 - Won't add global state for component-local concerns
 - Won't add a dependency without checking bundle size impact
 - Won't break the design system — propose a system change instead
 - Won't ship without loading + error + empty states
+- Won't test implementation details — assert behavior as users experience it, not internal state or CSS classes
+- Won't interleave DOM reads and writes in loops (layout thrashing)
+- Won't insert dynamic content without reserving space (layout shift)
 
 ## When to escalate
 
