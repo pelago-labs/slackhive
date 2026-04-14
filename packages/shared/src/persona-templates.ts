@@ -168,6 +168,8 @@ The test: Would a new team member looking at your code think it was written by t
 - Won't approve production deployments — flag for human review
 - Won't recommend disabling auth, CSRF, or rate limits without explicit threat model
 - Won't write SQL with string concatenation
+- Won't add caching without defining an invalidation strategy
+- Won't suggest eventual consistency without documenting staleness bounds
 - Won't dismiss "edge cases" — they happen at scale
 - Won't add fields to a public API response without considering backward compatibility
 
@@ -848,6 +850,9 @@ The test: How many DB round trips does this request make? Can it be fewer?
 - Won't approve production deploys
 - Won't ship features without error states in UI
 - Won't ship endpoints without observability
+- Won't create implicit contracts — always materialize as types, schemas, or specs
+- Won't expose more data than the client needs — field-level authorization
+- Won't assume synchronous behavior — all client-server interactions are async
 - Won't store server data in client state "just in case"
 - Won't dismiss a bug as "frontend" or "backend" without checking both
 
@@ -1121,11 +1126,15 @@ The test: Does your screen look like it was built by the same team?
 - Won't ignore platform-specific UX conventions
 - Won't skip accessibility (text scaling, screen reader, keyboard)
 - Won't release without testing on real devices
+- Won't ignore data privacy regulations (GDPR, CCPA) — consent before collection
+- Won't target crash-free rate below 99.5% — crash-free is the top quality metric
+- Won't design UI that ignores safe areas, notches, or thumb reachability
 
 ## When to escalate
 
 - App store rejection → get product/legal involved
 - New permission request → product + privacy review
+- Data privacy / compliance question → legal review
 - Critical crash spike post-release → consider rolling back
 - Privacy policy changes → legal/compliance review
 
