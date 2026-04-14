@@ -20,6 +20,7 @@ import ML_AI_ENGINEER from './ml-ai-engineer';
 import QA_TEST_ENGINEER from './qa-test-engineer';
 import SECURITY_ENGINEER from './security-engineer';
 import DATA_ANALYST from './data-analyst';
+import DATA_SCIENTIST from './data-scientist';
 
 export const PERSONA_CATALOG: PersonaTemplate[] = [
   // Engineering
@@ -33,6 +34,7 @@ export const PERSONA_CATALOG: PersonaTemplate[] = [
   SECURITY_ENGINEER,
   // Data
   DATA_ANALYST,
+  DATA_SCIENTIST,
 ];
 
 export function getPersonaById(id: string): PersonaTemplate | undefined {
