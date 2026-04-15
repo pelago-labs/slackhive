@@ -17,9 +17,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMcpServerById, getEnvVarValues } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 import { spawn } from 'child_process';
-import { writeFile, unlink, mkdir } from 'fs/promises';
+import { writeFile, unlink, mkdir, access } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, delimiter } from 'path';
 import type { McpStdioConfig, McpSseConfig } from '@slackhive/shared';
 
 export const dynamic = 'force-dynamic';
@@ -77,6 +77,32 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
   }
 }
 
+/** Candidate node_modules roots to search, ordered by preference. */
+function nmCandidates(): string[] {
+  const cwd = process.cwd(); // apps/web when launched from there, or workspace root
+  return [
+    join(cwd, 'node_modules'),                // workspace root (native)
+    join(cwd, '..', '..', 'node_modules'),    // two up from apps/web (monorepo root)
+    '/app/node_modules',                       // Docker
+  ];
+}
+
+async function resolveTsx(): Promise<string> {
+  for (const nm of nmCandidates()) {
+    const p = join(nm, '.bin', 'tsx');
+    try { await access(p); return p; } catch { /* try next */ }
+  }
+  return 'tsx'; // last resort: PATH lookup
+}
+
+async function resolveNodePath(): Promise<string> {
+  const found: string[] = [];
+  for (const nm of nmCandidates()) {
+    try { await access(nm); found.push(nm); } catch { /* skip */ }
+  }
+  return found.join(delimiter);
+}
+
 /**
  * Spawns a stdio MCP process, sends an MCP initialize request, and verifies
  * the response. Resolves envRefs from the env_vars store before spawning.
@@ -104,13 +130,14 @@ async function testStdioMcp(
     await mkdir(dir, { recursive: true });
     tmpScript = join(dir, `test-${Date.now()}.ts`);
     await writeFile(tmpScript, cfg.tsSource, 'utf8');
-    command = 'tsx';
+    command = await resolveTsx();
     args = [tmpScript];
   } else {
     command = cfg.command;
     args = cfg.args ?? [];
   }
 
+  const nodePath = await resolveNodePath();
   const cleanup = () => { if (tmpScript) unlink(tmpScript).catch(() => {}); };
 
   return new Promise((resolve) => {
@@ -128,7 +155,7 @@ async function testStdioMcp(
     }, TIMEOUT_MS);
 
     const proc = spawn(command, args, {
-      env: { ...process.env, NODE_PATH: '/app/node_modules', ...resolvedEnv },
+      env: { ...process.env, NODE_PATH: nodePath, ...resolvedEnv },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
