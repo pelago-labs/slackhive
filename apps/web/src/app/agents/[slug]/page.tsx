@@ -228,6 +228,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
     slackAppToken:      agent.slackAppToken,
     slackSigningSecret: agent.slackSigningSecret,
     isBoss:             agent.isBoss,
+    verbose:            agent.verbose ?? true,
     reportsTo:          agent.reportsTo ?? [] as string[],
   });
   const [saving, setSaving]             = useState(false);
@@ -267,6 +268,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
             description: form.description,
             model: form.model,
             isBoss: form.isBoss,
+            verbose: form.verbose,
             reportsTo: form.reportsTo,
             ...(form.slackBotToken && {
               platformCredentials: {
@@ -324,6 +326,30 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
         <TextArea label="Persona" value={form.persona}
           onChange={v => setForm(f => ({ ...f, persona: v }))}
           hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Verbose Responses</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              On: each step is posted as it happens. Off: only the final answer is sent as one message.
+            </div>
+          </div>
+          <button
+            disabled={!canEdit}
+            onClick={() => setForm(f => ({ ...f, verbose: !f.verbose }))}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none',
+              background: form.verbose ? '#3b82f6' : 'var(--border-2)',
+              cursor: canEdit ? 'pointer' : 'default',
+              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: 3, left: form.verbose ? 23 : 3,
+              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
+              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+          </button>
+        </div>
       </Section>
 
       <Section title="Role & Hierarchy">

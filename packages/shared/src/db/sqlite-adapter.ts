@@ -117,7 +117,7 @@ function deserializeRow(row: Record<string, unknown>): DbRow {
       try { out[key] = JSON.parse(value); } catch { out[key] = []; }
     } else if (JSON_COLUMNS.has(key) && typeof value === 'string') {
       try { out[key] = JSON.parse(value); } catch { out[key] = value; }
-    } else if (key === 'enabled' || key === 'is_boss') {
+    } else if (key === 'enabled' || key === 'is_boss' || key === 'verbose') {
       // SQLite stores booleans as 0/1
       out[key] = value === 1 || value === true;
     } else {
@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS agents (
                                      CHECK (status IN ('running', 'stopped', 'error')),
   enabled              INTEGER NOT NULL DEFAULT 1,
   is_boss              INTEGER NOT NULL DEFAULT 0,
+  verbose              INTEGER NOT NULL DEFAULT 1,
   reports_to           TEXT NOT NULL DEFAULT '[]',
   claude_md            TEXT NOT NULL DEFAULT '',
   created_by           TEXT NOT NULL DEFAULT 'system',

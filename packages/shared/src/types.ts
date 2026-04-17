@@ -128,6 +128,12 @@ export interface Agent {
    * A boss agent's CLAUDE.md registry is auto-generated from agents that report to it.
    */
   isBoss: boolean;
+  /**
+   * When true (default), each assistant text block is posted to the platform immediately.
+   * When false, only the final answer is sent as a single message.
+   * @default true
+   */
+  verbose: boolean;
   /** UUIDs of boss agents this agent reports to. Empty array if this agent is a boss. */
   reportsTo: string[];
   /**
@@ -487,6 +493,7 @@ export interface UpdateAgentRequest {
   model?: string;
   isBoss?: boolean;
   reportsTo?: string[];
+  verbose?: boolean;
 }
 
 /**

@@ -40,6 +40,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     status: 'stopped',
     enabled: true,
     isBoss: false,
+    verbose: true,
     reportsTo: [],
     claudeMd: '',
     createdBy: 'system',

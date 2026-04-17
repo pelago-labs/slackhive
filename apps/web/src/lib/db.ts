@@ -91,6 +91,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     status: row.status as AgentStatus,
     enabled: row.enabled !== false,
     isBoss: row.is_boss as boolean,
+    verbose: row.verbose !== 0 && row.verbose !== false,
     reportsTo: (row.reports_to as string[]) ?? [],
     claudeMd: (row.claude_md as string) ?? '',
     createdBy: (row.created_by as string) ?? 'system',
@@ -318,6 +319,7 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
   if (req.model !== undefined) { fields.push(`model = $${idx++}`); values.push(req.model); }
   if (req.isBoss !== undefined) { fields.push(`is_boss = $${idx++}`); values.push(req.isBoss); }
   if (req.reportsTo !== undefined) { fields.push(`reports_to = $${idx++}`); values.push(req.reportsTo); }
+  if (req.verbose !== undefined) { fields.push(`verbose = $${idx++}`); values.push(req.verbose); }
 
   // Upsert platform credentials if provided
   if (req.platformCredentials) {

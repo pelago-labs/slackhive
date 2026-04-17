@@ -110,8 +110,11 @@ export class MessageHandler {
             }
           } else if (textContent) {
             if (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate')) continue;
-            sentMessages.push(textContent);
-            await this.postFormattedMessage(channelId, threadId, textContent);
+            if (this.agent.verbose !== false) {
+              sentMessages.push(textContent);
+              await this.postFormattedMessage(channelId, threadId, textContent);
+            }
+            // non-verbose: lastAssistantText already updated above; fallback posts it at end
           }
         } else if (message.type === 'user') {
           const userContent = (message as any).message?.content;

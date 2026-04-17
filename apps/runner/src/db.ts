@@ -39,6 +39,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     status: row.status as AgentStatus,
     enabled: row.enabled !== false && row.enabled !== 0,
     isBoss: row.is_boss === true || row.is_boss === 1,
+    verbose: row.verbose !== 0 && row.verbose !== false,
     reportsTo: (Array.isArray(row.reports_to) ? row.reports_to : []) as string[],
     claudeMd: (row.claude_md as string) ?? '',
     createdBy: (row.created_by as string) ?? 'system',
