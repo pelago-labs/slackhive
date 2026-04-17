@@ -76,12 +76,6 @@ export class MessageHandler {
     await this.swapReaction(channelId, messageId, sessionKey, 'thinking_face');
 
     let statusMsgId: string | undefined;
-    try {
-      statusMsgId = await this.adapter.postMessage(channelId, '*Thinking...*', threadId);
-    } catch (err) {
-      this.log.error('Failed to post status message', { error: err });
-      return;
-    }
 
     // Build prompt with thread context + files
     const prompt = await this.buildPrompt(channelId, threadId, text, files);
@@ -153,16 +147,13 @@ export class MessageHandler {
         await this.postFormattedMessage(channelId, threadId, fallback);
       }
 
-      // Done
-      if (statusMsgId) {
-        await this.adapter.updateMessage(channelId, statusMsgId, '*Done*').catch(() => {});
-      }
+      if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':white_check_mark:').catch(() => {});
       await this.swapReaction(channelId, messageId, sessionKey, 'white_check_mark');
 
     } catch (error: any) {
       if (error?.name === 'AbortError') {
         this.log.debug('Request aborted', { sessionKey });
-        if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, '*Cancelled*').catch(() => {});
+        if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':stop_button:').catch(() => {});
         await this.swapReaction(channelId, messageId, sessionKey, 'stop_button');
       } else {
         this.log.error('Error streaming Claude response', { sessionKey, error: error?.message });
