@@ -164,8 +164,16 @@ function nativeStart(dir: string): void {
     };
     let webPort = 3001;
     while (!isPortFree(webPort) && webPort < 3100) webPort++;
+    if (!isPortFree(webPort)) {
+      spinner.fail('No free port in range 3001–3099 for web UI');
+      return;
+    }
     let internalPort = 3002;
     while ((!isPortFree(internalPort) || internalPort === webPort) && internalPort < 3100) internalPort++;
+    if (!isPortFree(internalPort) || internalPort === webPort) {
+      spinner.fail('No free port in range 3002–3099 for internal runner');
+      return;
+    }
     env.PORT = String(webPort);
     env.RUNNER_INTERNAL_PORT = String(internalPort);
     if (webPort !== 3001) console.log(chalk.yellow(`  Port 3001 in use, using ${webPort}`));

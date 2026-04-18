@@ -466,6 +466,20 @@ export class AgentRunner {
       });
     });
 
+    // Bind the internal server. A runner without this endpoint is broken —
+    // the web UI can't dispatch agent reload/start/stop/MCP-auth events. The CLI
+    // pre-scans for a free port before spawning us, so hitting EADDRINUSE here
+    // means a race (another process bound between the pre-scan and now) or a
+    // user ran the runner directly without the CLI. Fail fast with a clear log
+    // instead of silently hanging.
+    this.internalServer.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        logger.error(`Internal server port ${port} is already in use. Run 'slackhive stop' and retry, or set RUNNER_INTERNAL_PORT to a free port.`);
+      } else {
+        logger.error('Internal server bind failed', { port, error: err.message });
+      }
+      process.exit(1);
+    });
     this.internalServer.listen(port, '127.0.0.1', () => {
       logger.info('Internal event server started', { port });
     });

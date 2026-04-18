@@ -142,8 +142,10 @@ export class McpProcessManager {
       );
     }
 
-    // Serve the proxy over SSE on a local port
-    const port = this.nextPort++;
+    // Serve the proxy over SSE on a local port.
+    // Use a mutable port holder so the closures reference the port actually bound
+    // after the retry loop (not the first one we tried).
+    const portRef = { port: this.nextPort };
     const sseTransports = new Map<string, SSEServerTransport>();
 
     const httpServer = http.createServer(async (req, res) => {
@@ -154,7 +156,7 @@ export class McpProcessManager {
           res.on('close', () => sseTransports.delete(sseTransport.sessionId));
           await proxyServer.connect(sseTransport);
         } else if (req.method === 'POST' && req.url?.startsWith('/message')) {
-          const sessionId = new URL(req.url, `http://127.0.0.1:${port}`).searchParams.get('sessionId') ?? '';
+          const sessionId = new URL(req.url, `http://127.0.0.1:${portRef.port}`).searchParams.get('sessionId') ?? '';
           const sseTransport = sseTransports.get(sessionId);
           if (sseTransport) {
             await sseTransport.handlePostMessage(req, res);
@@ -170,13 +172,47 @@ export class McpProcessManager {
       }
     });
 
-    await new Promise<void>((resolve, reject) => {
-      httpServer.once('error', reject);
-      httpServer.listen(port, '127.0.0.1', resolve);
-    });
+    // Bind the HTTP server on a free port, walking forward on EADDRINUSE.
+    // This handles two common cases:
+    //   1. TCP TIME_WAIT — ports stay bound for ~60s after a runner crash or stop.
+    //   2. slug-hash collisions between agents — two agents share a basePort,
+    //      the second just takes the next free slot.
+    // Scan size matches the per-agent slot width from claude-handler.ts (basePort + 50).
+    const MAX_PORT_TRIES = 50;
+    const startPort = this.nextPort;
+    let boundPort = -1;
+    let lastErr: Error | null = null;
 
-    const url = `http://127.0.0.1:${port}/sse`;
-    this.proxies.set(name, { client, httpServer, port, url });
+    for (let i = 0; i < MAX_PORT_TRIES; i++) {
+      const candidate = startPort + i;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onErr = (e: Error) => { httpServer.off('listening', onOk); reject(e); };
+          const onOk = () => { httpServer.off('error', onErr); resolve(); };
+          httpServer.once('error', onErr);
+          httpServer.once('listening', onOk);
+          httpServer.listen(candidate, '127.0.0.1');
+        });
+        boundPort = candidate;
+        break;
+      } catch (err) {
+        lastErr = err as Error;
+        if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
+        this.log.warn('MCP port in use, retrying on next', { server: name, port: candidate });
+      }
+    }
+
+    if (boundPort === -1) {
+      throw new Error(
+        `No free port in range ${startPort}..${startPort + MAX_PORT_TRIES - 1} for MCP "${name}": ${lastErr?.message ?? 'unknown'}`,
+      );
+    }
+
+    portRef.port = boundPort;
+    this.nextPort = boundPort + 1; // advance past the bound port for the next server in this agent
+
+    const url = `http://127.0.0.1:${boundPort}/sse`;
+    this.proxies.set(name, { client, httpServer, port: boundPort, url });
     this.log.info('MCP proxy listening', { server: name, url });
 
     return url;
