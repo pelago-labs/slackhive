@@ -69,7 +69,7 @@ export default function McpSettingsPage() {
   const [editingId, setEditingId]   = useState<string | null>(null);
   const [showForm, setShowForm]     = useState(false);
   const [envVarKeys, setEnvVarKeys] = useState<string[]>([]);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message?: string; error?: string } | 'testing'>>({});
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message?: string; error?: string; tools?: string[] } | 'testing'>>({});
   const formRef = useRef<HTMLDivElement>(null);
 
   // Template library state
@@ -307,7 +307,7 @@ export default function McpSettingsPage() {
     setTestResults(prev => ({ ...prev, [server.id]: 'testing' }));
     try {
       const r = await fetch(`/api/mcps/${server.id}/test`, { method: 'POST' });
-      const result = await r.json() as { ok: boolean; message?: string; error?: string };
+      const result = await r.json() as { ok: boolean; message?: string; error?: string; tools?: string[] };
       setTestResults(prev => ({ ...prev, [server.id]: result }));
     } catch {
       setTestResults(prev => ({ ...prev, [server.id]: { ok: false, error: 'Request failed' } }));
@@ -1095,7 +1095,7 @@ function ServerRow({
 }: {
   server: McpServer; isLast: boolean;
   onEdit: () => void; onDelete: () => void; onToggle: () => void; onTest: () => void;
-  testResult?: { ok: boolean; message?: string; error?: string } | 'testing';
+  testResult?: { ok: boolean; message?: string; error?: string; tools?: string[] } | 'testing';
   canEdit: boolean;
 }) {
   // Match against template for logo
@@ -1184,6 +1184,14 @@ function ServerRow({
           color: testResult.ok ? '#059669' : '#ef4444',
         }}>
           {testResult.ok ? '✓ ' : '✗ '}{testResult.ok ? testResult.message : testResult.error}
+          {testResult.ok && testResult.tools && testResult.tools.length > 0 && (
+            <div style={{
+              marginTop: 6, fontSize: 11.5, color: 'var(--subtle)',
+              fontFamily: 'var(--font-mono)', lineHeight: 1.5, wordBreak: 'break-all',
+            }}>
+              {testResult.tools.join(', ')}
+            </div>
+          )}
         </div>
       )}
     </div>

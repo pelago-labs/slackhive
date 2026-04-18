@@ -116,7 +116,7 @@ function nativeStart(dir: string): void {
     stopSpinner.succeed('Stopped existing instance');
   }
 
-  const spinner = ora('Starting SlackHive (native mode)...').start();
+  const spinner = ora('Starting SlackHive...').start();
 
   try {
     // Check if built
@@ -183,7 +183,6 @@ function nativeStart(dir: string): void {
 
     spinner.succeed(`SlackHive started (PID ${child.pid})`);
     console.log(chalk.gray(`  Web UI: http://localhost:${webPort}`));
-    console.log(chalk.gray('  Mode:   native (SQLite, no Docker)'));
     console.log(chalk.gray(`  Data:   ${getSlackhiveDir()}/data.db`));
     console.log(chalk.gray(`  Logs:   ${getSlackhiveDir()}/logs/runner.log`));
   } catch (err) {
