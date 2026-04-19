@@ -182,25 +182,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
                 <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--text)' }}>
                   {agent.name}
                 </h1>
-                <button
-                  onClick={() => setMode('test')}
-                  title="Test this agent — chat with it without connecting to Slack"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '3px 9px',
-                    background: 'rgba(99, 102, 241, 0.1)',
-                    border: '1px solid rgba(99, 102, 241, 0.3)',
-                    color: 'var(--accent)',
-                    borderRadius: 5,
-                    fontSize: 11.5,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    letterSpacing: 0.2,
-                  }}
-                >
-                  <MessageSquare size={11} />
-                  Test
-                </button>
                 {agent.isBoss && (
                   <span style={{
                     fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
@@ -223,6 +204,18 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
                 @{agent.slug} · {agent.model.replace('claude-', '').split('-20')[0]}
               </div>
+              {agent.lastError && agent.status !== 'running' && (
+                <div style={{
+                  fontSize: 12,
+                  color: 'var(--red)',
+                  marginTop: 6,
+                  maxWidth: 520,
+                  lineHeight: 1.4,
+                  wordBreak: 'break-word',
+                }}>
+                  {agent.lastError}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -230,6 +223,26 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16 }}>
           {actionMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{actionMsg}</span>}
+
+          <button
+            onClick={() => setMode('test')}
+            title="Test this agent — chat with it without connecting to Slack"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px',
+              background: 'rgba(99, 102, 241, 0.1)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              color: 'var(--accent)',
+              borderRadius: 6,
+              fontSize: 12.5,
+              fontWeight: 500,
+              cursor: 'pointer',
+              letterSpacing: 0.2,
+            }}
+          >
+            <MessageSquare size={13} />
+            Test
+          </button>
 
           <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
 

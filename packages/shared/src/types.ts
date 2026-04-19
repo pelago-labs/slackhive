@@ -146,6 +146,13 @@ export interface Agent {
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * Human-readable reason for the most recent start failure. Set by the runner
+   * when `status` transitions to 'error'; cleared when the agent starts
+   * successfully. Shown under the status chip on the agent detail page so the
+   * user immediately sees *why* an agent isn't running.
+   */
+  lastError?: string | null;
 }
 
 /**

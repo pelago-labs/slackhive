@@ -45,6 +45,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     createdBy: (row.created_by as string) ?? 'system',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
+    lastError: (row.last_error as string | null | undefined) ?? null,
   };
 }
 
@@ -155,11 +156,21 @@ export async function getAgentBySlackBotUserId(botUserId: string): Promise<Agent
   return agent;
 }
 
-export async function updateAgentStatus(id: string, status: AgentStatus): Promise<void> {
-  await getDb().query(
-    'UPDATE agents SET status = $1, updated_at = now() WHERE id = $2',
-    [status, id]
-  );
+export async function updateAgentStatus(id: string, status: AgentStatus, lastError?: string | null): Promise<void> {
+  // When lastError is explicitly passed (even null) we also write it. When it's
+  // undefined (default), the existing value is preserved — callers that don't
+  // care about the error text shouldn't accidentally wipe it.
+  if (lastError === undefined) {
+    await getDb().query(
+      'UPDATE agents SET status = $1, updated_at = now() WHERE id = $2',
+      [status, id]
+    );
+  } else {
+    await getDb().query(
+      'UPDATE agents SET status = $1, last_error = $2, updated_at = now() WHERE id = $3',
+      [status, lastError, id]
+    );
+  }
 }
 
 export async function updateAgentSlackUserId(id: string, slackBotUserId: string): Promise<void> {

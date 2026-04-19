@@ -39,6 +39,7 @@ import {
   getAllEnvVarValues,
   updateAgentStatus,
   setResult,
+  getPlatformIntegration,
 } from './db';
 import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
@@ -312,8 +313,9 @@ export class AgentRunner {
       try {
         await this.startAgent(agent);
       } catch (err) {
-        logger.error('Failed to start agent', { agent: agent.slug, error: (err as Error).message });
-        await updateAgentStatus(agent.id, 'error');
+        const msg = (err as Error).message;
+        logger.error('Failed to start agent', { agent: agent.slug, error: msg });
+        await updateAgentStatus(agent.id, 'error', msg);
       }
     }
   }
@@ -349,12 +351,12 @@ export class AgentRunner {
     ]);
 
     // Load platform integration from DB (needed for formatting rules in CLAUDE.md)
-    const { getPlatformIntegration, updateAgentSlackUserId } = await import('./db');
+    const { updateAgentSlackUserId } = await import('./db');
     const integration = await getPlatformIntegration(agent.id, 'slack');
     if (!integration) {
       logger.warn('No platform integration found — agent cannot start', { agent: agent.slug });
       // 'stopped', not 'error' — this is a not-yet-configured state, not a runtime failure.
-      await updateAgentStatus(agent.id, 'stopped');
+      await updateAgentStatus(agent.id, 'stopped', 'Slack is not configured for this agent.');
       return;
     }
 
@@ -392,7 +394,8 @@ export class AgentRunner {
     }
 
     this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, memoryWatcher });
-    await updateAgentStatus(agent.id, 'running');
+    // Success — clear any leftover error message from a prior failed start.
+    await updateAgentStatus(agent.id, 'running', null);
 
     logger.info('Agent started', {
       agent: agent.slug,
@@ -492,10 +495,18 @@ export class AgentRunner {
     const existing = session.participants.get(agent.id);
     if (existing) return existing;
 
-    const [permissions, envVarValues] = await Promise.all([
+    const [permissions, envVarValues, integration] = await Promise.all([
       getAgentPermissions(agent.id),
       getAllEnvVarValues(),
+      getPlatformIntegration(agent.id, 'slack'),
     ]);
+
+    // `getAgentById` reads the `agents` table only — the bot user ID lives in
+    // `platform_integrations`. The orchestrator's mention routing + the
+    // panel's `<@Uxxx>` rename both need it, so stamp it here.
+    if (!agent.slackBotUserId && integration?.botUserId) {
+      agent.slackBotUserId = integration.botUserId;
+    }
 
     // Compile this agent's CLAUDE.md into its real workDir, then clone
     // into an isolated participant subdir so test-session memory writes
@@ -606,16 +617,18 @@ export class AgentRunner {
 
       switch (event.type) {
         case 'reload':
-          this.reloadAgent(event.agentId).catch((err) =>
-            logger.error('Failed to reload agent', { agentId: event.agentId, error: err.message })
-          );
+          this.reloadAgent(event.agentId).catch(async (err) => {
+            logger.error('Failed to reload agent', { agentId: event.agentId, error: err.message });
+            await updateAgentStatus(event.agentId, 'error', err.message).catch(() => {});
+          });
           break;
         case 'start':
           getAgentById(event.agentId)
             .then((agent) => agent && this.startAgent(agent))
-            .catch((err) =>
-              logger.error('Failed to start agent', { agentId: event.agentId, error: err.message })
-            );
+            .catch(async (err) => {
+              logger.error('Failed to start agent', { agentId: event.agentId, error: err.message });
+              await updateAgentStatus(event.agentId, 'error', err.message).catch(() => {});
+            });
           break;
         case 'stop':
           this.stopAgent(event.agentId).catch((err) =>
@@ -705,7 +718,16 @@ export class AgentRunner {
               break;
             case 'start':
               const agent = await getAgentById(event.agentId);
-              if (agent) await this.startAgent(agent);
+              if (agent) {
+                try {
+                  await this.startAgent(agent);
+                } catch (err) {
+                  const msg = (err as Error).message;
+                  logger.error('Failed to start agent', { agent: agent.slug, error: msg });
+                  await updateAgentStatus(agent.id, 'error', msg);
+                  throw err;
+                }
+              }
               break;
             case 'stop':
               await this.stopAgent(event.agentId);

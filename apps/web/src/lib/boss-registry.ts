@@ -81,9 +81,9 @@ When delegating, use this exact format:
 ## After a specialist responds
 
 When a specialist tags you with their result:
-1. Confirm their output to the user ("Thanks <@SPECIALIST_ID>! Here's what we got: ...")
-2. Decide if another specialist is needed — if yes, delegate again using the same format above
-3. If the task is fully complete, give the user a clear final summary and close out`;
+1. Confirm their output to the user. **Refer to the specialist by NAME only** (e.g. "Thanks Chacha!") — do NOT \`<@mention>\` them again in the acknowledgment. A mention would re-wake their bot and create a thank-you ping-pong loop.
+2. Decide if another specialist is needed — if yes, delegate to that specialist using the "How to delegate" format above (that DOES use \`<@mention>\` because you're actively handing off work).
+3. If the task is fully complete, give the user a clear final summary and close out without tagging anyone.`;
 
   await updateAgentClaudeMd(boss.id, registryContent);
   await publishAgentEvent({ type: 'reload', agentId: boss.id });

@@ -95,10 +95,15 @@ body {
 
 ::selection { background: rgba(23,23,23,0.12); }
 [data-theme="dark"] ::selection { background: rgba(255,255,255,0.15); }
-/* User chat bubbles are on an accent background; override selection so the
-   selected text stays legible when the user copies it. */
+/* User chat bubbles sit on an accent background, so the generic selection
+   style washes them out. Invert the overlay per theme so the text + bg
+   stay contrasted when the user highlights to copy.
+   - Light mode: near-black bubble + white text → light overlay keeps white legible.
+   - Dark mode:  near-white bubble + dark text  → dark overlay keeps dark legible. */
 .user-bubble::selection,
-.user-bubble *::selection { background: rgba(0,0,0,0.35); color: var(--accent-fg); }
+.user-bubble *::selection { background: rgba(255,255,255,0.35); color: #ffffff; }
+[data-theme="dark"] .user-bubble::selection,
+[data-theme="dark"] .user-bubble *::selection { background: rgba(0,0,0,0.35); color: #0a0a0a; }
 [data-theme="dark"] .icon-adaptive { filter: invert(1); }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

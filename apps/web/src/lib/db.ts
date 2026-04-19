@@ -97,6 +97,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     createdBy: (row.created_by as string) ?? 'system',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
+    lastError: (row.last_error as string | null | undefined) ?? null,
   };
 }
 
@@ -288,10 +289,19 @@ export async function createAgent(req: CreateAgentRequest, createdBy = 'system')
  * @returns {Promise<void>}
  */
 export async function updateAgentStatus(id: string, status: AgentStatus): Promise<void> {
-  await (await db()).query(
-    'UPDATE agents SET status = $1, updated_at = now() WHERE id = $2',
-    [status, id]
-  );
+  // Stopping the agent is an explicit user action — clear any stale last_error
+  // so the UI doesn't keep showing an old failure message under a 'stopped' chip.
+  if (status === 'stopped') {
+    await (await db()).query(
+      'UPDATE agents SET status = $1, last_error = NULL, updated_at = now() WHERE id = $2',
+      [status, id]
+    );
+  } else {
+    await (await db()).query(
+      'UPDATE agents SET status = $1, updated_at = now() WHERE id = $2',
+      [status, id]
+    );
+  }
 }
 
 export async function updateAgentEnabled(id: string, enabled: boolean): Promise<void> {

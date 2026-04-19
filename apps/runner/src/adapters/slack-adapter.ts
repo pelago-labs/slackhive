@@ -91,12 +91,18 @@ export class SlackAdapter implements PlatformAdapter {
   // ─── Lifecycle ─────────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    // Discover bot user ID
+    // Discover bot user ID. This doubles as a credential probe — if the
+    // botToken is invalid, Slack returns invalid_auth here and we should
+    // surface it as a start failure rather than proceeding to open a Socket
+    // Mode connection (which only uses the appToken and can "succeed" even
+    // with a garbage botToken, leaving the agent visibly "running" but
+    // unable to post anything).
     try {
       const auth = await this.app.client.auth.test({ token: this.credentials.botToken });
       this.botUserId = auth.user_id as string;
     } catch (err) {
       this.log.warn('Could not fetch bot user ID', { error: (err as Error).message });
+      throw new Error(`Slack auth failed: ${(err as Error).message}`);
     }
 
     // Register Slack event handlers

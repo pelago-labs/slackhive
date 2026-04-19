@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentById, updateAgentStatus, updateAgentEnabled, publishAgentEvent } from '@/lib/db';
+import { getAgentById, updateAgentEnabled, publishAgentEvent } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
 
 export const dynamic = 'force-dynamic';
@@ -27,9 +27,12 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     if (denied) return denied;
     const agent = await getAgentById(id);
     if (!agent) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    await publishAgentEvent({ type: 'start', agentId: id });
-    await updateAgentStatus(id, 'running');
+    // Enable first so the runner treats this as an active agent, then dispatch
+    // the start event. The runner is authoritative for `status` — it will set
+    // 'running' on success or 'error' on failure. Don't pre-write 'running' here
+    // or we'll overwrite a legitimate failure with a phantom success.
     await updateAgentEnabled(id, true);
+    await publishAgentEvent({ type: 'start', agentId: id });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
