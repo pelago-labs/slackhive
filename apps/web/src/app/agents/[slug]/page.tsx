@@ -18,7 +18,7 @@ import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared';
 import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
-import { lineDiff, type DiffLine } from '@/lib/diff';
+import { FilesChanged, type FileChange } from './diff-view';
 import { CoachPanel } from './coach-panel';
 
 type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'logs' | 'history';
@@ -3149,72 +3149,53 @@ function PersonaLibraryModal({
 
 // ── Diff panel ───────────────────────────────────────────────────────────────
 
-function SkillDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: AgentSnapshot | null }) {
-  const snapSkills = snapshot.skillsJson;
-  const currSkills = current ? current.skillsJson : null;
+/**
+ * Build the file-diff entries for a **restore preview**: "if I restore this
+ * snapshot on top of the current state, what will change?"
+ *
+ * That means current is the OLD side (what you have now) and the snapshot is
+ * the NEW side (what you'd get). So:
+ *   - present in snapshot, missing in current → `added` (will be added by restore)
+ *   - present in current, missing in snapshot → `removed` (will be removed by restore)
+ *   - different                               → `modified` (will change)
+ *
+ * CLAUDE.md comes first, then every differing skill alphabetically.
+ */
+function buildDiffFiles(snapshot: AgentSnapshot, current: AgentSnapshot): FileChange[] {
+  const files: FileChange[] = [];
 
-  // Build lookup maps
-  const snapMap = new Map(snapSkills.map(s => [`${s.category}/${s.filename}`, s.content]));
-  const currMap = currSkills ? new Map(currSkills.map(s => [`${s.category}/${s.filename}`, s.content])) : new Map<string, string>();
+  // CLAUDE.md. Skip unless both sides captured content — old snapshots
+  // without `compiledMd` would otherwise render as a misleading all-green
+  // "will be removed" diff.
+  const currMd = current.compiledMd?.trim() ?? '';
+  const snapMd = snapshot.compiledMd?.trim() ?? '';
+  if (currMd && snapMd && currMd !== snapMd) {
+    files.push({ path: 'CLAUDE.md', status: 'modified', oldText: currMd, newText: snapMd });
+  }
 
-  const allKeys = new Set([...snapMap.keys(), ...currMap.keys()]);
-  const files: { key: string; status: 'added' | 'removed' | 'modified' | 'same'; diff?: DiffLine[] }[] = [];
-
-  for (const key of allKeys) {
-    const snapContent = snapMap.get(key);
-    const currContent = currMap.get(key);
-    if (snapContent === undefined) {
-      files.push({ key, status: 'added' });
-    } else if (currContent === undefined) {
-      files.push({ key, status: 'removed' });
-    } else if (snapContent !== currContent) {
-      files.push({ key, status: 'modified', diff: lineDiff(snapContent, currContent) });
+  const snapMap = new Map(snapshot.skillsJson.map(s => [`${s.category}/${s.filename}`, s.content]));
+  const currMap = new Map(current.skillsJson.map(s => [`${s.category}/${s.filename}`, s.content]));
+  const keys = new Set([...snapMap.keys(), ...currMap.keys()]);
+  for (const key of Array.from(keys).sort()) {
+    const inSnap = snapMap.get(key);
+    const inCurr = currMap.get(key);
+    if (inCurr === undefined && inSnap !== undefined) {
+      // Restore would add this file back.
+      files.push({ path: key, status: 'added', oldText: '', newText: inSnap });
+    } else if (inSnap === undefined && inCurr !== undefined) {
+      // Restore would delete this file from current.
+      files.push({ path: key, status: 'removed', oldText: inCurr, newText: '' });
+    } else if (inSnap !== inCurr && inSnap !== undefined && inCurr !== undefined) {
+      files.push({ path: key, status: 'modified', oldText: inCurr, newText: inSnap });
     }
   }
 
-  if (files.length === 0) {
-    return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No skill changes.</p>;
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {files.map(f => (
-        <div key={f.key} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{
-            padding: '7px 12px', background: 'var(--surface-2)',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{f.key}</span>
-            <span style={{
-              fontSize: 10, padding: '1px 6px', borderRadius: 4, fontWeight: 600,
-              background: f.status === 'added' ? 'rgba(22,163,74,0.15)' : f.status === 'removed' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)',
-              color: f.status === 'added' ? '#16a34a' : f.status === 'removed' ? '#ef4444' : '#ca8a04',
-            }}>{f.status}</span>
-          </div>
-          {f.diff && (
-            <pre style={{
-              margin: 0, padding: '10px 0', fontSize: 11.5, fontFamily: 'var(--font-mono)',
-              lineHeight: 1.6, overflow: 'auto', maxHeight: 320,
-            }}>
-              {f.diff.map((line, i) => (
-                <div key={i} style={{
-                  padding: '0 12px',
-                  background: line.type === 'add' ? 'rgba(22,163,74,0.1)' : line.type === 'remove' ? 'rgba(239,68,68,0.1)' : 'transparent',
-                  color: line.type === 'add' ? '#16a34a' : line.type === 'remove' ? '#ef4444' : 'var(--muted)',
-                }}>
-                  {line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  '}{line.line}
-                </div>
-              ))}
-            </pre>
-          )}
-          {f.status === 'added' && <p style={{ margin: '8px 12px', fontSize: 12, color: '#16a34a' }}>File added since this snapshot.</p>}
-          {f.status === 'removed' && <p style={{ margin: '8px 12px', fontSize: 12, color: '#ef4444' }}>File deleted since this snapshot.</p>}
-        </div>
-      ))}
-    </div>
-  );
+  return files;
 }
+
+// Each of these diffs is framed as **restore preview**:
+//   will-add  = in snapshot, not in current  (restore grants / reconnects / re-restricts to)
+//   will-drop = in current, not in snapshot  (restore revokes / disconnects / un-restricts)
 
 function PermsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: AgentSnapshot | null }) {
   const currAllowed = new Set(current ? current.allowedTools : []);
@@ -3222,12 +3203,12 @@ function PermsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: Ag
   const snapAllowed = new Set(snapshot.allowedTools);
   const snapDenied  = new Set(snapshot.deniedTools);
 
-  const addedAllowed   = [...currAllowed].filter(t => !snapAllowed.has(t));
-  const removedAllowed = [...snapAllowed].filter(t => !currAllowed.has(t));
-  const addedDenied    = [...currDenied].filter(t => !snapDenied.has(t));
-  const removedDenied  = [...snapDenied].filter(t => !currDenied.has(t));
+  const willAddAllowed  = [...snapAllowed].filter(t => !currAllowed.has(t));
+  const willDropAllowed = [...currAllowed].filter(t => !snapAllowed.has(t));
+  const willAddDenied   = [...snapDenied].filter(t => !currDenied.has(t));
+  const willDropDenied  = [...currDenied].filter(t => !snapDenied.has(t));
 
-  if (!addedAllowed.length && !removedAllowed.length && !addedDenied.length && !removedDenied.length) {
+  if (!willAddAllowed.length && !willDropAllowed.length && !willAddDenied.length && !willDropDenied.length) {
     return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No permission changes.</p>;
   }
   const row = (label: string, items: string[], color: string) => items.length > 0 && (
@@ -3242,10 +3223,10 @@ function PermsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: Ag
   );
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {row('Allowed tools added', addedAllowed, '#16a34a')}
-      {row('Allowed tools removed', removedAllowed, '#ef4444')}
-      {row('Denied tools added', addedDenied, '#ef4444')}
-      {row('Denied tools removed', removedDenied, '#16a34a')}
+      {row('Tools that will be allowed',      willAddAllowed,  'var(--green)')}
+      {row('Tools that will no longer be allowed', willDropAllowed, 'var(--red)')}
+      {row('Tools that will be denied',       willAddDenied,   'var(--red)')}
+      {row('Tools that will no longer be denied',  willDropDenied,  'var(--green)')}
     </div>
   );
 }
@@ -3254,18 +3235,18 @@ function McpsDiff({ snapshot, current, allMcps }: { snapshot: AgentSnapshot; cur
   const nameFor = (id: string) => allMcps.find(m => m.id === id)?.name ?? id;
   const currIds = new Set(current ? current.mcpIds : []);
   const snapIds = new Set(snapshot.mcpIds);
-  const added   = [...currIds].filter(id => !snapIds.has(id));
-  const removed = [...snapIds].filter(id => !currIds.has(id));
-  if (!added.length && !removed.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No MCP changes.</p>;
+  const willConnect    = [...snapIds].filter(id => !currIds.has(id));
+  const willDisconnect = [...currIds].filter(id => !snapIds.has(id));
+  if (!willConnect.length && !willDisconnect.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No MCP changes.</p>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {added.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>Added</div>
-        {added.map(id => <div key={id} style={{ fontSize: 12.5, color: '#16a34a' }}>+ {nameFor(id)}</div>)}
+      {willConnect.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', marginBottom: 4 }}>Will be connected</div>
+        {willConnect.map(id => <div key={id} style={{ fontSize: 12.5, color: 'var(--green)' }}>+ {nameFor(id)}</div>)}
       </div>}
-      {removed.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginBottom: 4 }}>Removed</div>
-        {removed.map(id => <div key={id} style={{ fontSize: 12.5, color: '#ef4444' }}>- {nameFor(id)}</div>)}
+      {willDisconnect.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', marginBottom: 4 }}>Will be disconnected</div>
+        {willDisconnect.map(id => <div key={id} style={{ fontSize: 12.5, color: 'var(--red)' }}>− {nameFor(id)}</div>)}
       </div>}
     </div>
   );
@@ -3274,24 +3255,24 @@ function McpsDiff({ snapshot, current, allMcps }: { snapshot: AgentSnapshot; cur
 function ChannelsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: AgentSnapshot | null }) {
   const currChannels = new Set(current?.allowedChannels ?? []);
   const snapChannels = new Set(snapshot.allowedChannels ?? []);
-  const added   = [...currChannels].filter(ch => !snapChannels.has(ch));
-  const removed = [...snapChannels].filter(ch => !currChannels.has(ch));
-  if (!added.length && !removed.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No channel restriction changes.</p>;
+  const willAdd  = [...snapChannels].filter(ch => !currChannels.has(ch));
+  const willDrop = [...currChannels].filter(ch => !snapChannels.has(ch));
+  if (!willAdd.length && !willDrop.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No channel restriction changes.</p>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {added.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>Channels added</div>
+      {willAdd.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', marginBottom: 4 }}>Channels that will be restored</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {added.map(ch => (
-            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: '#16a34a22', color: '#16a34a' }}>{ch}</span>
+          {willAdd.map(ch => (
+            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: 'rgba(16,185,129,0.12)', color: 'var(--green)' }}>{ch}</span>
           ))}
         </div>
       </div>}
-      {removed.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginBottom: 4 }}>Channels removed</div>
+      {willDrop.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', marginBottom: 4 }}>Channels that will be dropped</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {removed.map(ch => (
-            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: '#ef444422', color: '#ef4444' }}>{ch}</span>
+          {willDrop.map(ch => (
+            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: 'var(--red-soft-bg)', color: 'var(--red)' }}>{ch}</span>
           ))}
         </div>
       </div>}
@@ -3330,9 +3311,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   const [loading, setLoading]     = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fullSnapshot, setFullSnapshot] = useState<AgentSnapshot | null>(null);
-  const [compareId, setCompareId] = useState<string>('__current__');
-  const [compareSnapshot, setCompareSnapshot] = useState<AgentSnapshot | null>(null);
-  // Live current state — fetched once and used as the "Current state" comparison target
+  // Live current state — the restore-preview target. Always the compare side.
   const [liveSnapshot, setLiveSnapshot] = useState<AgentSnapshot | null>(null);
   const [allMcps, setAllMcps]     = useState<McpServer[]>([]);
   const [restoring, setRestoring] = useState(false);
@@ -3351,9 +3330,9 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
     });
   }, [agentId]);
 
-  // Lazy-load live state only when user picks "Compare with current"
+  // Lazy-load live state once — it's the fixed compare target for every snapshot.
   useEffect(() => {
-    if (compareId !== '__current__' || liveSnapshot) return;
+    if (liveSnapshot) return;
     Promise.all([
       fetch(`/api/agents/${agentId}/skills`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()),
@@ -3379,7 +3358,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
         createdAt: new Date(),
       });
     });
-  }, [agentId, compareId, liveSnapshot]);
+  }, [agentId, liveSnapshot]);
 
   // Load full snapshot when selected
   useEffect(() => {
@@ -3391,14 +3370,6 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
       .then(snap => { setFullSnapshot(snap); setLoadingDetail(false); })
       .catch(() => setLoadingDetail(false));
   }, [agentId, selectedId]);
-
-  // Load compare snapshot when compareId changes
-  useEffect(() => {
-    if (compareId === '__current__') { setCompareSnapshot(null); return; }
-    fetch(`/api/agents/${agentId}/snapshots/${compareId}`)
-      .then(r => r.json())
-      .then(setCompareSnapshot);
-  }, [agentId, compareId]);
 
   const handleCreateManual = async () => {
     const label = window.prompt('Snapshot label (optional):') ?? '';
@@ -3439,8 +3410,8 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
     return `${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // Build comparison target: live state or a selected historical snapshot
-  const currentAsSnapshot: AgentSnapshot | null = compareId === '__current__' ? liveSnapshot : compareSnapshot;
+  // Compare target is always live current state — restore preview is current-only.
+  const currentAsSnapshot: AgentSnapshot | null = liveSnapshot;
 
   if (loading) return (
     <div style={{ display: 'flex', gap: 20, minHeight: 500 }}>
@@ -3522,7 +3493,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
               return (
                 <div
                   key={snap.id}
-                  onClick={() => { setSelectedId(isSelected ? null : snap.id); setCompareId('__current__'); setCompareSnapshot(null); }}
+                  onClick={() => { setSelectedId(isSelected ? null : snap.id); }}
                   style={{
                     background: 'var(--surface)',
                     borderRadius: 'var(--radius)',
@@ -3552,24 +3523,13 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
                     }}>{snap.label}</div>
                   )}
 
-                  {/* Actions — only when selected */}
+                  {/* Actions — only when selected. Restore moves to the diff pane header; sidebar keeps Delete only. */}
                   {isSelected && canEdit && (
                     <div style={{ display: 'flex', gap: 7, marginTop: 11, paddingTop: 11, borderTop: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
                       <button
-                        onClick={() => handleRestore(snap)}
-                        disabled={restoring}
-                        style={{
-                          flex: 1, fontSize: 12, padding: '6px 0', borderRadius: 6, cursor: restoring ? 'not-allowed' : 'pointer',
-                          background: 'var(--green)', color: 'var(--accent-fg)', border: 'none',
-                          fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
-                        }}
-                        onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
-                        onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-                      >{restoring ? 'Restoring…' : 'Restore'}</button>
-                      <button
                         onClick={() => handleDelete(snap.id)}
                         style={{
-                          fontSize: 12, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                          flex: 1, fontSize: 12, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
                           background: 'transparent', color: 'var(--red)',
                           border: '1.5px solid rgba(220,38,38,0.25)',
                           fontFamily: 'var(--font-sans)', fontWeight: 500, transition: 'all 0.15s',
@@ -3609,31 +3569,53 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
       ) : fullSnapshot ? (
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* Compare bar */}
+          {/* Restore preview header — the diff below shows what restoring this
+              snapshot would do to the current state. Green = will be added,
+              red = will be removed. Primary action lives here (not in sidebar). */}
           <div style={{
             background: 'var(--surface)', borderRadius: 'var(--radius)',
             boxShadow: 'var(--shadow-card)', padding: '14px 18px',
-            display: 'flex', alignItems: 'center', gap: 12,
+            display: 'flex', flexDirection: 'column', gap: 10,
           }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
-              Compare with
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{
+                fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
+                color: 'var(--muted)', textTransform: 'uppercase',
+              }}>Restore preview</span>
+              <span style={{
+                fontSize: 12.5, padding: '5px 10px', borderRadius: 6,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+                color: 'var(--text)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
+              }}>
+                {fmt(fullSnapshot.createdAt)}
+              </span>
+              <TriggerBadge trigger={fullSnapshot.trigger} />
+              {fullSnapshot.label && (
+                <span style={{
+                  fontSize: 12, color: 'var(--muted)', fontStyle: 'italic',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{fullSnapshot.label}</span>
+              )}
+              {canEdit && (
+                <button
+                  onClick={() => handleRestore(fullSnapshot)}
+                  disabled={restoring}
+                  style={{
+                    marginLeft: 'auto', fontSize: 12.5, padding: '7px 16px', borderRadius: 8,
+                    cursor: restoring ? 'not-allowed' : 'pointer',
+                    background: 'var(--green)', color: 'var(--accent-fg)', border: 'none',
+                    fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                >{restoring ? 'Restoring…' : 'Restore'}</button>
+              )}
+            </div>
+            <span style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.5 }}>
+              If you restore this snapshot, the changes below will apply to your current state.{' '}
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>Green</span> = will be added to current.{' '}
+              <span style={{ color: 'var(--red)', fontWeight: 600 }}>Red</span> = will be removed from current.
             </span>
-            <select
-              value={compareId}
-              onChange={e => setCompareId(e.target.value)}
-              style={{
-                flex: 1, fontSize: 13, padding: '7px 12px', borderRadius: 8,
-                border: '1.5px solid var(--border)', background: 'var(--surface-2)',
-                color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none', cursor: 'pointer',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-            >
-              <option value="__current__">Current state</option>
-              {snapshots.filter(s => s.id !== selectedId).map(s => (
-                <option key={s.id} value={s.id}>{fmt(s.createdAt)} — {s.trigger}{s.label ? ` · ${s.label}` : ''}</option>
-              ))}
-            </select>
           </div>
 
           {/* Diff sections — wait for compare target to load */}
@@ -3644,50 +3626,73 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             }}>
               Loading comparison…
             </div>
-          ) : [
-            { title: 'Skills',       content: <SkillDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
-            { title: 'Tools',        content: <PermsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
-            { title: 'MCPs',         content: <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} /> },
-            { title: 'Channels',     content: <ChannelsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
-            { title: 'System Prompt', content: (() => {
-                if (!fullSnapshot.compiledMd || !currentAsSnapshot.compiledMd)
-                  return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>Not available for this snapshot</p>;
-                const diff = lineDiff(fullSnapshot.compiledMd.trim(), currentAsSnapshot.compiledMd.trim());
-                const changed = diff.some(l => l.type !== 'same');
-                if (!changed) return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>No changes</p>;
-                return (
-                  <pre style={{
-                    margin: 0, padding: '14px 16px', borderRadius: 8, fontSize: 12,
-                    fontFamily: 'var(--font-mono)', background: 'var(--surface-2)',
-                    border: '1px solid var(--border)', overflow: 'auto', maxHeight: 380,
-                    color: 'var(--text)', lineHeight: 1.7,
+          ) : (() => {
+            // Restore-preview frame: current is the OLD side, snapshot is the NEW side.
+            // Green = snapshot has, current doesn't = will be added on restore.
+            // Red   = current has, snapshot doesn't = will be removed on restore.
+            const files = buildDiffFiles(fullSnapshot, currentAsSnapshot);
+
+            // Cheap pre-checks so we can hide the "Other changes" card entirely
+            // when nothing on that axis has moved. Mirrors the "no changes"
+            // early-returns in PermsDiff / McpsDiff / ChannelsDiff below.
+            const currAllowed = new Set(currentAsSnapshot.allowedTools);
+            const currDenied  = new Set(currentAsSnapshot.deniedTools);
+            const snapAllowed = new Set(fullSnapshot.allowedTools);
+            const snapDenied  = new Set(fullSnapshot.deniedTools);
+            const hasPermChanges =
+              [...currAllowed].some(t => !snapAllowed.has(t)) ||
+              [...snapAllowed].some(t => !currAllowed.has(t)) ||
+              [...currDenied].some(t => !snapDenied.has(t)) ||
+              [...snapDenied].some(t => !currDenied.has(t));
+
+            const currMcps = new Set(currentAsSnapshot.mcpIds);
+            const snapMcps = new Set(fullSnapshot.mcpIds);
+            const hasMcpChanges =
+              [...currMcps].some(id => !snapMcps.has(id)) ||
+              [...snapMcps].some(id => !currMcps.has(id));
+
+            const currChs = new Set(currentAsSnapshot.allowedChannels ?? []);
+            const snapChs = new Set(fullSnapshot.allowedChannels ?? []);
+            const hasChannelChanges =
+              [...currChs].some(ch => !snapChs.has(ch)) ||
+              [...snapChs].some(ch => !currChs.has(ch));
+
+            const hasOther = hasPermChanges || hasMcpChanges || hasChannelChanges;
+
+            if (files.length === 0 && !hasOther) {
+              return (
+                <div style={{
+                  background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
+                  padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
+                }}>
+                  No differences
+                </div>
+              );
+            }
+
+            return (
+              <>
+                {files.length > 0 && <FilesChanged files={files} />}
+                {hasOther && (
+                  <div style={{
+                    background: 'var(--surface)', borderRadius: 'var(--radius)',
+                    boxShadow: 'var(--shadow-card)', overflow: 'hidden',
                   }}>
-                    {diff.map((l, i) => (
-                      <div key={i} style={{
-                        background: l.type === 'add' ? 'rgba(34,197,94,0.12)' : l.type === 'remove' ? 'rgba(239,68,68,0.10)' : 'transparent',
-                        color: l.type === 'add' ? '#16a34a' : l.type === 'remove' ? '#dc2626' : 'inherit',
-                        padding: '1px 6px', borderRadius: 3, marginBottom: 1,
-                      }}>
-                        {l.type === 'add' ? '+ ' : l.type === 'remove' ? '- ' : '  '}{l.line}
-                      </div>
-                    ))}
-                  </pre>
-                );
-              })(),
-            },
-          ].map(({ title, content }) => (
-            <div key={title} style={{
-              background: 'var(--surface)', borderRadius: 'var(--radius)',
-              boxShadow: 'var(--shadow-card)', overflow: 'hidden',
-            }}>
-              <div style={{
-                padding: '12px 18px', borderBottom: '1px solid var(--border)',
-                fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-                color: 'var(--muted)', textTransform: 'uppercase',
-              }}>{title}</div>
-              <div style={{ padding: '16px 18px' }}>{content}</div>
-            </div>
-          ))}
+                    <div style={{
+                      padding: '12px 18px', borderBottom: '1px solid var(--border)',
+                      fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+                      color: 'var(--muted)', textTransform: 'uppercase',
+                    }}>Other changes</div>
+                    <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {hasPermChanges    && <PermsDiff    snapshot={fullSnapshot} current={currentAsSnapshot} />}
+                      {hasMcpChanges     && <McpsDiff     snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} />}
+                      {hasChannelChanges && <ChannelsDiff snapshot={fullSnapshot} current={currentAsSnapshot} />}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       ) : (
         <div style={{
