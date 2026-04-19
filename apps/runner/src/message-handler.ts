@@ -77,8 +77,8 @@ export class MessageHandler {
 
     let statusMsgId: string | undefined;
 
-    // Build prompt with thread context + files
-    const prompt = await this.buildPrompt(channelId, threadId, text, files);
+    // Build prompt with sender header + thread context + files
+    const prompt = await this.buildPrompt(userId, channelId, threadId, text, files);
 
     let sentMessages: string[] = [];
     let lastAssistantText: string | null = null;
@@ -194,13 +194,29 @@ export class MessageHandler {
     return !this.restrictions.allowedChannels.includes(channelId);
   }
 
-  /** Build prompt with thread context + files. */
+  /**
+   * Build prompt with sender header + thread context + files.
+   *
+   * The sender header gives the model a deterministic anchor for user-keyed
+   * memory rules (e.g. "when user is U095..., say X"). Without it the sender
+   * ID is only visible buried inside past thread-history speaker names, which
+   * the model often misses.
+   */
   private async buildPrompt(
+    userId: string,
     channelId: string,
     threadId: string | undefined,
     userText: string,
     files?: FileAttachment[],
   ): Promise<string | ContentBlockParam[]> {
+    // Resolve sender display name for the header. Failure is non-fatal — the
+    // userId alone is still enough for user-keyed memory rules to match.
+    let senderName = userId;
+    try {
+      senderName = await this.adapter.getUserDisplayName(userId);
+    } catch { /* fall back to userId */ }
+    const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}]\n\n`;
+
     // Fetch thread context via adapter
     let threadContext = '';
     if (threadId) {
@@ -272,7 +288,7 @@ export class MessageHandler {
       }
     }
 
-    const textPrompt = `${threadContext}${textChunks.length > 0 ? textChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
+    const textPrompt = `${senderHeader}${threadContext}${textChunks.length > 0 ? textChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
 
     if (binaryBlocks.length > 0) {
       const blocks: ContentBlockParam[] = [];

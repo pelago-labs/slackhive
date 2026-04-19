@@ -95,6 +95,12 @@ export default function NewAgentWizard() {
   const credStep = state.isBoss ? 2 : 3;
   const canNext = () => {
     if (step === 0) return !!(state.name && state.slug);
+    // Persona step (non-boss only, step index 1): if "Blank" is picked, the
+    // user must type a description. Otherwise the template supplies it and
+    // Coach bootstrap would silently skip (see seed check in submit()).
+    if (!state.isBoss && step === 1) {
+      if (!state.selectedPersona && !state.description.trim()) return false;
+    }
     if (step === credStep) return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
     return true;
   };
@@ -150,8 +156,22 @@ export default function NewAgentWizard() {
         ));
       }
 
+      // Kick off bootstrap in the background — don't await. The route returns
+      // 202 quickly; the runner then drafts claude.md + skills and writes the
+      // result to the coach session. The Instructions tab polls it live.
+      // Invariant: for non-import, non-boss agents, description is required
+      // (enforced in canNext() and API validation), so seed is always non-empty.
+      const seed = [state.description?.trim(), state.persona?.trim()].filter(Boolean).join('\n\n');
+      if (!state.importPayload && !state.isBoss && seed.length > 0) {
+        fetch(`/api/agents/${data.id}/coach`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userMessage: seed, autoApply: true, detached: true }),
+        }).catch(() => { /* non-fatal; user can run Coach manually */ });
+      }
+
       window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
-      router.push(`/agents/${data.slug}`);
+      router.push(`/agents/${data.slug}?coach=open`);
     } finally { setSubmitting(false); }
   };
 
@@ -626,8 +646,8 @@ function Step2SlackApp({ state }: { state: WizardState }) {
             {state.name || 'agent'}-manifest.json
           </span>
           <button onClick={copy} style={{
-            background: copied ? 'var(--green, #16a34a)' : 'var(--accent)',
-            color: '#fff',
+            background: copied ? 'var(--green)' : 'var(--accent)',
+            color: copied ? '#fff' : 'var(--accent-fg)',
             border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
             fontFamily: 'var(--font-sans)', padding: '5px 12px', borderRadius: 6,
             transition: 'all 0.15s',
@@ -1098,8 +1118,59 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
       </div>
 
       <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--subtle)' }}>
-        {selected ? <><span style={{ color: 'var(--text)', fontWeight: 500 }}>{selected.name}</span> selected</> : 'Blank selected — no persona or skills'}
+        {selected ? <><span style={{ color: 'var(--text)', fontWeight: 500 }}>{selected.name}</span> selected</> : 'Blank selected — describe the agent below'}
       </p>
+
+      {/* When "Blank" is picked there's no template to supply description/persona.
+          Description is required so the agent has an identity AND so Coach bootstrap
+          has a seed to run with (see submit() — seed = description ?? persona). */}
+      {selected === null && (
+        <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
+              Description <span style={{ color: 'var(--accent)' }}>*</span>
+            </label>
+            <textarea
+              value={state.description}
+              onChange={e => update({ description: e.target.value })}
+              placeholder="What does this agent do in one sentence? (e.g. 'Daily team birthday reminders in #general')"
+              rows={2}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '9px 11px', fontSize: 13, lineHeight: 1.5,
+                background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+                borderRadius: 'var(--radius)', color: 'var(--text)',
+                fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+              Used to seed the agent&apos;s CLAUDE.md and kick off the Coach&apos;s first-turn draft.
+            </p>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
+              Persona <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <textarea
+              value={state.persona}
+              onChange={e => update({ persona: e.target.value })}
+              placeholder="Tone / voice / how it should speak. Leave blank and the Coach will draft one."
+              rows={2}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '9px 11px', fontSize: 13, lineHeight: 1.5,
+                background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+                borderRadius: 'var(--radius)', color: 'var(--text)',
+                fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

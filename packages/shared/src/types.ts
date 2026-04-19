@@ -377,15 +377,84 @@ export interface JobsReloadEvent {
   type: 'reload-jobs';
 }
 
-/** Event to trigger agent instruction optimization via Claude. */
-export interface AgentOptimizeEvent {
-  type: 'optimize';
-  agentId: string;
-  requestId: string;
+/** Union of all lifecycle events published on Redis. */
+export type AgentEvent = AgentReloadEvent | AgentStartEvent | AgentStopEvent | JobsReloadEvent;
+
+// =============================================================================
+// Coach (interactive instruction tuning) types
+// =============================================================================
+
+/**
+ * A single change the coach wants to make to the agent's claude.md, a skill,
+ * or a memory row. Surfaced in the chat UI as an approval card — never
+ * auto-applied (except during wizard bootstrap).
+ */
+export type CoachProposal =
+  | {
+      kind: 'claude-md';
+      /** Full replacement content for agents.claude_md. */
+      content: string;
+      rationale: string;
+      /** Server-assigned id, unique within a session. */
+      id: string;
+      status: 'pending' | 'applied' | 'rejected';
+    }
+  | {
+      kind: 'skill';
+      category: string;
+      filename: string;
+      action: 'create' | 'update' | 'delete';
+      /** New/updated skill body. Omit for delete. */
+      content?: string;
+      rationale: string;
+      id: string;
+      status: 'pending' | 'applied' | 'rejected';
+    }
+  | {
+      kind: 'memory';
+      /** Target memory row id. Required for `update` and `delete`; unset on `create`. */
+      memoryId?: string;
+      /** Name of the memory being touched — shown on the approval card. */
+      memoryName: string;
+      action: 'create' | 'update' | 'delete';
+      /**
+       * Memory type — required for `create`, optional on `update` (lets the Coach
+       * retype a mis-categorized memory). Ignored on delete.
+       */
+      memoryType?: 'user' | 'feedback' | 'project' | 'reference';
+      /** New content for create/update; omit for delete. */
+      content?: string;
+      rationale: string;
+      id: string;
+      status: 'pending' | 'applied' | 'rejected';
+    };
+
+/** One message in the coach conversation. */
+export interface CoachMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  /** Plain text shown in the bubble. Assistant messages may also carry proposals. */
+  text: string;
+  /** Compact record of tools Claude invoked during this turn (for UI chips). */
+  toolCalls?: { name: string; input: Record<string, unknown>; ok: boolean }[];
+  proposals?: CoachProposal[];
+  createdAt: string;
+  /**
+   * Assistant messages only — set to true while the runner is still producing
+   * this turn. Lets the UI show a "drafting" indicator when the user arrives
+   * before the turn has finished (e.g. wizard bootstrap).
+   */
+  inProgress?: boolean;
 }
 
-/** Union of all lifecycle events published on Redis. */
-export type AgentEvent = AgentReloadEvent | AgentStartEvent | AgentStopEvent | JobsReloadEvent | AgentOptimizeEvent;
+/** Persisted coach conversation for one agent. */
+export interface CoachSession {
+  agentId: string;
+  /** SDK session id used for resume on subsequent turns. */
+  sdkSessionId?: string;
+  messages: CoachMessage[];
+  updatedAt: string;
+}
 
 /** Redis channel name for agent lifecycle events. */
 export const AGENT_EVENTS_CHANNEL = 'agent:events';

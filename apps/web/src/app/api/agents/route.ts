@@ -54,10 +54,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = (await request.json()) as CreateAgentRequest;
 
-    // Validate required fields
+    // Validate required fields. Description is required for non-boss agents so the
+    // Coach bootstrap seed is always non-empty and CLAUDE.md has a real identity.
+    // Boss agents get auto-generated CLAUDE.md from boss-registry, so description is optional.
     if (!body.slug || !body.name) {
       return NextResponse.json(
         { error: 'slug and name are required' },
+        { status: 400 }
+      );
+    }
+    if (!body.isBoss && !body.description?.trim()) {
+      return NextResponse.json(
+        { error: 'description is required' },
         { status: 400 }
       );
     }

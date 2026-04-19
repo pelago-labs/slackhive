@@ -35,11 +35,9 @@ import {
   getAgentSkills,
   getAllEnvVarValues,
   updateAgentStatus,
-  setOptimizeResult,
   setResult,
-  getPendingOptimizeRequests,
 } from './db';
-import { compileClaudeMd, materializeMemoryFiles } from './compile-claude-md';
+import { compileClaudeMd } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
 import { MemoryWatcher } from './memory-watcher';
 import { logger } from './logger';
@@ -73,9 +71,6 @@ export class AgentRunner {
   /** Event bus for hot-reload events (Redis or in-memory). */
   private eventBus: EventBus | null = null;
 
-  /** Timer for polling pending optimize requests from DB. */
-  private optimizePollerTimer: NodeJS.Timeout | null = null;
-
   /** Internal HTTP server for receiving events from the web process. */
   private internalServer: import('http').Server | null = null;
 
@@ -108,7 +103,6 @@ export class AgentRunner {
     await this.startInternalServer();
     await this.loadAllAgents();
     await this.jobScheduler.start();
-    this.startOptimizePoller();
     this.registerShutdownHandlers();
 
     logger.info('AgentRunner started', { agents: this.runningAgents.size });
@@ -122,7 +116,7 @@ export class AgentRunner {
     try {
       const { getDb } = await import('@slackhive/shared');
       const r = await getDb().query(
-        "SELECT key, value FROM settings WHERE key LIKE 'optimize:%' OR key LIKE 'analyze:%' OR key LIKE 'knowledge-build:%'"
+        "SELECT key, value FROM settings WHERE key LIKE 'analyze:%' OR key LIKE 'knowledge-build:%'"
       );
       let cleaned = 0;
       for (const row of r.rows) {
@@ -154,8 +148,6 @@ export class AgentRunner {
 
     // Stop internal server
     if (this.internalServer) { this.internalServer.close(); this.internalServer = null; }
-    // Stop optimize poller
-    if (this.optimizePollerTimer) { clearInterval(this.optimizePollerTimer); this.optimizePollerTimer = null; }
 
     // Stop job scheduler
     await this.jobScheduler.stop();
@@ -188,6 +180,15 @@ export class AgentRunner {
   private async loadAllAgents(): Promise<void> {
     const agents = await getAllAgents();
     logger.info('Loading agents from database', { count: agents.length });
+
+    // Reset statuses — at process boot no agent is actually running yet.
+    // This clears stale 'error' rows left by zombie/racing runners from prior
+    // sessions. The very next `startAgent` call sets the true current state.
+    for (const agent of agents) {
+      if (agent.enabled !== false) {
+        await updateAgentStatus(agent.id, 'stopped');
+      }
+    }
 
     // Start agents sequentially to avoid overwhelming Slack's rate limits.
     // Skip agents that are stopped or have placeholder/missing tokens.
@@ -228,11 +229,11 @@ export class AgentRunner {
     logger.info('Starting agent', { agent: agent.slug });
 
     // Load configuration from DB
-    const [mcpServers, permissions, restrictions, memories, envVarValues] = await Promise.all([
+    // memories are loaded inside compileClaudeMd (inlined into CLAUDE.md).
+    const [mcpServers, permissions, restrictions, envVarValues] = await Promise.all([
       getAgentMcpServers(agent.id),
       getAgentPermissions(agent.id),
       getAgentRestrictions(agent.id),
-      getAgentMemories(agent.id),
       getAllEnvVarValues(),
     ]);
 
@@ -241,7 +242,8 @@ export class AgentRunner {
     const integration = await getPlatformIntegration(agent.id, 'slack');
     if (!integration) {
       logger.warn('No platform integration found — agent cannot start', { agent: agent.slug });
-      await updateAgentStatus(agent.id, 'error');
+      // 'stopped', not 'error' — this is a not-yet-configured state, not a runtime failure.
+      await updateAgentStatus(agent.id, 'stopped');
       return;
     }
 
@@ -251,11 +253,10 @@ export class AgentRunner {
       agent.slug,
     );
 
-    // Compile CLAUDE.md with platform-specific formatting rules
+    // Compile CLAUDE.md with platform-specific formatting rules.
+    // compileClaudeMd inlines all learned memories directly into the system
+    // prompt (no /recall skill needed) and inlines the wiki index when present.
     const workDir = await compileClaudeMd(agent, undefined, adapter.getFormattingRules());
-
-    // Materialize memory files so the /recall skill can read them
-    materializeMemoryFiles(agent, memories);
 
     // Create Claude Code SDK handler
     const claudeHandler = new ClaudeHandler(agent, mcpServers, permissions, workDir, envVarValues);
@@ -376,11 +377,6 @@ export class AgentRunner {
             logger.error('Failed to reload jobs', { error: (err as Error).message })
           );
           break;
-        case 'optimize':
-          this.optimizeAgent(event.agentId, event.requestId).catch((err) =>
-            logger.error('Failed to optimize agent', { agentId: event.agentId, error: err.message })
-          );
-          break;
       }
     });
 
@@ -403,6 +399,27 @@ export class AgentRunner {
     this.internalServer = http.createServer(async (req, res) => {
       if (req.method !== 'POST') { res.writeHead(405); res.end(); return; }
 
+      // Streaming coach turn — writes SSE events directly to the response.
+      if (req.url === '/coach') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { handleCoachStream } = await import('./coach-handler-server');
+            await handleCoachStream(body, res);
+          } catch (err) {
+            logger.error('Coach stream error', { error: (err as Error).message });
+            if (!res.headersSent) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            } else {
+              res.end();
+            }
+          }
+        });
+        return;
+      }
+
       let body = '';
       req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
       req.on('end', async () => {
@@ -423,11 +440,6 @@ export class AgentRunner {
               break;
             case 'reload-jobs':
               await this.jobScheduler.reload();
-              break;
-            case 'optimize':
-              this.optimizeAgent(event.agentId, event.requestId).catch(err =>
-                logger.error('Optimize failed', { error: err.message })
-              );
               break;
             default: {
               // Handle mcp-auth, analyze-memories, and other custom events
@@ -483,184 +495,6 @@ export class AgentRunner {
     this.internalServer.listen(port, '127.0.0.1', () => {
       logger.info('Internal event server started', { port });
     });
-  }
-
-  // ===========================================================================
-  // Optimize poller — checks DB for pending requests (cross-process safe)
-  // ===========================================================================
-
-  private startOptimizePoller(): void {
-    this.optimizePollerTimer = setInterval(async () => {
-      try {
-        const pending = await getPendingOptimizeRequests();
-        for (const { requestId, agentId } of pending) {
-          logger.info('Found pending optimize request', { requestId, agentId });
-          this.optimizeAgent(agentId, requestId).catch(err =>
-            logger.error('Optimize failed', { requestId, error: err.message })
-          );
-        }
-      } catch { /* ignore poll errors */ }
-    }, 3000);
-  }
-
-  // ===========================================================================
-  // Optimize agent instructions via Claude
-  // ===========================================================================
-
-  /**
-   * Calls Claude to analyze and suggest improvements for an agent's instructions.
-   * Result is stored in the DB for the web UI to poll.
-   */
-  private async optimizeAgent(agentId: string, requestId: string): Promise<void> {
-    logger.info('Optimizing agent instructions', { agentId, requestId });
-
-    try {
-      const agent = await getAgentById(agentId);
-      if (!agent) {
-        await setOptimizeResult(requestId, JSON.stringify({ status: 'error', error: 'Agent not found' }));
-        return;
-      }
-
-      const [skills, memories, mcpServers] = await Promise.all([
-        getAgentSkills(agentId),
-        getAgentMemories(agentId),
-        getAgentMcpServers(agentId),
-      ]);
-
-      // Build context
-      const skillsList = skills.map(s =>
-        `### ${s.category}/${s.filename}\n\`\`\`\n${s.content}\n\`\`\``
-      ).join('\n\n');
-
-      const mcpList = mcpServers.length > 0
-        ? mcpServers.map(m => `- **${m.name}** (${m.type}) — ${m.description || 'no description'}`).join('\n')
-        : '(none connected)';
-
-      const optimizationPrompt = `You are an expert at optimizing Claude Code agent configurations for Slack-based AI teams.
-
-CRITICAL: Your entire response must be a single JSON object. No text before or after. No markdown fences. Start with { end with }.
-
-## How SlackHive agents work
-
-An agent has two types of instructions:
-
-1. **System Prompt** (CLAUDE.md) — Always in context for every conversation. Put here:
-   - Core identity and role definition
-   - Response rules and formatting guidelines
-   - Workflow steps the agent should always follow
-   - References to connected MCP tools and how to use them
-   - Channel-specific behavior rules
-
-2. **Skills** — Separate /command files the agent invokes on demand. Put here:
-   - Domain-specific knowledge (schema docs, API references)
-   - Specialized workflows for specific tasks
-   - Reference material the agent looks up when relevant
-   - NOT basic identity — that goes in the system prompt
-
-Additionally, the agent automatically gets:
-- A /recall command that reads from persistent memory files
-- Slack formatting instructions (built-in, not visible)
-- Memory save instructions (built-in, not visible)
-
-## Agent being optimized
-Name: ${agent.name}
-Description: ${agent.description || '(none set)'}
-Persona: ${agent.persona || '(none set)'}
-Model: ${agent.model}
-
-## Connected MCP Tools
-${mcpList}
-${mcpServers.length > 0 ? '\nThe system prompt should reference these tools and explain when/how to use them.' : ''}
-
-## Current System Prompt
-${agent.claudeMd || '(empty — the agent has no custom system prompt yet)'}
-
-## Current Skills (${skills.length} files)
-${skillsList || '(no skills created yet)'}
-
-## Learned Memories (${memories.length})
-${memories.length > 0 ? memories.map(m => `- **${m.type}**: ${m.name} — ${m.content.slice(0, 150)}`).join('\n') : '(no memories yet)'}
-
-## Return this JSON structure:
-{
-  "score": <0-100>,
-  "summary": "<2-3 sentence assessment of current state>",
-  "systemPrompt": {
-    "issues": ["<specific problem>"],
-    "suggestion": "<complete improved system prompt text>",
-    "explanation": "<why this is better>"
-  },
-  "skills": [
-    {
-      "filename": "<name>.md",
-      "category": "00-core",
-      "action": "improve" | "create" | "delete",
-      "suggestion": "<full content>",
-      "explanation": "<why>"
-    }
-  ],
-  "memoryActions": [
-    {
-      "memoryId": "<id or name>",
-      "action": "move_to_skill" | "update_prompt" | "merge" | "delete" | "keep",
-      "reason": "<brief explanation>"
-    }
-  ],
-  "tips": ["<actionable tip>"]
-}
-
-Guidelines:
-- If system prompt is empty, write a complete one based on persona/description/MCPs
-- If MCPs are connected, the system prompt MUST mention them and explain usage patterns
-- Move domain knowledge from system prompt to skills (keep system prompt focused on behavior)
-- Skills should be self-contained reference docs, not behavior rules
-- Score: 0-30 needs major work, 30-60 decent, 60-80 good, 80+ excellent
-- Keep suggestions practical for a Slack bot (concise replies, Slack markdown)
-- NEVER suggest changes to identity.md — it is auto-generated and read-only
-- Use the identity (persona/description) as context to improve OTHER skills and the system prompt`;
-
-      // Mark as running
-      await setOptimizeResult(requestId, JSON.stringify({ status: 'running' }));
-
-      // Call Claude SDK with auth retry chain
-      const fullResponse = await this.callClaudeWithRetry(optimizationPrompt);
-
-      // Parse JSON from response — try multiple extraction strategies
-      let parsed: any = null;
-      const strategies = [
-        () => JSON.parse(fullResponse),                                           // Raw JSON
-        () => { const m = fullResponse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/); return m ? JSON.parse(m[1]) : null; },  // Fenced
-        () => { const s = fullResponse.indexOf('{'); const e = fullResponse.lastIndexOf('}'); return s >= 0 && e > s ? JSON.parse(fullResponse.slice(s, e + 1)) : null; },  // Extract braces
-      ];
-      for (const strategy of strategies) {
-        try { parsed = strategy(); if (parsed) break; } catch { /* try next */ }
-      }
-      if (!parsed) throw new Error('JSON_PARSE: Could not extract JSON from Claude response');
-
-      await setOptimizeResult(requestId, JSON.stringify({ status: 'done', ...parsed }));
-      logger.info('Optimization complete', { agentId, requestId, score: parsed.score });
-
-    } catch (err) {
-      const message = (err as Error).message ?? String(err);
-      logger.error('Optimization failed', { agentId, requestId, error: message });
-
-      let userError = 'Optimization failed. ';
-      if (message.includes('AUTH_NEEDS_LOGIN')) {
-        userError = 'Run `claude login` in your terminal, then restart SlackHive.';
-      } else if (message.includes('401') || message.includes('auth') || message.includes('credentials')) {
-        userError += 'Claude not authenticated. Run `claude login` in your terminal.';
-      } else if (message.includes('timeout') || message.includes('ETIMEDOUT')) {
-        userError += 'Request timed out. Try again.';
-      } else if (message.includes('rate') || message.includes('429')) {
-        userError += 'Rate limited. Wait a moment and try again.';
-      } else if (message.includes('JSON')) {
-        userError += 'Claude returned an unexpected format. Try again.';
-      } else {
-        userError += message;
-      }
-
-      await setOptimizeResult(requestId, JSON.stringify({ status: 'error', error: userError }));
-    }
   }
 
   // ===========================================================================

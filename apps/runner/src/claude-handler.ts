@@ -470,7 +470,12 @@ export class ClaudeHandler {
     const mcpToolPrefixes = this.mcpServers.map((s) => `mcp__${s.name}`);
 
     // Read and Write are always available — cannot be overridden.
+    // When a knowledge wiki exists for this agent, Grep is also force-allowed
+    // so the agent can actually search the wiki regardless of operator-configured
+    // permissions. Otherwise a locked-down agent with a wiki could never consult it.
     const alwaysAllowed = ['Read', 'Write'];
+    const hasWiki = fs.existsSync(path.join(this.workDir, 'knowledge', 'wiki'));
+    if (hasWiki) alwaysAllowed.push('Grep');
 
     // Separate Bash(pattern) rules from plain tool names.
     // e.g. "Bash(git *)" is a permission rule, "Bash" is a plain tool name.

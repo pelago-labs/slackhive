@@ -1,33 +1,36 @@
 /**
  * @fileoverview Agent workspace compiler for the runner service.
  *
- * Writes two things to the agent's temporary working directory:
+ * Writes to the agent's temporary working directory:
  *
  *   1. CLAUDE.md — the agent's main instruction/identity file.
  *      Source: agents.claude_md column (or auto-generated for boss agents).
- *      Memories are appended at the end.
+ *      Learned memories from the DB are INLINED here so the model always
+ *      sees them (no skill invocation required). Wiki index is also inlined
+ *      when a knowledge wiki exists.
  *
  *   2. .claude/commands/{filename} — Claude Code slash commands.
  *      Source: skills table rows for this agent.
  *      Each skill becomes an invokable /<filename> command.
+ *      `/wiki` is injected when `knowledge/wiki/` exists.
  *
  * Directory layout:
  *   /tmp/agents/{slug}/
- *     CLAUDE.md                   ← identity + memories
- *     .claude/
- *       commands/
- *         {filename}.md           ← one file per skill
- *       memory/
- *         {type}_{name}.md        ← materialized memory files
+ *     CLAUDE.md                   ← identity + inlined memories + wiki index
+ *     .claude/commands/{filename}.md  ← one file per skill
+ *     memory/                     ← per-session agent-written memory files (sync'd to DB by MemoryWatcher)
  *
  * @module runner/compile-claude-md
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Agent, Skill, Memory } from '@slackhive/shared';
-import { getAgentSkills } from './db';
+import type { Agent, Memory } from '@slackhive/shared';
+import { getAgentSkills, getAgentMemories } from './db';
 import { logger } from './logger';
+
+/** Soft cap on inlined memory bytes in CLAUDE.md. Anything above this is truncated with a log. */
+const MAX_INLINED_MEMORY_BYTES = 32 * 1024;
 
 /** Base directory for ephemeral agent workspaces. */
 const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? (
@@ -36,17 +39,6 @@ const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? (
     : '/tmp/agents'
 );
 
-
-/**
- * Built-in /recall skill — injected for every agent automatically.
- * Reads memory files from the agent's memory directory on disk.
- */
-const RECALL_SKILL = `Search your memory files for context relevant to: $ARGUMENTS
-
-Use the Read tool to read files from the \`memory/\` directory (relative to your working directory).
-First read \`memory/MEMORY.md\` to see the index, then read specific memory files that match the topic.
-Apply what you find — past preferences, corrections, and patterns — so you don't repeat previous mistakes or ask questions you've already had answered.
-If no relevant memories are found, say so briefly and continue.`;
 
 /**
  * Built-in /wiki skill — injected when agent has a knowledge wiki.
@@ -146,21 +138,22 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
 
   fs.mkdirSync(workDir, { recursive: true });
 
-  const allSkills = await getAgentSkills(agent.id);
+  const [skills, memories] = await Promise.all([
+    getAgentSkills(agent.id),
+    getAgentMemories(agent.id),
+  ]);
 
-  // identity.md is virtual — computed from agent fields (name/persona/description), not stored as a skill
-  const skills = allSkills.filter(s => s.filename !== 'identity.md' && s.filename !== 'identity');
-
+  // Identity is rendered from agent.name/persona/description in buildClaudeMd — never a skill row.
   logger.info('Compiling agent workspace', {
     agent: agent.slug,
     skills: skills.length,
-    hasIdentitySkill: false,
+    memories: memories.length,
   });
 
   // -------------------------------------------------------------------------
-  // 1. Write CLAUDE.md (identity + memory system instructions)
+  // 1. Write CLAUDE.md (identity + inlined memories + knowledge base index)
   // -------------------------------------------------------------------------
-  const claudeMdContent = buildClaudeMd(agent, overrideClaudeMd, formattingRules);
+  const claudeMdContent = buildClaudeMd(agent, memories, overrideClaudeMd, formattingRules);
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
   logger.debug('CLAUDE.md written', {
@@ -180,12 +173,11 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
     fs.rmSync(path.join(commandsDir, existing), { force: true });
   }
 
-  // Built-in recall skill — always injected, not user-visible in Skills tab
-  fs.writeFileSync(path.join(commandsDir, 'recall.md'), RECALL_SKILL, 'utf-8');
-
-  // Built-in wiki skill — injected only if knowledge wiki exists
+  // Built-in wiki skill — injected whenever the knowledge wiki dir exists.
+  // We do NOT gate on non-empty contents: the wiki may be populated mid-session
+  // (compile runs every startup), and the /wiki command is cheap to have present.
   const wikiDir = path.join(workDir, 'knowledge', 'wiki');
-  if (fs.existsSync(wikiDir) && fs.readdirSync(wikiDir).length > 0) {
+  if (fs.existsSync(wikiDir)) {
     fs.writeFileSync(path.join(commandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
   }
 
@@ -218,10 +210,9 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
       for (const existing of fs.readdirSync(sessionCommandsDir)) {
         fs.rmSync(path.join(sessionCommandsDir, existing), { force: true });
       }
-      fs.writeFileSync(path.join(sessionCommandsDir, 'recall.md'), RECALL_SKILL, 'utf-8');
-      // Wiki skill — propagate to sessions if wiki exists
+      // Wiki skill — propagate to sessions if wiki dir exists
       const sessionWikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
-      if (fs.existsSync(sessionWikiDir) && fs.readdirSync(sessionWikiDir).length > 0) {
+      if (fs.existsSync(sessionWikiDir)) {
         fs.writeFileSync(path.join(sessionCommandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
       }
       for (const skill of skills) {
@@ -235,28 +226,148 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
 }
 
 
-/**
- * Materializes memory files from the database to the agent's temp workspace.
- * These files are read by the /recall skill when the agent needs past context.
- */
-export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
-  const memoryDir = path.join(getAgentWorkDir(agent.slug), 'memory');
-  fs.mkdirSync(memoryDir, { recursive: true });
-
-  const index: string[] = ['# Memory Index', ''];
-  for (const memory of memories) {
-    const filename = `${memory.type}_${sanitizeFilename(memory.name)}.md`;
-    fs.writeFileSync(path.join(memoryDir, filename), memory.content, 'utf-8');
-    index.push(`- [${memory.name}](${filename}) — ${memory.type}`);
-  }
-  fs.writeFileSync(path.join(memoryDir, 'MEMORY.md'), index.join('\n'), 'utf-8');
-
-  logger.debug('Memory files materialized', { agent: agent.slug, count: memories.length });
-}
-
 // =============================================================================
 // Private helpers
 // =============================================================================
+
+/**
+ * Builds the inlined `# Learned Memories (active)` section.
+ *
+ * Memories are written directly into the system prompt so the model always sees
+ * them — replaces the old /recall + on-disk materialization path which required
+ * the model to proactively invoke a skill. Rules like "when user is U095..., say X"
+ * now fire deterministically because both the rule and the sender ID (prepended
+ * by the message handler) are in the turn context.
+ *
+ * Grouped by type for scanability. Memory `name` is used as the heading so the
+ * agent can flag contradictions by name (matches the "update/overwrite by name"
+ * workflow in the Memory-writing guidance section).
+ *
+ * If total bytes exceed {@link MAX_INLINED_MEMORY_BYTES}, overflow memories are
+ * dropped with a warning — we prefer a truncated-but-bounded prompt over a
+ * runaway token cost.
+ */
+function buildInlinedMemoriesSection(memories: Memory[]): string | null {
+  if (memories.length === 0) return null;
+
+  const groups: Record<Memory['type'], Memory[]> = {
+    feedback: [], user: [], project: [], reference: [],
+  };
+  for (const m of memories) {
+    if (groups[m.type]) groups[m.type].push(m);
+  }
+
+  const typeHeadings: Record<Memory['type'], string> = {
+    feedback: 'Feedback (behavioral rules — apply unconditionally)',
+    user: 'User (facts about people)',
+    project: 'Project (current initiatives)',
+    reference: 'Reference (domain knowledge)',
+  };
+
+  const parts: string[] = [
+    '# Learned Memories (active)',
+    '',
+    'These are facts and rules you learned in prior conversations. They are active',
+    'for EVERY turn — apply any that match the current context without being asked.',
+    'If a memory contradicts what the user just said, flag it by name and ask whether to update.',
+    '',
+  ];
+
+  let bytes = Buffer.byteLength(parts.join('\n'), 'utf-8');
+  let dropped = 0;
+
+  for (const type of ['feedback', 'user', 'project', 'reference'] as const) {
+    const rows = groups[type];
+    if (rows.length === 0) continue;
+    const heading = `## ${typeHeadings[type]}`;
+    parts.push(heading);
+    bytes += Buffer.byteLength(heading + '\n', 'utf-8');
+
+    for (const m of rows) {
+      const block = `\n### ${m.name}\n${m.content.trim()}\n`;
+      const blockBytes = Buffer.byteLength(block, 'utf-8');
+      if (bytes + blockBytes > MAX_INLINED_MEMORY_BYTES) {
+        dropped += 1;
+        continue;
+      }
+      parts.push(block);
+      bytes += blockBytes;
+    }
+    parts.push('');
+  }
+
+  if (dropped > 0) {
+    logger.warn('Memory inlining exceeded cap — some memories dropped', {
+      dropped,
+      cap: MAX_INLINED_MEMORY_BYTES,
+    });
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Parses `knowledge/wiki/index.md` to extract article path + one-line summary.
+ * Returns null if the index doesn't exist or contains no usable links.
+ */
+function buildWikiIndexSection(workDir: string): string | null {
+  const wikiDir = path.join(workDir, 'knowledge', 'wiki');
+  if (!fs.existsSync(wikiDir)) return null;
+
+  let wikiFiles: string[] = [];
+  try {
+    wikiFiles = (fs.readdirSync(wikiDir, { recursive: true }) as string[])
+      .filter(f => f.endsWith('.md') && f !== 'index.md' && f !== 'log.md');
+  } catch {
+    return null;
+  }
+  if (wikiFiles.length === 0) return null;
+
+  // Parse index.md if present — extract `- [title](path.md) — summary` style lines.
+  const indexPath = path.join(wikiDir, 'index.md');
+  let inlinedIndex: string | null = null;
+  if (fs.existsSync(indexPath)) {
+    try {
+      const raw = fs.readFileSync(indexPath, 'utf-8');
+      // Keep only bulleted lines that reference a .md article — these are the
+      // "article entry" lines in the Karpathy wiki pattern. Headings + prose
+      // are skipped.
+      const articleLines = raw
+        .split('\n')
+        .filter(line => /^\s*[-*]\s+/.test(line) && /\.md\)/.test(line))
+        .map(line => line.trim());
+      if (articleLines.length > 0) {
+        inlinedIndex = articleLines.join('\n');
+      }
+    } catch { /* fall through to file listing */ }
+  }
+
+  // Fallback: just list filenames if index.md is missing/unusable.
+  if (!inlinedIndex) {
+    inlinedIndex = wikiFiles.map(f => `- \`${f}\``).join('\n');
+  }
+
+  return `# Knowledge Base
+
+You have ${wikiFiles.length} wiki articles in \`knowledge/wiki/\`. Consult them
+BEFORE answering questions that might be covered — do NOT say "let me check the
+knowledge base" and then refuse. If a question touches anything in the catalog
+below, actually read the relevant article(s).
+
+## How to search
+- Use \`Grep\` across \`knowledge/wiki/\` for keyword lookups (fastest path).
+- Use \`Read\` on a specific article when you know the path.
+- \`/wiki <topic>\` is still available for a guided multi-read flow.
+
+## Available articles
+${inlinedIndex}
+
+## Verify before recommending
+Wiki articles are compiled snapshots. When an article references concrete code
+(function names, file paths, schema columns, API endpoints, env vars), treat
+it as a HINT — verify against the current source before recommending changes.
+If you cannot verify, say so explicitly: "The wiki says X — verify this is still current."`;
+}
 
 /**
  * Builds the CLAUDE.md content for an agent.
@@ -267,10 +378,15 @@ export function materializeMemoryFiles(agent: Agent, memories: Memory[]): void {
  * @param {string} [formattingRules] - Platform-specific formatting rules (from adapter).
  * @returns {string} Full CLAUDE.md content.
  */
-function buildClaudeMd(agent: Agent, overrideClaudeMd?: string, formattingRules?: string): string {
+function buildClaudeMd(
+  agent: Agent,
+  memories: Memory[],
+  overrideClaudeMd?: string,
+  formattingRules?: string,
+): string {
   const sections: string[] = [];
 
-  // 1. Identity — always built from name/persona/description (identity.md is virtual/UI-only)
+  // 1. Identity — always built from agent.name/persona/description. Never a skill row.
   const lines = [`# ${agent.name}`];
   if (agent.persona) lines.push('', agent.persona);
   if (agent.description) lines.push('', agent.description);
@@ -282,101 +398,61 @@ function buildClaudeMd(agent: Agent, overrideClaudeMd?: string, formattingRules?
     sections.push(claudeMd.trim());
   }
 
-  // Platform formatting rules (provided by adapter, or fallback to Slack)
+  // 3. Platform formatting rules (provided by adapter, or fallback to Slack)
   sections.push(formattingRules ?? SLACK_FORMATTING_SECTION);
 
-  // Knowledge base instructions — injected only if wiki exists
-  const knowledgeWikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
-  if (fs.existsSync(knowledgeWikiDir)) {
-    try {
-      const wikiFiles = fs.readdirSync(knowledgeWikiDir, { recursive: true }) as string[];
-      const articleCount = wikiFiles.filter(f => f.endsWith('.md')).length;
-      if (articleCount > 0) {
-        sections.push(`# Knowledge Base
+  // 4. Inlined learned memories — replaces the old /recall skill path so the
+  //    model always sees them. See buildInlinedMemoriesSection for rationale.
+  const memoriesSection = buildInlinedMemoriesSection(memories);
+  if (memoriesSection) sections.push(memoriesSection);
 
-You have a compiled knowledge base in \`knowledge/wiki/\` with ${articleCount} articles.
-Use /wiki <topic> to search it BEFORE answering questions about topics that may be covered.
+  // 5. Knowledge base index — inlined so the model knows what exists without
+  //    a Read round-trip. See buildWikiIndexSection.
+  const wikiSection = buildWikiIndexSection(getAgentWorkDir(agent.slug));
+  if (wikiSection) sections.push(wikiSection);
 
-The wiki contains structured articles compiled from URLs, documents, and code repositories.
-Articles have cross-references — follow links to related topics for deeper context.
-Do NOT modify wiki files — they are auto-generated. Use the information as reference.
+  // 6. Memory-writing guidance — how the agent SAVES new memories. Reading
+  //    existing memories is handled by the inlined section above; this block
+  //    only covers the write path (and when to ask before saving).
+  sections.push(`# Saving New Memories
 
-## Verify before recommending
-
-Wiki articles are compiled from sources at a point in time. Code, configs, and APIs may have changed since.
-
-When the wiki references concrete code (function names, file paths, schema columns, API endpoints, env vars):
-- Treat it as a HINT, not ground truth
-- VERIFY against the actual source (git repo, running service, current docs) before recommending changes
-- If you have git/MCP tools available, fetch the current code and compare
-- If you cannot verify, say so explicitly: "The wiki says X — verify this is still current"
-
-The wiki is a starting point for orientation, not a substitute for reading the code.`);
-      }
-    } catch { /* dir might not be readable */ }
-  }
-
-  // Memory instructions — internal, not shown in UI
-  sections.push(`# Memory
-
-Use /recall <topic> proactively — at the start of each conversation and whenever the topic shifts. Past memories contain user preferences, corrections, and learned patterns that help you avoid repeating mistakes.
-
-## When to remember
-
-**NEVER save silently.** Always ask the user before saving — the only exception is when they explicitly say "remember this" or "save this".
-
-- **Mistake or correction:** "Got it — should I remember this for next time?"
-- **New useful info** (preference, fact, decision, workflow): "That's useful — want me to remember this?"
-- **Explicit request** ("remember this", "save this"): Save immediately, no need to ask.
-
-**NEVER save trivial things.** Only save if it will genuinely help in future conversations. Ask yourself: "Will this change how I respond next time?" If not, skip it.
-
-## How to save
-
+When you learn something that will genuinely help in future conversations —
+a correction, a preference, a decision, a useful fact — save it as a memory.
 Use the Write tool to create \`memory/{type}_{name}.md\`:
+
 \`\`\`
 ---
 name: {short_descriptive_name}
-type: {type}
+type: {feedback | user | project | reference}
 description: {one line summary}
 ---
 {memory content — concise and actionable}
 \`\`\`
 
-## Memory types
-- \`feedback\` — corrections, mistakes to avoid, rules ("don't do X", "always do Y")
-- \`user\` — preferences, working style, role, goals, communication style
-- \`project\` — decisions, constraints, architecture choices, conventions
-- \`reference\` — facts, patterns, domain knowledge, useful snippets
+## When to ask vs save silently
+**NEVER save silently** unless the user explicitly said "remember this" / "save this".
+- Mistake or correction → "Got it — should I remember this for next time?"
+- New useful info (preference, decision, workflow) → "That's useful — want me to remember this?"
+- Explicit request → save immediately.
 
-Choose the most specific type. When in doubt, \`feedback\` for corrections, \`user\` for preferences, \`project\` for decisions, \`reference\` for knowledge.
+## Memory types
+- \`feedback\` — corrections, rules ("don't do X", "always do Y")
+- \`user\` — preferences, working style, role, goals
+- \`project\` — decisions, constraints, architecture choices
+- \`reference\` — facts, patterns, domain knowledge
 
 ## What NOT to save
-- One-off tasks or ephemeral context
-- Things already in the code, git history, or documentation
-- Vague observations ("user asked about SQL") — be specific ("user prefers CTEs over subqueries")
+- Trivial or one-off context
+- Things derivable from code, git history, or docs
+- Vague observations — be specific
 - Anything the user told you not to remember
 
-## Detecting contradictions
-If you notice a saved memory contradicts what the user just said, flag it immediately:
-"I have a memory that says X, but you're saying Y — should I update it?"
-Then overwrite the old file if they confirm.
-
-## Maintaining memories
-- Update existing memories by writing to the same filename (overwrites)
-- Keep memory names descriptive and searchable
-- Prefer updating over creating duplicates — check existing memories first`);
+## Updating + contradictions
+- Prefer updating over creating duplicates — write to the same filename to overwrite.
+- If a memory in the **Learned Memories** section above contradicts what the user
+  just said, flag it by name: "I have a memory that says X, but you're saying Y —
+  should I update it?" Then overwrite if they confirm.`);
 
   return sections.join('\n\n---\n\n');
-}
-
-/**
- * Sanitizes a string for use as a filename.
- *
- * @param {string} name - Raw name string.
- * @returns {string} Filesystem-safe filename fragment.
- */
-function sanitizeFilename(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9_-]/g, '_').slice(0, 64);
 }
 

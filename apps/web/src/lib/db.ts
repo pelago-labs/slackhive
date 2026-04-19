@@ -770,6 +770,16 @@ export async function setSetting(key: string, value: string): Promise<void> {
 }
 
 /**
+ * Deletes a single setting by key. No-op if the key is absent.
+ *
+ * @param {string} key - The setting key to remove.
+ * @returns {Promise<void>}
+ */
+export async function deleteSetting(key: string): Promise<void> {
+  await (await db()).query('DELETE FROM settings WHERE key = $1', [key]);
+}
+
+/**
  * Returns all settings as a flat key-value map.
  *
  * @returns {Promise<Record<string, string>>} All stored settings.
