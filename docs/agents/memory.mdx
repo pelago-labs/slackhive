@@ -1,113 +1,117 @@
 ---
-title: "Agent Memory"
+title: "Memory"
 description: "How agents learn from conversations and recall knowledge on demand."
 ---
 
-## How memory works
+Memory is one of the four layers of an agent's brain — see [Concepts](/agents/concepts) for how it fits with the system prompt, skills, and wiki. This page focuses on when memory is saved, how to manage it, and what the UI surfaces.
 
-Agents learn over time by writing structured memory files during conversations. SlackHive persists these to Postgres and materializes them back to disk on the next startup — so every agent picks up exactly where it left off.
+## Where memory lives in the UI
 
-```
-Agent writes memory/{type}_{name}.md
-  └─► MemoryWatcher detects change (fs.watch, 200ms debounce)
-        └─► Parses YAML frontmatter (name, type)
-              └─► Upserts into memories table (Postgres)
+Open any agent → **Instructions** tab → **Memory** sub-tab.
 
-On next agent start:
-  DB memories ──► materializeMemoryFiles ──► /tmp/agents/{slug}/memory/
-                                                └─► Agent uses /recall to read them
-```
+You'll see:
 
-## Recalling memories
+- A list of saved memories grouped by type
+- Content and description for each memory
+- An **Analyze** button at the top
+- A delete button on each memory
 
-Agents use the built-in `/recall` skill to load relevant memories on demand. This keeps the context window clean — memories are only loaded when they're relevant, not stuffed into every conversation.
+## How agents save memories
 
-**The agent runs `/recall` automatically** at the start of each conversation and when the topic shifts. It reads `memory/MEMORY.md` for the index, then loads specific files that match.
+An agent writes a memory when something in the conversation is worth keeping across sessions. The agent first **asks** the user before saving — "Should I remember that you prefer BigQuery over Redshift?" — and only writes the file after you confirm.
 
-```
-/recall database preferences
-  └─► Reads memory/MEMORY.md (index)
-        └─► Reads memory/feedback_avoid_mocking.md
-              └─► Applies the knowledge to the current response
-```
+Ask-before-saving is the default. This keeps memory clean and prevents the agent from filling its brain with noise.
 
-You can also trigger it manually in Slack:
+The agent saves to a `memory/*.md` file. SlackHive watches the directory, parses the YAML frontmatter, and upserts the memory into the SQLite database.
 
-```
-/recall Kai's preferences
-```
+## Memory types
 
-## When agents save memories
-
-Agents are instructed to save memories when they learn something worth keeping:
-
-- **User explicitly corrects or guides** — "don't do X", "always do Y"
-- **Recurring pattern detected** — same question asked repeatedly, same mistake made, same preference shown multiple times
-- **User role or working style** — who someone is, what tools they use, how they like to communicate
-- **Project decisions or constraints** — goals, deadlines, architectural choices that affect future work
-
-Memories are saved using the Write tool to create a file in `memory/`. The agent must actually write the file — not just say it saved.
+| Type | Purpose | Example |
+|---|---|---|
+| `feedback` | Behavioral corrections, validated approaches | "Don't mock the database in integration tests" |
+| `user` | Facts about people the agent works with | "Kai leads the data team, prefers concise answers" |
+| `project` | Ongoing work context, decisions, deadlines | "Merge freeze starts 2026-03-05 for mobile release" |
+| `reference` | Pointers to external systems | "Pipeline bugs tracked in Linear project INGEST" |
 
 ## Memory file format
 
 ```markdown
 ---
 name: kai_team_lead
-description: Kai is the data team lead, prefers concise answers
+description: Kai leads the data team and prefers concise answers
 type: user
 ---
 
 Kai is the lead of the data team. They prefer concise, direct answers
 without lengthy preamble. They use BigQuery, not Redshift.
-They prefer SQL examples over written explanations.
 ```
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Snake_case identifier — used as the unique key per agent |
+| Field | Required | Notes |
+|---|---|---|
+| `name` | Yes | Snake_case unique key per agent |
 | `type` | Yes | One of `user`, `feedback`, `project`, `reference` |
 | `description` | No | One-line summary shown in the Memory tab |
 
-## Memory types
+## How agents recall memories
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| `feedback` | Behavioral corrections and validated approaches | "Don't mock the database in integration tests" |
-| `user` | Information about people the agent works with | "Kai is the data team lead, prefers concise answers" |
-| `project` | Ongoing work context, goals, decisions, deadlines | "Merge freeze starts March 5 for mobile release" |
-| `reference` | Pointers to external systems and resources | "Pipeline bugs tracked in Linear project INGEST" |
+The agent runs the built-in `/recall` skill at the start of each conversation and whenever the topic shifts:
+
+1. Reads `memory/MEMORY.md` (the index)
+2. Loads only the memories that match the current topic
+3. Applies them to the response
+
+Users can trigger it manually in Slack:
+
+```
+/recall Kai's preferences
+```
+
+The context window stays small — memories aren't stuffed into every message.
+
+## The Analyze button
+
+Sometimes the agent should re-examine its memories for overlap, staleness, or redundancy. Click **Analyze** at the top of the Memory sub-tab to trigger a review. The agent:
+
+1. Reads every memory
+2. Flags duplicates, contradictions, and stale entries
+3. Proposes merges or deletions as Coach proposal cards
+
+Apply or reject each card. Good to run after a long working relationship with the agent, or after several ask-before-saving confirmations.
 
 ## Memory storage layout
 
-Each agent has two memory locations:
+Each agent has two memory locations on disk:
 
 ```
-/tmp/agents/{slug}/
-  memory/                          ← read-only, materialized from DB on startup
-    MEMORY.md                      ← index file listing all memories
+~/.slackhive/agents/<slug>/
+  memory/                              ← read-only, materialized from SQLite on startup
+    MEMORY.md                          ← the index
     user_kai_team_lead.md
     feedback_avoid_mocking.md
-    project_mobile_release.md
 
-  sessions/{userId}-{channelId}-{threadTs}/
-    memory/                        ← where agent writes new memories during conversations
+  sessions/<userId-channelId-threadTs>/
+    memory/                            ← the agent writes new memories here during conversations
       feedback_new_learning.md
 ```
 
-The root `memory/` directory is read-only — written once at startup from the database. New memories are written to the session's `memory/` directory, picked up by `MemoryWatcher`, and persisted to Postgres. On the next restart, they appear in the root directory.
+The root `memory/` is read-only — populated at startup from the database. New memories land in the session's `memory/` directory, the watcher picks them up, and they're persisted. On next restart they appear in the root.
 
-## Viewing and managing memories
+## Updating and deleting
 
-Open any agent's detail page and click the **Memory** tab. You can:
-
-- View the full content of each memory
-- See the memory type and description
-- Delete a memory (removes it from the database and it won't appear on next reload)
-
-## Updating a memory
-
-When an agent learns something that supersedes an existing memory, it overwrites the file with the same `name`. The database uses `(agent_id, name)` as the unique key — so updating never creates a duplicate.
+- **Update**: the agent overwrites the file with the same `name`. The DB uses `(agent_id, name)` as the unique key — no duplicates.
+- **Delete**: click × on the memory card. Removed from the database. Won't be reloaded on next start.
 
 ## Memory does not expire
 
-Memories persist until you explicitly delete them. There is no TTL. Agents accumulate knowledge over time and build a richer understanding of their users and projects with every conversation.
+Memories persist until you delete them. There's no TTL. The longer an agent works with your team, the sharper it gets.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
+    How memory fits with system prompt, skills, and wiki.
+  </Card>
+  <Card title="Coach" icon="comments" href="/agents/coach">
+    Turn conversation insights into skills and wiki pages.
+  </Card>
+</CardGroup>

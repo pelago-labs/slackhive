@@ -1,150 +1,115 @@
 ---
 title: "Environment Variables"
-description: "Complete reference for every SlackHive configuration variable, grouped by category."
+description: "Reference for every SlackHive configuration variable in .env."
 ---
 
-All SlackHive configuration lives in a single `.env` file in the project root. The `slackhive init` CLI generates this file for you automatically. For manual setup, copy the example file and fill in the values:
-
-```bash
-cp .env.example .env
-```
+SlackHive stores configuration in a `.env` file in the install directory. `slackhive init` generates this file with safe defaults — you rarely need to edit it by hand.
 
 <Warning>
-  Never commit your `.env` file to version control. It contains passwords and cryptographic keys. It's already listed in `.gitignore`, but double-check before pushing.
+  `.env` contains encryption keys and the admin password. Never commit it. It's already in `.gitignore` but double-check before pushing.
 </Warning>
 
 ## Claude Authentication
 
-You need one of these two options — not both. If both are set, the API key takes precedence.
+Pick one option. If both are set, the API key wins.
 
-### Option A: Anthropic API Key
+### Option A: Anthropic API key
 
-Best for teams, production deployments, and predictable billing.
+Best for teams, production, predictable billing.
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-All agents share this key. You're billed per token via the [Anthropic API](https://console.anthropic.com). Set up your billing and usage limits on the Anthropic console.
+All agents share this key. Billed per token via the [Anthropic API](https://console.anthropic.com).
 
-### Option B: Claude Max Subscription
+### Option B: Claude Pro or Max subscription
 
-Best for individual developers on a Claude Pro or Max plan ($100–$200/month for unlimited usage).
-
-```bash
-# Leave ANTHROPIC_API_KEY unset (comment it out)
-CLAUDE_BIN=/usr/local/bin/claude
-```
-
-First, run `claude login` on the host machine to authenticate. Then mount the credentials into the runner container by adding this to `docker-compose.yml`:
-
-```yaml
-runner:
-  volumes:
-    - ~/.claude:/root/.claude
-```
-
-<Note>
-  The `CLAUDE_BIN` variable tells the runner where the `claude` binary lives on your host. Find the path with `which claude`.
-</Note>
-
-## Database (PostgreSQL)
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `POSTGRES_DB` | Yes | Database name. Default: `slackhive` |
-| `POSTGRES_USER` | Yes | Database user. Default: `slackhive` |
-| `POSTGRES_PASSWORD` | Yes | Database password. Use a strong random value. |
+Best for individual developers.
 
 ```bash
-POSTGRES_DB=slackhive
-POSTGRES_USER=slackhive
-POSTGRES_PASSWORD=change-this-to-something-strong
+# Leave ANTHROPIC_API_KEY unset
+CLAUDE_BIN=/usr/local/bin/claude     # macOS (Intel) or Linux
+# CLAUDE_BIN=/opt/homebrew/bin/claude  # macOS (Apple Silicon, Homebrew)
+# CLAUDE_BIN=/usr/bin/claude           # Linux (package install)
 ```
 
-The `DATABASE_URL` used internally is constructed from these values automatically in `docker-compose.yml`. You don't set it directly.
+Requirements:
 
-## Cache (Redis)
+1. Run `claude login` on the host machine
+2. Set `CLAUDE_BIN` to the path returned by `which claude`
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `REDIS_PASSWORD` | Yes | Redis authentication password. Used for the pub/sub event bus between the dashboard and the runner. |
+**Token refresh behavior:**
 
-```bash
-REDIS_PASSWORD=change-this-to-something-strong
-```
+| Platform | Source of truth | Refresh |
+|---|---|---|
+| macOS | Keychain → `~/.claude/.credentials.json` | SlackHive auto-syncs from Keychain on 401 |
+| Linux (GNOME) | `secret-tool` → `~/.claude/.credentials.json` | Re-run `claude login` when it expires |
+| Linux (headless) | `~/.claude/.credentials.json` directly | Re-run `claude login` when it expires |
+
+See [OAuth MCPs](/configuration/mcp-oauth) for how this flows through to MCP connections.
 
 ## Dashboard Authentication
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ADMIN_USERNAME` | Yes | Superadmin login name. Stored only in `.env`, never in the database. |
-| `ADMIN_PASSWORD` | Yes | Superadmin login password. Stored only in `.env`. |
-| `AUTH_SECRET` | Yes | Cryptographic key for signing session cookies. Changing this logs out all users. |
-| `ENV_SECRET_KEY` | Yes | Encryption key for the secret store (AES-256 via pgcrypto). Changing this breaks all stored secrets. |
+`slackhive init` sets these from the prompts — you don't typically need to touch them:
+
+| Variable | Purpose |
+|---|---|
+| `ADMIN_USERNAME` | Superadmin login |
+| `ADMIN_PASSWORD` | Superadmin password |
+| `AUTH_SECRET` | Signs session cookies (rotating logs everyone out) |
+| `ENV_SECRET_KEY` | Encrypts the secret store (rotating breaks all stored secrets) |
+
+`AUTH_SECRET` and `ENV_SECRET_KEY` are generated automatically on first install with `openssl rand -hex 32`. If you need to regenerate:
 
 ```bash
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change-this-to-something-strong
-AUTH_SECRET=generate-with-openssl-rand-hex-32
-ENV_SECRET_KEY=generate-with-openssl-rand-hex-32
+openssl rand -hex 32
 ```
 
-<Tip>
-  Generate strong values for `AUTH_SECRET` and `ENV_SECRET_KEY`:
-  ```bash
-  openssl rand -hex 32
-  ```
-  Run this command twice — once for each variable. Each should be unique.
-</Tip>
-
 <Warning>
-  **Do not rotate these keys after your initial setup without planning ahead.**
-
-  - Rotating `AUTH_SECRET` immediately invalidates all active user sessions — everyone gets logged out.
-  - Rotating `ENV_SECRET_KEY` makes all stored secrets unreadable. You must re-enter every secret manually in **Settings → Env Vars** before any MCP servers using `envRefs` will work again.
+  Do not rotate `ENV_SECRET_KEY` after initial setup without a plan. All stored secrets become unreadable — every MCP server using `envRefs` will fail until you re-enter each secret in **Settings → Env Vars**.
 </Warning>
 
 ## Platform
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `NODE_ENV` | No | `development` | Set to `production` for production deployments. Affects log verbosity and error handling. |
-| `AGENTS_TMP_DIR` | No | `/tmp/agents` | Root directory for agent workspaces inside the runner container. Each agent gets a subdirectory containing its `CLAUDE.md`, skills, and session data. |
+| Variable | Default | Purpose |
+|---|---|---|
+| `NODE_ENV` | `production` | Affects log verbosity and error handling |
+| `PORT` | auto | Web server port (default 3001, auto-negotiates if taken) |
+| `RUNNER_INTERNAL_PORT` | auto | Runner port (default 3002, auto-negotiates) |
+| `AGENTS_TMP_DIR` | `~/.slackhive/agents` | Where per-agent workspaces live |
+| `DATABASE_TYPE` | `sqlite` | Always `sqlite` on CLI installs |
 
-```bash
-NODE_ENV=production
-# AGENTS_TMP_DIR=/tmp/agents  # only change if you need a custom path
-```
+## Where data lives
+
+Everything is on disk under `~/.slackhive/`:
+
+| Path | Contents |
+|---|---|
+| `~/.slackhive/data.db` | SQLite database — agents, memories, skills, history, settings |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace (CLAUDE.md, knowledge/wiki, sessions, memory) |
+| `~/.slackhive/logs/runner.log` | Runner log stream |
+| `~/.slackhive/runner.lock` | Singleton runner lock — JSON with `pid`, `startedAt`, `mode` |
+| `~/.slackhive/slackhive.pid` | Web server PID file |
+
+Back up `~/.slackhive/` to preserve your full install.
+
+## The `.slackhive-native` marker
+
+The install directory contains a `.slackhive-native` file. It tells the CLI this is a CLI-managed install — `slackhive` commands will target it from any directory.
 
 ## Complete .env.example
 
-Here's the full template for reference:
-
 ```bash
-# ============================================================
-# SlackHive — Environment Configuration
-# Copy to .env and fill in your values.
-# ============================================================
-
 # --- Claude Authentication (choose ONE) ---
 
-# Option A: Anthropic API key (pay-per-token)
+# Option A: API key
 # ANTHROPIC_API_KEY=sk-ant-api03-...
 
-# Option B: Claude Pro or Max subscription
-# Leave ANTHROPIC_API_KEY unset. Run `claude login` on the host first.
+# Option B: Pro/Max subscription
 # CLAUDE_BIN=/usr/local/bin/claude
 
-# --- PostgreSQL ---
-POSTGRES_DB=slackhive
-POSTGRES_USER=slackhive
-POSTGRES_PASSWORD=change-me
-
-# --- Redis ---
-REDIS_PASSWORD=change-me
-
-# --- Dashboard Auth ---
+# --- Dashboard ---
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me
 AUTH_SECRET=generate-with-openssl-rand-hex-32
@@ -152,15 +117,16 @@ ENV_SECRET_KEY=generate-with-openssl-rand-hex-32
 
 # --- Platform ---
 NODE_ENV=production
+DATABASE_TYPE=sqlite
 ```
 
 ## Next steps
 
 <CardGroup cols={2}>
   <Card title="Slack App Setup" icon="slack" href="/configuration/slack-app">
-    Configure the Slack app for each agent.
+    Create the Slack app for each agent.
   </Card>
   <Card title="MCP Servers" icon="plug" href="/configuration/mcp-servers">
-    Use the encrypted env store to safely pass secrets to MCP tools.
+    Use the encrypted env store to pass secrets to MCP tools.
   </Card>
 </CardGroup>

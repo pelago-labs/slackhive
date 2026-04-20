@@ -21,12 +21,16 @@ The Boss reads the message, looks up its team registry, and delegates to the rig
 
 ## Creating a Boss agent
 
-During agent creation (Step 1 — Name & Role), toggle **This agent is a Boss**.
+During agent creation (Step 1 — Name & Description), toggle **This agent is a Boss**.
 
 When the Boss toggle is enabled:
-- The Tools step (Step 4) is skipped — Boss agents don't need MCP servers or skills
-- `CLAUDE.md` is auto-generated from the team registry instead of using a custom identity file
-- The Boss agent connects to Slack like any other agent and receives @mentions normally
+- The Persona step is skipped — Boss identity is auto-generated from the team registry
+- The System Prompt is **locked** — not editable in the UI, and the **Optimize** button is hidden
+- The agent connects to Slack like any other agent and receives @mentions normally
+
+<Note>
+  The lock is intentional. Boss behavior is driven entirely by the team roster — adding a specialist automatically updates every Boss whose team they report to. Hand-edits would drift out of sync.
+</Note>
 
 ## The team registry
 
@@ -90,16 +94,18 @@ When the Boss receives a message:
 
 The key design: everything happens **in the Slack thread**. Every participant can see the full conversation history — no context loss when multiple agents collaborate.
 
-## CLAUDE.md for Boss agents
+## System Prompt is locked
 
-The Boss's `CLAUDE.md` is fully auto-generated and managed by SlackHive. You cannot manually edit it through the CLAUDE.md editor (the editor is read-only for Boss agents).
+A Boss agent's **Instructions → System Prompt** is read-only. The Optimize button is hidden. SlackHive manages this file end-to-end — it regenerates whenever any agent is created, updated, or deleted.
 
-The generated content includes:
+Generated content includes:
 - The Boss's name and orchestrator role description
-- Your Role section with delegation rules
+- The "Your Role" section with delegation rules
 - The full team roster with Slack user IDs and descriptions
-- Delegation format instructions (exact phrasing to use)
-- Instructions for what to do after a specialist responds
+- The exact delegation format to use in Slack
+- What to do after a specialist responds
+
+If you want custom behavior, do it on the specialists — their descriptions, skills, and memory shape what the Boss sees in the registry.
 
 ## Scheduled jobs
 

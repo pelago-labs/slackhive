@@ -5,7 +5,7 @@ description: "Real-time log streaming for debugging agents and monitoring activi
 
 ## Overview
 
-The **Live Logs** feature streams Docker container log output directly to your browser using server-sent events (SSE). Each agent's logs are available from its detail page.
+The **Live Logs** feature streams the runner log directly to your browser using server-sent events (SSE). Each agent's logs are filterable from its detail page.
 
 Logs capture everything the runner produces for a given agent: startup events, incoming Slack messages, Claude SDK calls, MCP tool invocations, memory writes, and errors.
 
@@ -43,7 +43,7 @@ The log viewer includes a search bar. Type any string to filter log lines to tho
 
 ```
 [info] Agent started { mcpServers: ['redshift', 'filesystem'] }
-[info] Memory watcher started { memoryDir: '/tmp/agents/data-bot/memory' }
+[info] Memory watcher started { memoryDir: '~/.slackhive/agents/data-bot/memory' }
 [debug] MCP servers configured { servers: ['redshift'] }
 ```
 
@@ -124,8 +124,14 @@ For shell access to runner logs, use the CLI:
 slackhive logs
 ```
 
-This tails the Docker container logs for the runner service. Add `--no-follow` to print without following:
+This tails `~/.slackhive/logs/runner.log` live. Ctrl-C to stop. To print without following:
 
 ```bash
-docker compose logs runner --tail 100
+tail -n 100 ~/.slackhive/logs/runner.log
+```
+
+To filter to a single agent, each log line is JSON — pipe through `grep`:
+
+```bash
+slackhive logs | grep '"agent":"data-bot"'
 ```

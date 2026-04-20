@@ -187,6 +187,30 @@ The prompt is the most important part. A few principles:
 
 ---
 
+## Rich Slack formatting
+
+Scheduled jobs aren't limited to plain text. Agents can post **Slack Block Kit** payloads — tables, sections, dividers, buttons — for readable reports.
+
+Ask the agent in your prompt:
+
+```
+Post the results as a Slack table: columns for channel, conversions,
+week-over-week change. Use Block Kit. Highlight anything down more
+than 10% in red emoji.
+```
+
+Under the hood the agent emits a `postPayload` with `blocks` — SlackHive delivers it to Slack verbatim. The rendered message has proper columns, section headers, and colored highlights instead of a wall of text.
+
+When to use:
+
+- Daily digest with multiple metrics — tables are much easier to scan
+- Fraud alerts with transaction IDs — columns keep fields aligned
+- Weekly engineering report — sections with dividers between topics
+
+For simple one-line alerts, plain text is still best. Reserve rich formatting for reports with structure.
+
+---
+
 ## Monitoring job runs
 
 Every job run is logged — status, output, duration, and timestamp — visible in **Jobs → [job name] → Run History**.

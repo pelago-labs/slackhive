@@ -7,10 +7,12 @@ description: "Export an agent's configuration as a JSON file and import it into 
 
 The export captures the full agent configuration:
 
+- **Persona** — the starter persona slug (if one was picked in the wizard)
+- **Description** — the one-line description shown to boss agents
 - **CLAUDE.md** — identity, instructions, and behavior rules
-- **Skills** — all Markdown skill files (slash commands)
+- **Skills** — all Markdown skill files (category, filename, content, sort order)
 
-Slack credentials, memories, and scheduled jobs are **not** included in the export. This keeps exports portable — you can import a config into any agent without overwriting live credentials or accumulated memory.
+Slack credentials, memories, wiki content, and scheduled jobs are **not** included. This keeps exports portable — you can import a config into any agent without overwriting live credentials, ingested wiki, or accumulated memory.
 
 ---
 
@@ -24,11 +26,17 @@ The file looks like:
 
 ```json
 {
+  "persona": "data-analyst",
+  "description": "Answers questions about product metrics and builds ad-hoc SQL.",
   "claudeMd": "# DataBot\n\nYou are a data analyst...",
   "skills": [
-    { "name": "sql-rules", "content": "## SQL Rules\n..." }
-  ],
-  "exportedAt": "2026-04-09T10:00:00.000Z"
+    {
+      "category": "sql",
+      "filename": "sql-rules.md",
+      "content": "## SQL Rules\n...",
+      "sortOrder": 0
+    }
+  ]
 }
 ```
 
@@ -36,15 +44,15 @@ The file looks like:
 
 ## Importing a config
 
-Import applies an exported config to an **existing** agent — it overwrites that agent's CLAUDE.md and upserts its skills.
+Import applies an exported config to an **existing** agent — it overwrites that agent's CLAUDE.md and upserts its skills. Persona and description are applied if present in the export.
 
 1. Open the target agent in the dashboard
 2. Click the **Upload** icon in the top-right
 3. Select the `.json` export file
 4. A confirmation modal shows what will be applied:
+   - Persona and description (if present)
    - The new CLAUDE.md content
    - How many skills will be upserted
-   - When the config was exported
 5. Click **Apply Import** to confirm
 
 <Note>

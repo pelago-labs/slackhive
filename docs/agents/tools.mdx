@@ -1,103 +1,124 @@
 ---
 title: "Tools & Permissions"
-description: "Control which tools agents can use: built-in Claude tools, MCP server tools, and the permissions system."
+description: "Control what tools the agent can use — MCPs, Claude Code tools, namespace-scoped Bash, allowlist, denylist."
 ---
 
-## Available tools
+The **Tools** tab is the single place you manage everything an agent can invoke. MCP servers, built-in Claude Code tools, and fine-grained permissions all live here.
 
-SlackHive agents can use three categories of tools:
+Open an agent → **Tools** tab.
 
-### Always-allowed tools
+## Capability toggles
 
-Two tools are always available to every agent regardless of permissions settings:
+At the top of the tab, two switches enable specific Claude Code tools:
 
-| Tool | Purpose |
-|------|---------|
-| `Read` | Read files from the agent's working directory. Used to read project context, CLAUDE.md, and reference files. |
-| `Write` | Write files to the agent's working directory. **Required for the memory system** — agents must be able to write `memory/*.md` files. |
+| Toggle | Adds tool | When to enable |
+|---|---|---|
+| **WebFetch** | `WebFetch` | Agent needs to read content from a URL on demand |
+| **WebSearch** | `WebSearch` | Agent needs to search the web for current information |
 
-These tools cannot be removed via the permissions UI. They are hardcoded in the runner as `alwaysAllowed = ['Read', 'Write']`.
+Leave both off by default — turn on per agent as needed.
 
-### MCP server tools
+## MCP servers
 
-Tools provided by assigned MCP servers. Each tool is prefixed with `mcp__{serverName}__`:
+Below the toggles: the MCP grid. Each card is a server from your catalog (see [MCP Servers](/configuration/mcp-servers) for adding servers).
 
-- `mcp__redshift__query` — a `query` tool from a server named `redshift`
-- `mcp__github__create_issue` — a `create_issue` tool from a server named `github`
-- `mcp__filesystem__read_file` — a `read_file` tool from a server named `filesystem`
+- **Assigned** servers (checked) — all their tools are available to this agent
+- **Unassigned** servers (unchecked) — not available
 
-All tools from all assigned MCP servers are automatically allowed when a server is assigned to an agent. To restrict specific tools, use the denylist.
+When a server is assigned, all its tools become available under the prefix `mcp__{serverName}__*`. To allow a server but block specific tools, use the denylist (below).
 
-### Additional Claude tools
+## Always-allowed tools
 
-The Claude Code provides built-in tools beyond `Read` and `Write`. These can be added to the agent's allowlist:
+Two Claude Code tools are on for every agent and cannot be removed:
 
-| Tool | Description |
-|------|-------------|
-| `Bash` | Execute shell commands |
-| `Edit` | Make targeted edits to files |
-| `MultiEdit` | Make multiple edits to a file at once |
-| `Glob` | Find files by pattern |
-| `Grep` | Search file contents |
-| `LS` | List directory contents |
-| `WebFetch` | Fetch content from a URL |
-| `WebSearch` | Search the web |
-| `TodoRead` | Read the agent's task list |
-| `TodoWrite` | Update the agent's task list |
+| Tool | Why |
+|---|---|
+| `Read` | Reads files in the agent's workspace — needed for loading the system prompt, skills, and wiki |
+| `Write` | Writes files in the agent's workspace — **required for the memory system** |
 
-## Configuring permissions
+## Namespace-scoped Bash
 
-Agent tool permissions are managed from the **Tools** tab on the agent's detail page.
+If you enable `Bash`, it runs inside a per-agent sandbox at:
 
-### Allowlist
+```
+~/.slackhive/agents/<slug>/bash/
+```
 
-Tools in the allowlist are available to the agent. The effective tool set is:
+Each agent's Bash activity is isolated:
+
+- Commands run with the working directory set to the agent's bash root
+- Agents cannot read or write each other's files
+- `/tmp` is namespaced too — `/tmp/agents/<slug>/` maps into the agent's own space
+
+This prevents cross-agent interference when multiple agents are active at once.
+
+## Bash(pattern) permission rules
+
+For tight control over specific shell operations, use `Bash(pattern)` rules. The pattern restricts which commands the agent can run.
+
+Examples:
+
+| Rule | What it allows |
+|---|---|
+| `Bash(git *)` | Only `git` commands |
+| `Bash(ls *)` | Only `ls` commands |
+| `Bash(git log *, git diff *, git status)` | Multiple specific git subcommands |
+| `Bash(rm *)` | (avoid — grants destructive access) |
+
+Add the rule to the allowlist. The agent can only run commands matching an allowed pattern.
+
+## Effective tool set
 
 ```
 effective = (alwaysAllowed + allowlist + mcpToolPrefixes) - denylist
 ```
 
-To add a tool, type its name (e.g. `Bash`, `WebFetch`) or paste an MCP tool prefix (e.g. `mcp__redshift`) to allow all tools from that server.
+- Everything in **Always allowed** (`Read`, `Write`)
+- Everything in the **allowlist** (what you check)
+- All tools from **assigned MCP servers** (`mcp__name__*`)
+- Minus everything in the **denylist**
 
-### Denylist
+## Common patterns
 
-Tools in the denylist are blocked even if they appear in the allowlist. Use this to selectively exclude tools from an MCP server you've otherwise allowed.
+### Give a data-analyst agent read-only SQL access
 
-For example, to allow a GitHub MCP server but block the `delete_branch` tool:
-- Allowlist: `mcp__github` (allows all GitHub tools)
-- Denylist: `mcp__github__delete_branch` (blocks this specific tool)
+- Assign the `redshift` MCP server
+- No other tools needed — `Read`/`Write` are on, `Bash` off
 
-### Default behavior
+### Give a dev-ops agent GitHub access but no branch deletion
 
-When no permissions are configured for an agent:
-- `Read` and `Write` are always available
-- All tools from assigned MCP servers are available
-- No additional Claude Code tools are available
+- Assign the `github` MCP server
+- Denylist: `mcp__github__delete_branch`
+
+### Give a writer agent web research
+
+- Enable **WebFetch** and **WebSearch** toggles
+- No MCPs needed
+
+### Give a shell-savvy agent git-only Bash
+
+- Allowlist: `Bash(git *)`
+- No MCPs needed
+
+## Boss agents need no tools
+
+Boss agents don't use tools directly — they delegate to specialists. The Tools tab is still visible on a Boss agent, but leave it empty. If you assign MCPs or toggle tools, they're harmless but unused.
 
 ## Permission mode
 
-All SlackHive agents run with `permissionMode: 'acceptEdits'`. This means:
-- File edits and tool use are automatically approved without prompting
-- Claude does not need to ask for confirmation before running tools
-- The only control is through the allowlist/denylist
+All SlackHive agents run in `permissionMode: 'acceptEdits'` — tool calls are auto-approved without prompting. The allowlist/denylist is your only control. This is the right default for an async Slack agent.
 
-This is appropriate for the Slack context where agents are expected to act autonomously.
+## Changes are live
 
-## MCP server tool prefixes
+Save any tool change and the runner hot-reloads the agent within seconds. A snapshot is taken so you can roll back via the **History** tab.
 
-When you assign an MCP server to an agent, its tool prefix (`mcp__{serverName}`) is automatically added to the allowlist. Removing the server from the agent removes the prefix from the allowlist.
+## Next steps
 
-If you want to assign an MCP server but only allow specific tools from it:
-1. Assign the server (adds `mcp__{serverName}` prefix)
-2. Add the specific tools you want to the allowlist directly (e.g. `mcp__redshift__query`)
-3. Add `mcp__{serverName}` to the denylist to remove the broad prefix
-
-Or equivalently, don't assign the server via the UI but manually add the specific tool names to the allowlist.
-
-## Best practices
-
-- **Keep allowlists minimal**: Only add tools the agent actually needs for its role
-- **Boss agents need no tools**: Boss agents should not have MCP servers or extra tools — they delegate rather than act
-- **Use `Bash` carefully**: Shell access is powerful; only add it to agents where it's necessary
-- **Use denylist for destructive tools**: If an MCP server has delete/destroy tools you don't want the agent to use, add them to the denylist
-- **`Write` is required for memory**: Never add `Write` to the denylist — it breaks the memory system
+<CardGroup cols={2}>
+  <Card title="MCP Servers" icon="plug" href="/configuration/mcp-servers">
+    Add servers to the platform catalog.
+  </Card>
+  <Card title="OAuth MCPs" icon="key" href="/configuration/mcp-oauth">
+    Connect servers that require OAuth (Figma, Linear, etc.).
+  </Card>
+</CardGroup>

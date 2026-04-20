@@ -1,132 +1,161 @@
 ---
 title: "Creating Agents"
-description: "Create a Claude agent and deploy it to Slack using the 5-step wizard."
+description: "Create an agent with the 5-step wizard — name, persona, Slack, tools, review."
 ---
 
-Click **New Agent** in the sidebar to open the creation wizard. Creating an agent takes about 5 minutes if you have your Slack credentials ready.
+Click **New Agent** in the sidebar to open the creation wizard. If your Slack credentials are ready, you'll be done in about 5 minutes.
 
-## Step 1: Name & Role
+Before you start, skim [Concepts — What Goes Where](/agents/concepts) if you haven't. It explains the four layers of an agent's brain (system prompt, skills, memory, wiki) and helps you pick the right home for each piece of content later.
 
-| Field | Description |
-|-------|-------------|
-| **Name** | Display name shown in the UI and Slack (e.g. "Ava Engineer") |
-| **Slug** | URL-safe identifier auto-generated from the name (e.g. `ava-engineer`). Used internally and as the agent's workspace directory name. |
-| **Description** | What this agent does. Shown in Boss agent team registries so the Boss knows who to delegate to. |
-| **Persona** | Free-form personality and behavioral instructions. Compiled into `CLAUDE.md` as the agent's identity section. |
-| **Model** | The Claude model this agent uses. |
+## Step 1: Name & Description
 
-### Model selection
+| Field | What it is |
+|---|---|
+| **Name** | Display name, shown in Slack and the dashboard (e.g. "Data Analyst") |
+| **Description** | One line describing what the agent does. Boss agents read this to decide who to delegate to. |
+| **Model** | `claude-sonnet-4-6` is a good default. Opus for complex reasoning. Haiku for high-volume quick tasks. |
+| **Boss toggle** | Turn on if this agent orchestrates others (see [Boss Agents](/agents/boss-agents)) |
 
-| Model | Best for |
-|-------|---------|
-| `claude-opus-4-6` | Complex reasoning, Boss agents, multi-step planning |
-| `claude-sonnet-4-6` | Balanced capability and speed — good default for most agents |
-| `claude-haiku-4-5-20251001` | Fast, lightweight tasks and high-volume operations |
+For specialist agents, a **Reports To** field appears — pick which boss(es) this agent answers to. A specialist can report to multiple bosses.
 
-### Boss vs specialist
+## Step 2: Pick a Persona
 
-Toggle **This agent is a Boss** if this agent should orchestrate a team:
+Browse the **Persona Library** — 26 research-backed starter identities across engineering, data, product, ops, marketing, and support.
 
-- Boss agents skip the Tools step (they delegate rather than use tools directly)
-- Boss `CLAUDE.md` is auto-generated from the team registry — it lists all specialists that report to this boss and includes explicit delegation rules
-- The registry regenerates automatically whenever any agent is added, updated, or deleted
+Picking a persona seeds the agent's:
 
-For specialist agents, use **Reports To** to select which Boss agent(s) they report to. A specialist can report to multiple bosses and will appear in each selected boss's registry.
+- System prompt base (role, tone, hard rules)
+- Starter skills (reusable procedures like `/weekly-report`)
+- Recommended MCPs (the tools typical for this role)
 
-## Step 2: Slack App
+If nothing fits, pick **Blank** — you'll build the agent from scratch.
 
-SlackHive generates a Slack app manifest tailored for your agent. The manifest pre-configures:
-- All required OAuth scopes
-- Socket Mode enabled
-- Bot display name matching your agent's name
+See [Personas](/agents/personas) for the full library and how seeding works.
 
-**To create the Slack app:**
+<Note>
+  **Boss agents skip persona selection.** Their system prompt is auto-generated from the team registry and cannot be hand-edited.
+</Note>
+
+## Step 3: Create a Slack App
+
+Each agent needs its own Slack app. SlackHive generates a manifest — you paste it into Slack, install, and come back with three tokens.
+
 1. Click **Generate Manifest** in the wizard
 2. Open [api.slack.com/apps](https://api.slack.com/apps) in a new tab
-3. Click **Create New App** → **From a manifest**
-4. Select your workspace, paste the manifest, click **Create**
-5. Go to **OAuth & Permissions** → **Install to Workspace** → **Allow**
+3. Click **Create New App** → **From an app manifest**
+4. Select your workspace, paste the JSON, click **Create**
+5. Click **Install to Workspace** → **Allow**
 
-See [Slack App Setup](/configuration/slack-app) for a detailed walkthrough.
+See [Slack app setup](/configuration/slack-app) for screenshots and troubleshooting.
 
-## Step 3: Credentials
+## Step 4: Enter Credentials
 
-Paste the three values from your Slack app settings:
+Paste the three values from your Slack app:
 
-| Field | Where to find it |
-|-------|-----------------|
-| **Bot Token** (`xoxb-...`) | OAuth & Permissions → Bot User OAuth Token |
-| **App Token** (`xapp-...`) | Basic Information → App-Level Tokens (create with `connections:write` scope) |
-| **Signing Secret** | Basic Information → App Credentials |
+| Credential | Where to find it | Looks like |
+|---|---|---|
+| **Bot Token** | OAuth & Permissions → Bot User OAuth Token | `xoxb-...` |
+| **App Token** | Basic Information → App-Level Tokens → Generate Token (add `connections:write`) | `xapp-...` |
+| **Signing Secret** | Basic Information → App Credentials → Signing Secret → Show | 32-char hex |
 
-After saving, SlackHive verifies the Slack connection. If it fails, confirm that Socket Mode is enabled on your app.
+Click **Verify Connection**. SlackHive pings Slack to confirm the tokens work. Credentials are stored encrypted in the **Platform Integrations** table — a per-agent credential store, separate from the agent record itself. One agent can later hold credentials for multiple platforms (Slack today; Discord, Telegram, etc. as adapters are added). See [Platform Integrations](/operations/troubleshooting#slack-bot-token-is-invalid-or-revoked) for managing credentials after save.
 
-## Step 4: Tools
+## Step 5: Tools & Review
 
-<Note>This step is skipped for Boss agents.</Note>
+Assign MCP servers from the catalog to give the agent real tools (query a database, read files, create Jira tickets). You can also skip this and add them later from the Tools tab.
 
-### Skill template
-
-Select a starting template for the agent's skill set:
-
-| Template | Description |
-|----------|-------------|
-| **Blank** | No starter skills — clean slate |
-| **Data Analyst** | SQL query patterns, data summarization, charting guidance |
-| **Writer** | Content drafting, editing, tone adjustment |
-| **Developer** | Code review, debugging, PR summaries, architecture commands |
-
-Skills are Markdown files compiled as Claude Code slash commands. They can be edited or replaced at any time from the agent's **Skills** tab.
-
-### MCP servers
-
-Assign MCP servers from the platform catalog to give this agent access to external tools. Each assigned server's tools become available as `mcp__{serverName}__{toolName}`.
-
-Servers can be added or removed later from the agent's **Tools** tab.
-
-## Step 5: Review
-
-Review the summary:
-- Agent name, slug, model, persona
-- Boss/specialist configuration
-- Slack app connection status
-- Assigned skills and MCP servers
-
-Click **Create Agent** to finalize. The runner picks up the new agent within seconds via Redis pub/sub.
+Review the summary, then click **Create Agent**. The runner picks up the agent within a few seconds — the dashboard status flips to **Active**.
 
 ## After creation
 
-1. The agent appears in the dashboard with **Active** status
-2. Invite the bot to a Slack channel: `/invite @your-agent-name`
-3. @mention it to start a conversation
+The agent is live. Invite the bot to a Slack channel:
 
-<Tip>
-  Test your agent by opening a Slack DM with it. DMs don't require a channel invite.
-</Tip>
+```
+/invite @your-agent-name
+```
 
-## Editing an agent
+Then @mention it or DM it directly. First reply takes a couple seconds as the session initializes.
 
-All fields are editable after creation from the agent's detail page tabs:
+## The agent detail page
 
-| Tab | What you can edit |
-|-----|------------------|
-| **Overview** | Name, description, persona, model, Slack credentials, channel restrictions |
-| **CLAUDE.md** | The agent's main instruction/identity file directly |
-| **Skills** | Skill files (slash commands), add/edit/delete |
-| **Tools** | MCP server assignments, tool permissions (allowlist/denylist) |
-| **Memory** | Browse, inspect, and delete agent memories |
-| **History** | Version control — browse snapshots, view diffs, restore |
+Open the agent to find five tabs:
 
-Every save to skills, CLAUDE.md, tools, or permissions is auto-snapshotted. Changes are live-reloaded by the runner within seconds.
+| Tab | What you manage here |
+|---|---|
+| **Overview** | Name, description, model, persona, Slack credentials, channel restrictions, verbose toggle (see below) |
+| **Instructions** | System Prompt, Skills, Memory (three sub-tabs) |
+| **Tools** | MCP servers, Claude Code tools, capability toggles (WebFetch, WebSearch) |
+| **Knowledge** | Per-agent wiki — ingest repos/files/URLs |
+| **Test** | Sandboxed conversation pane with real MCPs |
+| **History** | Auto-snapshots with GitHub-style file diffs and restore |
+
+Changes hot-reload within seconds — no restart needed.
+
+## Instructions tab — three sub-tabs
+
+| Sub-tab | What lives here | Links |
+|---|---|---|
+| **System Prompt** | The agent's identity. Always-loaded. Edit by hand or via Coach. **Optimize** button runs Coach to tighten it. | [Concepts](/agents/concepts) |
+| **Skills** | Reusable slash-command procedures. Each is one Markdown file. | [Coach](/agents/coach) |
+| **Memory** | What the agent has learned from conversations. **Analyze** button triggers a recall review. | [Memory](/agents/memory) |
+
+<Note>
+  **Boss agents:** the System Prompt is locked and the Optimize button is hidden. Boss identity is auto-generated from the team registry whenever any specialist is added, updated, or deleted.
+</Note>
+
+## Tools tab
+
+The Tools tab is where **MCP servers** and **Claude Code tools** come together in one place. At the top:
+
+- **WebFetch** toggle — enables `WebFetch` tool
+- **WebSearch** toggle — enables `WebSearch` tool
+
+Below: the MCP assignment grid (add/remove servers from the catalog) and the allowlist/denylist for fine-grained tool control.
+
+`Read` and `Write` are always on (the memory system needs `Write`). `Bash` runs inside a per-agent namespace at `~/.slackhive/agents/<slug>/bash/` — agents cannot touch each other's files. See [Tools & Permissions](/agents/tools).
+
+## Verbose toggle
+
+A per-agent switch on the **Overview** tab controls how chatty the agent is while working.
+
+| Setting | Behavior |
+|---|---|
+| **Verbose on** (default) | Each assistant text block posts to Slack as it streams. Users see step-by-step progress — great for long tool chains. |
+| **Verbose off** | Intermediate blocks are buffered silently. Only the final answer posts. Cleaner for short-answer agents (e.g. `@status-bot`). |
+
+Tool progress always shows as emoji reactions on the user's message regardless of this toggle — verbose only controls intermediate *text* messages.
 
 ## Channel restrictions
 
-By default, an agent responds in any channel it's invited to. To restrict to specific channels:
+By default, an agent responds in any channel it's invited to. To restrict:
 
-1. Go to the agent's **Overview** tab
+1. Open **Overview**
 2. Scroll to **Allowed Channels**
-3. Enter one or more Slack channel IDs (e.g. `C12345678`)
+3. Enter one or more Slack channel IDs (`C12345678`)
 
-When a channel list is set, the agent silently ignores messages from other channels. If the bot is invited to a non-allowed channel, it posts a notice and immediately leaves.
+If the agent is invited to a non-allowed channel, it posts a notice and leaves.
 
-Find a channel ID in Slack by right-clicking the channel name → **Copy link** — the ID is the `C...` segment at the end of the URL.
+## Editing is live
+
+Every save to the system prompt, skills, tools, permissions, or wiki:
+
+- Hot-reloads the agent within a couple seconds
+- Creates a snapshot (see [Version History](/features/history)) — skipped if nothing actually changed
+- Channel restriction changes appear in the diff
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Coach" icon="comments" href="/agents/coach">
+    Tune the system prompt and skills via chat — no hand-editing.
+  </Card>
+  <Card title="Knowledge Base" icon="book" href="/agents/knowledge-base">
+    Ingest a repo, file, or URL into the agent's wiki.
+  </Card>
+  <Card title="Test Mode" icon="flask" href="/agents/testing">
+    Try the agent in a sandbox before going live on Slack.
+  </Card>
+  <Card title="Tools & Permissions" icon="shield" href="/agents/tools">
+    Full reference for MCPs, Claude tools, allowlist/denylist, and namespace-scoped Bash.
+  </Card>
+</CardGroup>
