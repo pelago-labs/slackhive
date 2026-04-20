@@ -15,7 +15,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
-import { Readable } from 'stream';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,12 +86,23 @@ export async function GET(
     lastSynced: r.last_synced ?? null,
   }));
 
-  // Build tar.gz in memory using tar-stream + zlib
+  // Build tar.gz in memory using tar-stream + zlib.
+  // Attach the gz consumer BEFORE writing any entries — otherwise gz's
+  // internal buffer fills (16KB high-water), backpressure halts pack,
+  // and `pack.entry()` callbacks never fire. That deadlock is what caused
+  // large-wiki downloads to hang.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const tar = require('tar-stream') as typeof import('tar-stream');
   const pack = tar.pack();
   const gz = zlib.createGzip();
   pack.pipe(gz);
+
+  const chunks: Buffer[] = [];
+  const gzDone = new Promise<Buffer>((resolve, reject) => {
+    gz.on('data', (chunk: Buffer) => chunks.push(chunk));
+    gz.on('end', () => resolve(Buffer.concat(chunks)));
+    gz.on('error', reject);
+  });
 
   // Add wiki files
   for (const { rel, abs } of files) {
@@ -113,18 +123,9 @@ export async function GET(
   });
 
   pack.finalize();
+  const body = await gzDone;
 
-  // Collect gz output into a buffer, then return as Response
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    gz.on('data', (chunk: Buffer) => chunks.push(chunk));
-    gz.on('end', resolve);
-    gz.on('error', reject);
-  });
-
-  const body = Buffer.concat(chunks);
-
-  return new Response(body, {
+  return new Response(body as unknown as BodyInit, {
     status: 200,
     headers: {
       'Content-Type': 'application/gzip',
