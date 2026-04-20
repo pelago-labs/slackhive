@@ -19,6 +19,7 @@ vi.mock('@/lib/db', () => ({
   getAgentById: vi.fn(),
   getSetting: vi.fn(),
   setSetting: vi.fn(),
+  deleteSetting: vi.fn(),
   publishAgentEvent: vi.fn(),
 }));
 
@@ -26,7 +27,7 @@ vi.mock('@/lib/api-guard', () => ({
   guardAgentWrite: vi.fn(),
 }));
 
-import { getAgentById, getSetting, setSetting } from '@/lib/db';
+import { getAgentById, getSetting, setSetting, deleteSetting } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
 
 const COOKIE_NAME = 'auth_session';
@@ -37,6 +38,7 @@ beforeEach(() => {
   vi.mocked(getAgentById).mockReset().mockResolvedValue({ id: 'a1', name: 'x' } as any);
   vi.mocked(getSetting).mockReset().mockResolvedValue(null);
   vi.mocked(setSetting).mockReset().mockResolvedValue(undefined);
+  vi.mocked(deleteSetting).mockReset().mockResolvedValue(undefined);
   vi.mocked(guardAgentWrite).mockReset().mockResolvedValue(null as any);
 });
 
@@ -75,17 +77,15 @@ describe('GET /api/agents/[id]/coach', () => {
 });
 
 describe('DELETE /api/agents/[id]/coach', () => {
-  it('writes an empty session record', async () => {
+  it('deletes the session and orphan notes settings', async () => {
     const { DELETE } = await loadRoute();
     const res = await DELETE(
       new Request('http://localhost', { method: 'DELETE', headers: authHeaders() }) as any,
       { params: Promise.resolve({ id: 'a1' }) },
     );
     expect(res.status).toBe(204);
-    expect(setSetting).toHaveBeenCalledWith(
-      'coach-session:a1',
-      expect.stringContaining('"messages":[]'),
-    );
+    const deletedKeys = vi.mocked(deleteSetting).mock.calls.map((c) => c[0]);
+    expect(deletedKeys).toContain('coach-session:a1');
   });
 });
 

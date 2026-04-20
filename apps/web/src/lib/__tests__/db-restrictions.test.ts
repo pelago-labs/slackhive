@@ -1,28 +1,29 @@
 /**
  * @fileoverview Unit tests for agent restriction functions in db.ts.
  *
- * Verifies that getAgentRestrictions and upsertRestrictions issue correct SQL.
- * No real database required — pg.Pool is mocked via vi.mock.
+ * Verifies getAgentRestrictions and upsertRestrictions issue correct SQL and
+ * bind parameters. Uses an injected fake DbAdapter — no real database required.
  *
  * @module web/lib/__tests__/db-restrictions.test
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-// ─── Mock pg ─────────────────────────────────────────────────────────────────
-
-const mockQuery = vi.fn();
-
-vi.mock('pg', () => ({
-  Pool: vi.fn().mockImplementation(function() { return { query: mockQuery }; }),
-}));
-
-process.env.DATABASE_URL = 'postgresql://mock/db';
-process.env.ENV_SECRET_KEY = 'test-secret-key-32-chars-padding!';
+import { setDb, type DbAdapter, type DbResult } from '@slackhive/shared';
 
 import { getAgentRestrictions, upsertRestrictions } from '@/lib/db';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Fake adapter ────────────────────────────────────────────────────────────
+
+const mockQuery = vi.fn<(sql: string, params?: unknown[]) => Promise<DbResult>>();
+
+const fakeAdapter: DbAdapter = {
+  query: mockQuery,
+  transaction: async (fn) => fn(fakeAdapter),
+  close: async () => {},
+  type: 'sqlite',
+};
+
+// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const AGENT_ID = 'agent-uuid-001';
 
@@ -35,7 +36,8 @@ const RESTRICTION_ROW = {
 
 beforeEach(() => {
   mockQuery.mockReset();
-  mockQuery.mockResolvedValue({ rows: [] });
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+  setDb(fakeAdapter);
 });
 
 // ─── getAgentRestrictions ────────────────────────────────────────────────────
@@ -55,13 +57,13 @@ describe('getAgentRestrictions', () => {
   });
 
   it('returns null when no row found', async () => {
-    mockQuery.mockResolvedValue({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const result = await getAgentRestrictions(AGENT_ID);
     expect(result).toBeNull();
   });
 
   it('maps row to Restriction with correct fields', async () => {
-    mockQuery.mockResolvedValue({ rows: [RESTRICTION_ROW] });
+    mockQuery.mockResolvedValueOnce({ rows: [RESTRICTION_ROW], rowCount: 1 });
     const result = await getAgentRestrictions(AGENT_ID);
     expect(result).not.toBeNull();
     expect(result!.id).toBe('r-001');
@@ -71,8 +73,9 @@ describe('getAgentRestrictions', () => {
   });
 
   it('defaults allowedChannels to [] when column is null', async () => {
-    mockQuery.mockResolvedValue({
+    mockQuery.mockResolvedValueOnce({
       rows: [{ ...RESTRICTION_ROW, allowed_channels: null }],
+      rowCount: 1,
     });
     const result = await getAgentRestrictions(AGENT_ID);
     expect(result!.allowedChannels).toEqual([]);
@@ -90,23 +93,20 @@ describe('upsertRestrictions', () => {
     expect(sql).toMatch(/DO UPDATE/i);
   });
 
-  it('passes agentId as first parameter', async () => {
-    await upsertRestrictions(AGENT_ID, ['C_ABC']);
-    const [, params] = mockQuery.mock.calls[0];
-    expect(params[0]).toBe(AGENT_ID);
-  });
-
-  it('passes allowedChannels array as second parameter', async () => {
+  it('binds [generatedId, agentId, allowedChannels] in that order', async () => {
     const channels = ['C_1', 'C_2', 'C_3'];
     await upsertRestrictions(AGENT_ID, channels);
     const [, params] = mockQuery.mock.calls[0];
-    expect(params[1]).toEqual(channels);
+    expect(params).toHaveLength(3);
+    expect(typeof params![0]).toBe('string');
+    expect(params![1]).toBe(AGENT_ID);
+    expect(params![2]).toEqual(channels);
   });
 
   it('accepts an empty allowedChannels array (unrestricted)', async () => {
     await upsertRestrictions(AGENT_ID, []);
     const [, params] = mockQuery.mock.calls[0];
-    expect(params[1]).toEqual([]);
+    expect(params![2]).toEqual([]);
   });
 
   it('updates allowed_channels in the SET clause', async () => {
