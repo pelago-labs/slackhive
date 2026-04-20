@@ -12,7 +12,7 @@
 [![npm downloads](https://img.shields.io/npm/dt/slackhive?color=cb3837&logo=npm&logoColor=white&label=installs)](https://www.npmjs.com/package/slackhive)
 [![Node.js](https://img.shields.io/badge/Node.js-≥20-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?logo=docker&logoColor=white)](https://docs.docker.com/compose)
+[![SQLite](https://img.shields.io/badge/SQLite-embedded-003B57?logo=sqlite&logoColor=white)](https://sqlite.org)
 [![Documentation](https://img.shields.io/badge/docs-slackhive.mintlify.app-D97757?logo=gitbook&logoColor=white)](https://slackhive.mintlify.app)
 [![Security Audit](https://github.com/pelago-labs/slackhive/actions/workflows/audit.yml/badge.svg)](https://github.com/pelago-labs/slackhive/actions/workflows/audit.yml)
 
@@ -67,11 +67,11 @@ slackhive init
 ```
 
 The CLI will:
-1. Check prerequisites (Docker, Docker Compose, Git, Claude Code)
+1. Check prerequisites (Git, Node.js ≥ 20, Claude Code)
 2. Clone the repository
 3. Auto-detect your Claude installation (cross-platform compatible)
 4. Walk you through configuration (API key or subscription, admin credentials)
-5. Start all services automatically
+5. Build and start the services natively — no Docker required
 
 Open `http://localhost:3001` and create your first agent.
 
@@ -81,14 +81,14 @@ Open `http://localhost:3001` and create your first agent.
 |---------|-------------|
 | `slackhive init` | Clone, configure, and start SlackHive |
 | `slackhive start` | Start all services |
-| `slackhive stop` | Stop all services |
-| `slackhive status` | Show running containers |
+| `slackhive stop` | Stop all services (and any orphaned runner processes) |
+| `slackhive status` | Show running services + ports |
 | `slackhive logs` | Tail runner logs |
 | `slackhive update` | Pull latest changes and rebuild |
 
 ### Option B: Manual setup
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) + [Docker Compose](https://docs.docker.com/compose/), Node.js ≥ 20
+**Prerequisites:** Node.js ≥ 20, Git, [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup) on your PATH
 
 ```bash
 git clone https://github.com/pelago-labs/slackhive.git
@@ -101,13 +101,18 @@ Edit `.env` with your credentials:
 ```env
 ANTHROPIC_API_KEY=sk-ant-...        # or use Claude Pro/Max subscription
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=changeme
-POSTGRES_PASSWORD=slackhive
+ADMIN_PASSWORD=<strong-random-password>
+AUTH_SECRET=                        # generate: openssl rand -hex 32
 ENV_SECRET_KEY=                     # generate: openssl rand -hex 32
+DATABASE_TYPE=sqlite                # embedded — no external DB needed
 ```
 
 ```bash
-docker compose up -d --build
+npm install
+npm run build
+
+# Start the stack (web on :3001, runner on :3002)
+npx slackhive start
 ```
 
 Open `http://localhost:3001`, log in, and create your first agent.
@@ -124,7 +129,7 @@ Every agent is a full **Claude Code** agent — with tools, memory, identity, an
 
 | | |
 |---|---|
-| 🧠 **Persistent Memory** | Agents write memories during conversations — feedback, user context, project state. Synced to Postgres, injected on next start. They don't forget. |
+| 🧠 **Persistent Memory** | Agents write memories during conversations — feedback, user context, project state. Synced to SQLite, injected on next start. They don't forget. |
 | 🔌 **MCP Tool Integration** | Connect any MCP server (Redshift, GitHub, Notion, Figma, custom APIs) — stdio, SSE, or HTTP transports. |
 | 📝 **Inline TypeScript MCPs** | Paste TypeScript source directly into the UI — no deployment needed. The runner compiles and executes it. |
 | 🧵 **Full Thread Context** | Agents fetch the entire Slack thread on every invocation — zero context lost in handoffs. |
@@ -162,11 +167,12 @@ Slack Workspace (@boss, @data-bot, @writer, ...)
         │ Socket Mode (Bolt)
         ▼
 ┌──────────────────────────────────────────────────┐
-│  Docker Compose                                  │
+│  Local host — two Node.js processes              │
 │                                                  │
-│  Web (Next.js) ──── Redis ────► Runner           │
-│       │                          │               │
-│       └──────── PostgreSQL ──────┘               │
+│  Web (Next.js :3001) ──HTTP──► Runner (:3002)    │
+│            │                        │            │
+│            └───── SQLite file ──────┘            │
+│                   (./data/slackhive.db)          │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -174,8 +180,8 @@ Slack Workspace (@boss, @data-bot, @writer, ...)
 |---------|-------------|
 | **Web** (Next.js 15) | Dashboard — create agents, edit skills, view logs, manage users |
 | **Runner** (Node.js) | Hosts all agent processes and Slack connections |
-| **PostgreSQL** | Stores agents, memories, skills, sessions, users, history |
-| **Redis** | Delivers hot-reload events from Web to Runner instantly |
+| **SQLite** | Embedded — stores agents, memories, skills, sessions, users, history. No external DB to install |
+| **Event bus** | Web posts to the runner's internal HTTP port to deliver hot-reload events |
 
 **How a message flows:**
 1. User @mentions an agent in Slack
@@ -183,7 +189,7 @@ Slack Workspace (@boss, @data-bot, @writer, ...)
 3. Claude Code processes the message with the agent's compiled `CLAUDE.md`
 4. Agent uses MCP tools if needed (Redshift, GitHub, Notion, etc.)
 5. Response is formatted as Slack Block Kit and posted to the thread
-6. Memory files written during the session are synced to Postgres
+6. Memory files written during the session are synced to SQLite
 7. Next conversation starts with all accumulated knowledge
 
 ---
@@ -200,9 +206,9 @@ Billed per token via the Anthropic API. Best for teams and production.
 
 **Option B — Claude Pro or Max Subscription**
 ```bash
-claude login    # run on host machine, saves credentials to ~/.claude/
+claude login    # saves credentials to your system keychain / ~/.claude/
 ```
-Mount `~/.claude` into the runner container and leave `ANTHROPIC_API_KEY` unset. Best for individual developers.
+Leave `ANTHROPIC_API_KEY` unset — the runner picks up credentials from the system keychain automatically. Best for individual developers.
 
 > Full guide → [slackhive.mintlify.app/configuration/env-vars](https://slackhive.mintlify.app/configuration/env-vars)
 
@@ -234,12 +240,12 @@ Have an idea? [Open an issue](https://github.com/pelago-labs/slackhive/issues)
 git clone https://github.com/pelago-labs/slackhive.git
 cd slackhive && npm install
 
-# Start infra
-docker compose up postgres redis -d
+# Configure
+cp .env.example .env    # then fill in ADMIN_PASSWORD, AUTH_SECRET, ENV_SECRET_KEY
 
-# Run locally
+# Run locally (SQLite — no external services required)
 cd apps/web && npm run dev      # http://localhost:3000
-cd apps/runner && npm run dev
+cd apps/runner && npm run dev   # http://localhost:3002
 ```
 
 Open an issue before submitting large PRs so we can align on the approach.
