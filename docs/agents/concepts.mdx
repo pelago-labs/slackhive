@@ -1,0 +1,162 @@
+---
+title: "Concepts — What Goes Where"
+description: "System prompt vs skills vs memory vs wiki — the four places an agent's brain lives, and how to decide where to put what."
+---
+
+A SlackHive agent's brain has four layers. Each layer has a different purpose, a different lifespan, and a different place in the UI. Getting this right is the difference between an agent that sharpens over time and one that forgets everything.
+
+## The four layers
+
+| Layer | What it is | Where it lives | Lifespan |
+|---|---|---|---|
+| **System Prompt** | The agent's identity — role, tone, rules | Instructions → System Prompt | Forever, until you edit it |
+| **Skills** | Reusable procedures — how to do specific tasks | Instructions → Skills | Forever, until you edit them |
+| **Memory** | Facts the agent learned from conversations | Instructions → Memory | Forever, until you delete them |
+| **Wiki** | Reference material the agent looks up on demand | Knowledge tab | Forever, ingested from sources |
+
+## 1. System Prompt — who the agent is
+
+The agent's always-loaded identity. Every conversation starts with this in context.
+
+**Put here:**
+
+- Role: "You are a senior data analyst for Pelago"
+- Tone: "Concise, direct, no filler words"
+- Hard rules: "Never run DELETE or UPDATE queries"
+- Domain scope: "Focus on bookings, revenue, and churn — not marketing"
+
+**Don't put here:**
+
+- Long procedures (use a skill)
+- Facts about specific people (use memory)
+- Large reference material (use the wiki)
+
+Kept short. A bloated system prompt wastes context on every turn.
+
+## 2. Skills — how the agent does things
+
+Slash commands the agent can invoke **on demand**. Each skill is one Markdown file with step-by-step instructions for a specific task. Skills stay out of the agent's context until someone — a user, a scheduled job, or the agent itself during a chain — invokes them by name.
+
+**Put here:**
+
+- `/weekly-report` — steps to pull, format, and post the weekly digest
+- `/onboard-new-user` — the full onboarding checklist
+- `/debug-checkout` — the triage flow for checkout errors
+
+**Don't put here:**
+
+- One-off logic (just tell the agent in Slack)
+- Identity or tone (use the system prompt)
+- Data the agent needs to read (use the wiki)
+- **An agent's single always-on job** — if the agent has one job it always does (e.g. birthday bot, daily digest), put the instruction in the system prompt and trigger via scheduled job. A skill adds ceremony without payoff.
+
+A skill runs only when called. It doesn't cost context until then. That's the whole point — skills let an agent carry dozens of procedures at near-zero idle cost.
+
+## 3. Memory — what the agent learned
+
+Structured facts the agent writes down during conversations. The agent recalls them on demand via the `/recall` skill.
+
+**Put here:**
+
+- **user** — "Kai leads the data team, prefers concise answers"
+- **feedback** — "Don't mock the database in integration tests — last quarter's incident"
+- **project** — "Merge freeze starts 2026-03-05 for mobile release"
+- **reference** — "Pipeline bugs tracked in Linear project INGEST"
+
+**Don't put here:**
+
+- Identity (use the system prompt)
+- Procedures (use a skill)
+- Large reference docs (use the wiki)
+
+Memory grows organically. Every conversation is a chance for the agent to learn.
+
+## 4. Wiki — what the agent can look up
+
+The agent's Knowledge Base. Ingest a repo, file, or URL and SlackHive builds a Karpathy-style wiki (`overview.md`, `concepts/`, `flows/`, `modules/`) that the agent reads on demand via the `/wiki` skill.
+
+**Put here:**
+
+- The codebase the agent works with
+- Internal runbooks, design docs, API specs
+- Product documentation
+
+**Don't put here:**
+
+- Quick facts (use memory)
+- Procedures (use a skill)
+- Identity (use the system prompt)
+
+Wikis can be large. The agent only reads the pages it needs.
+
+## Decision flow
+
+Ask yourself two questions:
+
+1. **How often is this relevant?**
+   - Every turn → System Prompt
+   - Sometimes, on demand → Skill, Memory, or Wiki
+2. **Where does the content come from?**
+   - You write it → System Prompt or Skill
+   - Agent learns it from a conversation → Memory
+   - External source (repo, docs, URL) → Wiki
+
+```
+                    Relevant every turn?
+                   /                    \
+                YES                      NO
+                 |                        |
+          System Prompt              Written by me?
+                                    /              \
+                                 YES                NO
+                                  |                  |
+                          Procedure or fact?     From external source?
+                         /         \              /            \
+                      Procedure    Fact         YES              NO
+                         |          |            |               |
+                       Skill      Skill        Wiki           Memory
+                            (short, reusable)   (agent       (agent
+                                                 reads        learns
+                                                 on demand)   & recalls)
+```
+
+## Worked examples
+
+| You want the agent to… | Where it goes |
+|---|---|
+| Always write in a polite, formal tone | System Prompt |
+| Run the same 8-step SQL triage flow when revenue drops | Skill |
+| Remember that the CEO prefers charts over tables | Memory |
+| Reference the codebase at `github.com/org/repo` on demand | Wiki |
+| Never edit production config files | System Prompt |
+| Draft a standard PR summary in the team's format | Skill |
+| Note that Tuesdays are always low due to maintenance | Memory |
+| Look up the API reference when asked about an endpoint | Wiki |
+
+## How they interact
+
+The four layers are not isolated — they compose:
+
+1. **System Prompt** loads every turn. Sets the lens.
+2. **Memory index** (`MEMORY.md`) loads every turn. Tells the agent what it has learned.
+3. **Skills** load when invoked. `/recall`, `/wiki`, and your custom skills.
+4. **Wiki** loads page-by-page when the agent reads it via `/wiki`.
+
+This keeps the context window small by default, with everything available on demand.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Creating Agents" icon="robot" href="/agents/creating-agents">
+    Set up the system prompt and pick a persona in the 5-step wizard.
+  </Card>
+  <Card title="Coach" icon="comments" href="/agents/coach">
+    Tune skills, system prompt, and wiki via chat — no hand-editing.
+  </Card>
+  <Card title="Memory" icon="brain" href="/agents/memory">
+    How agents write, recall, and manage memories.
+  </Card>
+  <Card title="Knowledge Base" icon="book" href="/agents/knowledge-base">
+    Ingest repos, files, and URLs into the wiki.
+  </Card>
+</CardGroup>

@@ -1,0 +1,372 @@
+---
+title: "Example Agents"
+description: "Eleven agents that change how a team operates — with the pain, the setup, and the shift each one creates."
+---
+
+## The vision
+
+A team shouldn't spend its best hours on the same ten questions, the same five dashboards, the same Monday release ritual. SlackHive agents are there to absorb the routine — answer the FAQ, triage the alert, pull the metric, nudge the stale PR — so humans spend their time on judgment calls and creative work.
+
+Each agent below is a realistic starting point. Pick one that matches a pain you actually have. Ship it. Then add the next.
+
+<Note>
+  The real compounding happens at 5–10 agents. A boss agent on top routes incoming questions to the right specialist (see [Boss Agents](/agents/boss-agents)). What feels like "a bot" at one agent becomes "a team" at ten.
+</Note>
+
+## At a glance
+
+| Agent | Pain it removes | Key MCPs |
+|---|---|---|
+| [Oncall Triage](#oncall-triage) | Eng lead woken up to read Grafana | Grafana, GitHub, Notion |
+| [PR Reviewer](#pr-reviewer) | Stale PRs that rot for a week | GitHub, Linear |
+| [QA Sandbox](#qa-sandbox) | Flake-chasing by hand | Playwright, GitHub |
+| [Data Analyst](#data-analyst) | "Can someone pull a number for me?" | Warehouse MCP, Metabase |
+| [Design System Steward](#design-system-steward) | Figma and code drift apart | Figma, GitHub |
+| [Release Manager](#release-manager) | Manual release notes every Thursday | GitHub, Linear, Notion |
+| [Competitor Price Watcher](#competitor-price-watcher) | Nobody notices when rivals change pricing | WebFetch, Notion |
+| [Content Publisher](#content-publisher) | Draft → published takes days | Notion, Ghost/WordPress |
+| [Daily AI News](#daily-ai-news) | Team falls behind on the field | WebFetch, WebSearch |
+| [Birthday Bot](#birthday-bot) | Team culture leaks as you scale | None (native only) |
+| [Onboarding Buddy](#onboarding-buddy) | Same "where do I find X?" every Monday | Notion, Google Drive |
+
+---
+
+## Engineering
+
+> **Shared pattern — concepts, not code.** Every engineering agent below ingests the relevant Git repos as [Karpathy-style wikis](/agents/knowledge-base#why-karpathy-style). The agent never reads 200 raw source files. It reads `overview.md`, `concepts/`, `flows/`, `modules/` — the compressed structural view. That's what makes it actually useful: the context stays small, answers stay grounded, and the same agent works across a 10-file script and a 500k-line monorepo. Re-ingest incrementally on a weekly cadence (or after major PRs) and the wiki stays current without human effort.
+
+> **Wiki is read-only at runtime.** The agent reads the wiki but cannot write to it. Keeping it fresh is a human-driven action — [Coach](/agents/coach) can propose new pages, and re-ingesting a Git source refreshes the ingested pages. Anything the agent needs to *write* (incident logs, daily snapshots, appended lists) belongs in an MCP target (Notion, GitHub Issues, Linear) or a file in the agent's bash workspace — **not** the wiki. This constraint shows up in several of the agents below.
+
+### Oncall Triage
+
+> **The vision.** The agent is oncall with you — proactively scanning logs, drafting fix PRs, and writing the RCA before you've opened the dashboard.
+
+**Today.** Alerts fire reactively. By the time a human notices, the incident is already bad. Post-incident, someone spends half a day piecing together what happened and writing the RCA. Everyone agrees "we should have caught this sooner" and nothing changes.
+
+**What the agent owns.** This agent doesn't wait for alerts. A [scheduled job](/features/scheduled-jobs) fires `/scan-logs` **every hour** — the agent pulls the last hour of logs and metrics from its connected source (Grafana, Datadog, or a Loki MCP), looks for anomalies against its baseline (error rate up, p99 spiked, new exception signatures), and correlates them with recent deploys using the repo Karpathy wiki to know which service owns which symptom.
+
+When it finds something:
+
+- **Clear fix (known pattern)** — opens a **PR directly**. Timeout bump, retry added, null check, rollback revert. Pings the service owner for review. The wiki taught it "this module owns checkout retries" — it doesn't need the human to route the fix.
+- **Real incident (unclear root cause)** — opens an **incident in Notion**, pages the service owner, drafts the first pass of an **RCA doc** with: symptom timeline, suspect commits, affected flows (pulled from the wiki), and a hypothesis section for the human to fill in.
+- **Noise** — logs a one-liner in `#oncall-hum` and moves on. No alert fatigue.
+
+When a human `@`s it with "what's wrong with checkout?" it already has context from the last hourly scan.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | SRE / Oncall Engineer |
+| **MCPs** | Grafana or Datadog, GitHub, Notion |
+| **Tools** | WebFetch, Bash (namespace-scoped, for git operations and rollback scripts) |
+| **Wiki** | All service repos as Karpathy wiki (concepts/flows/modules), runbook repo, architecture doc, SLO definitions, service → team map, past RCAs (for pattern-matching recurrences) |
+| **Skills** | `/scan-logs`, `/triage`, `/open-pr-fix`, `/open-incident`, `/draft-rca`, `/page-oncall` |
+| **Scheduled job** | **Every hour**: `/scan-logs` → post only if something actionable found |
+
+**In Slack (proactive, Tuesday 3am):**
+
+```
+→ agent posts in #oncall-hum:
+  "Error rate on svc-payments up 4x in the last hour — 'connection
+   pool exhausted' signature. Matches pattern from RCA-0183 (Oct).
+   Draft fix PR opened: github.com/.../pull/2412 (pool size 20 → 40).
+   Paged @alex. RCA-0247 seeded in Notion with the timeline."
+```
+
+**What shifts.** Oncall becomes "review the agent's work" instead of "do the work." Most incidents are caught an hour earlier. RCAs actually get written because the agent seeded the first 80% — the human only adds the judgment call. Finished RCAs live in Notion; on the weekly wiki re-ingest the Notion source refreshes, so past incidents become pattern-matchable reference material the agent reads on the next scan.
+
+---
+
+### PR Reviewer
+
+> **The vision.** PRs don't rot. Reviewers don't have to remember them. Leads don't have to chase.
+
+**Today.** A PR is opened, someone is tagged, they're heads-down shipping something else. Five days later the PR has merge conflicts and has lost all context.
+
+**What the agent owns.** When a PR opens, it does a first-pass read — pulls the diff, looks up the touched modules in the repo wiki, and checks the change against the **concepts** the wiki describes (architectural boundaries, data flow, naming conventions). It doesn't review line-by-line — it reviews whether the change fits the system. Flags obvious issues (missing tests, touched files the author doesn't usually own, TODOs left in) and questions anything that crosses a module boundary. Every morning it posts a stale-PR digest in `#eng-reviews` with one-line context for each. When a PR merges, it drops a summary into `#product` so the PM knows what shipped without asking.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | Senior Software Engineer |
+| **MCPs** | GitHub, Linear |
+| **Wiki** | All service repos as Karpathy wiki — overview, concepts, flows, modules. Style guide and architecture notes as hand-written pages alongside the ingested ones. |
+| **Skills** | `/review-pr`, `/nudge-stale`, `/changelog-entry`, `/link-to-linear` |
+| **Scheduled job** | Daily 9am: `/nudge-stale` → `#eng-reviews` |
+
+**What shifts.** Code review stops being a political coordination problem and becomes a low-effort habit. PMs learn about ships from the ship, not from asking.
+
+---
+
+### QA Sandbox
+
+> **The vision.** Flake triage is the agent's job. Humans get the signal, not the noise.
+
+**Today.** A CI run fails. Someone re-runs it. Fails again. Someone opens the logs, scrolls, realizes it's a known flake, closes it. The same dance happens on every red build.
+
+**What the agent owns.** Runs the failing test in its own sandboxed bash environment (isolated from every other agent's workspace), compares the failure signature against the flake registry in its wiki, and — when the failure is new — uses the repo wiki's **flow diagrams** to narrow down which subsystem changed. It knows the checkout flow touches `svc-pricing → svc-cart → svc-payments` not because it read the code, but because the Karpathy wiki laid out the flow. Posts back a verdict: "known flake, ignore" / "real regression in commit X" / "uncertain, needs a human." Safe to let it execute arbitrary shell — its namespace is scoped to `~/.slackhive/agents/qa-bot/bash/` and cannot reach other agents.
+
+Bash runs the actual test command (`npx playwright test ...`). Playwright MCP is only reached when the agent needs to walk a failing browser interaction step-by-step to debug a specific flake — structured probes rather than raw test output.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | QA Engineer |
+| **MCPs** | Playwright MCP, GitHub |
+| **Tools** | Bash (namespace-scoped) |
+| **Wiki** | Service repos as Karpathy wiki (flows are the load-bearing piece — they tell the agent which tests cover which user journeys), test plan docs, known-flake registry, environment map |
+| **Skills** | `/run-e2e`, `/flake-check`, `/bisect`, `/report-regression` |
+
+See [Tools & Permissions](/agents/tools) for how Bash namespace isolation works.
+
+**What shifts.** Engineers stop treating red builds as a coin flip. The flake registry grows because the agent has an incentive to maintain it.
+
+---
+
+## Data
+
+### Data Analyst
+
+> **The vision.** Every teammate is a data-literate teammate. Not because they learned SQL — because the agent speaks it for them.
+
+**Today.** A PM asks "how many paid signups did we get yesterday?" in `#analytics`. An analyst context-switches, writes the query, pastes the result. Multiply by twenty such questions a week.
+
+**What the agent owns.** Answers questions against the warehouse directly. The critical piece isn't the query engine — it's the **wiki of the schema**: every table, every column's meaning, the canonical joins, the "use this view, not that one" folklore. Without the wiki, it hallucinates column names. With it, it writes correct SQL on the first try. Questions get answered in the thread where they're asked. Non-analysts build their own dashboards.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | Data Analyst |
+| **MCPs** | Redshift / Postgres / BigQuery MCP, Metabase |
+| **Wiki** | Full warehouse schema — ingested from dbt docs or handcrafted. Table docs, column meanings, join map, metric definitions |
+| **Skills** | `/top-queries`, `/weekly-growth`, `/funnel`, `/explain-table` |
+
+**In Slack:**
+
+```
+@data how many paid signups yesterday vs same day last week?
+→ agent: "412 yesterday, 358 a week ago (+15%). Query used the
+  dim_subscriptions view (paid = plan != 'free'), filtered on
+  created_at in local tz. Link to the chart in Metabase: ..."
+```
+
+**What shifts.** Analysts stop answering the same shape of question and start doing real analysis. Everyone else stops waiting.
+
+---
+
+## Design
+
+### Design System Steward
+
+> **The vision.** Figma and code don't drift. The design system stays a single source of truth across both.
+
+**Today.** A designer updates a button in Figma. Engineers don't know. Two weeks later the shipped UI has three button styles and nobody can tell which is canonical.
+
+**What the agent owns.** Watches both sides. On a weekly cadence it diffs Figma component props against the repo's token file and flags drift — "button/primary in Figma has `radius: 8`, repo token says `6`." It proposes a PR in the repo, leaves a comment in Figma, and posts the mismatch list in `#design-system`. When a new component goes into Figma, it drafts the matching Storybook doc.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | Design Systems Engineer |
+| **MCPs** | Figma ([OAuth MCP](/configuration/mcp-oauth)), GitHub |
+| **Wiki** | Component inventory, token docs, design principles |
+| **Skills** | `/sync-tokens`, `/diff-figma-vs-code`, `/propose-component`, `/changelog` |
+| **Scheduled job** | Weekly: `/diff-figma-vs-code` → `#design-system` |
+
+**What shifts.** Design and engineering argue less because the disagreements surface as diffs, not as vibes.
+
+---
+
+## Product
+
+### Release Manager
+
+> **The vision.** Release day is a five-minute review, not a half-day ritual.
+
+**Today.** Every Thursday the PM pulls merged PRs, writes release notes, decides what's customer-facing, posts to `#releases`, updates the public changelog, marks Linear tickets done, announces on the company page. All by hand.
+
+**What the agent owns.** Drafts release notes from merged PRs — pulls the titles, groups by area, picks a customer-facing tone for each using past release notes in its wiki as style reference. Posts the draft in `#releases` for the PM to edit. Once approved, it publishes to the changelog, updates Notion, and closes the Linear tickets. Rollout status is tracked in the thread.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | Technical Program Manager |
+| **MCPs** | GitHub, Linear, Notion |
+| **Wiki** | Versioning policy, past release notes (for tone) |
+| **Skills** | `/draft-release-notes`, `/rollout-plan`, `/changelog`, `/announce` |
+| **Scheduled job** | Thursdays 4pm: `/draft-release-notes` → `#releases` |
+
+**What shifts.** Releases get announced properly instead of silently shipping. PMs get their Thursday afternoon back.
+
+---
+
+## Marketing
+
+### Competitor Price Watcher
+
+> **The vision.** You know when a competitor moves before your customers do.
+
+**Today.** A competitor quietly raises their enterprise tier by 20%. Your sales team hears about it three weeks later from a customer comparing quotes.
+
+**What the agent owns.** Every morning it hits the list of competitor pricing pages (kept in its wiki), extracts the pricing structure, pulls yesterday's snapshot from Notion, diffs, and posts only when something changed. Changes land in `#market-intel` with side-by-side before/after and a link to the Notion snapshot. The wiki carries only the hand-curated list of URLs and the pricing taxonomy — rolling snapshots go to Notion because runtime agents can't write to their own wiki.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | Market Research Analyst |
+| **Tools** | WebFetch, WebSearch |
+| **MCPs** | Notion — daily snapshots written here (write target), trend lines queried here |
+| **Wiki** | List of competitor URLs, pricing taxonomy. Read-only reference; snapshots live in Notion, not here. |
+| **Skills** | `/scrape-pricing`, `/diff-vs-yesterday`, `/alert-pm` |
+| **Scheduled job** | Daily 8am: `/scrape-pricing` → post only if changed |
+
+**What shifts.** Pricing becomes a live conversation, not an annual review.
+
+---
+
+### Content Publisher
+
+> **The vision.** The bottleneck between "the writer finished" and "the post is live" disappears.
+
+**Today.** The writer finishes a draft in Notion. It sits. Someone copy-pastes into WordPress, fixes the formatting, adds SEO fields, schedules it, posts the announcement. Days pass.
+
+**What the agent owns.** Reads a Notion doc tagged "ready-to-publish," runs it through a polish pass (tone-matched to the brand voice guide in its wiki), suggests an SEO title and meta description, publishes to the blog CMS, posts the announcement in `#launches` and a prepared tweet thread for review.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | Content Marketer |
+| **MCPs** | Notion, Ghost / WordPress / Webflow MCP |
+| **Wiki** | Brand voice guide, SEO conventions, past posts (for style) |
+| **Skills** | `/polish-draft`, `/suggest-title`, `/publish`, `/distribute` |
+
+**What shifts.** Writers publish on their own schedule instead of waiting on marketing ops.
+
+---
+
+## Research
+
+### Daily AI News
+
+> **The vision.** A technical team stays current on the field without any one person having to "stay on top of AI news" as a second job.
+
+**Today.** Someone in the team spends an hour every morning scanning Twitter, newsletters, and blogs — then either forgets to share or shares too much and everyone tunes out.
+
+**What the agent owns.** The **topic taxonomy** ("what counts as worth our attention") lives in the wiki — it rarely changes and is hand-curated. The **source list** lives as a plain `sources.md` in the agent's bash workspace (`~/.slackhive/agents/ai-news/bash/sources.md`), because the agent needs to append to it at runtime — it can Read+Write files there but not in the wiki. Every weekday morning, a scheduled job fires `/morning-digest` — the agent WebFetches each source, ranks items by the taxonomy, and posts the top five with a one-sentence "why this matters for us." Uses [rich Slack formatting](/features/scheduled-jobs) — headers, links, code blocks where relevant. When a user says "@news add `blog-X`", `/add-source` appends to `sources.md` — no MCP, no Coach step.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | Research Analyst |
+| **MCPs** | None |
+| **Tools** | WebFetch, WebSearch, Read, Write (for `sources.md` in the bash workspace), Bash |
+| **Wiki** | Topic taxonomy ("worth our attention" criteria) — hand-curated, read-only at runtime |
+| **Bash workspace** | `sources.md` — the rolling list of feeds the agent reads and `/add-source` appends to |
+| **Skills** | `/morning-digest`, `/deep-dive`, `/add-source` |
+| **Scheduled job** | Weekdays 8:30am: `/morning-digest` → `#ai-updates` |
+
+**What shifts.** Engineering and product share a vocabulary. Debates reference the same papers. The "did you see X?" Slack tax drops.
+
+---
+
+## Internal
+
+### Birthday Bot
+
+> **The vision.** Scale doesn't eat culture. Small rituals survive past the point where one person remembers everyone's birthday.
+
+**Today.** At 10 people, someone remembers. At 50, they don't. The team feels more transactional with each hire.
+
+**What the agent owns.** Reads `birthdays.md` from its own wiki — one line per teammate, name and date — and posts a one-line wish in `#general` when today matches. A [scheduled job](/features/scheduled-jobs) wakes the agent every morning at 9am with a simple trigger ("check today's birthdays"). Verbose toggle off so only the final message posts.
+
+This is the **purest SlackHive agent** — zero external MCPs, zero skill files, zero integrations. Wiki holds the data. **CLAUDE.md itself is the action** (a single always-on job, described in the system prompt). Scheduled job holds the cadence.
+
+Skills are on-demand — they're for procedures you invoke when the situation calls for them (user types `/weekly-report`, another skill chains in, a job targets a specific task). A one-job agent has no "on demand" — its only behavior IS its default behavior. That belongs in the system prompt, not a skill file.
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | Blank |
+| **MCPs** | None |
+| **Tools** | Read (always on — reads the wiki page) |
+| **Wiki** | One page, `birthdays.md`:<br/>`- Alex — Mar 14`<br/>`- Priya — Apr 2`<br/>`- …` |
+| **CLAUDE.md** | "You wish teammates on their birthday. When triggered, read `wiki/birthdays.md`, find rows where the date matches today, post a short warm wish in `#general` for each match. If no match, do nothing." |
+| **Skills** | None — this agent has one job, CLAUDE.md is enough |
+| **Scheduled job** | Daily 9am: trigger message `check today's birthdays` → `#general` (no-op when no match) |
+
+**In Slack (on Priya's birthday):**
+
+```
+→ agent: "Happy birthday Priya! Year six on the team —
+  here's to another one."
+```
+
+**What shifts.** Tiny ritual, outsized effect on culture. And because it uses only SlackHive primitives, it's the ideal first agent to ship — proves the whole pattern (wiki + system prompt + schedule) in under 30 minutes.
+
+---
+
+### Onboarding Buddy
+
+> **The vision.** New hires get answers the moment they have questions. The handbook goes from "a doc nobody reads" to "a resource the agent reads for you."
+
+**Today.** New hire joins, gets linked to a 200-page Notion handbook, reads 10% of it, asks the same questions every Monday for a month. The same questions every previous hire also asked.
+
+**What the agent owns.** Lives in `#new-hires`. Answers from the handbook wiki, which was ingested as a Karpathy-style structured index — so it actually finds the right section instead of keyword-matching. When it doesn't know, it names the human who does. As new hires ask new questions, the agent surfaces the gaps — "this is the third time someone has asked about expense policy, and the handbook doesn't cover it."
+
+**Build it:**
+
+| Piece | Value |
+|---|---|
+| **Persona** | HR / People Ops |
+| **MCPs** | Notion, Google Drive — used **only** by `/request-access` (granting Drive shares, updating Notion access lists). The handbook content comes from the wiki, not from live MCP reads. |
+| **Wiki** | Full employee handbook (Karpathy ingest), org chart, tools list. Re-ingest weekly from the Notion source to stay fresh. |
+| **Skills** | `/handbook`, `/request-access`, `/intro-to-team`, `/first-week-checklist` |
+
+**What shifts.** People Ops stops being a question-answering service and starts being a policy-improving one. The handbook gets better because the gaps get visible.
+
+---
+
+## The compounding effect
+
+One agent saves someone an hour a week. That's nice.
+
+Ten agents, each owning a piece of the weekly ritual, change how the team operates. The PM no longer writes release notes. The oncall rotation is less punishing. New hires ramp in days instead of weeks. The data team does real analysis instead of ad-hoc queries. Designers and engineers speak the same language because the design system stays coherent.
+
+This is the real shift — not "we added a bot" but "we have a team of specialists that handles the routine so the humans focus on judgment calls."
+
+A boss agent on top makes it navigable. Users `@` one boss with any question, and the boss decides which specialist to delegate to. The user doesn't need to know the org chart of agents.
+
+## Where to start
+
+Don't try to build all eleven at once. The pattern that works:
+
+1. Pick the **agent that removes your most annoying weekly task**. Ship it in an afternoon.
+2. Run it for a week. Iterate with [Coach](/agents/coach) — what did it get wrong? What's missing from its wiki?
+3. Once it's load-bearing, pick the next one. A month later you have three agents and the team has stopped asking whether this approach works.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Creating Agents" icon="robot" href="/agents/creating-agents">
+    The 5-step wizard.
+  </Card>
+  <Card title="Personas" icon="user-group" href="/agents/personas">
+    The 26 starter identities.
+  </Card>
+  <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
+    System prompt vs skills vs memory vs wiki — what goes where.
+  </Card>
+  <Card title="Coach" icon="comments" href="/agents/coach">
+    Tune an agent by chat, not by hand-editing files.
+  </Card>
+</CardGroup>

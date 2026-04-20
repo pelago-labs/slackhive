@@ -1,0 +1,57 @@
+---
+title: "Coach"
+description: "Tune your agent's instructions, skills, and knowledge through an interactive chat panel."
+---
+
+Coach is an interactive chat panel that helps you refine an agent after it's created. Instead of hand-editing CLAUDE.md, you describe what you want in plain English — Coach proposes concrete changes, and you apply or reject each one.
+
+## Open the Coach panel
+
+1. Go to the agent's detail page
+2. Click **Coach** in the top-right — the panel slides in from the right
+3. The panel stays open across tabs; close it with the × at top-right
+
+## Ask in plain English
+
+Tell Coach what you want the agent to do. Examples:
+
+```
+Help me build a weekly metrics router — route questions about
+revenue to the data team and product metrics to PM.
+```
+
+```
+This agent keeps paraphrasing user questions before answering.
+Make it lead with the answer, then show the SQL.
+```
+
+Coach reads the current system prompt, skills, memories, and knowledge, then streams a reply.
+
+## Review proposal cards
+
+Coach's changes arrive as **proposal cards** — one per distinct change. Each card shows:
+
+- **What will change** (skill, system prompt, permission, or wiki page)
+- **A diff preview** (green = added, red = removed)
+- **Apply** and **Reject** buttons
+
+You can apply some cards and reject others. Nothing changes until you click Apply.
+
+## Where changes land
+
+| Proposal kind | Where it lands |
+|---|---|
+| Skill change | **Instructions → Skills** |
+| System prompt edit | **Instructions → System Prompt** |
+| Permission change | **Tools** (allow / deny rules) |
+| Wiki extract | A downloadable `.md` page — see [Wiki extraction](#wiki-extraction) |
+
+A **snapshot** is taken automatically on every applied change, so you can restore via **History** if something goes wrong.
+
+## Wiki extraction
+
+Coach can propose a new wiki page ("extract what you know about our metrics taxonomy"). The proposal card shows a **Download wiki page** button. Save the `.md` into `~/.slackhive/agents/<slug>/knowledge/wiki/` — the agent's `/wiki` skill picks it up automatically. See [Knowledge Base](/agents/knowledge-base).
+
+## Close mid-stream
+
+If you close the panel while Coach is still streaming, the turn still persists. Reopen the panel later and pick up where you left off — proposals that were mid-flight either landed as pending cards or were discarded cleanly.

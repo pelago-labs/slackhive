@@ -35,23 +35,34 @@
         "groups": [
           {
             "group": "Getting Started",
-            "pages": ["introduction", "quickstart"]
+            "pages": [
+              "introduction",
+              "quickstart",
+              "getting-started/install-cli",
+              "examples"
+            ]
           },
           {
             "group": "Configuration",
             "pages": [
               "configuration/env-vars",
               "configuration/slack-app",
-              "configuration/mcp-servers"
+              "configuration/mcp-servers",
+              "configuration/mcp-oauth"
             ]
           },
           {
             "group": "Agents",
             "pages": [
+              "agents/concepts",
               "agents/creating-agents",
-              "agents/boss-agents",
+              "agents/personas",
+              "agents/coach",
+              "agents/knowledge-base",
               "agents/memory",
-              "agents/tools"
+              "agents/tools",
+              "agents/testing",
+              "agents/boss-agents"
             ]
           },
           {
@@ -66,9 +77,15 @@
             ]
           },
           {
+            "group": "Operations",
+            "pages": [
+              "operations/cli",
+              "operations/troubleshooting"
+            ]
+          },
+          {
             "group": "Self-Hosting",
             "pages": [
-              "self-hosting/docker",
               "self-hosting/production"
             ]
           }

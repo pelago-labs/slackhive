@@ -1,0 +1,113 @@
+---
+title: "Install SlackHive"
+description: "Install and run SlackHive with the slackhive CLI."
+---
+
+The `slackhive` CLI installs, configures, and runs SlackHive on your machine. It clones the repo, generates a `.env` file, installs dependencies, builds the apps, and starts the services. Data lands in a local SQLite database.
+
+## Prerequisites
+
+- **Node.js 20 or later** — `node --version` to check
+- **Claude Code** installed — [claude.ai/code](https://claude.ai/code) (for OAuth path) or an Anthropic API key (for key path)
+- A **Slack workspace** where you can install apps
+- **Git** (for the initial clone)
+
+### Platform support
+
+| Platform | Supported | Credential source for OAuth path |
+|---|---|---|
+| macOS (Intel + Apple Silicon) | ✅ | Keychain |
+| Linux with GNOME/KDE keyring | ✅ | `secret-tool` |
+| Linux headless (server) | ✅ | `~/.claude/.credentials.json` |
+| WSL2 on Windows | ✅ | `~/.claude/.credentials.json` |
+| Windows (native) | ❌ | Use WSL2 |
+
+## Install the CLI
+
+```bash
+npm install -g slackhive
+```
+
+## Run the setup wizard
+
+```bash
+slackhive init
+```
+
+The wizard asks a few questions:
+
+| Prompt | What to enter |
+|---|---|
+| **Install directory** | Where to put SlackHive (default: `./slackhive`) |
+| **Admin username** | Your login for the dashboard |
+| **Admin password** | A strong password |
+| **Claude auth** | Pick API key or OAuth from Claude Code |
+
+Once you confirm, the CLI:
+
+1. Clones the SlackHive repo into your install directory
+2. Generates a `.env` file with a fresh encryption key
+3. Installs dependencies and builds the web + runner apps
+4. Starts the services
+
+First run takes 2–3 minutes while everything builds.
+
+## OAuth pickup — macOS vs Linux
+
+If you chose the OAuth (Pro/Max subscription) path, the CLI pulls your Claude Code credentials from the system credential store. The source differs by platform:
+
+| Platform | Primary source | Fallback |
+|---|---|---|
+| **macOS** | Keychain (`security find-generic-password -s "Claude Code-credentials"`) | `~/.claude/.credentials.json` |
+| **Linux (GNOME)** | `secret-tool lookup service "Claude Code-credentials"` | `~/.claude/.credentials.json` |
+| **Linux (headless)** | — | `~/.claude/.credentials.json` |
+
+### macOS notes
+
+- You must have run `claude login` at least once — credentials land in Keychain automatically
+- SlackHive re-syncs from Keychain when the cached token expires. No manual action needed most of the time
+- To install from scratch: `brew install anthropic-ai/claude/claude-code` or [download the app](https://claude.ai/code)
+
+### Linux notes
+
+- GNOME Keyring users: run `claude login`, `secret-tool` stores it, the CLI picks it up
+- Headless servers (no keyring daemon): run `claude login` anyway — it writes `~/.claude/.credentials.json` as a plain file the CLI reads
+- If `claude login` fails with "keyring unavailable", set `DBUS_SESSION_BUS_ADDRESS` or install a lightweight keyring (`gnome-keyring-daemon --start`). Last resort: copy `~/.claude/.credentials.json` from another machine where login worked
+
+<Note>
+  Either way, no manual token paste. The CLI prints which source it used so you can verify.
+</Note>
+
+## API key path (both platforms)
+
+If you pick the API key option, none of the above applies. You're asked for your `ANTHROPIC_API_KEY`, it's written to `.env`, and that's it. Works identically on macOS, Linux, and WSL.
+
+## Open the dashboard
+
+When the wizard finishes:
+
+```
+http://localhost:3001
+```
+
+Log in with the admin credentials you set. You're ready to create your first agent.
+
+## Where things live
+
+| Path | What it holds |
+|---|---|
+| `~/.slackhive/data.db` | SQLite database — agents, memories, skills, history |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace — CLAUDE.md, sessions, wiki |
+| `~/.slackhive/logs/runner.log` | Runner log (also streamed live in the UI) |
+| `~/.slackhive/runner.lock` | Single-runner lock file |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Create your first agent" icon="robot" href="/agents/creating-agents">
+    Walk the 5-step wizard.
+  </Card>
+  <Card title="CLI operations" icon="terminal" href="/operations/cli">
+    `start`, `stop`, `status`, `logs`, `update`.
+  </Card>
+</CardGroup>

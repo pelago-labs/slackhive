@@ -1,0 +1,59 @@
+---
+title: "Test Mode"
+description: "Run sandboxed test sessions with MCP access and multi-agent delegation — before going live in Slack."
+---
+
+Test Mode lets you have a conversation with an agent inside the dashboard, exactly the way Slack would, but without posting anything to a real channel. MCPs work, boss delegation works, memory works — it's a safe sandbox for iterating.
+
+## Open the Test tab
+
+1. Go to the agent's detail page
+2. Click **Test** in the tab bar
+3. You'll see an empty conversation pane
+
+## Start a test session
+
+Type your prompt at the bottom and press Enter:
+
+```
+What tables do we have in the warehouse?
+```
+
+The agent streams its reply with the same tool-call trace you'd see in logs — every MCP call, every read, every tool result is visible inline.
+
+## Use MCPs in the test
+
+MCPs assigned to the agent work in Test Mode. If the agent has `playwright`, asking it to browse a URL actually opens a browser. If it has `notion`, it reads real Notion pages. No mocking — real tools, real side effects.
+
+<Note>
+  Side effects are real. Test deletes, writes, or postings are not isolated. Use a sandbox workspace for destructive MCPs.
+</Note>
+
+## Delegate to other agents
+
+Type `@another-agent-slug` in your message and Test Mode routes the request through your Boss agent, exactly like Slack would. You'll see:
+
+1. Your original message
+2. Boss's delegation line
+3. The specialist's reply streaming in
+4. Boss's summary
+
+This exercises the full multi-agent delegation path without sending anything to Slack.
+
+## Inspect the trace
+
+Each turn shows:
+
+- **Tool calls** — chips with the tool name, args, and result
+- **Cost** — total tokens and dollar estimate
+- **Duration** — wall-clock time for the turn
+- **Session ID** — click to tie back to the log stream
+
+## When to use Test Mode
+
+- **Before first deployment** — confirm the agent replies the way you expect
+- **After a Coach-driven change** — sanity-check the new prompt
+- **When an MCP seems off** — reproduce without the Slack round-trip
+- **Debugging delegation** — exercise `@mention` chains in isolation
+
+Once it works in Test Mode, it works in Slack.

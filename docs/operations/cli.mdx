@@ -1,0 +1,102 @@
+---
+title: "CLI Reference"
+description: "Manage a running SlackHive install with slackhive status / start / stop / logs / update."
+---
+
+Once you've installed SlackHive, the `slackhive` command is your day-to-day control surface — simple verbs for start, stop, status, logs, and update.
+
+## `slackhive status`
+
+Show whether SlackHive is running and where.
+
+```bash
+slackhive status
+```
+
+Reports:
+
+- Whether the web UI is up and on which port
+- Whether the runner is up and its PID
+- The path to `~/.slackhive/` (data and logs)
+
+If you see **running** but can't reach the UI, check [troubleshooting](/operations/troubleshooting).
+
+## `slackhive logs`
+
+Tail the runner log live.
+
+```bash
+slackhive logs
+```
+
+Runs with `--follow` by default. Ctrl-C to stop.
+
+The log is JSON per line. To filter to a single agent:
+
+```bash
+slackhive logs | grep '"agent":"data-bot"'
+```
+
+The **Logs tab** in the web UI shows the same stream with level badges and search.
+
+## `slackhive stop`
+
+Gracefully stop SlackHive.
+
+```bash
+slackhive stop
+```
+
+This:
+
+1. Sends SIGTERM to the managed runner and the web server
+2. Sweeps any **orphan** runner processes (e.g. an accidental `tsx watch` from a previous dev session)
+3. Unlinks the `~/.slackhive/runner.lock` file
+
+A single command cleans the whole stack. No stale processes, no manual `kill`.
+
+## `slackhive start`
+
+Start SlackHive.
+
+```bash
+slackhive start
+```
+
+This:
+
+1. Checks `~/.slackhive/runner.lock` — if another runner is alive, exits with a clear error
+2. If the lock is stale (the PID isn't alive), removes it automatically
+3. Picks free ports for the web and runner (default 3001 / 3002; auto-negotiates if taken)
+4. Writes the new PID into the lock
+5. Starts the web and runner
+
+## `slackhive update`
+
+Pull the latest code and rebuild.
+
+```bash
+slackhive update
+```
+
+Runs `git pull`, `npm install`, rebuilds the runner and web app, restarts services. Your data (`~/.slackhive/data.db`) is preserved.
+
+## Where data lives
+
+| Path | What it holds |
+|---|---|
+| `~/.slackhive/data.db` | SQLite DB — agents, memories, skills, history, settings |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace (CLAUDE.md, sessions, wiki) |
+| `~/.slackhive/logs/runner.log` | Full runner log stream |
+| `~/.slackhive/runner.lock` | Singleton lock — JSON with `pid`, `startedAt`, `mode` |
+| `~/.slackhive/slackhive.pid` | Web-server PID file |
+
+Back up `~/.slackhive/` to preserve your entire install.
+
+## Running from any directory
+
+`slackhive` commands work from anywhere on disk — the CLI finds the install via the `apps/runner` marker. You don't need to `cd` into the repo.
+
+## Troubleshooting
+
+See [operations / troubleshooting](/operations/troubleshooting) for common errors and what they mean.

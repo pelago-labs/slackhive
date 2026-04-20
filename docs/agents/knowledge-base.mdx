@@ -1,0 +1,147 @@
+---
+title: "Knowledge Base"
+description: "Ingest repos, files, and URLs into a Karpathy-style LLM wiki the agent reads on demand."
+---
+
+Each agent has its own **Knowledge Base** — a structured wiki of domain content the agent can read at runtime. Ingest a Git repo, upload files, or paste URLs, and SlackHive generates a Karpathy-style LLM wiki the agent consults via the `/wiki` skill.
+
+## Why Karpathy-style?
+
+[Andrej Karpathy's observation](https://x.com/karpathy/status/1979644538185752935): LLMs read best when content is pre-organized as a wiki — overview, concepts, flows, modules — rather than dumped as raw files. A human codebase has hidden structure; a wiki makes it explicit.
+
+SlackHive's ingest pipeline does exactly that. Instead of stuffing 200 source files into the agent's context, it builds:
+
+- A short `overview.md` — "what is this, in one page"
+- An `index.md` — table of contents with every page
+- `concepts/` — the domain ideas (accounts, bookings, payouts)
+- `entities/` — the concrete objects (User, Invoice, Session)
+- `flows/` — how things connect (checkout flow, refund flow)
+- `modules/` — one page per code module (for repo sources)
+
+The agent reads `index.md` first, then pulls only the pages it needs. Context stays small, answers stay grounded.
+
+## Open the Knowledge tab
+
+1. Go to the agent's detail page
+2. Click **Knowledge** in the tab bar
+3. You'll see the source list (empty on a new agent) and the built wiki
+
+## Add a knowledge source
+
+Click **Add source** and pick one of three types:
+
+| Source | Use when | Example |
+|---|---|---|
+| **Git repo** | You want the agent to understand a codebase | `github.com/pelago-labs/slackhive` |
+| **URL** | The content lives on a public or internal webpage | `docs.internal.co/runbooks/checkout` |
+| **File upload** | You have Markdown, PDF, or text files on disk | Internal design doc export |
+
+Paste the input, give it a name, and save. The source lands as "pending ingest" — click **Ingest** to build the wiki.
+
+<Note>
+  Git repos use the agent's own credentials if needed. For private repos on GitHub, add a personal access token via **Settings → Env Vars** as `GITHUB_TOKEN`.
+</Note>
+
+## Pick an ingest mode
+
+When you trigger ingest, pick how deep to go:
+
+| Mode | What happens | When to use |
+|---|---|---|
+| **Full** | Re-ingest everything from scratch — overwrites the wiki | First time, or after a major upstream rewrite |
+| **Incremental** | Only re-ingest files that changed since the last run (checked via `manifest.json`) | Routine re-syncs of an active repo |
+| **Karpathy wiki** | Deep structural analysis — module graph, concept extraction, flow diagrams (repos only) | Large or unfamiliar codebases; run once, then Incremental |
+
+**Recommended flow for a large repo:**
+
+1. Add the source
+2. Run **Karpathy wiki** once — takes 5–20 min depending on size
+3. Run **Incremental** on a schedule after that — seconds per sync
+
+## When to sync
+
+The wiki does not auto-sync. You trigger it when the underlying source has changed.
+
+| Source type | Sync cadence |
+|---|---|
+| Active codebase | Weekly or after major PRs — whenever the agent would otherwise give outdated answers |
+| Public docs | Monthly, or when the doc is versioned |
+| Internal runbooks | After every edit — the author hits **Ingest** before sharing |
+| Uploaded files | When you upload a new version |
+
+<Tip>
+  If users ask a question and the agent quotes stale code or wrong API shapes, that's the signal to re-sync.
+</Tip>
+
+## View the wiki
+
+After ingest, the Knowledge tab shows the full tree. Click any page to preview it inline:
+
+```
+overview.md         high-level summary — what this repo/source is
+index.md            full table of contents — every page with a 1-line blurb
+concepts/           domain concepts (auth model, pricing tiers, …)
+entities/           key data objects (User, Invoice, Session)
+flows/              how things connect (checkout, refund, onboarding)
+modules/            one page per code module (repo sources only)
+log.md              ingest history — when, mode, files touched
+manifest.json       file hashes + timestamps (powers Incremental)
+```
+
+On-disk the files live at `~/.slackhive/agents/<slug>/knowledge/wiki/`. You can edit or add pages by hand — the agent reads whatever is on disk.
+
+## The agent reads it automatically
+
+The `/wiki` skill is auto-enabled whenever the Knowledge tab is non-empty. When a user asks a question:
+
+1. Agent calls `/wiki`
+2. Skill reads `index.md`
+3. Agent picks the relevant pages and reads them
+4. Agent answers, grounded in the wiki
+
+No configuration needed. It just works.
+
+## Edit or remove sources
+
+- **Edit** — click a source to change its name, URL, or replacement upload
+- **Re-ingest** — click **Ingest** again, pick a mode, confirm
+- **Remove** — click × on a source card. Removes the source and its ingested wiki pages. Other sources' pages stay.
+
+Duplicate sources are auto-prevented — adding the same repo URL twice is a no-op.
+
+## Hand-written pages from Coach
+
+Coach can extract a wiki page from a conversation — "write up what you just told me about our metrics model" — and propose it as a downloadable `.md`. Drop the file into `~/.slackhive/agents/<slug>/knowledge/wiki/` and the agent reads it next turn.
+
+See [Coach](/agents/coach) for the full flow.
+
+## Download or restore the whole wiki
+
+The Knowledge tab has two buttons for moving the full wiki around as a tarball.
+
+| Button | What it does |
+|---|---|
+| **Download** | Streams `{agent-slug}-wiki.tar.gz` — every page, manifest, and log in the knowledge tree |
+| **Restore** | Upload a `.tar.gz` or `.tgz` to repopulate the wiki offline |
+
+Use cases:
+
+- **Backup before a full re-ingest** — snapshot the current wiki in case the new run is worse
+- **Clone to another agent** — download from agent A, restore into agent B
+- **Offline editing** — extract the tarball, edit pages by hand, repack and restore
+- **Disaster recovery** — keep periodic downloads alongside your DB backups
+
+<Note>
+  Restore **overwrites** the agent's current wiki. The existing tree is replaced by whatever is in the archive. Back up first if unsure.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
+    How wiki fits with system prompt, skills, and memory.
+  </Card>
+  <Card title="Coach" icon="comments" href="/agents/coach">
+    Extract wiki pages from conversations.
+  </Card>
+</CardGroup>

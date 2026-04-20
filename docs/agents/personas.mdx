@@ -1,0 +1,40 @@
+---
+title: "Persona Library"
+description: "Pick a research-backed starter persona in the new-agent wizard."
+---
+
+SlackHive ships with **26 research-backed personas** — ready-made identities for common roles (Data Analyst, Backend Engineer, Product Manager, Security Engineer, Technical Writer, and many more). You pick one in Step 2 of the new-agent wizard and the agent starts with a persona, a base CLAUDE.md, and a default skill set.
+
+## Pick a persona
+
+1. Open **New Agent** from the sidebar
+2. Fill in name + description (Step 1)
+3. On Step 2, browse the persona list
+4. Click the persona that fits — the preview updates on the right
+5. Continue to Step 3
+
+## What gets seeded
+
+Each persona seeds:
+
+- A **CLAUDE.md base** — role, tone, guardrails
+- A **starter skill set** — domain conventions the agent always carries
+- **Recommended MCPs** — suggested tools (you confirm in Step 4)
+
+The seeded content is research-backed, not generic filler. Personas are kept up to date in-tree.
+
+## When to pick "Blank"
+
+If none of the 26 fit your use case, pick **Blank**. You get an empty CLAUDE.md and no seeded skills — Coach can walk you through building one from scratch.
+
+## Customize after creation
+
+The persona is a starting point, not a lock-in. After the agent is created:
+
+- Edit the system prompt in **Instructions → System Prompt**
+- Add or remove skills in **Instructions → Skills**
+- Use [Coach](/agents/coach) to tune the identity interactively
+
+<Note>
+  For **boss agents**, the system prompt is locked. Boss identity is generated from the team registry and cannot be hand-edited. See [Boss Agents](/agents/boss-agents).
+</Note>

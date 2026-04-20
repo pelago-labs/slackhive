@@ -1,0 +1,137 @@
+---
+title: "Troubleshooting"
+description: "What the common error states mean and how to recover."
+---
+
+This page maps observable symptoms (log lines, UI states) to fixes.
+
+## "Another runner is already running — exiting"
+
+**What it means.** The singleton lock at `~/.slackhive/runner.lock` is held by a live process. A second runner (from `npm run dev`, `tsx watch`, or an accidental re-invocation) tried to boot and refused.
+
+**Fix:**
+
+```bash
+slackhive stop
+slackhive start
+```
+
+`slackhive stop` sweeps orphan processes and unlinks the lock. Then `start` acquires it cleanly.
+
+## Amber "stale" dot on an agent
+
+**What it means.** The agent's row says it's running, but the runner stopped sending heartbeats (missed ≥ 45s). Usually the runner crashed or was `kill -9`'d.
+
+**Fix:**
+
+```bash
+slackhive stop
+slackhive start
+```
+
+Heartbeats resume within 15s of the new runner starting. The dot goes back to green.
+
+## "Slack bot token is invalid or revoked"
+
+**What it means.** The runner probed Slack with the saved bot token and Slack rejected it. The agent's `lastError` shows the full message.
+
+**Fix:**
+
+1. Go to **Settings → Platform Integrations**
+2. Pick the agent
+3. Paste fresh **bot token**, **app token**, **signing secret**
+4. Save
+5. The agent restarts automatically; within a few seconds it goes back to running
+
+Token sources: [api.slack.com/apps](https://api.slack.com/apps) → OAuth & Permissions (bot token), Basic Information → App-Level Tokens (app token), Basic Information → Signing Secret.
+
+## Stale lock after a crash
+
+**What it means.** The runner was killed without cleanup (`kill -9`, power loss). The lock file points to a PID that no longer exists.
+
+**Fix:** none needed — `slackhive start` auto-detects stale locks (checks the PID with `process.kill(pid, 0)`), removes the lock, and starts cleanly.
+
+## Dashboard Claude badge is amber (expired) or red (disconnected)
+
+**What it means.** The dashboard header has a Claude status badge — it polls `/api/system/claude-status` every 30 seconds. Amber means the cached token expired; red means no token was found at all.
+
+**Source hierarchy** (click the badge to see which one it used):
+
+1. `~/.claude/.credentials.json`
+2. macOS Keychain (`Claude Code-credentials`) — copied into the credentials file if found
+3. `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` env var
+
+**Fix:**
+
+- **Expired (amber)** — on macOS, SlackHive auto-syncs from Keychain on expiry. If that fails, run `claude login` on the host and the badge flips back to green within 30s.
+- **Disconnected (red)** — run `claude login`, or set `ANTHROPIC_API_KEY` in `.env` and `slackhive stop && slackhive start`.
+
+## OAuth MCP stopped working
+
+**What it means.** The OAuth token expired or was revoked.
+
+**Fix by platform:**
+
+| Platform | What SlackHive does | What you do |
+|---|---|---|
+| **macOS** | Auto-refreshes from Keychain on 401 — usually silent | If the Keychain itself is empty, run `claude login` |
+| **Linux (GNOME keyring)** | Reads via `secret-tool` | If missing, run `claude login`; if keyring is unavailable, see below |
+| **Linux (headless)** | Reads `~/.claude/.credentials.json` | Run `claude login` on the machine, or copy the credentials file from a machine where it worked |
+| **All** | — | Open the MCP catalog, click **Reconnect** on the offending MCP, or paste a fresh token |
+
+See [OAuth MCPs](/configuration/mcp-oauth).
+
+## Linux: `claude login` says "keyring unavailable"
+
+**What it means.** Common on headless servers or fresh Linux VMs — no GNOME/KDE keyring daemon running, so `secret-tool` has nowhere to write.
+
+**Fix (pick one):**
+
+- Start a lightweight keyring: `gnome-keyring-daemon --start` (requires dbus session)
+- Set `DBUS_SESSION_BUS_ADDRESS` to an active bus if you have one
+- Ignore it — `claude login` falls back to writing `~/.claude/.credentials.json` directly. SlackHive picks it up from there
+
+The credentials file path is the reliable cross-platform source; keyring is just a convenience on desktop Linux.
+
+## Port conflicts
+
+**What it means.** Default ports 3001 (web) or 3002 (runner) are taken.
+
+**Fix:** none — the CLI auto-negotiates free ports. Check the actual ports with:
+
+```bash
+slackhive status
+```
+
+To pin specific ports, set `PORT` and `RUNNER_INTERNAL_PORT` in `.env`.
+
+## Agent shows "error" status
+
+**What it means.** The runner tried to start the agent and something failed — Slack auth, MCP connection, missing integration. The real reason is in `lastError` on the agent detail page.
+
+**Fix:** read the error, fix the underlying cause (bad token, missing env var, offline MCP server), then restart the agent from the detail page.
+
+## Logs don't show up in the UI
+
+**What it means.** The log SSE stream is disconnected.
+
+**Fix:** reload the page. If it stays disconnected, check `slackhive status` — the web server may be down. `slackhive start` recovers it.
+
+## Agent directory left behind after delete
+
+**What it means.** In older versions, deleting an agent left `~/.slackhive/agents/<slug>/` on disk. Fixed in the current release — delete now removes the directory too.
+
+**Fix for legacy orphans:**
+
+```bash
+# Compare DB to disk
+sqlite3 ~/.slackhive/data.db "SELECT slug FROM agents;"
+ls ~/.slackhive/agents/
+
+# Remove directories that don't match any slug
+rm -rf ~/.slackhive/agents/<orphan-slug>
+```
+
+## Still stuck?
+
+Check `~/.slackhive/logs/runner.log` for the full stream. Each line is JSON — most errors include a `message` and an `error` field that points straight at the cause.
