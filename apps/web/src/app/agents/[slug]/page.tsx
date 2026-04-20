@@ -1765,6 +1765,8 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
   const [envVarKeys, setEnvVarKeys] = useState<string[]>([]);
   const [editingSource, setEditingSource] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  // When editing a repo/url source, we reuse the Add form prefilled with the source's fields
+  const [editingMetaId, setEditingMetaId] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [buildStep, setBuildStep] = useState('');
   const [buildResult, setBuildResult] = useState<any>(null);
@@ -1831,22 +1833,44 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
 
   const addSource = async () => {
     setSaving(true);
-    const body: any = { type: addType, name: addName };
+    const body: any = { name: addName };
     if (addType === 'url') body.url = addUrl;
     if (addType === 'file') body.content = addContent;
     if (addType === 'repo') {
       body.repoUrl = addUrl;
       body.branch = addBranch;
-      if (addPat) body.patEnvRef = addPat;
-      // no cron — manual sync only
+      body.patEnvRef = addPat || null;
     }
-    await fetch(`/api/agents/${agentId}/knowledge`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
+    if (editingMetaId) {
+      // Edit existing source — PATCH with mutable fields only (type doesn't change)
+      await fetch(`/api/agents/${agentId}/knowledge/${editingMetaId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    } else {
+      // Create new source
+      body.type = addType;
+      await fetch(`/api/agents/${agentId}/knowledge`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    }
     setSaving(false);
     setShowAdd(false);
+    setEditingMetaId(null);
     setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat('');
     load();
+  };
+
+  const startEditMeta = (src: any) => {
+    setEditingMetaId(src.id);
+    setAddType(src.type);
+    setAddName(src.name ?? '');
+    setAddUrl(src.type === 'repo' ? (src.repoUrl ?? '') : (src.url ?? ''));
+    setAddContent(src.content ?? '');
+    setAddBranch(src.branch ?? 'main');
+    setAddPat(src.patEnvRef ?? '');
+    setShowAdd(true);
+    // Populate the PAT dropdown — otherwise the "Auth" field has no env vars to choose from.
+    fetch('/api/env-vars').then(r => r.json()).then((vars: any[]) => setEnvVarKeys(vars.map(v => v.key))).catch(() => {});
   };
 
   const deleteSource = async (id: string) => {
@@ -1970,17 +1994,23 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
         </div>
       )}
 
-      {/* Add source form */}
+      {/* Add / Edit source form */}
       {showAdd && (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', marginBottom: 16 }}>
+          {editingMetaId && (
+            <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginBottom: 10, fontWeight: 500, letterSpacing: 0.3, textTransform: 'uppercase' }}>
+              Editing source
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             {(['url', 'file', 'repo'] as const).map(t => (
-              <button key={t} onClick={() => setAddType(t)} style={{
+              <button key={t} onClick={() => !editingMetaId && setAddType(t)} disabled={!!editingMetaId && addType !== t} style={{
                 padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500,
                 background: addType === t ? 'var(--accent)' : 'var(--surface-2)',
                 color: addType === t ? 'var(--accent-fg)' : 'var(--muted)',
                 border: `1px solid ${addType === t ? 'var(--accent)' : 'var(--border)'}`,
-                cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                cursor: editingMetaId ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
+                opacity: editingMetaId && addType !== t ? 0.4 : 1,
               }}><TypeIcon type={t} /> {t === 'url' ? 'URL' : t === 'file' ? 'File' : 'Git Repo'}</button>
             ))}
           </div>
@@ -2070,8 +2100,12 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
             <button onClick={addSource} disabled={saving || !addName} style={{
               background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 7,
               padding: '7px 16px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>{saving ? 'Adding...' : 'Add Source'}</button>
-            <button onClick={() => setShowAdd(false)} style={{
+            }}>{saving ? (editingMetaId ? 'Saving...' : 'Adding...') : (editingMetaId ? 'Save Changes' : 'Add Source')}</button>
+            <button onClick={() => {
+              setShowAdd(false);
+              setEditingMetaId(null);
+              setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat('');
+            }} style={{
               background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
               padding: '7px 16px', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: 'var(--text)',
             }}>Cancel</button>
@@ -2116,8 +2150,8 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
                   color: src.status === 'compiled' ? 'var(--green)' : src.status === 'error' ? 'var(--red)' : 'var(--subtle)',
                 }}>{src.status}</span>
               )}
-              {canEdit && src.type === 'file' && (
-                <button onClick={() => startEditSource(src)} style={{
+              {canEdit && (
+                <button onClick={() => src.type === 'file' ? startEditSource(src) : startEditMeta(src)} style={{
                   background: 'none', border: 'none', fontSize: 12, cursor: 'pointer',
                   fontFamily: 'var(--font-sans)', opacity: 0.6, color: 'var(--text)',
                 }}>Edit</button>
