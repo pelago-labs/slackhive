@@ -9,10 +9,18 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { rm } from 'fs/promises';
+import path from 'path';
 import { getAgentById, updateAgent, deleteAgent, publishAgentEvent, applyLiveStatus } from '@/lib/db';
 import type { UpdateAgentRequest } from '@slackhive/shared';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
 import { guardAgentWrite, guardUserAdmin } from '@/lib/api-guard';
+
+const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? (
+  process.env.DATABASE_TYPE === 'sqlite'
+    ? path.join(process.env.HOME ?? process.env.USERPROFILE ?? '/tmp', '.slackhive', 'agents')
+    : '/tmp/agents'
+);
 
 export const dynamic = 'force-dynamic';
 
@@ -73,8 +81,12 @@ export async function DELETE(req: NextRequest, { params }: RouteParams): Promise
     const { id } = await params;
     const denied = guardUserAdmin(req);
     if (denied) return denied;
+    const agent = await getAgentById(id);
     await publishAgentEvent({ type: 'stop', agentId: id });
     await deleteAgent(id);
+    if (agent?.slug) {
+      await rm(path.join(AGENTS_TMP_DIR, agent.slug), { recursive: true, force: true });
+    }
     await regenerateBossRegistry().catch(() => {});
     return new NextResponse(null, { status: 204 });
   } catch (err) {
