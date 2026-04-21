@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/api-error';
 import {
   getAgentById,
   getAgentSkills,
@@ -22,6 +23,8 @@ import type { UpdateRestrictionsRequest } from '@slackhive/shared';
 import { guardAgentWrite } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { skillToSnapshotSkill } from '@/lib/compile';
+
+export const dynamic = 'force-dynamic';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -38,7 +41,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
     const restrictions = await getAgentRestrictions(id);
     return NextResponse.json(restrictions ?? { allowedChannels: [] });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/restrictions', err);
   }
 }
 
@@ -84,6 +87,6 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
     await publishAgentEvent({ type: 'reload', agentId: id });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/restrictions', err);
   }
 }

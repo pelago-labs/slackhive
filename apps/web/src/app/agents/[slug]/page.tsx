@@ -9,36 +9,46 @@
  * @module web/app/agents/[slug]
  */
 
-import React, { useEffect, useState, useRef, use } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download } from 'lucide-react';
+import React, { useEffect, useState, useRef, use, useMemo } from 'react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared';
+import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
-import { lineDiff, type DiffLine } from '@/lib/diff';
+import { FilesChanged, type FileChange } from './diff-view';
+import { CoachPanel } from './coach-panel';
+import { TestPanel } from './test-panel';
 
-type Tab = 'overview' | 'skills' | 'claude-md' | 'mcps' | 'permissions' | 'memory' | 'logs' | 'history';
+type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'logs' | 'history';
 
 interface AgentExportPayload {
   version: number;
   exportedAt?: string;
+  name?: string;
+  persona?: string;
+  description?: string;
   claudeMd: string;
   skills: { category: string; filename: string; content: string; sortOrder: number }[];
 }
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview',     label: 'Overview'     },
-  { id: 'skills',       label: 'Skills'       },
-  { id: 'claude-md',    label: 'System Prompt' },
-  { id: 'mcps',         label: 'MCPs'          },
-  { id: 'permissions',  label: 'Tools'         },
-  { id: 'memory',       label: 'Memory'       },
-  { id: 'logs',         label: 'Logs'         },
-  { id: 'history',      label: 'History'      },
+  { id: 'overview',      label: 'Overview'      },
+  { id: 'instructions',  label: 'Instructions'  },
+  { id: 'tools',         label: 'Tools'         },
+  { id: 'knowledge',     label: 'Wiki'           },
+  { id: 'logs',          label: 'Logs'          },
+  { id: 'history',       label: 'History'       },
 ];
 
-const STATUS_COLOR = { running: '#16a34a', stopped: 'var(--border-2)', error: '#ef4444' } as const;
+const STATUS_COLOR = {
+  running: '#16a34a',
+  stopped: 'var(--border-2)',
+  error: '#ef4444',
+  stale: '#f59e0b',
+} as const;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -50,17 +60,43 @@ const STATUS_COLOR = { running: '#16a34a', stopped: 'var(--border-2)', error: '#
 export default function AgentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const { role, canManageUsers } = useAuth();
+  // Arriving from the new-agent wizard (?coach=open) lands on Overview as
+  // usual, but arms the Coach to auto-open the first time the user opens the
+  // Instructions tab. We don't pop the panel on Overview — users deserve to
+  // see their new agent before we shove a chat in their face.
+  // useSearchParams is hydration-safe (returns the same value on server + client).
+  const coachArmedFromWizard = useSearchParams().get('coach') === 'open';
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [pendingCoachOpen, setPendingCoachOpen] = useState(coachArmedFromWizard);
   const [agent, setAgent] = useState<Agent | null>(null);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [canEdit, setCanEdit] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
+  /** Full-main-window mode swap. `test` replaces the agent header + tabs +
+   *  tab content with <TestPanel>. The global SlackHive sidebar (rendered by
+   *  layout-shell.tsx) remains visible — clicking it navigates away and
+   *  naturally unmounts this page, resetting back to `normal` on next load. */
+  const [mode, setMode] = useState<'normal' | 'test'>('normal');
+
+  // Strip ?coach=open from the URL after the first render so refreshing
+  // the page doesn't keep rearming the auto-open.
+  useEffect(() => {
+    if (!coachArmedFromWizard) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('coach');
+    window.history.replaceState({}, '', url.toString());
+  }, [coachArmedFromWizard]);
+
+  // When the user navigates to Instructions and Coach is armed, pop it open
+  // once, then disarm so subsequent Instructions visits stay quiet.
+  useEffect(() => {
+    if (tab === 'instructions' && pendingCoachOpen) {
+      setCoachOpen(true);
+      setPendingCoachOpen(false);
+    }
+  }, [tab, pendingCoachOpen]);
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState('');
-  const [exporting, setExporting] = useState(false);
-  const [importPreview, setImportPreview] = useState<AgentExportPayload | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch('/api/agents')
@@ -68,15 +104,32 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       .then((agents: Agent[]) => {
         setAllAgents(agents);
         const found = agents.find(a => a.slug === slug) ?? null;
-        setAgent(found);
-        if (found) {
-          if (role === 'admin' || role === 'superadmin') {
-            setCanEdit(true);
-          } else if (role === 'editor' || role === 'viewer') {
-            fetch(`/api/agents/${found.id}/access`)
-              .then(r => r.json())
-              .then(data => setCanEdit(role === 'editor' && (data.canWrite ?? false)));
-          }
+        if (!found) {
+          setAgent(null);
+          return;
+        }
+        if (role === 'admin' || role === 'superadmin') {
+          setCanEdit(true);
+          // Admins/superadmins can see Slack tokens — fetch detail endpoint
+          fetch(`/api/agents/${found.id}`)
+            .then(r => r.json())
+            .then((detail: Agent) => setAgent(detail))
+            .catch(() => setAgent(found));
+        } else if (role === 'editor' || role === 'viewer') {
+          setAgent(found);
+          fetch(`/api/agents/${found.id}/access`)
+            .then(r => r.json())
+            .then(data => {
+              const writable = role === 'editor' && (data.canWrite ?? false);
+              setCanEdit(writable);
+              if (writable) {
+                // Editors with write access can also see tokens
+                fetch(`/api/agents/${found.id}`)
+                  .then(r => r.json())
+                  .then((detail: Agent) => setAgent(detail))
+                  .catch(() => {});
+              }
+            });
         }
       })
       .finally(() => setLoading(false));
@@ -90,74 +143,37 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
     setAgent(await r.json());
     setActionMsg('Done');
     setTimeout(() => setActionMsg(''), 2000);
-  };
-
-  const handleExport = async () => {
-    if (!agent) return;
-    setExporting(true);
-    try {
-      const [skillsRes, mdRes] = await Promise.all([
-        fetch(`/api/agents/${agent.id}/skills`),
-        fetch(`/api/agents/${agent.id}/claude-md`),
-      ]);
-      const skills: Skill[] = await skillsRes.json();
-      const claudeMd = await mdRes.text();
-      const payload: AgentExportPayload = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        claudeMd,
-        skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${agent.slug}-export.json`; a.click();
-      URL.revokeObjectURL(url);
-    } finally { setExporting(false); }
-  };
-
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-    setImportError('');
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target?.result as string);
-        if (typeof data.claudeMd !== 'string' || !Array.isArray(data.skills)) {
-          setImportError('Invalid export file'); return;
-        }
-        setImportPreview(data);
-      } catch { setImportError('Could not parse file'); }
-    };
-    reader.readAsText(file);
-  };
-
-  const applyImport = async () => {
-    if (!agent || !importPreview) return;
-    setImporting(true);
-    try {
-      await fetch(`/api/agents/${agent.id}/claude-md`, {
-        method: 'PUT', headers: { 'Content-Type': 'text/plain' },
-        body: importPreview.claudeMd,
-      });
-      await Promise.all(importPreview.skills.map(s =>
-        fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(s),
-        })
-      ));
-      const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
-      setAgent(updated);
-      setImportPreview(null);
-    } finally { setImporting(false); }
+    window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
   };
 
   if (loading) return <PageLoader />;
   if (!agent)  return <NotFound slug={slug} />;
 
-  const statusColor = STATUS_COLOR[agent.status] ?? 'var(--border-2)';
+  // Prefer the API-computed liveStatus (accounts for heartbeat staleness) over
+  // the raw DB status. A green "running" dot with no recent heartbeat means
+  // the owning runner crashed — surface that as an amber "stale" dot instead.
+  const displayStatus = (agent.liveStatus ?? agent.status) as keyof typeof STATUS_COLOR;
+  const statusColor = STATUS_COLOR[displayStatus] ?? 'var(--border-2)';
+  const staleTooltip = displayStatus === 'stale'
+    ? 'Status unconfirmed — no runner heartbeat in over 45s. The owning process may have crashed.'
+    : undefined;
+
+  // Test mode swap — renders only the TestPanel as the main window. The
+  // global SlackHive sidebar (from layout-shell.tsx) stays visible; clicking
+  // anything in it navigates away and unmounts this page (exiting test mode
+  // implicitly). No tab state is touched, so hitting × returns to the same
+  // tab the user was on.
+  if (mode === 'test') {
+    return (
+      <div style={{ height: '100vh' }}>
+        <TestPanel
+          agentId={agent.id}
+          agentName={agent.name}
+          onClose={() => setMode('normal')}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100vh' }} className="fade-up">
@@ -204,19 +220,31 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
                     textTransform: 'uppercase',
                   }}>Boss</span>
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }} title={staleTooltip}>
                   <div
-                    className={agent.status === 'running' ? 'status-running' : ''}
+                    className={displayStatus === 'running' ? 'status-running' : ''}
                     style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }}
                   />
                   <span style={{ fontSize: 12, color: statusColor, fontWeight: 500, textTransform: 'capitalize' }}>
-                    {agent.status}
+                    {displayStatus}
                   </span>
                 </div>
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
                 @{agent.slug} · {agent.model.replace('claude-', '').split('-20')[0]}
               </div>
+              {agent.lastError && agent.status !== 'running' && (
+                <div style={{
+                  fontSize: 12,
+                  color: 'var(--red)',
+                  marginTop: 6,
+                  maxWidth: 520,
+                  lineHeight: 1.4,
+                  wordBreak: 'break-word',
+                }}>
+                  {agent.lastError}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -224,18 +252,26 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16 }}>
           {actionMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{actionMsg}</span>}
-          {importError && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{importError}</span>}
 
-          {/* Export / Import icon buttons */}
-          <IconBtn title="Export config" onClick={handleExport} loading={exporting}>
-            <Download size={15} />
-          </IconBtn>
-          {canEdit && (
-            <IconBtn title="Import config" onClick={() => fileInputRef.current?.click()}>
-              <Upload size={15} />
-            </IconBtn>
-          )}
-          <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+          <button
+            onClick={() => setMode('test')}
+            title="Test this agent — chat with it without connecting to Slack"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px',
+              background: 'rgba(99, 102, 241, 0.1)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              color: 'var(--accent)',
+              borderRadius: 6,
+              fontSize: 12.5,
+              fontWeight: 500,
+              cursor: 'pointer',
+              letterSpacing: 0.2,
+            }}
+          >
+            <MessageSquare size={13} />
+            Test
+          </button>
 
           <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
 
@@ -250,52 +286,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
           )}
         </div>
       </div>
-
-      {/* Import confirmation modal */}
-      {importPreview && (
-        <Portal>
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }} onClick={() => setImportPreview(null)}>
-            <div style={{
-              background: 'var(--surface)', borderRadius: 14, padding: '28px 32px',
-              maxWidth: 480, width: '90%',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-            }} onClick={e => e.stopPropagation()}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-                Import agent config
-              </h3>
-
-              {/* Danger warning — shown first */}
-              <div style={{
-                display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
-                background: 'var(--surface-2)', border: '1.5px solid var(--red-soft-border)', borderRadius: 8,
-              }}>
-                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
-                    This will overwrite current CLAUDE.md and skills
-                  </div>
-                  <div style={{ fontSize: 12, color: '#9f1239' }}>
-                    Existing CLAUDE.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
-                <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <PrimaryBtn onClick={applyImport} loading={importing}>Apply Import</PrimaryBtn>
-                <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
-              </div>
-            </div>
-          </div>
-        </Portal>
-      )}
 
       {/* ── Tab bar ──────────────────────────────────────────────────────── */}
       <div style={{
@@ -325,22 +315,31 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'    && <OverviewTab    agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} />}
-        {tab === 'skills'      && <SkillsTab      agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'claude-md'   && <ClaudeMdTab    agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'mcps'        && <McpsTab        agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'permissions' && <PermissionsTab agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'memory'      && <MemoryTab      agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} onOpenCoach={() => setCoachOpen(true)} />}
+        {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
+        {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
+        {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
       </div>
+
+      {/* Coach is a slide-over — rendered once at page level so it floats over
+          any tab, not just Instructions. */}
+      <CoachPanel
+        agentId={agent.id}
+        agentName={agent.name}
+        open={coachOpen}
+        onClose={() => setCoachOpen(false)}
+        canEdit={canEdit && !agent.isBoss}
+      />
     </div>
   );
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null; onOpenCoach?: () => void }) {
   const [form, setForm] = useState({
     name:               agent.name,
     description:        agent.description ?? '',
@@ -350,6 +349,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
     slackAppToken:      agent.slackAppToken,
     slackSigningSecret: agent.slackSigningSecret,
     isBoss:             agent.isBoss,
+    verbose:            agent.verbose ?? true,
     reportsTo:          agent.reportsTo ?? [] as string[],
   });
   const [saving, setSaving]             = useState(false);
@@ -383,7 +383,22 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
       const [r] = await Promise.all([
         fetch(`/api/agents/${agent.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
+          body: JSON.stringify({
+            name: form.name,
+            persona: form.persona,
+            description: form.description,
+            model: form.model,
+            isBoss: form.isBoss,
+            verbose: form.verbose,
+            reportsTo: form.reportsTo,
+            ...(form.slackBotToken && {
+              platformCredentials: {
+                botToken: form.slackBotToken,
+                appToken: form.slackAppToken,
+                signingSecret: form.slackSigningSecret,
+              },
+            }),
+          }),
         }),
         fetch(`/api/agents/${agent.id}/restrictions`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -406,6 +421,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
     setDeleting(true);
     const r = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
     if (r.ok) {
+      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
       router.push('/');
     } else {
       const err = await r.json();
@@ -418,19 +434,43 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
 
   return (
     <div style={{ maxWidth: 640 }} className="fade-up">
-      <Section title="Identity">
+      <Section title="Configuration">
         <Grid2>
           <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
-            hint="This is the internal agent name. To update the Slack bot display name, change it in your Slack App settings → App Home." />
+            hint="Internal agent name." />
           <Field label="Model" value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))}
             hint="claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001" readOnly={!canEdit} />
         </Grid2>
         <Field label="Description" value={form.description}
           onChange={v => setForm(f => ({ ...f, description: v }))}
-          hint="Shown to the boss agent for delegation decisions." readOnly={!canEdit} />
+          hint="Short summary — used by boss agents for delegation." readOnly={!canEdit} />
         <TextArea label="Persona" value={form.persona}
           onChange={v => setForm(f => ({ ...f, persona: v }))}
-          hint="Injected into CLAUDE.md — who is this agent?" rows={4} readOnly={!canEdit} />
+          hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Verbose Responses</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              On: each step is posted as it happens. Off: only the final answer is sent as one message.
+            </div>
+          </div>
+          <button
+            disabled={!canEdit}
+            onClick={() => setForm(f => ({ ...f, verbose: !f.verbose }))}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none',
+              background: form.verbose ? '#3b82f6' : 'var(--border-2)',
+              cursor: canEdit ? 'pointer' : 'default',
+              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: 3, left: form.verbose ? 23 : 3,
+              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
+              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+          </button>
+        </div>
       </Section>
 
       <Section title="Role & Hierarchy">
@@ -523,13 +563,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
       </Section>
 
       <Section title="Slack Credentials">
-        <Field label="Bot Token" value={form.slackBotToken}
+        <Field label="Bot Token" value={form.slackBotToken ?? ''}
           onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
-        <Field label="App-Level Token" value={form.slackAppToken}
+        <Field label="App-Level Token" value={form.slackAppToken ?? ''}
           onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
           hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
-        <Field label="Signing Secret" value={form.slackSigningSecret}
+        <Field label="Signing Secret" value={form.slackSigningSecret ?? ''}
           onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
           hint="Basic Information → App Credentials → Signing Secret" />
         {slackInfo && (
@@ -658,103 +698,380 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role }: { agent: Age
 
 // ─── CLAUDE.md viewer ─────────────────────────────────────────────────────────
 
-function ClaudeMdTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
-  const [content, setContent] = useState<string>('');
-  const [draft, setDraft] = useState<string>('');
-  const [editing, setEditing] = useState(false);
+function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent: Agent; canEdit: boolean; onAgentUpdate: (a: Agent) => void; onOpenCoach?: () => void }) {
+  // ── Export / Import ────────────────────────────────────────────────────
+  const [exporting, setExporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<AgentExportPayload | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Persona library
+  const [personaLibOpen, setPersonaLibOpen] = useState(false);
+  const [libSearch, setLibSearch] = useState('');
+  const [libCategory, setLibCategory] = useState<PersonaCategory | 'all'>('all');
+  const [libSelected, setLibSelected] = useState<PersonaTemplate | null>(null);
+  const [libSkillSel, setLibSkillSel] = useState<Set<string>>(new Set());
+  const [libApplying, setLibApplying] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const [skillsRes, mdRes] = await Promise.all([
+        fetch(`/api/agents/${agent.id}/skills`),
+        fetch(`/api/agents/${agent.id}/claude-md`),
+      ]);
+      const skills: Skill[] = await skillsRes.json();
+      const claudeMd = await mdRes.text();
+      const payload: AgentExportPayload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        persona: agent.persona ?? '',
+        description: agent.description ?? '',
+        claudeMd,
+        skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${agent.slug}-export.json`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setImportError('');
+    if (!file.name.endsWith('.json')) { setImportError('File must be a .json export'); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (!data || typeof data !== 'object') { setImportError('Invalid file: not a JSON object'); return; }
+        if (typeof data.claudeMd !== 'string') { setImportError('Invalid file: missing claudeMd field'); return; }
+        if (!Array.isArray(data.skills)) { setImportError('Invalid file: missing skills array'); return; }
+        for (let i = 0; i < data.skills.length; i++) {
+          const s = data.skills[i];
+          if (!s.category || typeof s.category !== 'string') { setImportError(`Invalid skill #${i + 1}: missing category`); return; }
+          if (!s.filename || typeof s.filename !== 'string') { setImportError(`Invalid skill #${i + 1}: missing filename`); return; }
+          if (typeof s.content !== 'string') { setImportError(`Invalid skill #${i + 1}: missing content`); return; }
+        }
+        setImportPreview(data);
+      } catch { setImportError('Could not parse file — must be valid JSON'); }
+    };
+    reader.readAsText(file);
+  };
+
+  const applyImport = async (payload?: AgentExportPayload) => {
+    const data = payload ?? importPreview;
+    if (!data) return;
+    setImporting(true);
+    try {
+      if (data.persona !== undefined || data.description !== undefined) {
+        await fetch(`/api/agents/${agent.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...(data.persona !== undefined && { persona: data.persona }),
+            ...(data.description !== undefined && { description: data.description }),
+          }),
+        });
+      }
+      await fetch(`/api/agents/${agent.id}/claude-md`, {
+        method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: data.claudeMd,
+      });
+      await Promise.all(data.skills.map(s =>
+        fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
+        })
+      ));
+      const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
+      onAgentUpdate(updated);
+      setImportPreview(null);
+      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
+    } finally { setImporting(false); }
+  };
+
+  return (
+    <div className="fade-up">
+      <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+
+      {/* ── Import confirmation modal ────────────────────────────────── */}
+      {importPreview && (
+        <Portal>
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }} onClick={() => setImportPreview(null)}>
+            <div style={{
+              background: 'var(--surface)', borderRadius: 14, padding: '28px 32px',
+              maxWidth: 480, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+            }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+                Import agent config
+              </h3>
+              <div style={{
+                display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
+                background: 'var(--surface-2)', border: '1.5px solid var(--red-soft-border)', borderRadius: 8,
+              }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
+                    This will overwrite current CLAUDE.md and skills
+                  </div>
+                  <div style={{ fontSize: 12, color: '#9f1239' }}>
+                    Existing CLAUDE.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
+                <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <PrimaryBtn onClick={() => applyImport()} loading={importing}>Apply Import</PrimaryBtn>
+                <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
+      {/* ── Persona Library modal ────────────────────────────────────── */}
+      {personaLibOpen && (
+        <PersonaLibraryModal
+          agentId={agent.id}
+          fileInputRef={fileInputRef}
+          applying={libApplying}
+          search={libSearch}
+          onSearchChange={setLibSearch}
+          category={libCategory}
+          onCategoryChange={setLibCategory}
+          selected={libSelected}
+          onSelectPersona={(p) => {
+            setLibSelected(p);
+            setLibSkillSel(new Set(p.skills.map(s => s.filename)));
+          }}
+          onBack={() => setLibSelected(null)}
+          skillSel={libSkillSel}
+          onToggleSkill={(fn) => setLibSkillSel(prev => {
+            const next = new Set(prev);
+            if (next.has(fn)) next.delete(fn); else next.add(fn);
+            return next;
+          })}
+          onImportFull={async (template) => {
+            setLibApplying(true);
+            try {
+              const existing = await fetch(`/api/agents/${agent.id}/skills`).then(r => r.json());
+              await Promise.all((existing as { id: string }[]).map(s =>
+                fetch(`/api/agents/${agent.id}/skills/${s.id}?noSnapshot=1`, { method: 'DELETE' })
+              ));
+              await applyImport({
+                version: 1,
+                persona: template.persona,
+                description: template.description,
+                claudeMd: template.claudeMd,
+                skills: template.skills,
+              });
+            } finally {
+              setLibApplying(false);
+              setPersonaLibOpen(false);
+              setLibSelected(null);
+            }
+          }}
+          onImportSkills={async (template, selected) => {
+            setLibApplying(true);
+            try {
+              const skills = template.skills.filter(s => selected.has(s.filename));
+              await Promise.all(skills.map(s =>
+                fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
+                })
+              ));
+              const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
+              onAgentUpdate(updated);
+              window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
+            } finally {
+              setLibApplying(false);
+              setPersonaLibOpen(false);
+              setLibSelected(null);
+            }
+          }}
+          onClose={() => { setPersonaLibOpen(false); setLibSelected(null); setLibSearch(''); setLibCategory('all'); }}
+        />
+      )}
+
+      {/* ── System Prompt ───────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            System Prompt
+            {importError && <span style={{ fontSize: 11, color: 'var(--danger)', marginLeft: 8, fontWeight: 400, textTransform: 'none' }}>{importError}</span>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconBtn title="Export instructions as JSON" onClick={handleExport} loading={exporting}>
+              <Download size={14} />
+            </IconBtn>
+            {canEdit && (
+              <IconBtn title="Import persona" onClick={() => setPersonaLibOpen(true)}>
+                <Upload size={14} />
+              </IconBtn>
+            )}
+            {canEdit && !agent.isBoss && (
+              <>
+                <div style={{ width: 1, height: 16, background: 'var(--border)' }} />
+                <button onClick={() => onOpenCoach?.()} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)', borderRadius: 7,
+                  padding: '5px 12px', fontSize: 12, fontWeight: 500,
+                  cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                  color: 'var(--text)',
+                }}>
+                  <Wand2 size={13} /> Coach
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {agent.isBoss ? (
+          <>
+            <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
+              Auto-generated from your team roster. Updates automatically when agents are added or removed.
+            </p>
+            <ClaudeMdSection agentId={agent.id} canEdit={false} />
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
+              Define how this agent should behave — its rules, workflows, and response style. This is always in the agent&apos;s context.
+            </p>
+            <ClaudeMdSection agentId={agent.id} canEdit={canEdit} />
+          </>
+        )}
+      </div>
+
+      {/* ── Skills / Memory sub-tabs ──────────────────────────────────── */}
+      <InstructionsSubTabs agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />
+    </div>
+  );
+}
+
+function InstructionsSubTabs({ agentId, canEdit, agentName, agentPersona, agentDescription }: { agentId: string; canEdit: boolean; agentName: string; agentPersona: string; agentDescription: string }) {
+  const [subTab, setSubTab] = useState<'skills' | 'memory'>('skills');
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
+        {(['skills', 'memory'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setSubTab(t)}
+            style={{
+              padding: '8px 18px', fontSize: 13, fontWeight: subTab === t ? 600 : 400,
+              color: subTab === t ? 'var(--text)' : 'var(--muted)',
+              background: 'none', border: 'none', borderBottom: subTab === t ? '2px solid var(--accent)' : '2px solid transparent',
+              cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              transition: 'color 0.15s, border-color 0.15s',
+            }}
+          >
+            {t === 'skills' ? 'Skills' : 'Memory'}
+          </button>
+        ))}
+      </div>
+      {subTab === 'skills' && (
+        <div>
+          <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
+            Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.
+          </p>
+          <SkillsTab agentId={agentId} canEdit={canEdit} agentName={agentName} agentPersona={agentPersona} agentDescription={agentDescription} />
+        </div>
+      )}
+      {subTab === 'memory' && (
+        <div>
+          <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
+            Learned from conversations — the agent asks before saving. Open Coach to review and clean up.
+          </p>
+          <MemorySection agentId={agentId} canEdit={canEdit} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+  const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [dirty, setDirty] = useState(false);
 
-  const load = () => {
+  const refetch = () => {
     setLoading(true);
     fetch(`/api/agents/${agentId}/claude-md`)
       .then(r => r.text())
-      .then(t => { setContent(t); setDraft(t); })
-      .catch(() => setContent('Failed to load CLAUDE.md'))
+      .then(t => { setContent(t); setDirty(false); })
+      .catch(() => {})
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [agentId]);
+  useEffect(() => { refetch(); }, [agentId]);
+
+  // Re-fetch when Coach applies / finishes bootstrapping, but don't clobber
+  // a user's in-flight edits.
+  useEffect(() => {
+    const h = () => { if (!dirty) refetch(); };
+    window.addEventListener('slackhive:instructions-refresh', h);
+    return () => window.removeEventListener('slackhive:instructions-refresh', h);
+  }, [agentId, dirty]);
 
   const save = async () => {
     setSaving(true);
     try {
       const res = await fetch(`/api/agents/${agentId}/claude-md`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'text/plain' },
-        body: draft,
+        method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: content,
       });
       if (!res.ok) throw new Error(await res.text());
-      setContent(draft);
-      setEditing(false);
-      setMsg('Saved — agent will use this on next reload.');
-      setTimeout(() => setMsg(''), 4000);
+      setDirty(false);
+      setMsg('Saved');
+      setTimeout(() => setMsg(''), 3000);
     } catch (e: any) {
       setMsg(`Error: ${e.message}`);
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   if (loading) return <p style={{ color: 'var(--muted)', fontSize: 14 }}>Loading...</p>;
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>CLAUDE.md</h3>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            {editing ? 'Editing raw system prompt — this overrides all individual skills.' : 'Compiled system prompt sent to Claude.'}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {!editing && (
-            <span style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--surface-2)', padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
-              {(content.length / 1024).toFixed(1)} KB · {content.split('\n').length} lines
-            </span>
-          )}
-          {editing ? (
-            <>
-              <button onClick={() => { setEditing(false); setDraft(content); }} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>
-                Cancel
-              </button>
-              <button onClick={save} disabled={saving} style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            </>
-          ) : (
-            canEdit && <button onClick={() => setEditing(true)} style={{ padding: '6px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>
-              Edit
-            </button>
-          )}
-        </div>
-      </div>
-
-      {msg && <p style={{ fontSize: 13, color: msg.startsWith('Error') ? 'var(--danger)' : 'var(--success)', marginBottom: 12 }}>{msg}</p>}
-
-      {editing ? (
-        <textarea
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          style={{
-            width: '100%', height: '70vh', background: 'var(--surface)',
-            border: '1px solid var(--accent)', borderRadius: 10,
-            padding: '20px 24px', fontSize: 12.5, lineHeight: 1.7,
-            color: 'var(--text)', fontFamily: 'var(--font-mono)',
-            resize: 'vertical', outline: 'none', boxSizing: 'border-box',
-          }}
-        />
-      ) : (
-        <pre style={{
-          background: 'var(--surface-2)', border: '1px solid var(--border)',
-          borderRadius: 10, padding: '20px 24px', fontSize: 12.5, lineHeight: 1.7,
-          overflowX: 'auto', overflowY: 'auto', maxHeight: '70vh', margin: 0,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+    <div style={{ position: 'relative' }}>
+      <textarea
+        value={content}
+        onChange={e => { setContent(e.target.value); setDirty(true); }}
+        readOnly={!canEdit}
+        placeholder="Write the agent's core instructions here — rules, workflows, response style..."
+        style={{
+          width: '100%', minHeight: 120, maxHeight: '50vh',
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 8, padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
           color: 'var(--text)', fontFamily: 'var(--font-mono)',
-        }}>
-          {content}
-        </pre>
+          resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+        }}
+        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+      />
+      {(dirty || msg) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          {canEdit && dirty && (
+            <button onClick={save} disabled={saving} style={{
+              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
+              borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 500,
+              cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
+            }}>{saving ? 'Saving...' : 'Save'}</button>
+          )}
+          {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
+        </div>
       )}
     </div>
   );
@@ -762,7 +1079,7 @@ function ClaudeMdTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }
 
 // ─── Skills ───────────────────────────────────────────────────────────────────
 
-function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription }: { agentId: string; canEdit: boolean; agentName: string; agentPersona: string; agentDescription: string }) {
   const [skills, setSkills]     = useState<Skill[]>([]);
   const [selected, setSelected] = useState<Skill | null>(null);
   const [content, setContent]   = useState('');
@@ -775,6 +1092,13 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
     fetch(`/api/agents/${agentId}/skills`).then(r => r.json()).then(setSkills);
 
   useEffect(() => { load(); }, [agentId]);
+
+  // Re-fetch when Coach applies / finishes bootstrapping.
+  useEffect(() => {
+    const h = () => load();
+    window.addEventListener('slackhive:instructions-refresh', h);
+    return () => window.removeEventListener('slackhive:instructions-refresh', h);
+  }, [agentId]);
 
   const select = (s: Skill) => { setSelected(s); setContent(s.content); };
 
@@ -804,9 +1128,23 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
     setShowNew(false); setNewSkill({ category: '', filename: '', content: '' }); load();
   };
 
+  // Virtual identity row — computed from agent fields, not stored in DB
+  const identityVirtual: Skill = {
+    id: '__identity__',
+    agentId,
+    category: '00-core',
+    filename: 'identity.md',
+    sortOrder: -1,
+    content: [`# ${agentName}`, agentPersona, agentDescription].filter(Boolean).join('\n\n'),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
   const grouped = skills.reduce<Record<string, Skill[]>>((acc, s) => {
     (acc[s.category] ??= []).push(s); return acc;
   }, {});
+
+  const isIdentity = selected?.id === '__identity__';
 
   return (
     <div className="fade-up" style={{ display: 'flex', gap: 14, height: 580 }}>
@@ -829,6 +1167,30 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
           }}>+ New</button>}
         </div>
         <div style={{ padding: '6px 6px', flex: 1, overflow: 'auto' }}>
+          {/* Virtual identity row — always first */}
+          <div>
+            <div style={{
+              fontSize: 10.5, color: 'var(--subtle)', padding: '6px 6px 2px',
+              fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
+            }}>00-core/</div>
+            <div
+              onClick={() => select(identityVirtual)}
+              className="skill-row"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
+                fontSize: 12, fontFamily: 'var(--font-mono)',
+                background: selected?.id === '__identity__' ? 'rgba(59,130,246,0.12)' : 'transparent',
+                color: selected?.id === '__identity__' ? 'var(--accent)' : 'var(--muted)',
+                transition: 'background 0.12s, color 0.12s',
+              }}
+              onMouseEnter={e => { if (selected?.id !== '__identity__') (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
+              onMouseLeave={e => { if (selected?.id !== '__identity__') (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>identity.md</span>
+              <span style={{ fontSize: 9, color: 'var(--subtle)', flexShrink: 0 }}>locked</span>
+            </div>
+          </div>
           {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([cat, catSkills]) => (
             <div key={cat}>
               <div style={{
@@ -888,12 +1250,15 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
               padding: '10px 16px', borderBottom: '1px solid var(--border)',
               background: 'var(--surface-2)',
             }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-                {selected.category}/{selected.filename}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                  {selected.category}/{selected.filename}
+                </span>
+                {isIdentity && <span style={{ fontSize: 10, color: 'var(--subtle)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3 }}>read-only · edit in Overview</span>}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 {msg && <span style={{ fontSize: 11.5, color: '#16a34a' }}>{msg}</span>}
-                {canEdit && <button
+                {canEdit && !isIdentity && <button
                   onClick={save} disabled={saving}
                   style={{
                     background: saving ? 'var(--border)' : 'var(--accent)',
@@ -908,9 +1273,9 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
               </div>
             </div>
             <textarea
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              readOnly={!canEdit}
+              value={isIdentity ? identityVirtual.content : content}
+              onChange={e => { if (!isIdentity) setContent(e.target.value); }}
+              readOnly={!canEdit || isIdentity}
               style={{
                 flex: 1, border: 'none', outline: 'none', resize: 'none',
                 background: 'transparent', color: 'var(--text)',
@@ -933,7 +1298,7 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
           <Field label="Category" value={newSkill.category}
             onChange={v => setNewSkill(s => ({ ...s, category: v }))} hint="e.g. 00-core" />
           <Field label="Filename" value={newSkill.filename}
-            onChange={v => setNewSkill(s => ({ ...s, filename: v }))} hint="e.g. identity.md" />
+            onChange={v => setNewSkill(s => ({ ...s, filename: v }))} hint="e.g. api-design.md" />
           <TextArea label="Content (optional)" value={newSkill.content}
             onChange={v => setNewSkill(s => ({ ...s, content: v }))} rows={4} />
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -948,7 +1313,29 @@ function SkillsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
 
 // ─── MCPs ─────────────────────────────────────────────────────────────────────
 
-function McpsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function ToolsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+  return (
+    <div className="fade-up">
+      {/* Section 1: Connected Apps (MCPs) */}
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
+          Connected Apps
+        </div>
+        <McpsSection agentId={agentId} canEdit={canEdit} />
+      </div>
+
+      {/* Section 2: Capabilities */}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
+          Capabilities
+        </div>
+        <PermissionsTab agentId={agentId} canEdit={canEdit} />
+      </div>
+    </div>
+  );
+}
+
+function McpsSection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [all, setAll]         = useState<McpServer[]>([]);
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [saving, setSaving]   = useState(false);
@@ -1032,114 +1419,107 @@ function McpsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
 
 // ─── Permissions ──────────────────────────────────────────────────────────────
 
-const QUICK_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch'];
+const BASE_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep'];
+const INTERNET_TOOLS = ['WebSearch', 'WebFetch'];
+const SHELL_TOOLS = ['Bash'];
 
 function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
-  const [allowed, setAllowed] = useState('');
-  const [denied,  setDenied]  = useState('');
+  const [allowed, setAllowed] = useState<string[]>([]);
+  const [denied,  setDenied]  = useState<string[]>([]);
   const [saving,  setSaving]  = useState(false);
   const [msg,     setMsg]     = useState('');
 
+  const internetOn = INTERNET_TOOLS.every(t => allowed.includes(t));
+  const shellOn = SHELL_TOOLS.some(t => allowed.includes(t));
+
   useEffect(() => {
     fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()).then((p: Permission) => {
-      setAllowed((p.allowedTools ?? []).join('\n'));
-      setDenied((p.deniedTools ?? []).join('\n'));
+      setAllowed(p.allowedTools ?? []);
+      setDenied(p.deniedTools ?? []);
     });
   }, [agentId]);
 
-  const addTool = (tool: string, list: 'allowed' | 'denied') => {
-    const setter = list === 'allowed' ? setAllowed : setDenied;
-    const current = (list === 'allowed' ? allowed : denied).split('\n').map(s => s.trim()).filter(Boolean);
-    if (!current.includes(tool)) setter([...current, tool].join('\n'));
-  };
-
-  const save = async () => {
+  const save = async (newAllowed: string[], newDenied: string[]) => {
     setSaving(true);
     await fetch(`/api/agents/${agentId}/permissions`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        allowedTools: allowed.split('\n').map(s => s.trim()).filter(Boolean),
-        deniedTools:  denied.split('\n').map(s => s.trim()).filter(Boolean),
-      }),
+      body: JSON.stringify({ allowedTools: newAllowed, deniedTools: newDenied }),
     });
-    setSaving(false); setMsg('Saved & reload triggered');
-    setTimeout(() => setMsg(''), 3000);
+    setSaving(false); setMsg('Saved'); setTimeout(() => setMsg(''), 2000);
+  };
+
+  const toggleCapability = (tools: string[], enable: boolean) => {
+    let next = enable
+      ? [...new Set([...allowed, ...tools])]
+      : allowed.filter(t => !tools.includes(t));
+    for (const t of BASE_TOOLS) { if (!next.includes(t)) next = [t, ...next]; }
+    setAllowed(next);
+    save(next, denied);
   };
 
   return (
-    <div style={{ maxWidth: 660 }} className="fade-up">
-      {/* Quick add */}
+    <div style={{ maxWidth: 500 }}>
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, padding: '12px 16px', marginBottom: 18,
+        borderRadius: 10, overflow: 'hidden',
       }}>
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-          Quick add built-in tools
+        {/* Internet Access */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px', borderBottom: '1px solid var(--border)',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Internet Access</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+              Web search and fetch
+            </div>
+          </div>
+          <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, flexShrink: 0 }}>
+            <input type="checkbox" checked={internetOn} disabled={!canEdit}
+              onChange={e => toggleCapability(INTERNET_TOOLS, e.target.checked)}
+              style={{ opacity: 0, width: 0, height: 0 }} />
+            <span style={{
+              position: 'absolute', cursor: canEdit ? 'pointer' : 'default', inset: 0, borderRadius: 11,
+              background: internetOn ? 'var(--green)' : 'var(--border-2)', transition: 'background 0.2s',
+            }}>
+              <span style={{
+                position: 'absolute', width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                top: 3, left: internetOn ? 21 : 3, transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
+            </span>
+          </label>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {QUICK_TOOLS.map(t => (
-            <button
-              key={t}
-              onClick={() => addTool(t, 'allowed')}
-              disabled={!canEdit}
-              style={{
-                background: 'var(--border)', border: '1px solid var(--border-2)',
-                color: 'var(--text)', padding: '3px 10px', borderRadius: 5,
-                fontSize: 11.5, fontFamily: 'var(--font-mono)', cursor: 'pointer',
-                transition: 'background 0.12s, border-color 0.12s',
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'var(--border)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
-            >{t}</button>
-          ))}
-        </div>
-        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-          MCP tools pattern: <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>mcp__serverName__toolName</code>
-        </p>
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
-        <div>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
-            Allowed Tools <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>· one per line</span>
+        {/* Shell Access */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Shell Access</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+              Terminal commands (dangerous commands auto-blocked)
+            </div>
+          </div>
+          <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, flexShrink: 0 }}>
+            <input type="checkbox" checked={shellOn} disabled={!canEdit}
+              onChange={e => toggleCapability(SHELL_TOOLS, e.target.checked)}
+              style={{ opacity: 0, width: 0, height: 0 }} />
+            <span style={{
+              position: 'absolute', cursor: canEdit ? 'pointer' : 'default', inset: 0, borderRadius: 11,
+              background: shellOn ? 'var(--green)' : 'var(--border-2)', transition: 'background 0.2s',
+            }}>
+              <span style={{
+                position: 'absolute', width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                top: 3, left: shellOn ? 21 : 3, transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
+            </span>
           </label>
-          <textarea
-            value={allowed} onChange={e => setAllowed(e.target.value)}
-            rows={12} readOnly={!canEdit}
-            style={{
-              width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
-              fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7,
-              outline: 'none', resize: 'vertical',
-            }}
-            onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-            onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-            placeholder={'Read\nWrite\nmcp__redshift-mcp__query'}
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
-            Denied Tools <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>· overrides allowed</span>
-          </label>
-          <textarea
-            value={denied} onChange={e => setDenied(e.target.value)}
-            rows={12} readOnly={!canEdit}
-            style={{
-              width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 8, padding: '10px 12px', color: 'var(--danger)',
-              fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7,
-              outline: 'none', resize: 'vertical',
-            }}
-            onFocus={e => (e.currentTarget.style.borderColor = '#ef4444')}
-            onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-            placeholder={'Bash'}
-          />
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Permissions</PrimaryBtn>}
-        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
-      </div>
+      {msg && <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 10 }}>{msg}</div>}
     </div>
   );
 }
@@ -1153,7 +1533,7 @@ const MEM_TYPE_STYLE: Record<string, { bg: string; color: string }> = {
   reference: { bg: '#f0fdf4', color: '#15803d' },
 };
 
-function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -1174,11 +1554,13 @@ function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
 
   if (memories.length === 0) {
     return (
-      <div className="fade-up" style={{
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, padding: '40px 20px',
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        paddingTop: 80, color: 'var(--muted)',
+        color: 'var(--muted)',
       }}>
-        <Brain size={36} style={{ marginBottom: 12, color: 'var(--border-2)' }} />
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Brain size={32} style={{ color: 'var(--border-2)' }} /></div>
         <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
           No memories yet
         </p>
@@ -1190,10 +1572,16 @@ function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
   }
 
   return (
-    <div style={{ maxWidth: 720 }} className="fade-up">
-      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 18 }}>
-        {memories.length} memories across {Object.keys(grouped).length} categories
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 10, padding: '16px 18px',
+    }}>
+      <div style={{ marginBottom: 14 }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+          {memories.length} memor{memories.length === 1 ? 'y' : 'ies'}
+        </span>
       </div>
+
       {(['feedback', 'user', 'project', 'reference'] as const).map(type => {
         const items = grouped[type];
         if (!items?.length) return null;
@@ -1261,6 +1649,699 @@ function MemoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) 
   );
 }
 
+// ─── Wiki Tree ──────────────────────────────────────────────────────────────
+
+type WikiArticle = { path: string; title: string; size: number };
+type TreeNode = { name: string; path?: string; title?: string; size?: number; children: TreeNode[] };
+
+function buildTree(articles: WikiArticle[]): TreeNode[] {
+  const root: TreeNode = { name: '', children: [] };
+  for (const article of articles) {
+    const parts = article.path.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isFile = i === parts.length - 1;
+      let child = node.children.find(c => c.name === part);
+      if (!child) {
+        child = isFile
+          ? { name: part, path: article.path, title: article.title, size: article.size, children: [] }
+          : { name: part, children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    }
+  }
+  // Sort: folders first, then files, alphabetical within each
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      const aIsFolder = a.children.length > 0 && !a.path;
+      const bIsFolder = b.children.length > 0 && !b.path;
+      if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const n of nodes) sortNodes(n.children);
+  };
+  sortNodes(root.children);
+  return root.children;
+}
+
+const FOLDER_LABELS: Record<string, string> = {
+  concepts: 'Concepts',
+  entities: 'Entities',
+  flows: 'Flows',
+  modules: 'Modules',
+};
+
+function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; depth: number; onSelect: (path: string) => void; selected: string | null }) {
+  const [open, setOpen] = useState(true);
+  const isFolder = !node.path && node.children.length > 0;
+  const label = isFolder ? (FOLDER_LABELS[node.name] || node.name) : (node.title || node.name.replace('.md', ''));
+  const isActive = node.path === selected;
+
+  if (isFolder) {
+    return (
+      <div>
+        <div onClick={() => setOpen(!open)} style={{
+          display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+          padding: `6px 6px 2px ${6 + depth * 12}px`,
+          fontSize: 10.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
+        }}>
+          {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          {label}/
+        </div>
+        {open && node.children.map(child => (
+          <WikiTreeNode key={child.path || child.name} node={child} depth={depth + 1} onSelect={onSelect} selected={selected} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={() => node.path && onSelect(node.path)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        padding: `4px 8px 4px ${8 + depth * 12}px`, borderRadius: 6, cursor: 'pointer',
+        fontSize: 12, fontFamily: 'var(--font-mono)',
+        background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
+        color: isActive ? 'var(--accent)' : 'var(--muted)',
+        transition: 'background 0.12s, color 0.12s',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}
+      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
+      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+    >
+      <FileText size={12} style={{ flexShrink: 0 }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name.replace('.md', '')}</span>
+    </div>
+  );
+}
+
+function WikiTree({ articles, onSelect, selected }: { articles: WikiArticle[]; onSelect: (path: string) => void; selected: string | null }) {
+  const tree = buildTree(articles);
+  return (
+    <div style={{ padding: '6px 6px', flex: 1, overflow: 'auto' }}>
+      {tree.map(node => (
+        <WikiTreeNode key={node.path || node.name} node={node} depth={0} onSelect={onSelect} selected={selected} />
+      ))}
+    </div>
+  );
+}
+
+// ─── Knowledge ──────────────────────────────────────────────────────────────
+
+function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentSlug: string; canEdit: boolean }) {
+  const [sources, setSources] = useState<any[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addType, setAddType] = useState<'url' | 'file' | 'repo'>('url');
+  const [addName, setAddName] = useState('');
+  const [addUrl, setAddUrl] = useState('');
+  const [addBranch, setAddBranch] = useState('main');
+  const [addPat, setAddPat] = useState('');
+  const [addContent, setAddContent] = useState('');
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [envVarKeys, setEnvVarKeys] = useState<string[]>([]);
+  const [editingSource, setEditingSource] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+  // When editing a repo/url source, we reuse the Add form prefilled with the source's fields
+  const [editingMetaId, setEditingMetaId] = useState<string | null>(null);
+  const [building, setBuilding] = useState(false);
+  const [buildStep, setBuildStep] = useState('');
+  const [buildResult, setBuildResult] = useState<any>(null);
+  const [buildError, setBuildError] = useState('');
+  const [wikiData, setWikiData] = useState<{ articles: { path: string; title: string; size: number }[]; totalWords: number; lastBuilt: string | null } | null>(null);
+  const [selectedArticle, setSelectedArticle] = useState<string | null>(null);
+  const [articleContent, setArticleContent] = useState('');
+  const [loadingArticle, setLoadingArticle] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const wikiUploadRef = useRef<HTMLInputElement>(null);
+
+  const loadSources = () => {
+    fetch(`/api/agents/${agentId}/knowledge`).then(r => r.json()).then(setSources).catch(() => {});
+  };
+  const loadWiki = () => {
+    fetch(`/api/agents/${agentId}/knowledge/wiki`).then(r => r.json()).then(data => {
+      if (data.articles?.length > 0) setWikiData(data);
+      else setWikiData(null);
+    }).catch(() => {});
+  };
+  const load = () => { loadSources(); loadWiki(); };
+
+  // Poll for an active build by requestId
+  const pollBuild = async (reqId: string) => {
+    setBuilding(true); setBuildError(''); setBuildStep('');
+    for (let i = 0; i < 120; i++) {
+      await new Promise(res => setTimeout(res, 2000));
+      try {
+        const poll = await fetch(`/api/agents/${agentId}/knowledge/build?requestId=${reqId}`);
+        const data = await poll.json();
+        if (data.step) setBuildStep(data.step);
+        if (data.status === 'done') { setBuildResult(data); setBuilding(false); setBuildStep(''); load(); return; }
+        if (data.status === 'error') { setBuildError(data.error); setBuilding(false); setBuildStep(''); return; }
+      } catch { /* retry */ }
+    }
+    setBuildError('Build timed out.');
+    setBuilding(false); setBuildStep('');
+  };
+
+  useEffect(() => {
+    load();
+    // Check if there's an active build in progress
+    fetch(`/api/agents/${agentId}/knowledge/build`).then(r => r.json()).then(data => {
+      if (data.status === 'pending' || data.status === 'building') {
+        pollBuild(data.requestId);
+      } else if (data.status === 'done') {
+        setBuildResult(data);
+      }
+    }).catch(() => {});
+  }, [agentId]);
+
+  const viewArticle = async (articlePath: string) => {
+    setSelectedArticle(articlePath);
+    setLoadingArticle(true);
+    try {
+      const r = await fetch(`/api/agents/${agentId}/knowledge/wiki?path=${encodeURIComponent(articlePath)}`);
+      const data = await r.json();
+      setArticleContent(data.content ?? '');
+    } catch { setArticleContent('Failed to load article.'); }
+    finally { setLoadingArticle(false); }
+  };
+
+  const addSource = async () => {
+    setSaving(true);
+    const body: any = { name: addName };
+    if (addType === 'url') body.url = addUrl;
+    if (addType === 'file') body.content = addContent;
+    if (addType === 'repo') {
+      body.repoUrl = addUrl;
+      body.branch = addBranch;
+      body.patEnvRef = addPat || null;
+    }
+    if (editingMetaId) {
+      // Edit existing source — PATCH with mutable fields only (type doesn't change)
+      await fetch(`/api/agents/${agentId}/knowledge/${editingMetaId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    } else {
+      // Create new source
+      body.type = addType;
+      await fetch(`/api/agents/${agentId}/knowledge`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    }
+    setSaving(false);
+    setShowAdd(false);
+    setEditingMetaId(null);
+    setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat('');
+    load();
+  };
+
+  const startEditMeta = (src: any) => {
+    setEditingMetaId(src.id);
+    setAddType(src.type);
+    setAddName(src.name ?? '');
+    setAddUrl(src.type === 'repo' ? (src.repoUrl ?? '') : (src.url ?? ''));
+    setAddContent(src.content ?? '');
+    setAddBranch(src.branch ?? 'main');
+    setAddPat(src.patEnvRef ?? '');
+    setShowAdd(true);
+    // Populate the PAT dropdown — otherwise the "Auth" field has no env vars to choose from.
+    fetch('/api/env-vars').then(r => r.json()).then((vars: any[]) => setEnvVarKeys(vars.map(v => v.key))).catch(() => {});
+  };
+
+  const deleteSource = async (id: string) => {
+    await fetch(`/api/agents/${agentId}/knowledge/${id}`, { method: 'DELETE' });
+    load();
+  };
+
+  const startEditSource = (src: any) => {
+    setEditingSource(src.id);
+    setEditContent(src.content || '');
+  };
+
+  const saveEditSource = async () => {
+    if (!editingSource) return;
+    await fetch(`/api/agents/${agentId}/knowledge/${editingSource}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: editContent }),
+    });
+    setEditingSource(null);
+    setEditContent('');
+    load();
+  };
+
+  const buildWiki = async () => {
+    if (building || syncing) { setBuildError('A build is already running.'); return; }
+    setBuildResult(null); setBuildError('');
+    try {
+      const r = await fetch(`/api/agents/${agentId}/knowledge/build`, { method: 'POST' });
+      const { requestId } = await r.json();
+      await pollBuild(requestId);
+    } catch (err) { setBuildError((err as Error).message); setBuilding(false); }
+  };
+
+  const syncSource = async (sourceId: string) => {
+    if (building || syncing) { setBuildError('A build is already running.'); return; }
+    setSyncing(sourceId); setBuildResult(null); setBuildError('');
+    try {
+      const r = await fetch(`/api/agents/${agentId}/knowledge/build`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceId }),
+      });
+      const { requestId } = await r.json();
+      await pollBuild(requestId);
+    } catch (err) { setBuildError((err as Error).message); }
+    finally { setSyncing(null); }
+  };
+
+  const TypeIcon = ({ type }: { type: string }) => {
+    const style = { color: 'var(--muted)', flexShrink: 0 } as const;
+    if (type === 'url') return <Link2 size={16} style={style} />;
+    if (type === 'repo') return <GitBranch size={16} style={style} />;
+    return <FileText size={16} style={style} />;
+  };
+
+  return (
+    <div className="fade-up">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+            Add documents, URLs, or repos — Claude compiles them into a wiki your agent references.
+            {' '}<a href="https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 12 }}>Inspired by Karpathy's LLM Wiki</a>
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {canEdit && sources.length > 0 && (
+            <button onClick={buildWiki} disabled={building} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              background: building ? 'var(--surface-2)' : 'var(--surface)',
+              border: '1px solid var(--border)', borderRadius: 7,
+              padding: '6px 14px', fontSize: 12, fontWeight: 500,
+              cursor: building ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+              color: building ? 'var(--muted)' : 'var(--text)',
+            }}>
+              {building ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Building...</> : <><Wand2 size={13} /> Build Wiki</>}
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={() => { setShowAdd(true); fetch('/api/env-vars').then(r => r.json()).then(vars => setEnvVarKeys(vars.map((v: any) => v.key))).catch(() => {}); }} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              background: 'var(--accent)', color: 'var(--accent-fg)',
+              border: 'none', borderRadius: 7, padding: '6px 14px',
+              fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            }}>+ Add Source</button>
+          )}
+        </div>
+      </div>
+
+      {/* Upload error */}
+      {uploadError && (
+        <div style={{ background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--red)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {uploadError}
+          <button onClick={() => setUploadError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red)', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
+        </div>
+      )}
+
+      {/* Build progress */}
+      {building && buildStep && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', marginBottom: 14,
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+        }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--accent)', flexShrink: 0 }} />
+          <span style={{ fontSize: 12.5, color: 'var(--text)' }}>{buildStep}</span>
+        </div>
+      )}
+
+      {/* Build result */}
+      {buildError && (
+        <div style={{ background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--red)' }}>
+          {buildError}
+        </div>
+      )}
+      {buildResult && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px', marginBottom: 14 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Wiki built: </span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{buildResult.articles} articles · {buildResult.words?.toLocaleString()} words</span>
+          {buildResult.summary && <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '4px 0 0' }}>{buildResult.summary}</p>}
+        </div>
+      )}
+
+      {/* Add / Edit source form */}
+      {showAdd && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', marginBottom: 16 }}>
+          {editingMetaId && (
+            <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginBottom: 10, fontWeight: 500, letterSpacing: 0.3, textTransform: 'uppercase' }}>
+              Editing source
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            {(['url', 'file', 'repo'] as const).map(t => (
+              <button key={t} onClick={() => !editingMetaId && setAddType(t)} disabled={!!editingMetaId && addType !== t} style={{
+                padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500,
+                background: addType === t ? 'var(--accent)' : 'var(--surface-2)',
+                color: addType === t ? 'var(--accent-fg)' : 'var(--muted)',
+                border: `1px solid ${addType === t ? 'var(--accent)' : 'var(--border)'}`,
+                cursor: editingMetaId ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
+                opacity: editingMetaId && addType !== t ? 0.4 : 1,
+              }}><TypeIcon type={t} /> {t === 'url' ? 'URL' : t === 'file' ? 'File' : 'Git Repo'}</button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <input value={addName} onChange={e => setAddName(e.target.value)} placeholder="Source name"
+              style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-sans)' }} />
+
+            {addType === 'url' && (
+              <input value={addUrl} onChange={e => setAddUrl(e.target.value)} placeholder="https://docs.example.com/api"
+                style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
+            )}
+
+            {addType === 'file' && (
+              <>
+                <div style={{
+                  border: '2px dashed var(--border)', borderRadius: 8, padding: '20px 16px',
+                  textAlign: 'center', cursor: 'pointer', background: 'var(--surface-2)',
+                  transition: 'border-color 0.15s',
+                }} onClick={() => document.getElementById('knowledge-file-input')?.click()}
+                   onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                   onDragLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                   onDrop={e => {
+                     e.preventDefault();
+                     e.currentTarget.style.borderColor = 'var(--border)';
+                     const file = e.dataTransfer.files[0];
+                     if (file) {
+                       const reader = new FileReader();
+                       reader.onload = () => {
+                         setAddContent(reader.result as string);
+                         if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
+                       };
+                       reader.readAsText(file);
+                     }
+                   }}>
+                  <Upload size={20} style={{ color: 'var(--muted)', marginBottom: 6 }} />
+                  <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
+                    {addContent ? 'File loaded — click to replace' : 'Click to upload or drag and drop'}
+                  </p>
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+                    .txt, .md, .csv, .json, .pdf (text only)
+                  </p>
+                  <input id="knowledge-file-input" type="file" accept=".txt,.md,.csv,.json,.pdf,.rst,.yaml,.yml,.xml,.html"
+                    style={{ display: 'none' }} onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          setAddContent(reader.result as string);
+                          if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
+                        };
+                        reader.readAsText(file);
+                      }
+                    }} />
+                </div>
+                {addContent && (
+                  <div style={{ fontSize: 11, color: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>{addContent.split(/\s+/).length.toLocaleString()} words loaded</span>
+                    <button onClick={() => setAddContent('')} style={{
+                      background: 'none', border: 'none', color: 'var(--red)', fontSize: 11,
+                      cursor: 'pointer', fontFamily: 'var(--font-sans)', opacity: 0.7,
+                    }}>Clear</button>
+                  </div>
+                )}
+                <textarea value={addContent} onChange={e => setAddContent(e.target.value)} placeholder="Or paste content here..."
+                  rows={addContent ? 8 : 4} style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.5 }} />
+              </>
+            )}
+
+            {addType === 'repo' && (
+              <>
+                <input value={addUrl} onChange={e => setAddUrl(e.target.value)} placeholder="https://github.com/org/repo"
+                  style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
+                <input value={addBranch} onChange={e => setAddBranch(e.target.value)} placeholder="Branch (default: main)"
+                  style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
+                <select value={addPat} onChange={e => setAddPat(e.target.value)}
+                  style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 12, color: addPat ? 'var(--text)' : 'var(--subtle)', fontFamily: 'var(--font-sans)' }}>
+                  <option value="">No auth (public repo)</option>
+                  {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
+                  {envVarKeys.length === 0 && <option disabled>No env vars — add in Settings</option>}
+                </select>
+              </>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button onClick={addSource} disabled={saving || !addName} style={{
+              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 7,
+              padding: '7px 16px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            }}>{saving ? (editingMetaId ? 'Saving...' : 'Adding...') : (editingMetaId ? 'Save Changes' : 'Add Source')}</button>
+            <button onClick={() => {
+              setShowAdd(false);
+              setEditingMetaId(null);
+              setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat('');
+            }} style={{
+              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
+              padding: '7px 16px', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: 'var(--text)',
+            }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Sources list */}
+      {sources.length === 0 && !showAdd ? (
+        <div style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '40px 20px', textAlign: 'center',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Brain size={28} style={{ color: 'var(--border-2)' }} /></div>
+          <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>No knowledge sources yet</p>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--subtle)' }}>Add URLs, files, or git repos to build a knowledge wiki.</p>
+        </div>
+      ) : (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+          {sources.map((src, i) => (
+            <React.Fragment key={src.id}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+              borderBottom: i < sources.length - 1 ? '1px solid var(--border)' : 'none',
+            }}>
+              <TypeIcon type={src.type} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{src.name}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {src.type} · {src.url || src.repoUrl || `${src.wordCount} words`}
+                  {src.branch && src.type === 'repo' && ` · ${src.branch}`}
+                </div>
+              </div>
+              {(syncing === src.id || (building && buildStep.toLowerCase().includes(src.name.toLowerCase()))) ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--accent)' }}>
+                  <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> {syncing === src.id ? 'syncing' : 'building'}
+                </span>
+              ) : (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
+                  background: src.status === 'compiled' ? 'rgba(16,185,129,0.1)' : src.status === 'error' ? 'var(--red-soft-bg)' : 'var(--surface-2)',
+                  color: src.status === 'compiled' ? 'var(--green)' : src.status === 'error' ? 'var(--red)' : 'var(--subtle)',
+                }}>{src.status}</span>
+              )}
+              {canEdit && (
+                <button onClick={() => src.type === 'file' ? startEditSource(src) : startEditMeta(src)} style={{
+                  background: 'none', border: 'none', fontSize: 12, cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)', opacity: 0.6, color: 'var(--text)',
+                }}>Edit</button>
+              )}
+              {canEdit && src.status === 'compiled' && (
+                <button onClick={() => syncSource(src.id)} disabled={!!syncing || building} style={{
+                  background: 'none', border: 'none', fontSize: 12, cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)', opacity: syncing === src.id ? 1 : 0.6,
+                  color: syncing === src.id ? 'var(--accent)' : 'var(--text)',
+                }}>{syncing === src.id ? 'Syncing...' : 'Sync'}</button>
+              )}
+              {canEdit && (
+                <button onClick={() => deleteSource(src.id)} style={{
+                  background: 'none', border: 'none', color: 'var(--red)', fontSize: 12,
+                  cursor: 'pointer', opacity: 0.6, fontFamily: 'var(--font-sans)',
+                }}>Delete</button>
+              )}
+            </div>
+            {editingSource === src.id && (
+              <div style={{ padding: '12px 16px', borderBottom: i < sources.length - 1 ? '1px solid var(--border)' : 'none', background: 'var(--surface-2)' }}>
+                <textarea value={editContent} onChange={e => setEditContent(e.target.value)}
+                  rows={10} style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.5 }} />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{editContent.split(/\s+/).length.toLocaleString()} words</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => setEditingSource(null)} style={{
+                      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6,
+                      padding: '5px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: 'var(--text)',
+                    }}>Cancel</button>
+                    <button onClick={saveEditSource} style={{
+                      background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 6,
+                      padding: '5px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                    }}>Save</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </React.Fragment>
+          ))}
+        </div>
+      )}
+
+      {/* Wiki — two-panel file browser */}
+      {wikiData && wikiData.articles.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <BookOpen size={14} style={{ color: 'var(--muted)' }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Wiki</span>
+              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                {wikiData.articles.length} articles · {wikiData.totalWords.toLocaleString()} words
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {wikiData.lastBuilt && (
+                <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                  Built {new Date(wikiData.lastBuilt).toLocaleDateString()} {new Date(wikiData.lastBuilt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              <button
+                onClick={async () => {
+                  setDownloading(true);
+                  try {
+                    const r = await fetch(`/api/agents/${agentId}/knowledge/download`);
+                    if (!r.ok) { const d = await r.json(); setUploadError(d.error ?? 'Download failed'); return; }
+                    const blob = await r.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `${agentSlug}-wiki.tar.gz`; a.click();
+                    URL.revokeObjectURL(url);
+                  } catch { setUploadError('Download failed — check your connection'); }
+                  finally { setDownloading(false); }
+                }}
+                disabled={downloading}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
+                  padding: '5px 12px', fontSize: 12, fontWeight: 500,
+                  cursor: downloading ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+                  color: downloading ? 'var(--muted)' : 'var(--text)',
+                }}
+              >
+                {downloading ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Downloading...</> : <><Download size={13} /> Download</>}
+              </button>
+              {canEdit && (
+                <>
+                  <button
+                    onClick={() => wikiUploadRef.current?.click()}
+                    disabled={uploading}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
+                      padding: '5px 12px', fontSize: 12, fontWeight: 500,
+                      cursor: uploading ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+                      color: uploading ? 'var(--muted)' : 'var(--text)',
+                    }}
+                  >
+                    {uploading ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Uploading...</> : <><Upload size={13} /> Restore</>}
+                  </button>
+                  <input
+                    ref={wikiUploadRef}
+                    type="file"
+                    accept=".tar.gz,.tgz"
+                    style={{ display: 'none' }}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = '';
+                      setUploadError('');
+                      if (!file.name.endsWith('.tar.gz') && !file.name.endsWith('.tgz')) {
+                        setUploadError('File must be a .tar.gz archive');
+                        return;
+                      }
+                      setUploading(true);
+                      try {
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        const r = await fetch(`/api/agents/${agentId}/knowledge/upload`, { method: 'POST', body: fd });
+                        if (r.ok) { loadWiki(); }
+                        else { const d = await r.json(); setUploadError(d.error ?? 'Upload failed'); }
+                      } catch { setUploadError('Upload failed — check your connection'); }
+                      finally { setUploading(false); }
+                    }}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 14, height: 480 }}>
+            {/* Sidebar — file tree */}
+            <div style={{
+              width: 220, flexShrink: 0,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, overflow: 'auto', display: 'flex', flexDirection: 'column',
+            }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 12px', borderBottom: '1px solid var(--border)',
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Articles
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--subtle)' }}>{wikiData.articles.length}</span>
+              </div>
+              <WikiTree articles={wikiData.articles} onSelect={viewArticle} selected={selectedArticle} />
+            </div>
+
+            {/* Main — article content */}
+            <div style={{
+              flex: 1, background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            }}>
+              {selectedArticle ? (
+                <>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                    borderBottom: '1px solid var(--border)', flexShrink: 0,
+                  }}>
+                    <FileText size={13} style={{ color: 'var(--muted)' }} />
+                    <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>{selectedArticle}</span>
+                  </div>
+                  <div style={{ flex: 1, padding: '16px 18px', overflow: 'auto' }}>
+                    {loadingArticle ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12 }}>
+                        <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Loading...
+                      </div>
+                    ) : (
+                      <pre style={{
+                        margin: 0, fontSize: 12.5, lineHeight: 1.7, color: 'var(--text)',
+                        fontFamily: 'var(--font-sans)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                      }}>{articleContent}</pre>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
+                  <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Select an article to view</p>
+                  <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>Browse the folder tree on the left</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Logs ─────────────────────────────────────────────────────────────────────
 
 type LogLevel = 'all' | 'debug' | 'info' | 'warn' | 'error';
@@ -1304,19 +2385,40 @@ function parseLine(raw: string): ParsedLog {
 }
 
 const LOG_META: Record<LogLevel, { label: string; color: string; bg: string; border: string; rowBg: string }> = {
-  all:   { label: 'ALL',   color: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', rowBg: 'transparent' },
-  info:  { label: 'INFO',  color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', rowBg: 'transparent' },
-  debug: { label: 'DEBUG', color: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb', rowBg: 'transparent' },
-  warn:  { label: 'WARN',  color: '#92400e', bg: 'var(--amber-soft-bg)', border: 'var(--amber-soft-border)', rowBg: 'var(--amber-soft-bg)' },
-  error: { label: 'ERR',   color: '#991b1b', bg: 'var(--red-soft-bg)', border: 'var(--red-soft-border)', rowBg: 'var(--red-soft-bg)' },
+  all:   { label: 'ALL',   color: 'var(--muted)',  bg: 'var(--surface-2)', border: 'var(--border)',             rowBg: 'transparent' },
+  info:  { label: 'INFO',  color: 'var(--blue)',   bg: 'var(--surface-2)', border: 'var(--blue)',               rowBg: 'transparent' },
+  debug: { label: 'DEBUG', color: 'var(--subtle)',  bg: 'var(--surface-2)', border: 'var(--border)',             rowBg: 'transparent' },
+  warn:  { label: 'WARN',  color: 'var(--amber)',  bg: 'var(--amber-soft-bg)', border: 'var(--amber-soft-border)', rowBg: 'var(--amber-soft-bg)' },
+  error: { label: 'ERR',   color: 'var(--red)',    bg: 'var(--red-soft-bg)',   border: 'var(--red-soft-border)',   rowBg: 'var(--red-soft-bg)' },
 };
+
+function CopyLogsBtn({ lines }: { lines: ParsedLog[] }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    const text = lines.map(l => {
+      const fields = Object.entries(l.fields).map(([k, v]) => `${k}=${v}`).join(' ');
+      return `${l.time} [${l.level.toUpperCase()}] ${l.message}${fields ? ' ' + fields : ''}`;
+    }).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button onClick={copy} disabled={lines.length === 0} style={{
+      background: 'none', border: 'none', cursor: lines.length ? 'pointer' : 'default',
+      fontSize: 11, color: copied ? '#16a34a' : 'var(--subtle)', fontFamily: 'var(--font-sans)',
+      opacity: lines.length ? 1 : 0.4,
+    }}>{copied ? 'Copied!' : 'Copy'}</button>
+  );
+}
 
 function LogRow({ log }: { log: ParsedLog }) {
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered]   = useState(false);
   const m = LOG_META[log.level];
   const hasFields = Object.keys(log.fields).length > 0;
-  const msgColor = log.level === 'error' ? '#7f1d1d' : log.level === 'warn' ? '#78350f' : log.level === 'debug' ? '#9ca3af' : 'var(--text)';
+  const msgColor = log.level === 'error' ? 'var(--red)' : log.level === 'warn' ? 'var(--amber)' : log.level === 'debug' ? 'var(--subtle)' : 'var(--text)';
 
   return (
     <div
@@ -1462,10 +2564,13 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
             fontSize: 11, fontFamily: 'var(--font-mono)', background: 'transparent',
             color: 'var(--text)', outline: 'none', width: 180,
           }} />
-        <button onClick={() => setLines([])} style={{
-          marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
-          fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)',
-        }}>Clear</button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <CopyLogsBtn lines={visibleLines} />
+          <button onClick={() => setLines([])} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)',
+          }}>Clear</button>
+        </div>
       </div>
 
       {/* Log pane */}
@@ -1702,76 +2807,513 @@ function NotFound({ slug }: { slug: string }) {
   );
 }
 
+// ─── Persona Library Modal ────────────────────────────────────────────────────
+
+const CATEGORY_COLORS: Record<string, string> = {
+  engineering: 'var(--accent)',
+  data: '#9333ea',
+  product: '#16a34a',
+  business: '#d97706',
+  generic: 'var(--muted)',
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  all: 'All',
+  engineering: 'Engineering',
+  data: 'Data',
+  product: 'Product',
+  business: 'Business',
+  generic: 'Generic',
+};
+
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  all: <Library size={14} />,
+  engineering: <Code2 size={14} />,
+  data: <Database size={14} />,
+  product: <Layers size={14} />,
+  business: <Briefcase size={14} />,
+  generic: <Sparkles size={14} />,
+};
+
+function PersonaLibraryModal({
+  agentId,
+  fileInputRef,
+  applying,
+  search,
+  onSearchChange,
+  category,
+  onCategoryChange,
+  selected,
+  onSelectPersona,
+  onBack,
+  skillSel,
+  onToggleSkill,
+  onImportFull,
+  onImportSkills,
+  onClose,
+}: {
+  agentId: string;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  applying: boolean;
+  search: string;
+  onSearchChange: (v: string) => void;
+  category: PersonaCategory | 'all';
+  onCategoryChange: (v: PersonaCategory | 'all') => void;
+  selected: PersonaTemplate | null;
+  onSelectPersona: (p: PersonaTemplate) => void;
+  onBack: () => void;
+  skillSel: Set<string>;
+  onToggleSkill: (filename: string) => void;
+  onImportFull: (t: PersonaTemplate) => Promise<void>;
+  onImportSkills: (t: PersonaTemplate, sel: Set<string>) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [promptExpanded, setPromptExpanded] = useState(false);
+  const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
+  const filteredPersonas = useMemo(() => {
+    let list = search.trim() ? searchPersonas(search) : PERSONA_CATALOG;
+    if (category !== 'all') list = list.filter(p => p.category === category);
+    return list;
+  }, [search, category]);
+
+  return (
+    <Portal>
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '20px',
+      }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }}
+          onClick={onClose} />
+        <div style={{
+          position: 'relative', background: 'var(--bg)', borderRadius: 12,
+          width: '100%', maxWidth: 800, maxHeight: 560,
+          display: 'flex', flexDirection: 'column',
+          border: '1px solid var(--border)',
+          boxShadow: 'rgba(50,50,93,0.25) 0px 30px 60px -12px, rgba(0,0,0,0.3) 0px 18px 36px -18px',
+        }}>
+
+          {/* ── Header ───────────────────────────────────────────────────── */}
+          <div style={{
+            padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+          }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.3px' }}>
+                Persona Library
+              </h2>
+              <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                {PERSONA_CATALOG.length} pre-built personas — click to preview and import
+              </p>
+            </div>
+            <button onClick={onClose} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--muted)', padding: 4, marginTop: -2,
+            }}><X size={18} /></button>
+          </div>
+
+          {/* ── Search bar ───────────────────────────────────────────────── */}
+          <div style={{
+            padding: '12px 24px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+            display: 'flex', gap: 8, alignItems: 'center',
+          }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search size={14} style={{
+                position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+                color: 'var(--muted)', pointerEvents: 'none',
+              }} />
+              <input
+                type="text"
+                placeholder="Search personas..."
+                value={search}
+                onChange={e => onSearchChange(e.target.value)}
+                autoFocus={!selected}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '7px 10px 7px 32px', fontSize: 13,
+                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  borderRadius: 6, color: 'var(--text)', fontFamily: 'var(--font-sans)',
+                  outline: 'none',
+                }}
+              />
+            </div>
+            <button onClick={() => { onClose(); fileInputRef.current?.click(); }} style={{
+              background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+              cursor: 'pointer', color: 'var(--muted)', fontSize: 12,
+              padding: '6px 12px', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+            }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+            >Import JSON</button>
+          </div>
+
+          {/* ── Body: sidebar + main ─────────────────────────────────────── */}
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+            {/* Left sidebar */}
+            <div style={{
+              width: 160, borderRight: '1px solid var(--border)', flexShrink: 0,
+              padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2,
+              overflowY: 'auto',
+            }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: 'var(--subtle)', letterSpacing: '0.08em',
+                textTransform: 'uppercase', padding: '0 10px', marginBottom: 4,
+              }}>Browse</span>
+              {Object.entries(CATEGORY_LABELS).map(([val, label]) => {
+                const isActive = category === val;
+                const count = val === 'all'
+                  ? PERSONA_CATALOG.length
+                  : PERSONA_CATALOG.filter(p => p.category === val).length;
+                const iconColor = isActive
+                  ? (CATEGORY_COLORS[val] ?? 'var(--accent)')
+                  : 'var(--subtle)';
+                return (
+                  <button key={val}
+                    onClick={() => { onCategoryChange(val as PersonaCategory | 'all'); if (selected) onBack(); }}
+                    style={{
+                      position: 'relative',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '7px 10px', borderRadius: 6, border: 'none',
+                      background: isActive ? 'var(--surface-2)' : 'transparent',
+                      color: isActive ? 'var(--text)' : 'var(--muted)',
+                      fontFamily: 'var(--font-sans)', fontSize: 13,
+                      fontWeight: isActive ? 600 : 400,
+                      cursor: 'pointer', textAlign: 'left',
+                      transition: 'background 0.12s, color 0.12s',
+                    }}
+                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }}
+                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                  >
+                    {isActive && (
+                      <span style={{
+                        position: 'absolute', left: 0, top: '20%', bottom: '20%',
+                        width: 3, borderRadius: 2,
+                        background: CATEGORY_COLORS[val] ?? 'var(--accent)',
+                      }} />
+                    )}
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: iconColor }}>
+                      {CATEGORY_ICONS[val]}
+                      <span style={{ color: isActive ? 'var(--text)' : 'var(--muted)' }}>{label}</span>
+                    </span>
+                    <span style={{
+                      fontSize: 11, fontWeight: 500,
+                      color: isActive ? 'var(--accent)' : 'var(--subtle)',
+                    }}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Right: card grid or detail */}
+            {selected ? (
+              // ── Detail view ───────────────────────────────────────────────
+              <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+                <div style={{
+                  padding: '12px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  <button onClick={onBack} style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--muted)', display: 'flex', alignItems: 'center',
+                    gap: 5, fontSize: 13, padding: 0, fontFamily: 'var(--font-sans)',
+                  }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+                  >
+                    <ArrowLeft size={14} /> Back
+                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {selected.skills.length > 0 && (
+                      <button
+                        disabled={applying || skillSel.size === 0}
+                        onClick={() => onImportSkills(selected, skillSel)}
+                        style={{
+                          background: 'transparent', color: 'var(--text)',
+                          border: '1px solid var(--border-2)', borderRadius: 6,
+                          padding: '7px 14px', fontSize: 13, fontWeight: 500,
+                          cursor: (applying || skillSel.size === 0) ? 'not-allowed' : 'pointer',
+                          fontFamily: 'var(--font-sans)',
+                          opacity: (applying || skillSel.size === 0) ? 0.4 : 1,
+                        }}
+                        onMouseEnter={e => { if (!applying && skillSel.size > 0) (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
+                      >
+                        Add {skillSel.size} skill{skillSel.size !== 1 ? 's' : ''}
+                      </button>
+                    )}
+                    <button
+                      disabled={applying}
+                      onClick={() => onImportFull(selected)}
+                      style={{
+                        background: 'var(--accent)', color: 'var(--accent-fg)',
+                        border: 'none', borderRadius: 6, padding: '7px 16px',
+                        fontSize: 13, fontWeight: 600,
+                        cursor: applying ? 'not-allowed' : 'pointer',
+                        fontFamily: 'var(--font-sans)', opacity: applying ? 0.7 : 1,
+                        transition: 'opacity 0.15s',
+                      }}
+                      onMouseEnter={e => { if (!applying) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+                    >
+                      {applying ? 'Importing…' : 'Import persona'}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ padding: '16px 20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                      {selected.name}
+                    </h3>
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
+                      {selected.cardDescription}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+                      textTransform: 'uppercase', padding: '2px 7px', borderRadius: 4,
+                      background: `${CATEGORY_COLORS[selected.category]}1a`,
+                      color: CATEGORY_COLORS[selected.category] ?? 'var(--muted)',
+                    }}>{selected.category}</span>
+                    {selected.tags.map(tag => (
+                      <span key={tag} style={{
+                        fontSize: 11, padding: '2px 7px', borderRadius: 4,
+                        background: 'var(--surface-2)', color: 'var(--muted)',
+                        border: '1px solid var(--border)',
+                      }}>{tag}</span>
+                    ))}
+                  </div>
+                  {/* System prompt preview */}
+                  {selected.claudeMd && (
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
+                      <button onClick={() => setPromptExpanded(v => !v)} style={{
+                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '8px 12px', background: 'var(--surface-2)', border: 'none',
+                        cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                      }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>
+                          System Prompt
+                        </span>
+                        <ChevronDown size={13} style={{
+                          color: 'var(--muted)',
+                          transform: promptExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.15s',
+                        }} />
+                      </button>
+                      {promptExpanded && (
+                        <pre style={{
+                          margin: 0, padding: '10px 12px', fontSize: 11.5,
+                          fontFamily: 'var(--font-mono)', color: 'var(--muted)',
+                          whiteSpace: 'pre-wrap', lineHeight: 1.5, maxHeight: 200,
+                          overflow: 'auto', background: 'var(--bg)',
+                        }}>
+                          {selected.claudeMd.trim()}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+
+                  {selected.skills.length > 0 && (
+                    <div>
+                      <p style={{
+                        margin: '0 0 8px', fontSize: 11, fontWeight: 600,
+                        textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)',
+                      }}>Skills · select to cherry-pick</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {selected.skills.map(skill => {
+                          const isExpanded = expandedSkill === skill.filename;
+                          return (
+                            <div key={skill.filename} style={{
+                              borderRadius: 6, border: '1px solid',
+                              borderColor: skillSel.has(skill.filename) ? 'var(--border-2)' : 'var(--border)',
+                              background: skillSel.has(skill.filename) ? 'var(--surface-2)' : 'transparent',
+                              overflow: 'hidden', transition: 'all 0.1s',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px' }}>
+                                <input type="checkbox"
+                                  checked={skillSel.has(skill.filename)}
+                                  onChange={() => onToggleSkill(skill.filename)}
+                                  style={{ accentColor: 'var(--accent)', width: 13, height: 13, cursor: 'pointer', flexShrink: 0 }}
+                                />
+                                <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{skill.category}/</span>
+                                <span style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono)', flex: 1 }}>{skill.filename}</span>
+                                <button
+                                  onClick={() => setExpandedSkill(isExpanded ? null : skill.filename)}
+                                  style={{
+                                    background: 'none', border: 'none', cursor: 'pointer',
+                                    color: isExpanded ? 'var(--text)' : 'var(--muted)',
+                                    display: 'flex', alignItems: 'center', padding: '2px 4px',
+                                    flexShrink: 0,
+                                  }}
+                                  title={isExpanded ? 'Hide content' : 'Preview content'}
+                                >
+                                  <ChevronDown size={12} style={{
+                                    transform: isExpanded ? 'rotate(180deg)' : 'none',
+                                    transition: 'transform 0.15s',
+                                  }} />
+                                </button>
+                              </div>
+                              {isExpanded && (
+                                <pre style={{
+                                  margin: 0, padding: '8px 12px 10px',
+                                  fontSize: 11, fontFamily: 'var(--font-mono)',
+                                  color: 'var(--muted)', whiteSpace: 'pre-wrap',
+                                  lineHeight: 1.5, maxHeight: 200, overflow: 'auto',
+                                  borderTop: '1px solid var(--border)',
+                                  background: 'var(--bg)',
+                                }}>
+                                  {skill.content}
+                                </pre>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>
+                    "Import persona" replaces your current system prompt, description, and all existing skills.
+                  </p>
+                  <button onClick={() => { onClose(); fileInputRef.current?.click(); }} style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--muted)', fontSize: 12, padding: 0, alignSelf: 'flex-start',
+                    fontFamily: 'var(--font-sans)', textDecoration: 'underline', textUnderlineOffset: 3,
+                  }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+                  >Import from JSON file instead</button>
+                </div>
+              </div>
+            ) : (
+              // ── Card grid ─────────────────────────────────────────────────
+              <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px 20px' }}>
+                {filteredPersonas.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: 13 }}>
+                    No personas match your search.
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                    gap: 10,
+                  }}>
+                    {filteredPersonas.map(p => (
+                      <button key={p.id} onClick={() => onSelectPersona(p)}
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                          gap: 7, padding: '12px 12px',
+                          background: 'var(--surface)', border: '1px solid var(--border)',
+                          borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                          fontFamily: 'var(--font-sans)', minWidth: 0,
+                          boxShadow: 'rgba(50,50,93,0.06) 0px 2px 5px -1px, rgba(0,0,0,0.04) 0px 1px 3px -1px',
+                          transition: 'border-color 0.15s, box-shadow 0.15s',
+                        }}
+                        onMouseEnter={e => {
+                          const el = e.currentTarget as HTMLElement;
+                          el.style.borderColor = 'var(--accent)';
+                          el.style.boxShadow = 'rgba(50,50,93,0.2) 0px 6px 12px -2px, rgba(0,0,0,0.08) 0px 3px 7px -3px';
+                        }}
+                        onMouseLeave={e => {
+                          const el = e.currentTarget as HTMLElement;
+                          el.style.borderColor = 'var(--border)';
+                          el.style.boxShadow = 'rgba(50,50,93,0.06) 0px 2px 5px -1px, rgba(0,0,0,0.04) 0px 1px 3px -1px';
+                        }}
+                      >
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, letterSpacing: '0.07em',
+                          textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4,
+                          background: `${CATEGORY_COLORS[p.category]}1a`,
+                          color: CATEGORY_COLORS[p.category] ?? 'var(--muted)',
+                          flexShrink: 0,
+                        }}>{p.category}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2 }}>
+                          {p.name}
+                        </span>
+                        <p style={{
+                          margin: 0, fontSize: 11, color: 'var(--muted)', lineHeight: 1.4,
+                          display: '-webkit-box', WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
+                        }}>{p.cardDescription}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 4, minWidth: 0 }}>
+                          <span style={{
+                            fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                            background: 'var(--surface-2)', color: 'var(--muted)',
+                            border: '1px solid var(--border)',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            minWidth: 0, flexShrink: 1,
+                          }}>{p.tags[0]}</span>
+                          {p.skills.length > 0 && (
+                            <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                              {p.skills.length} skills
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </Portal>
+  );
+}
+
 // ─── History ──────────────────────────────────────────────────────────────────
 
 // ── Diff panel ───────────────────────────────────────────────────────────────
 
-function SkillDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: AgentSnapshot | null }) {
-  const snapSkills = snapshot.skillsJson;
-  const currSkills = current ? current.skillsJson : null;
+/**
+ * Build the file-diff entries for a **restore preview**: "if I restore this
+ * snapshot on top of the current state, what will change?"
+ *
+ * That means current is the OLD side (what you have now) and the snapshot is
+ * the NEW side (what you'd get). So:
+ *   - present in snapshot, missing in current → `added` (will be added by restore)
+ *   - present in current, missing in snapshot → `removed` (will be removed by restore)
+ *   - different                               → `modified` (will change)
+ *
+ * CLAUDE.md comes first, then every differing skill alphabetically.
+ */
+function buildDiffFiles(snapshot: AgentSnapshot, current: AgentSnapshot): FileChange[] {
+  const files: FileChange[] = [];
 
-  // Build lookup maps
-  const snapMap = new Map(snapSkills.map(s => [`${s.category}/${s.filename}`, s.content]));
-  const currMap = currSkills ? new Map(currSkills.map(s => [`${s.category}/${s.filename}`, s.content])) : new Map<string, string>();
+  // CLAUDE.md. Skip unless both sides captured content — old snapshots
+  // without `compiledMd` would otherwise render as a misleading all-green
+  // "will be removed" diff.
+  const currMd = current.compiledMd?.trim() ?? '';
+  const snapMd = snapshot.compiledMd?.trim() ?? '';
+  if (currMd && snapMd && currMd !== snapMd) {
+    files.push({ path: 'CLAUDE.md', status: 'modified', oldText: currMd, newText: snapMd });
+  }
 
-  const allKeys = new Set([...snapMap.keys(), ...currMap.keys()]);
-  const files: { key: string; status: 'added' | 'removed' | 'modified' | 'same'; diff?: DiffLine[] }[] = [];
-
-  for (const key of allKeys) {
-    const snapContent = snapMap.get(key);
-    const currContent = currMap.get(key);
-    if (snapContent === undefined) {
-      files.push({ key, status: 'added' });
-    } else if (currContent === undefined) {
-      files.push({ key, status: 'removed' });
-    } else if (snapContent !== currContent) {
-      files.push({ key, status: 'modified', diff: lineDiff(snapContent, currContent) });
+  const snapMap = new Map(snapshot.skillsJson.map(s => [`${s.category}/${s.filename}`, s.content]));
+  const currMap = new Map(current.skillsJson.map(s => [`${s.category}/${s.filename}`, s.content]));
+  const keys = new Set([...snapMap.keys(), ...currMap.keys()]);
+  for (const key of Array.from(keys).sort()) {
+    const inSnap = snapMap.get(key);
+    const inCurr = currMap.get(key);
+    if (inCurr === undefined && inSnap !== undefined) {
+      // Restore would add this file back.
+      files.push({ path: key, status: 'added', oldText: '', newText: inSnap });
+    } else if (inSnap === undefined && inCurr !== undefined) {
+      // Restore would delete this file from current.
+      files.push({ path: key, status: 'removed', oldText: inCurr, newText: '' });
+    } else if (inSnap !== inCurr && inSnap !== undefined && inCurr !== undefined) {
+      files.push({ path: key, status: 'modified', oldText: inCurr, newText: inSnap });
     }
   }
 
-  if (files.length === 0) {
-    return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No skill changes.</p>;
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {files.map(f => (
-        <div key={f.key} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{
-            padding: '7px 12px', background: 'var(--surface-2)',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{f.key}</span>
-            <span style={{
-              fontSize: 10, padding: '1px 6px', borderRadius: 4, fontWeight: 600,
-              background: f.status === 'added' ? 'rgba(22,163,74,0.15)' : f.status === 'removed' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)',
-              color: f.status === 'added' ? '#16a34a' : f.status === 'removed' ? '#ef4444' : '#ca8a04',
-            }}>{f.status}</span>
-          </div>
-          {f.diff && (
-            <pre style={{
-              margin: 0, padding: '10px 0', fontSize: 11.5, fontFamily: 'var(--font-mono)',
-              lineHeight: 1.6, overflow: 'auto', maxHeight: 320,
-            }}>
-              {f.diff.map((line, i) => (
-                <div key={i} style={{
-                  padding: '0 12px',
-                  background: line.type === 'add' ? 'rgba(22,163,74,0.1)' : line.type === 'remove' ? 'rgba(239,68,68,0.1)' : 'transparent',
-                  color: line.type === 'add' ? '#16a34a' : line.type === 'remove' ? '#ef4444' : 'var(--muted)',
-                }}>
-                  {line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  '}{line.line}
-                </div>
-              ))}
-            </pre>
-          )}
-          {f.status === 'added' && <p style={{ margin: '8px 12px', fontSize: 12, color: '#16a34a' }}>File added since this snapshot.</p>}
-          {f.status === 'removed' && <p style={{ margin: '8px 12px', fontSize: 12, color: '#ef4444' }}>File deleted since this snapshot.</p>}
-        </div>
-      ))}
-    </div>
-  );
+  return files;
 }
+
+// Each of these diffs is framed as **restore preview**:
+//   will-add  = in snapshot, not in current  (restore grants / reconnects / re-restricts to)
+//   will-drop = in current, not in snapshot  (restore revokes / disconnects / un-restricts)
 
 function PermsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: AgentSnapshot | null }) {
   const currAllowed = new Set(current ? current.allowedTools : []);
@@ -1779,12 +3321,12 @@ function PermsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: Ag
   const snapAllowed = new Set(snapshot.allowedTools);
   const snapDenied  = new Set(snapshot.deniedTools);
 
-  const addedAllowed   = [...currAllowed].filter(t => !snapAllowed.has(t));
-  const removedAllowed = [...snapAllowed].filter(t => !currAllowed.has(t));
-  const addedDenied    = [...currDenied].filter(t => !snapDenied.has(t));
-  const removedDenied  = [...snapDenied].filter(t => !currDenied.has(t));
+  const willAddAllowed  = [...snapAllowed].filter(t => !currAllowed.has(t));
+  const willDropAllowed = [...currAllowed].filter(t => !snapAllowed.has(t));
+  const willAddDenied   = [...snapDenied].filter(t => !currDenied.has(t));
+  const willDropDenied  = [...currDenied].filter(t => !snapDenied.has(t));
 
-  if (!addedAllowed.length && !removedAllowed.length && !addedDenied.length && !removedDenied.length) {
+  if (!willAddAllowed.length && !willDropAllowed.length && !willAddDenied.length && !willDropDenied.length) {
     return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No permission changes.</p>;
   }
   const row = (label: string, items: string[], color: string) => items.length > 0 && (
@@ -1799,10 +3341,10 @@ function PermsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: Ag
   );
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {row('Allowed tools added', addedAllowed, '#16a34a')}
-      {row('Allowed tools removed', removedAllowed, '#ef4444')}
-      {row('Denied tools added', addedDenied, '#ef4444')}
-      {row('Denied tools removed', removedDenied, '#16a34a')}
+      {row('Tools that will be allowed',      willAddAllowed,  'var(--green)')}
+      {row('Tools that will no longer be allowed', willDropAllowed, 'var(--red)')}
+      {row('Tools that will be denied',       willAddDenied,   'var(--red)')}
+      {row('Tools that will no longer be denied',  willDropDenied,  'var(--green)')}
     </div>
   );
 }
@@ -1811,18 +3353,18 @@ function McpsDiff({ snapshot, current, allMcps }: { snapshot: AgentSnapshot; cur
   const nameFor = (id: string) => allMcps.find(m => m.id === id)?.name ?? id;
   const currIds = new Set(current ? current.mcpIds : []);
   const snapIds = new Set(snapshot.mcpIds);
-  const added   = [...currIds].filter(id => !snapIds.has(id));
-  const removed = [...snapIds].filter(id => !currIds.has(id));
-  if (!added.length && !removed.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No MCP changes.</p>;
+  const willConnect    = [...snapIds].filter(id => !currIds.has(id));
+  const willDisconnect = [...currIds].filter(id => !snapIds.has(id));
+  if (!willConnect.length && !willDisconnect.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No MCP changes.</p>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {added.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>Added</div>
-        {added.map(id => <div key={id} style={{ fontSize: 12.5, color: '#16a34a' }}>+ {nameFor(id)}</div>)}
+      {willConnect.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', marginBottom: 4 }}>Will be connected</div>
+        {willConnect.map(id => <div key={id} style={{ fontSize: 12.5, color: 'var(--green)' }}>+ {nameFor(id)}</div>)}
       </div>}
-      {removed.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginBottom: 4 }}>Removed</div>
-        {removed.map(id => <div key={id} style={{ fontSize: 12.5, color: '#ef4444' }}>- {nameFor(id)}</div>)}
+      {willDisconnect.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', marginBottom: 4 }}>Will be disconnected</div>
+        {willDisconnect.map(id => <div key={id} style={{ fontSize: 12.5, color: 'var(--red)' }}>− {nameFor(id)}</div>)}
       </div>}
     </div>
   );
@@ -1831,24 +3373,24 @@ function McpsDiff({ snapshot, current, allMcps }: { snapshot: AgentSnapshot; cur
 function ChannelsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: AgentSnapshot | null }) {
   const currChannels = new Set(current?.allowedChannels ?? []);
   const snapChannels = new Set(snapshot.allowedChannels ?? []);
-  const added   = [...currChannels].filter(ch => !snapChannels.has(ch));
-  const removed = [...snapChannels].filter(ch => !currChannels.has(ch));
-  if (!added.length && !removed.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No channel restriction changes.</p>;
+  const willAdd  = [...snapChannels].filter(ch => !currChannels.has(ch));
+  const willDrop = [...currChannels].filter(ch => !snapChannels.has(ch));
+  if (!willAdd.length && !willDrop.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No channel restriction changes.</p>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {added.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', marginBottom: 4 }}>Channels added</div>
+      {willAdd.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', marginBottom: 4 }}>Channels that will be restored</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {added.map(ch => (
-            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: '#16a34a22', color: '#16a34a' }}>{ch}</span>
+          {willAdd.map(ch => (
+            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: 'rgba(16,185,129,0.12)', color: 'var(--green)' }}>{ch}</span>
           ))}
         </div>
       </div>}
-      {removed.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginBottom: 4 }}>Channels removed</div>
+      {willDrop.length > 0 && <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', marginBottom: 4 }}>Channels that will be dropped</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {removed.map(ch => (
-            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: '#ef444422', color: '#ef4444' }}>{ch}</span>
+          {willDrop.map(ch => (
+            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: 'var(--red-soft-bg)', color: 'var(--red)' }}>{ch}</span>
           ))}
         </div>
       </div>}
@@ -1869,7 +3411,7 @@ const TRIGGER_COLORS: Record<string, { bg: string; color: string }> = {
 function TriggerBadge({ trigger }: { trigger: string }) {
   const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--surface-2)', color: 'var(--muted)' };
   const label: Record<string, string> = {
-    skills: 'Skills', permissions: 'Tools', mcps: 'MCPs',
+    skills: 'Skills', permissions: 'Capabilities', mcps: 'Connected Apps',
     'claude-md': 'System Prompt', manual: 'Manual', restrictions: 'Channels',
   };
   return (
@@ -1887,9 +3429,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   const [loading, setLoading]     = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fullSnapshot, setFullSnapshot] = useState<AgentSnapshot | null>(null);
-  const [compareId, setCompareId] = useState<string>('__current__');
-  const [compareSnapshot, setCompareSnapshot] = useState<AgentSnapshot | null>(null);
-  // Live current state — fetched once and used as the "Current state" comparison target
+  // Live current state — the restore-preview target. Always the compare side.
   const [liveSnapshot, setLiveSnapshot] = useState<AgentSnapshot | null>(null);
   const [allMcps, setAllMcps]     = useState<McpServer[]>([]);
   const [restoring, setRestoring] = useState(false);
@@ -1908,9 +3448,9 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
     });
   }, [agentId]);
 
-  // Lazy-load live state only when user picks "Compare with current"
+  // Lazy-load live state once — it's the fixed compare target for every snapshot.
   useEffect(() => {
-    if (compareId !== '__current__' || liveSnapshot) return;
+    if (liveSnapshot) return;
     Promise.all([
       fetch(`/api/agents/${agentId}/skills`).then(r => r.json()),
       fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()),
@@ -1936,7 +3476,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
         createdAt: new Date(),
       });
     });
-  }, [agentId, compareId, liveSnapshot]);
+  }, [agentId, liveSnapshot]);
 
   // Load full snapshot when selected
   useEffect(() => {
@@ -1948,14 +3488,6 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
       .then(snap => { setFullSnapshot(snap); setLoadingDetail(false); })
       .catch(() => setLoadingDetail(false));
   }, [agentId, selectedId]);
-
-  // Load compare snapshot when compareId changes
-  useEffect(() => {
-    if (compareId === '__current__') { setCompareSnapshot(null); return; }
-    fetch(`/api/agents/${agentId}/snapshots/${compareId}`)
-      .then(r => r.json())
-      .then(setCompareSnapshot);
-  }, [agentId, compareId]);
 
   const handleCreateManual = async () => {
     const label = window.prompt('Snapshot label (optional):') ?? '';
@@ -1996,8 +3528,8 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
     return `${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // Build comparison target: live state or a selected historical snapshot
-  const currentAsSnapshot: AgentSnapshot | null = compareId === '__current__' ? liveSnapshot : compareSnapshot;
+  // Compare target is always live current state — restore preview is current-only.
+  const currentAsSnapshot: AgentSnapshot | null = liveSnapshot;
 
   if (loading) return (
     <div style={{ display: 'flex', gap: 20, minHeight: 500 }}>
@@ -2066,7 +3598,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             boxShadow: 'var(--shadow-card)', padding: '28px 20px',
             textAlign: 'center',
           }}>
-            <Camera size={22} style={{ marginBottom: 10, color: 'var(--border-2)' }} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Camera size={22} style={{ color: 'var(--border-2)' }} /></div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No snapshots yet</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
               Snapshots are saved automatically when you change skills, MCPs, or permissions.
@@ -2079,7 +3611,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
               return (
                 <div
                   key={snap.id}
-                  onClick={() => { setSelectedId(isSelected ? null : snap.id); setCompareId('__current__'); setCompareSnapshot(null); }}
+                  onClick={() => { setSelectedId(isSelected ? null : snap.id); }}
                   style={{
                     background: 'var(--surface)',
                     borderRadius: 'var(--radius)',
@@ -2109,24 +3641,13 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
                     }}>{snap.label}</div>
                   )}
 
-                  {/* Actions — only when selected */}
+                  {/* Actions — only when selected. Restore moves to the diff pane header; sidebar keeps Delete only. */}
                   {isSelected && canEdit && (
                     <div style={{ display: 'flex', gap: 7, marginTop: 11, paddingTop: 11, borderTop: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
                       <button
-                        onClick={() => handleRestore(snap)}
-                        disabled={restoring}
-                        style={{
-                          flex: 1, fontSize: 12, padding: '6px 0', borderRadius: 6, cursor: restoring ? 'not-allowed' : 'pointer',
-                          background: 'var(--green)', color: 'var(--accent-fg)', border: 'none',
-                          fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
-                        }}
-                        onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
-                        onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-                      >{restoring ? 'Restoring…' : 'Restore'}</button>
-                      <button
                         onClick={() => handleDelete(snap.id)}
                         style={{
-                          fontSize: 12, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                          flex: 1, fontSize: 12, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
                           background: 'transparent', color: 'var(--red)',
                           border: '1.5px solid rgba(220,38,38,0.25)',
                           fontFamily: 'var(--font-sans)', fontWeight: 500, transition: 'all 0.15s',
@@ -2166,31 +3687,53 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
       ) : fullSnapshot ? (
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* Compare bar */}
+          {/* Restore preview header — the diff below shows what restoring this
+              snapshot would do to the current state. Green = will be added,
+              red = will be removed. Primary action lives here (not in sidebar). */}
           <div style={{
             background: 'var(--surface)', borderRadius: 'var(--radius)',
             boxShadow: 'var(--shadow-card)', padding: '14px 18px',
-            display: 'flex', alignItems: 'center', gap: 12,
+            display: 'flex', flexDirection: 'column', gap: 10,
           }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
-              Compare with
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{
+                fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
+                color: 'var(--muted)', textTransform: 'uppercase',
+              }}>Restore preview</span>
+              <span style={{
+                fontSize: 12.5, padding: '5px 10px', borderRadius: 6,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+                color: 'var(--text)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
+              }}>
+                {fmt(fullSnapshot.createdAt)}
+              </span>
+              <TriggerBadge trigger={fullSnapshot.trigger} />
+              {fullSnapshot.label && (
+                <span style={{
+                  fontSize: 12, color: 'var(--muted)', fontStyle: 'italic',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{fullSnapshot.label}</span>
+              )}
+              {canEdit && (
+                <button
+                  onClick={() => handleRestore(fullSnapshot)}
+                  disabled={restoring}
+                  style={{
+                    marginLeft: 'auto', fontSize: 12.5, padding: '7px 16px', borderRadius: 8,
+                    cursor: restoring ? 'not-allowed' : 'pointer',
+                    background: 'var(--green)', color: 'var(--accent-fg)', border: 'none',
+                    fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                >{restoring ? 'Restoring…' : 'Restore'}</button>
+              )}
+            </div>
+            <span style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.5 }}>
+              If you restore this snapshot, the changes below will apply to your current state.{' '}
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>Green</span> = will be added to current.{' '}
+              <span style={{ color: 'var(--red)', fontWeight: 600 }}>Red</span> = will be removed from current.
             </span>
-            <select
-              value={compareId}
-              onChange={e => setCompareId(e.target.value)}
-              style={{
-                flex: 1, fontSize: 13, padding: '7px 12px', borderRadius: 8,
-                border: '1.5px solid var(--border)', background: 'var(--surface-2)',
-                color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none', cursor: 'pointer',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-            >
-              <option value="__current__">Current state</option>
-              {snapshots.filter(s => s.id !== selectedId).map(s => (
-                <option key={s.id} value={s.id}>{fmt(s.createdAt)} — {s.trigger}{s.label ? ` · ${s.label}` : ''}</option>
-              ))}
-            </select>
           </div>
 
           {/* Diff sections — wait for compare target to load */}
@@ -2201,50 +3744,73 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             }}>
               Loading comparison…
             </div>
-          ) : [
-            { title: 'Skills',       content: <SkillDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
-            { title: 'Tools',        content: <PermsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
-            { title: 'MCPs',         content: <McpsDiff snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} /> },
-            { title: 'Channels',     content: <ChannelsDiff snapshot={fullSnapshot} current={currentAsSnapshot} /> },
-            { title: 'System Prompt', content: (() => {
-                if (!fullSnapshot.compiledMd || !currentAsSnapshot.compiledMd)
-                  return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>Not available for this snapshot</p>;
-                const diff = lineDiff(fullSnapshot.compiledMd.trim(), currentAsSnapshot.compiledMd.trim());
-                const changed = diff.some(l => l.type !== 'same');
-                if (!changed) return <p style={{ fontSize: 12.5, color: 'var(--subtle)', margin: 0 }}>No changes</p>;
-                return (
-                  <pre style={{
-                    margin: 0, padding: '14px 16px', borderRadius: 8, fontSize: 12,
-                    fontFamily: 'var(--font-mono)', background: 'var(--surface-2)',
-                    border: '1px solid var(--border)', overflow: 'auto', maxHeight: 380,
-                    color: 'var(--text)', lineHeight: 1.7,
+          ) : (() => {
+            // Restore-preview frame: current is the OLD side, snapshot is the NEW side.
+            // Green = snapshot has, current doesn't = will be added on restore.
+            // Red   = current has, snapshot doesn't = will be removed on restore.
+            const files = buildDiffFiles(fullSnapshot, currentAsSnapshot);
+
+            // Cheap pre-checks so we can hide the "Other changes" card entirely
+            // when nothing on that axis has moved. Mirrors the "no changes"
+            // early-returns in PermsDiff / McpsDiff / ChannelsDiff below.
+            const currAllowed = new Set(currentAsSnapshot.allowedTools);
+            const currDenied  = new Set(currentAsSnapshot.deniedTools);
+            const snapAllowed = new Set(fullSnapshot.allowedTools);
+            const snapDenied  = new Set(fullSnapshot.deniedTools);
+            const hasPermChanges =
+              [...currAllowed].some(t => !snapAllowed.has(t)) ||
+              [...snapAllowed].some(t => !currAllowed.has(t)) ||
+              [...currDenied].some(t => !snapDenied.has(t)) ||
+              [...snapDenied].some(t => !currDenied.has(t));
+
+            const currMcps = new Set(currentAsSnapshot.mcpIds);
+            const snapMcps = new Set(fullSnapshot.mcpIds);
+            const hasMcpChanges =
+              [...currMcps].some(id => !snapMcps.has(id)) ||
+              [...snapMcps].some(id => !currMcps.has(id));
+
+            const currChs = new Set(currentAsSnapshot.allowedChannels ?? []);
+            const snapChs = new Set(fullSnapshot.allowedChannels ?? []);
+            const hasChannelChanges =
+              [...currChs].some(ch => !snapChs.has(ch)) ||
+              [...snapChs].some(ch => !currChs.has(ch));
+
+            const hasOther = hasPermChanges || hasMcpChanges || hasChannelChanges;
+
+            if (files.length === 0 && !hasOther) {
+              return (
+                <div style={{
+                  background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
+                  padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
+                }}>
+                  No differences
+                </div>
+              );
+            }
+
+            return (
+              <>
+                {files.length > 0 && <FilesChanged files={files} />}
+                {hasOther && (
+                  <div style={{
+                    background: 'var(--surface)', borderRadius: 'var(--radius)',
+                    boxShadow: 'var(--shadow-card)', overflow: 'hidden',
                   }}>
-                    {diff.map((l, i) => (
-                      <div key={i} style={{
-                        background: l.type === 'add' ? 'rgba(34,197,94,0.12)' : l.type === 'remove' ? 'rgba(239,68,68,0.10)' : 'transparent',
-                        color: l.type === 'add' ? '#16a34a' : l.type === 'remove' ? '#dc2626' : 'inherit',
-                        padding: '1px 6px', borderRadius: 3, marginBottom: 1,
-                      }}>
-                        {l.type === 'add' ? '+ ' : l.type === 'remove' ? '- ' : '  '}{l.line}
-                      </div>
-                    ))}
-                  </pre>
-                );
-              })(),
-            },
-          ].map(({ title, content }) => (
-            <div key={title} style={{
-              background: 'var(--surface)', borderRadius: 'var(--radius)',
-              boxShadow: 'var(--shadow-card)', overflow: 'hidden',
-            }}>
-              <div style={{
-                padding: '12px 18px', borderBottom: '1px solid var(--border)',
-                fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-                color: 'var(--muted)', textTransform: 'uppercase',
-              }}>{title}</div>
-              <div style={{ padding: '16px 18px' }}>{content}</div>
-            </div>
-          ))}
+                    <div style={{
+                      padding: '12px 18px', borderBottom: '1px solid var(--border)',
+                      fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+                      color: 'var(--muted)', textTransform: 'uppercase',
+                    }}>Other changes</div>
+                    <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {hasPermChanges    && <PermsDiff    snapshot={fullSnapshot} current={currentAsSnapshot} />}
+                      {hasMcpChanges     && <McpsDiff     snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} />}
+                      {hasChannelChanges && <ChannelsDiff snapshot={fullSnapshot} current={currentAsSnapshot} />}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       ) : (
         <div style={{

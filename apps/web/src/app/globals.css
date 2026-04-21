@@ -95,6 +95,16 @@ body {
 
 ::selection { background: rgba(23,23,23,0.12); }
 [data-theme="dark"] ::selection { background: rgba(255,255,255,0.15); }
+/* User chat bubbles sit on an accent background, so the generic selection
+   style washes them out. Invert the overlay per theme so the text + bg
+   stay contrasted when the user highlights to copy.
+   - Light mode: near-black bubble + white text → light overlay keeps white legible.
+   - Dark mode:  near-white bubble + dark text  → dark overlay keeps dark legible. */
+.user-bubble::selection,
+.user-bubble *::selection { background: rgba(255,255,255,0.35); color: #ffffff; }
+[data-theme="dark"] .user-bubble::selection,
+[data-theme="dark"] .user-bubble *::selection { background: rgba(0,0,0,0.35); color: #0a0a0a; }
+[data-theme="dark"] .icon-adaptive { filter: invert(1); }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
@@ -107,6 +117,9 @@ body {
   100% { box-shadow: 0 0 0 0 rgba(5,150,105,0); }
 }
 .status-running { animation: pulse-ring 2s ease-in-out infinite; }
+
+/* ─── Spin ──────────────────────────────────────────────────────────────────── */
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 /* ─── Entrance ───────────────────────────────────────────────────────────────── */
 @keyframes fade-up {

@@ -160,7 +160,7 @@ export default function JobsPage() {
           textAlign: 'center', padding: '60px 20px',
           border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)',
         }}>
-          <CalendarClock size={32} style={{ marginBottom: 12, color: 'var(--border-2)' }} />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><CalendarClock size={32} style={{ color: 'var(--border-2)' }} /></div>
           <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>No scheduled jobs</p>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', maxWidth: 300, marginInline: 'auto' }}>
             {canEdit ? 'Create a recurring task for the boss agent to execute on a schedule.' : 'No jobs have been configured yet.'}

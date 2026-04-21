@@ -2,7 +2,8 @@
  * @fileoverview Unit tests for skill-templates.ts — SKILL_TEMPLATES.
  *
  * Verifies each template generates the correct skill files with expected
- * content, structure, and agent name/persona interpolation.
+ * content, structure, and sort ordering. Identity is NOT a skill — it lives
+ * on the agent row — so no template should seed `identity.md`.
  *
  * No database or network required.
  *
@@ -32,6 +33,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     isBoss: false,
     reportsTo: [],
     claudeMd: '',
+    verbose: true,
     createdBy: 'system',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -42,7 +44,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
 // ─── Common assertions ────────────────────────────────────────────────────────
 
 function expectValidSkills(skills: ReturnType<typeof SKILL_TEMPLATES['blank']>) {
-  expect(skills.length).toBeGreaterThan(0);
   for (const skill of skills) {
     expect(skill.category).toBeTruthy();
     expect(skill.filename).toMatch(/\.md$/);
@@ -59,58 +60,16 @@ function expectUniqueSortOrders(skills: ReturnType<typeof SKILL_TEMPLATES['blank
 // ─── blank template ───────────────────────────────────────────────────────────
 
 describe('SKILL_TEMPLATES.blank', () => {
-  it('returns exactly one skill file', () => {
-    const skills = SKILL_TEMPLATES.blank(makeAgent());
-    expect(skills).toHaveLength(1);
-  });
-
-  it('interpolates agent name into the skill heading', () => {
-    const skills = SKILL_TEMPLATES.blank(makeAgent({ name: 'MyBot' }));
-    expect(skills[0].content).toContain('# MyBot');
-  });
-
-  it('uses agent persona when provided', () => {
-    const skills = SKILL_TEMPLATES.blank(makeAgent({ persona: 'A grumpy assistant.' }));
-    expect(skills[0].content).toContain('A grumpy assistant.');
-  });
-
-  it('generates default persona when persona is undefined', () => {
-    const skills = SKILL_TEMPLATES.blank(makeAgent({ name: 'MyBot', persona: undefined }));
-    expect(skills[0].content).toContain('You are MyBot');
-  });
-
-  it('includes description when provided', () => {
-    const skills = SKILL_TEMPLATES.blank(makeAgent({ description: 'Handles billing queries.' }));
-    expect(skills[0].content).toContain('Handles billing queries.');
-  });
-
-  it('omits description section when description is undefined', () => {
-    const skills = SKILL_TEMPLATES.blank(makeAgent({ description: undefined }));
-    expect(skills[0].content).not.toContain('## What you do');
-  });
-
-  it('produces a valid skill structure', () => {
-    expectValidSkills(SKILL_TEMPLATES.blank(makeAgent()));
+  it('returns no starter skills (identity lives on the agent row)', () => {
+    expect(SKILL_TEMPLATES.blank(makeAgent())).toHaveLength(0);
   });
 });
 
 // ─── data-analyst template ────────────────────────────────────────────────────
 
 describe('SKILL_TEMPLATES.data-analyst', () => {
-  it('returns 3 skill files', () => {
-    expect(SKILL_TEMPLATES['data-analyst'](makeAgent())).toHaveLength(3);
-  });
-
-  it('interpolates agent name in identity skill', () => {
-    const skills = SKILL_TEMPLATES['data-analyst'](makeAgent({ name: 'DataBot' }));
-    const identity = skills.find(s => s.filename === 'identity.md')!;
-    expect(identity.content).toContain('# DataBot');
-  });
-
-  it('uses agent persona when provided', () => {
-    const skills = SKILL_TEMPLATES['data-analyst'](makeAgent({ persona: 'Expert SQL analyst.' }));
-    const identity = skills.find(s => s.filename === 'identity.md')!;
-    expect(identity.content).toContain('Expert SQL analyst.');
+  it('returns 2 skill files', () => {
+    expect(SKILL_TEMPLATES['data-analyst'](makeAgent())).toHaveLength(2);
   });
 
   it('includes workflow.md with query execution steps', () => {
@@ -144,14 +103,8 @@ describe('SKILL_TEMPLATES.data-analyst', () => {
 // ─── writer template ──────────────────────────────────────────────────────────
 
 describe('SKILL_TEMPLATES.writer', () => {
-  it('returns 2 skill files', () => {
-    expect(SKILL_TEMPLATES.writer(makeAgent())).toHaveLength(2);
-  });
-
-  it('interpolates agent name in identity skill', () => {
-    const skills = SKILL_TEMPLATES.writer(makeAgent({ name: 'WriterBot' }));
-    const identity = skills.find(s => s.filename === 'identity.md')!;
-    expect(identity.content).toContain('# WriterBot');
+  it('returns 1 skill file', () => {
+    expect(SKILL_TEMPLATES.writer(makeAgent())).toHaveLength(1);
   });
 
   it('includes style-guide.md with writing guidelines', () => {
@@ -159,10 +112,6 @@ describe('SKILL_TEMPLATES.writer', () => {
     const guide = skills.find(s => s.filename === 'style-guide.md')!;
     expect(guide).toBeDefined();
     expect(guide.content).toContain('Active voice');
-  });
-
-  it('has unique sort orders', () => {
-    expectUniqueSortOrders(SKILL_TEMPLATES.writer(makeAgent()));
   });
 
   it('produces valid skill structures', () => {
@@ -173,14 +122,8 @@ describe('SKILL_TEMPLATES.writer', () => {
 // ─── developer template ───────────────────────────────────────────────────────
 
 describe('SKILL_TEMPLATES.developer', () => {
-  it('returns 2 skill files', () => {
-    expect(SKILL_TEMPLATES.developer(makeAgent())).toHaveLength(2);
-  });
-
-  it('interpolates agent name in identity skill', () => {
-    const skills = SKILL_TEMPLATES.developer(makeAgent({ name: 'DevBot' }));
-    const identity = skills.find(s => s.filename === 'identity.md')!;
-    expect(identity.content).toContain('# DevBot');
+  it('returns 1 skill file', () => {
+    expect(SKILL_TEMPLATES.developer(makeAgent())).toHaveLength(1);
   });
 
   it('includes code-standards.md with security mention', () => {
@@ -188,10 +131,6 @@ describe('SKILL_TEMPLATES.developer', () => {
     const standards = skills.find(s => s.filename === 'code-standards.md')!;
     expect(standards).toBeDefined();
     expect(standards.content).toContain('security');
-  });
-
-  it('has unique sort orders', () => {
-    expectUniqueSortOrders(SKILL_TEMPLATES.developer(makeAgent()));
   });
 
   it('produces valid skill structures', () => {
@@ -218,20 +157,11 @@ describe('SKILL_TEMPLATES (all)', () => {
     }
   });
 
-  it('all templates include an identity.md file', () => {
+  it('no template seeds identity.md (identity lives on the agent row)', () => {
     const agent = makeAgent();
     for (const name of templateNames) {
       const skills = SKILL_TEMPLATES[name](agent);
-      expect(skills.find(s => s.filename === 'identity.md')).toBeDefined();
-    }
-  });
-
-  it('all identity.md files start with the agent name as heading', () => {
-    const agent = makeAgent({ name: 'SpecialAgent' });
-    for (const name of templateNames) {
-      const skills = SKILL_TEMPLATES[name](agent);
-      const identity = skills.find(s => s.filename === 'identity.md')!;
-      expect(identity.content).toContain('# SpecialAgent');
+      expect(skills.find(s => s.filename === 'identity.md')).toBeUndefined();
     }
   });
 });

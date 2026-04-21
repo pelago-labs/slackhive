@@ -11,6 +11,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as crypto from 'crypto';
 
+// Must be set before importing auth — the secrets module fails fast outside
+// dev when AUTH_SECRET is absent.
+process.env.AUTH_SECRET = 'test-auth-secret';
+process.env.ADMIN_PASSWORD = 'test-admin-password';
+
 // Mock DB dependency before importing auth
 vi.mock('@/lib/db', () => ({
   getUserByUsername: vi.fn(),
@@ -35,7 +40,7 @@ function makeRequest(cookie?: string): Request {
   });
 }
 
-function makeSignedCookie(payload: SessionPayload, secret = 'change-this-secret-in-production'): string {
+function makeSignedCookie(payload: SessionPayload, secret = 'test-auth-secret'): string {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', secret).update(data).digest('base64url');
   return `${data}.${sig}`;
@@ -91,7 +96,7 @@ describe('signSession + verifySession', () => {
   it('returns null when payload is valid base64 but not JSON', () => {
     const notJson = Buffer.from('not-json').toString('base64url');
     const sig = crypto
-      .createHmac('sha256', 'change-this-secret-in-production')
+      .createHmac('sha256', 'test-auth-secret')
       .update(notJson)
       .digest('base64url');
     expect(verifySession(`${notJson}.${sig}`)).toBeNull();
@@ -194,7 +199,7 @@ describe('authenticateUser', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns superadmin session for env-var credentials', async () => {
-    const result = await authenticateUser('admin', 'changeme');
+    const result = await authenticateUser('admin', 'test-admin-password');
     expect(result).toEqual({ username: 'admin', role: 'superadmin' });
   });
 
@@ -220,7 +225,7 @@ describe('authenticateUser', () => {
   });
 
   it('does not hit DB for superadmin credentials', async () => {
-    await authenticateUser('admin', 'changeme');
+    await authenticateUser('admin', 'test-admin-password');
     expect(getUserByUsername).not.toHaveBeenCalled();
   });
 });

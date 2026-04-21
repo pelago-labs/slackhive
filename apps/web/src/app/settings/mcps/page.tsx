@@ -10,8 +10,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import type { McpServer, McpServerType } from '@slackhive/shared';
+import { MCP_TEMPLATES } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
-import { Settings } from 'lucide-react';
+import { Plug, Library, Search, X, Check, Loader2 } from 'lucide-react';
+import { Portal } from '@/lib/portal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -67,10 +69,50 @@ export default function McpSettingsPage() {
   const [editingId, setEditingId]   = useState<string | null>(null);
   const [showForm, setShowForm]     = useState(false);
   const [envVarKeys, setEnvVarKeys] = useState<string[]>([]);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message?: string; error?: string } | 'testing'>>({});
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message?: string; error?: string; tools?: string[] } | 'testing'>>({});
   const formRef = useRef<HTMLDivElement>(null);
 
+  // Template library state
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [categories, setCategories] = useState<Record<string, { label: string; description: string }>>({});
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [installingTemplate, setInstallingTemplate] = useState<string | null>(null);
+  const [templateEnvValues, setTemplateEnvValues] = useState<Record<string, string>>({});
+  const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
+  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
+
   useEffect(() => { load(); }, []);
+
+  // Handle OAuth callback redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('oauth') === 'success' && params.get('state')) {
+      const state = params.get('state')!;
+      // Fetch the stored token and auto-install
+      fetch(`/api/settings?key=oauth_token:${state}`).catch(() => {});
+      (async () => {
+        try {
+          const r = await fetch('/api/settings');
+          const settings = await r.json();
+          const tokenData = settings[`oauth_token:${state}`];
+          if (tokenData) {
+            const parsed = JSON.parse(tokenData);
+            // Install the MCP with the OAuth token
+            await fetch('/api/mcps/templates', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ templateId: parsed.templateId, envValues: { __OAUTH_ACCESS_TOKEN: parsed.accessToken } }),
+            });
+            await load();
+          }
+        } catch { /* ignore */ }
+        // Clean URL
+        window.history.replaceState({}, '', '/settings/mcps');
+      })();
+    }
+  }, []);
   useEffect(() => {
     if (showForm && formRef.current) {
       formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -81,6 +123,13 @@ export default function McpSettingsPage() {
     fetch('/api/env-vars').then(r => r.json()).then((rows: { key: string }[]) => setEnvVarKeys(rows.map(r => r.key))).catch(() => {});
   }, []);
 
+  // CLI-detected MCPs
+  const [cliMcps, setCliMcps] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/mcps/detected').then(r => r.json()).then(d => setCliMcps(d.detected ?? [])).catch(() => {});
+  }, []);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -88,6 +137,86 @@ export default function McpSettingsPage() {
       setServers(await r.json());
     } finally { setLoading(false); }
   };
+
+  // ─── Template library ──────────────────────────────────────────────────────
+
+  // Detected MCPs from Claude CLI
+  const [detectedNames, setDetectedNames] = useState<Set<string>>(new Set());
+
+  const loadTemplates = async () => {
+    try {
+      const [templatesRes, detectedRes] = await Promise.all([
+        fetch('/api/mcps/templates'),
+        fetch('/api/mcps/detected'),
+      ]);
+      const data = await templatesRes.json();
+      setTemplates(data.templates);
+      setCategories(data.categories);
+      // Mark already-installed servers
+      const installed = new Set(servers.map(s => s.name));
+      setInstalledIds(installed as Set<string>);
+      // Mark detected MCPs from Claude CLI
+      try {
+        const det = await detectedRes.json();
+        const names = new Set<string>((det.detected ?? []).map((d: any) => d.name));
+        setDetectedNames(names);
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
+  };
+
+  const openLibrary = () => {
+    loadTemplates();
+    setShowLibrary(true);
+    setTemplateSearch('');
+    setSelectedCategory(null);
+    setSelectedTemplate(null);
+  };
+
+  const installTemplate = async (template: any) => {
+    // Show config step if: has env vars, is OAuth, or has optional paths
+    const needsConfig = template.auth === 'oauth' || template.envKeys.length > 0;
+    if (needsConfig && !selectedTemplate) {
+      setSelectedTemplate(template);
+      setTemplateEnvValues({});
+      return;
+    }
+
+    // For OAuth: pass the pasted token as a special env value
+    const envValues = { ...templateEnvValues };
+    if (template.auth === 'oauth' && envValues.__oauth_token) {
+      envValues['__OAUTH_ACCESS_TOKEN'] = envValues.__oauth_token;
+      delete envValues.__oauth_token;
+    }
+
+    setInstallingTemplate(template.id);
+    try {
+      const r = await fetch('/api/mcps/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateId: template.id, envValues }),
+      });
+      if (r.ok) {
+        setInstalledIds(prev => new Set([...prev, template.id]));
+        setSelectedTemplate(null);
+        setTemplateEnvValues({});
+        await load(); // Refresh server list
+      } else {
+        const err = await r.json();
+        alert(err.error || 'Failed to install');
+      }
+    } finally {
+      setInstallingTemplate(null);
+    }
+  };
+
+  const filteredTemplates = templates.filter(t => {
+    if (selectedCategory && t.category !== selectedCategory) return false;
+    if (templateSearch) {
+      const q = templateSearch.toLowerCase();
+      return t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.tags?.some((tag: string) => tag.includes(q));
+    }
+    return true;
+  });
 
   // ─── Config builder ─────────────────────────────────────────────────────────
 
@@ -178,7 +307,7 @@ export default function McpSettingsPage() {
     setTestResults(prev => ({ ...prev, [server.id]: 'testing' }));
     try {
       const r = await fetch(`/api/mcps/${server.id}/test`, { method: 'POST' });
-      const result = await r.json() as { ok: boolean; message?: string; error?: string };
+      const result = await r.json() as { ok: boolean; message?: string; error?: string; tools?: string[] };
       setTestResults(prev => ({ ...prev, [server.id]: result }));
     } catch {
       setTestResults(prev => ({ ...prev, [server.id]: { ok: false, error: 'Request failed' } }));
@@ -240,7 +369,7 @@ export default function McpSettingsPage() {
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 860 }} className="fade-up">
+    <div style={{ padding: '36px 40px' }} className="fade-up">
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
@@ -253,38 +382,67 @@ export default function McpSettingsPage() {
           </p>
         </div>
         {canEdit && !showForm && (
-          <button onClick={() => setShowForm(true)} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--accent)', color: 'var(--accent-fg)',
-            padding: '8px 16px', borderRadius: 8, border: 'none',
-            fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            transition: 'opacity 0.15s',
-          }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-          >
-            <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span>
-            Add Server
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={openLibrary} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--surface)', color: 'var(--text)',
+              padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)',
+              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              transition: 'opacity 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+            >
+              <Library size={14} />
+              Browse Library
+            </button>
+            <button onClick={() => setShowForm(true)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--accent)', color: 'var(--accent-fg)',
+              padding: '8px 16px', borderRadius: 8, border: 'none',
+              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              transition: 'opacity 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span>
+              Custom Server
+            </button>
+          </div>
         )}
       </div>
 
       {/* Server list */}
       {loading ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+          padding: '48px 0', color: 'var(--muted)', fontSize: 13,
+          border: '1px solid var(--border)', borderRadius: 12,
+        }}>
+          <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+          Loading tools…
+        </div>
       ) : servers.length === 0 && !showForm ? (
         <div style={{
           border: '1px dashed var(--border)', borderRadius: 12, padding: '48px',
           textAlign: 'center', color: 'var(--subtle)',
         }}>
-          <div style={{ marginBottom: 10, color: 'var(--subtle)' }}><Settings size={28} /></div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Plug size={28} style={{ color: 'var(--border-2)' }} /></div>
           <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No MCP servers yet</p>
-          <p style={{ margin: '0 0 16px', fontSize: 13 }}>Add servers to the catalog to enable agent tools.</p>
-          {canEdit && <button onClick={() => setShowForm(true)} style={{
-            background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
-            padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-            fontFamily: 'var(--font-sans)',
-          }}>Add First Server</button>}
+          <p style={{ margin: '0 0 16px', fontSize: 13 }}>Add tools like GitHub, Notion, Figma, and 50+ more from the library.</p>
+          {canEdit && <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            <button onClick={openLibrary} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
+              padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              fontFamily: 'var(--font-sans)',
+            }}><Library size={14} /> Browse Library</button>
+            <button onClick={() => setShowForm(true)} style={{
+              background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '8px 16px', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            }}>Add Custom</button>
+          </div>}
         </div>
       ) : (
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
@@ -296,10 +454,59 @@ export default function McpSettingsPage() {
               onDelete={() => handleDelete(server.id)}
               onToggle={() => handleToggle(server)}
               onTest={() => handleTest(server)}
+              onDismissTest={() => setTestResults(prev => { const n = { ...prev }; delete n[server.id]; return n; })}
               testResult={testResults[server.id]}
               canEdit={canEdit}
             />
           ))}
+        </div>
+      )}
+
+      {/* Detected from Claude Code CLI */}
+      {cliMcps.length > 0 && !showForm && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Detected from Claude Code
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            {cliMcps.filter(d => !servers.find(s => s.name === d.name)).map((d, i, arr) => {
+              const tpl = MCP_TEMPLATES.find(t => t.id === d.name || t.name.toLowerCase() === d.name.toLowerCase());
+              return (
+                <div key={d.name} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px',
+                  borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+                }}>
+                  {tpl?.logo ? (
+                    <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
+                      alt="" width={18} height={18} style={{ borderRadius: 3, opacity: 0.7, flexShrink: 0 }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : (
+                    <span style={{ width: 18, height: 18, borderRadius: 4, background: 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>{d.name.charAt(0).toUpperCase()}</span>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{d.name}</span>
+                    <span style={{ fontSize: 11, color: 'var(--subtle)', marginLeft: 8 }}>{d.type} · {d.url || d.command}</span>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)', flexShrink: 0 }}>CLI</span>
+                  {canEdit && (
+                    <button onClick={async () => {
+                      const config = d.url ? { url: d.url } : { command: d.command, args: [] };
+                      await fetch('/api/mcps', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: d.name, type: d.type === 'http' ? 'http' : d.type === 'sse' ? 'sse' : 'stdio', config, enabled: true }),
+                      });
+                      setCliMcps(prev => prev.filter(m => m.name !== d.name));
+                      await load();
+                    }} style={{
+                      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 5,
+                      background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
+                      cursor: 'pointer', fontFamily: 'var(--font-sans)', flexShrink: 0,
+                    }}>Add to Catalog</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -419,6 +626,262 @@ export default function McpSettingsPage() {
           </form>
         </div>
       )}
+
+      {/* ─── Template Library Modal ─────────────────────────────────────────── */}
+      {showLibrary && (
+        <Portal><div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '40px 20px',
+        }}>
+          <div style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          }} onClick={() => { setShowLibrary(false); setSelectedTemplate(null); }} />
+          <div style={{
+            position: 'relative', background: 'var(--bg)', borderRadius: 16,
+            width: '100%', maxWidth: 720, height: '100%', maxHeight: '100%',
+            display: 'flex', flexDirection: 'column',
+            border: '1px solid var(--border)', boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
+          }}>
+            {/* Modal header */}
+            <div style={{
+              padding: '20px 24px 16px', borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>
+                  MCP Server Library
+                </h2>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                  {templates.length} pre-configured servers — click to add
+                </p>
+              </div>
+              <button onClick={() => { setShowLibrary(false); setSelectedTemplate(null); }} style={{
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4,
+              }}><X size={18} /></button>
+            </div>
+
+            {/* Search + category filter */}
+            <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Search servers..."
+                  value={templateSearch}
+                  onChange={e => setTemplateSearch(e.target.value)}
+                  style={{
+                    width: '100%', padding: '7px 10px 7px 30px', borderRadius: 8,
+                    border: '1px solid var(--border)', background: 'var(--surface-2)',
+                    fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none',
+                  }}
+                />
+              </div>
+              <select
+                value={selectedCategory ?? ''}
+                onChange={e => setSelectedCategory(e.target.value || null)}
+                style={{
+                  padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)',
+                  background: 'var(--surface-2)', fontSize: 12, color: 'var(--text)',
+                  fontFamily: 'var(--font-sans)', cursor: 'pointer',
+                }}
+              >
+                <option value="">All Categories</option>
+                {Object.entries(categories).map(([key, cat]) => (
+                  <option key={key} value={key}>{cat.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Template list */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 24px 24px' }}>
+              {selectedTemplate ? (
+                /* Configuration step */
+                <div style={{ padding: '16px 0' }}>
+                  <button onClick={() => { setSelectedTemplate(null); setTemplateEnvValues({}); }} style={{
+                    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
+                    fontSize: 12, padding: 0, marginBottom: 12, fontFamily: 'var(--font-sans)',
+                  }}>&larr; Back to library</button>
+
+                  {/* Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                    {selectedTemplate.logo && <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${selectedTemplate.logo}.svg`} alt="" width={22} height={22} style={{ borderRadius: 3, opacity: 0.8 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>{selectedTemplate.name}</h3>
+                    {selectedTemplate.auth === 'oauth' && <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)' }}>OAuth</span>}
+                    {selectedTemplate.auth === 'none' && <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'var(--surface-2)', color: 'var(--subtle)' }}>No auth</span>}
+                  </div>
+                  <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--muted)' }}>{selectedTemplate.description}</p>
+
+                  {/* Docs link */}
+                  {selectedTemplate.docsUrl && (
+                    <a href={selectedTemplate.docsUrl} target="_blank" rel="noopener noreferrer" style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12,
+                      color: 'var(--blue)', textDecoration: 'none', marginBottom: 16,
+                    }}>Setup guide &rarr;</a>
+                  )}
+
+                  {/* OAuth flow */}
+                  {selectedTemplate.auth === 'oauth' && (
+                    <div style={{
+                      background: 'var(--surface-2)', border: '1px solid var(--border)',
+                      borderRadius: 10, padding: '16px 18px', marginBottom: 16,
+                    }}>
+                      <OAuthConnectSection template={selectedTemplate} />
+
+                      {/* Paste token */}
+                      <div>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}>
+                          Paste access token <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>(optional if already authenticated via CLI)</span>
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Paste token after authorizing..."
+                          value={templateEnvValues['__oauth_token'] || ''}
+                          onChange={e => setTemplateEnvValues(prev => ({ ...prev, __oauth_token: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '8px 12px', borderRadius: 8,
+                            border: '1px solid var(--border)', background: 'var(--surface)',
+                            fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Env var fields (for auth: 'env' templates) */}
+                  {selectedTemplate.auth !== 'oauth' && selectedTemplate.envKeys.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+                      {selectedTemplate.envKeys.map((env: any) => (
+                        <div key={env.key}>
+                          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}>
+                            {env.label} {env.required && <span style={{ color: '#ef4444' }}>*</span>}
+                          </label>
+                          <input
+                            type={env.key.toLowerCase().includes('password') || env.key.toLowerCase().includes('secret') || env.key.toLowerCase().includes('token') || env.key.toLowerCase().includes('key') ? 'password' : 'text'}
+                            placeholder={env.placeholder || env.key}
+                            value={templateEnvValues[env.key] || ''}
+                            onChange={e => setTemplateEnvValues(prev => ({ ...prev, [env.key]: e.target.value }))}
+                            style={{
+                              width: '100%', padding: '8px 12px', borderRadius: 8,
+                              border: '1px solid var(--border)', background: 'var(--surface-2)',
+                              fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)',
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* No auth — just add */}
+                  {selectedTemplate.auth === 'none' && selectedTemplate.envKeys.length === 0 && (
+                    <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 12px' }}>
+                      No configuration needed — this tool runs locally.
+                    </p>
+                  )}
+
+                  {/* Add button */}
+                  <button
+                    onClick={() => installTemplate(selectedTemplate)}
+                    disabled={installingTemplate === selectedTemplate.id}
+                    style={{
+                      background: 'var(--accent)', color: 'var(--accent-fg)',
+                      border: 'none', borderRadius: 8, padding: '9px 24px', fontSize: 13,
+                      fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}
+                  >
+                    {installingTemplate === selectedTemplate.id
+                      ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Installing...</>
+                      : 'Add to Catalog'}
+                  </button>
+                </div>
+              ) : (
+                /* Template grid */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, paddingTop: 8 }}>
+                  {filteredTemplates.map(t => {
+                    const isInstalled = installedIds.has(t.id);
+                    const isDetected = detectedNames.has(t.id) || detectedNames.has(t.name.toLowerCase());
+                    const isInstalling = installingTemplate === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => !isInstalled && installTemplate(t)}
+                        disabled={isInstalled || isInstalling}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px',
+                          background: isInstalled ? 'var(--surface-2)' : 'var(--surface)',
+                          border: '1px solid var(--border)', borderRadius: 10,
+                          cursor: isInstalled ? 'default' : 'pointer', textAlign: 'left',
+                          fontFamily: 'var(--font-sans)', transition: 'border-color 0.15s, box-shadow 0.15s',
+                          opacity: isInstalled ? 0.6 : 1,
+                        }}
+                        onMouseEnter={e => { if (!isInstalled) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 1px var(--accent)'; } }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
+                      >
+                        <span style={{ width: 24, height: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {t.logo ? (
+                            <img
+                              className="icon-adaptive"
+                              src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${t.logo}.svg`}
+                              alt={t.name}
+                              width={20} height={20}
+                              style={{ borderRadius: 3, opacity: 0.8 }}
+                              onError={e => {
+                                const el = e.target as HTMLImageElement;
+                                el.style.display = 'none';
+                                el.parentElement!.querySelector('span')!.style.display = 'flex';
+                              }}
+                            />
+                          ) : null}
+                          <span style={{
+                            display: t.logo ? 'none' : 'flex',
+                            width: 24, height: 24, borderRadius: 6,
+                            background: 'var(--border)', color: 'var(--muted)',
+                            alignItems: 'center', justifyContent: 'center',
+                            fontSize: 12, fontWeight: 700,
+                          }}>{t.name.charAt(0)}</span>
+                        </span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {t.name}
+                            {isInstalled && <Check size={13} style={{ color: 'var(--success, #22c55e)' }} />}
+                            {!isInstalled && isDetected && <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 3, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)' }}>CLI</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
+                            {t.description}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
+                              background: t.official ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
+                              color: t.official ? 'var(--green)' : '#d97706',
+                              textTransform: 'uppercase', letterSpacing: '0.04em',
+                            }}>
+                              {t.official ? '✓ Official' : 'Community'}
+                            </span>
+                            <span style={{ fontSize: 10, color: 'var(--subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              {t.auth === 'oauth' ? 'OAuth' : t.transport === 'http' ? 'Remote' : 'Local'}
+                            </span>
+                            {t.docsUrl && (
+                              <a href={t.docsUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                style={{ fontSize: 10, color: 'var(--blue)', textDecoration: 'none' }}>Docs</a>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {filteredTemplates.length === 0 && !selectedTemplate && (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: 13 }}>
+                  No servers match your search.
+                </div>
+              )}
+            </div>
+          </div>
+        </div></Portal>
+      )}
     </div>
   );
 }
@@ -502,7 +965,8 @@ function EnvEntriesEditor({
                 >
                   <option value="">— pick env var —</option>
                   {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
-                  {envVarKeys.length === 0 && <option disabled>No env vars — add in Settings → Env Vars</option>}
+                  {entry.val && !envVarKeys.includes(entry.val) && <option value={entry.val}>{entry.val}</option>}
+                  {envVarKeys.length === 0 && !entry.val && <option disabled>No env vars — add in Settings → Env Vars</option>}
                 </select>
               )}
               {/* Remove */}
@@ -597,7 +1061,8 @@ function HeaderEntriesEditor({
                   >
                     <option value="">— pick env var —</option>
                     {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
-                    {envVarKeys.length === 0 && <option disabled>No env vars — add in Settings → Env Vars</option>}
+                    {entry.val && !envVarKeys.includes(entry.val) && <option value={entry.val}>{entry.val}</option>}
+                    {envVarKeys.length === 0 && !entry.val && <option disabled>No env vars — add in Settings → Env Vars</option>}
                   </select>
                 )}
                 {/* Remove */}
@@ -634,13 +1099,17 @@ function HeaderEntriesEditor({
 // ─── Server row ───────────────────────────────────────────────────────────────
 
 function ServerRow({
-  server, isLast, onEdit, onDelete, onToggle, onTest, testResult, canEdit,
+  server, isLast, onEdit, onDelete, onToggle, onTest, onDismissTest, testResult, canEdit,
 }: {
   server: McpServer; isLast: boolean;
   onEdit: () => void; onDelete: () => void; onToggle: () => void; onTest: () => void;
-  testResult?: { ok: boolean; message?: string; error?: string } | 'testing';
+  onDismissTest: () => void;
+  testResult?: { ok: boolean; message?: string; error?: string; tools?: string[] } | 'testing';
   canEdit: boolean;
 }) {
+  // Match against template for logo
+  const tpl = MCP_TEMPLATES.find(t => t.id === server.name || t.name.toLowerCase() === server.name.toLowerCase());
+
   const cfg = server.config as unknown as Record<string, unknown>;
   const isTs = typeof cfg.tsSource === 'string';
   const preview = server.type === 'stdio'
@@ -663,12 +1132,20 @@ function ServerRow({
         onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}
         onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
       >
-        {/* Type badge */}
-        <span style={{
-          fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 500,
-          background: 'var(--border)', color: 'var(--muted)',
-          padding: '2px 8px', borderRadius: 5, flexShrink: 0, letterSpacing: '0.02em',
-        }}>{isTs ? 'ts' : server.type}</span>
+        {/* Icon — template logo or type badge */}
+        {tpl?.logo ? (
+          <span style={{ width: 28, height: 28, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
+              alt="" width={20} height={20} style={{ borderRadius: 3, opacity: 0.8 }}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          </span>
+        ) : (
+          <span style={{
+            fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 500,
+            background: 'var(--border)', color: 'var(--muted)',
+            padding: '2px 8px', borderRadius: 5, flexShrink: 0, letterSpacing: '0.02em',
+          }}>{isTs ? 'ts' : server.type}</span>
+        )}
 
         {/* Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -714,8 +1191,27 @@ function ServerRow({
           background: testResult.ok ? 'rgba(5,150,105,0.08)' : 'rgba(239,68,68,0.08)',
           border: `1px solid ${testResult.ok ? 'rgba(5,150,105,0.25)' : 'rgba(239,68,68,0.25)'}`,
           color: testResult.ok ? '#059669' : '#ef4444',
+          position: 'relative', paddingRight: 28,
         }}>
           {testResult.ok ? '✓ ' : '✗ '}{testResult.ok ? testResult.message : testResult.error}
+          {testResult.ok && testResult.tools && testResult.tools.length > 0 && (
+            <div style={{
+              marginTop: 6, fontSize: 11.5, color: 'var(--subtle)',
+              fontFamily: 'var(--font-mono)', lineHeight: 1.5, wordBreak: 'break-all',
+            }}>
+              {testResult.tools.join(', ')}
+            </div>
+          )}
+          <button
+            onClick={onDismissTest}
+            aria-label="Dismiss test result"
+            style={{
+              position: 'absolute', top: 4, right: 6,
+              width: 20, height: 20, padding: 0,
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: 'inherit', opacity: 0.6, fontSize: 14, lineHeight: 1,
+            }}
+          >×</button>
         </div>
       )}
     </div>
@@ -723,6 +1219,85 @@ function ServerRow({
 }
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
+
+/**
+ * OAuth connect section — auto-detects if provider supports OAuth discovery.
+ * Shows "Connect" button for providers with discovery (Notion, Linear, Asana).
+ * Shows CLI command for others (Figma, Stripe).
+ */
+function OAuthConnectSection({ template }: { template: any }) {
+  const [checking, setChecking] = useState(false);
+  const [oauthSupported, setOauthSupported] = useState<boolean | null>(null);
+
+  // Check once on mount if this provider supports OAuth discovery
+  useEffect(() => {
+    setChecking(true);
+    fetch('/api/oauth/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mcpUrl: template.url, templateId: template.id }),
+    })
+      .then(r => r.json())
+      .then(data => setOauthSupported(!!data.authUrl))
+      .catch(() => setOauthSupported(false))
+      .finally(() => setChecking(false));
+  }, [template.id]);
+
+  if (checking) {
+    return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Checking connection method...</p>;
+  }
+
+  if (oauthSupported) {
+    // Provider supports OAuth — show Connect button
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <button
+          onClick={() => {
+            fetch('/api/oauth/start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mcpUrl: template.url, templateId: template.id }),
+            })
+              .then(r => r.json())
+              .then(data => { if (data.authUrl) window.open(data.authUrl, '_blank'); });
+          }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'var(--accent)', color: 'var(--accent-fg)',
+            border: 'none', borderRadius: 7, padding: '8px 16px',
+            fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+          }}
+        >Connect {template.name}</button>
+        <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '6px 0 0' }}>
+          Opens {template.name} authorization page. After approving, you&apos;ll be redirected back.
+        </p>
+      </div>
+    );
+  }
+
+  // No OAuth discovery — show CLI command
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+        Authenticate via Claude Code CLI:
+      </p>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 6, padding: '8px 12px',
+        fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+      }}>
+        <code style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>claude mcp add --transport http {template.id} {template.url}</code>
+        <button onClick={() => navigator.clipboard.writeText(`claude mcp add --transport http ${template.id} ${template.url}`)} style={{
+          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', fontSize: 11, fontFamily: 'var(--font-sans)', flexShrink: 0,
+        }}>Copy</button>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '6px 0 0', lineHeight: 1.5 }}>
+        Run in terminal, authorize in browser, then paste token below or add directly.
+      </p>
+    </div>
+  );
+}
 
 function FField({ label, hint, children, style: s, required: req }: {
   label: string; hint?: string; children: React.ReactNode;

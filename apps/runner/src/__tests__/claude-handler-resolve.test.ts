@@ -40,6 +40,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     status: 'stopped',
     enabled: true,
     isBoss: false,
+    verbose: true,
     reportsTo: [],
     claudeMd: '',
     createdBy: 'system',
@@ -129,7 +130,10 @@ describe('resolveServerConfig — tsSource rewrites to tsx', () => {
     const src = 'console.log("hello from ts mcp");';
     const config = { command: 'ignored', args: [], tsSource: src };
     const result = (handler as any).resolveServerConfig('my-ts-mcp', config) as Record<string, unknown>;
-    expect(result.command).toBe('/app/node_modules/.bin/tsx');
+    // tsx is resolved by walking up from __dirname looking for a
+    // node_modules/.bin/tsx — the exact prefix depends on where the repo lives.
+    expect(typeof result.command).toBe('string');
+    expect(result.command as string).toMatch(/node_modules[\\/]\.bin[\\/]tsx$/);
     expect(Array.isArray(result.args)).toBe(true);
     const scriptPath = (result.args as string[])[0];
     expect(scriptPath).toContain('my-ts-mcp.ts');

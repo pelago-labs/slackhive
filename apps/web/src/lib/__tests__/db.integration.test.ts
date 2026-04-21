@@ -57,9 +57,8 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
         name: 'Test Agent',
         persona: 'A test persona',
         description: 'Integration test agent',
-        slackBotToken: 'xoxb-test',
-        slackAppToken: 'xapp-test',
-        slackSigningSecret: 'secret',
+        platform: 'slack',
+        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
         model: 'claude-opus-4-6',
       }, 'test-user');
 
@@ -94,9 +93,8 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
       const agent = await createAgent({
         slug: `test-claude-md-${Date.now()}`,
         name: 'Claude MD Test',
-        slackBotToken: 'xoxb-test',
-        slackAppToken: 'xapp-test',
-        slackSigningSecret: 'secret',
+        platform: 'slack',
+        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
       }, 'test-user');
       agentId = agent.id;
     });
@@ -125,9 +123,8 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
       const agent = await createAgent({
         slug: `test-skills-${Date.now()}`,
         name: 'Skills Test',
-        slackBotToken: 'xoxb-test',
-        slackAppToken: 'xapp-test',
-        slackSigningSecret: 'secret',
+        platform: 'slack',
+        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
       }, 'test-user');
       agentId = agent.id;
     });
@@ -169,9 +166,8 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
       const agent = await createAgent({
         slug: `test-snapshot-${Date.now()}`,
         name: 'Snapshot Test',
-        slackBotToken: 'xoxb-test',
-        slackAppToken: 'xapp-test',
-        slackSigningSecret: 'secret',
+        platform: 'slack',
+        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
       }, 'test-user');
       agentId = agent.id;
     });
@@ -230,9 +226,8 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
       const agent = await createAgent({
         slug: `test-access-${Date.now()}`,
         name: 'Access Test',
-        slackBotToken: 'xoxb-test',
-        slackAppToken: 'xapp-test',
-        slackSigningSecret: 'secret',
+        platform: 'slack',
+        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
       }, 'system');
       agentId = agent.id;
 

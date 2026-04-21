@@ -9,10 +9,23 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentById, updateAgent, deleteAgent, publishAgentEvent } from '@/lib/db';
+import { apiError } from '@/lib/api-error';
+import { rm } from 'fs/promises';
+import path from 'path';
+import { getAgentById, updateAgent, deleteAgent, publishAgentEvent, applyLiveStatus, userCanWriteAgent } from '@/lib/db';
 import type { UpdateAgentRequest } from '@slackhive/shared';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
 import { guardAgentWrite, guardUserAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
+import { toAgentPublic } from '@/lib/agent-public';
+
+const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? (
+  process.env.DATABASE_TYPE === 'sqlite'
+    ? path.join(process.env.HOME ?? process.env.USERPROFILE ?? '/tmp', '.slackhive', 'agents')
+    : '/tmp/agents'
+);
+
+export const dynamic = 'force-dynamic';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -23,14 +36,19 @@ type RouteParams = { params: Promise<{ id: string }> };
  * @param {RouteParams} ctx
  * @returns {Promise<NextResponse>} Agent JSON or 404.
  */
-export async function GET(_req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+export async function GET(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
     const agent = await getAgentById(id);
     if (!agent) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json(agent);
+    const session = getSessionFromRequest(req);
+    const canReveal = session
+      ? await userCanWriteAgent(id, session.username, session.role)
+      : false;
+    const enriched = applyLiveStatus(agent);
+    return NextResponse.json(canReveal ? enriched : toAgentPublic(enriched));
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]', err);
   }
 }
 
@@ -54,7 +72,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
     await regenerateBossRegistry().catch(() => {});
     return NextResponse.json(updated);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]', err);
   }
 }
 
@@ -71,11 +89,15 @@ export async function DELETE(req: NextRequest, { params }: RouteParams): Promise
     const { id } = await params;
     const denied = guardUserAdmin(req);
     if (denied) return denied;
+    const agent = await getAgentById(id);
     await publishAgentEvent({ type: 'stop', agentId: id });
     await deleteAgent(id);
+    if (agent?.slug) {
+      await rm(path.join(AGENTS_TMP_DIR, agent.slug), { recursive: true, force: true });
+    }
     await regenerateBossRegistry().catch(() => {});
     return new NextResponse(null, { status: 204 });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]', err);
   }
 }

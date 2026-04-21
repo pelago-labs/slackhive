@@ -1,19 +1,19 @@
 /**
- * @fileoverview PostgreSQL database client for the runner service.
+ * @fileoverview Database client for the runner service.
  *
- * Provides a singleton Pool instance and typed query helpers for all
- * tables used by the runner: agents, mcp_servers, agent_mcps, skills,
- * permissions, memories, and sessions.
+ * Uses the shared DbAdapter to support both PostgreSQL and SQLite.
+ * Provides typed query helpers for all tables used by the runner:
+ * agents, mcp_servers, agent_mcps, skills, permissions, memories, and sessions.
  *
  * @module runner/db
  */
 
-import { Pool, PoolClient } from 'pg';
+import { randomUUID } from 'crypto';
+import { getDb, encrypt, decrypt } from '@slackhive/shared';
 import { logger } from './logger';
 import type {
   Agent,
   McpServer,
-  AgentMcp,
   ScheduledJob,
   Skill,
   Permission,
@@ -23,59 +23,10 @@ import type {
   AgentStatus,
 } from '@slackhive/shared';
 
-/** Singleton Postgres connection pool. */
-let pool: Pool | null = null;
-
-/**
- * Returns the singleton Postgres connection pool.
- * Creates the pool on first call using DATABASE_URL from environment.
- *
- * @returns {Pool} The Postgres connection pool.
- * @throws {Error} If DATABASE_URL is not set.
- */
-export function getPool(): Pool {
-  if (!pool) {
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) {
-      throw new Error('DATABASE_URL environment variable is required');
-    }
-    pool = new Pool({
-      connectionString: databaseUrl,
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
-    });
-
-    pool.on('error', (err) => {
-      logger.error('Unexpected pool error', { error: (err as Error).message });
-    });
-  }
-  return pool;
-}
-
-/**
- * Closes the Postgres connection pool.
- * Should be called on graceful shutdown.
- *
- * @returns {Promise<void>}
- */
-export async function closePool(): Promise<void> {
-  if (pool) {
-    await pool.end();
-    pool = null;
-  }
-}
-
 // =============================================================================
 // Row mappers — convert snake_case DB columns to camelCase TS interfaces
 // =============================================================================
 
-/**
- * Maps a raw database row to an {@link Agent} interface.
- *
- * @param {Record<string, unknown>} row - Raw row from the agents table.
- * @returns {Agent} Typed agent object.
- */
 function rowToAgent(row: Record<string, unknown>): Agent {
   return {
     id: row.id as string,
@@ -83,28 +34,23 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     name: row.name as string,
     persona: row.persona as string | undefined,
     description: row.description as string | undefined,
-    slackBotToken: row.slack_bot_token as string,
-    slackAppToken: row.slack_app_token as string,
-    slackSigningSecret: row.slack_signing_secret as string,
-    slackBotUserId: row.slack_bot_user_id as string | undefined,
+    // Slack credentials now in platform_integrations table
     model: row.model as string,
     status: row.status as AgentStatus,
-    enabled: row.enabled !== false,
-    isBoss: row.is_boss as boolean,
-    reportsTo: (row.reports_to as string[]) ?? [],
+    enabled: row.enabled !== false && row.enabled !== 0,
+    isBoss: row.is_boss === true || row.is_boss === 1,
+    verbose: row.verbose !== 0 && row.verbose !== false,
+    reportsTo: (Array.isArray(row.reports_to) ? row.reports_to : []) as string[],
     claudeMd: (row.claude_md as string) ?? '',
     createdBy: (row.created_by as string) ?? 'system',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
+    lastError: (row.last_error as string | null | undefined) ?? null,
+    runnerId: (row.runner_id as string | null | undefined) ?? null,
+    lastHeartbeat: (row.last_heartbeat as string | null | undefined) ?? null,
   };
 }
 
-/**
- * Maps a raw database row to a {@link McpServer} interface.
- *
- * @param {Record<string, unknown>} row - Raw row from the mcp_servers table.
- * @returns {McpServer} Typed MCP server object.
- */
 function rowToMcpServer(row: Record<string, unknown>): McpServer {
   return {
     id: row.id as string,
@@ -112,17 +58,11 @@ function rowToMcpServer(row: Record<string, unknown>): McpServer {
     type: row.type as McpServer['type'],
     config: row.config as McpServer['config'],
     description: row.description as string | undefined,
-    enabled: row.enabled as boolean,
+    enabled: row.enabled !== false && row.enabled !== 0,
     createdAt: row.created_at as Date,
   };
 }
 
-/**
- * Maps a raw database row to a {@link Skill} interface.
- *
- * @param {Record<string, unknown>} row - Raw row from the skills table.
- * @returns {Skill} Typed skill object.
- */
 function rowToSkill(row: Record<string, unknown>): Skill {
   return {
     id: row.id as string,
@@ -136,28 +76,16 @@ function rowToSkill(row: Record<string, unknown>): Skill {
   };
 }
 
-/**
- * Maps a raw database row to a {@link Permission} interface.
- *
- * @param {Record<string, unknown>} row - Raw row from the permissions table.
- * @returns {Permission} Typed permission object.
- */
 function rowToPermission(row: Record<string, unknown>): Permission {
   return {
     id: row.id as string,
     agentId: row.agent_id as string,
-    allowedTools: row.allowed_tools as string[],
-    deniedTools: row.denied_tools as string[],
+    allowedTools: (Array.isArray(row.allowed_tools) ? row.allowed_tools : []) as string[],
+    deniedTools: (Array.isArray(row.denied_tools) ? row.denied_tools : []) as string[],
     updatedAt: row.updated_at as Date,
   };
 }
 
-/**
- * Maps a raw database row to a {@link Memory} interface.
- *
- * @param {Record<string, unknown>} row - Raw row from the memories table.
- * @returns {Memory} Typed memory object.
- */
 function rowToMemory(row: Record<string, unknown>): Memory {
   return {
     id: row.id as string,
@@ -170,12 +98,6 @@ function rowToMemory(row: Record<string, unknown>): Memory {
   };
 }
 
-/**
- * Maps a raw database row to a {@link Session} interface.
- *
- * @param {Record<string, unknown>} row - Raw row from the sessions table.
- * @returns {Session} Typed session object.
- */
 function rowToSession(row: Record<string, unknown>): Session {
   return {
     id: row.id as string,
@@ -187,73 +109,137 @@ function rowToSession(row: Record<string, unknown>): Session {
   };
 }
 
+function rowToRestriction(row: Record<string, unknown>): Restriction {
+  return {
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    allowedChannels: (Array.isArray(row.allowed_channels) ? row.allowed_channels : []) as string[],
+    updatedAt: row.updated_at as Date,
+  };
+}
+
 // =============================================================================
 // Agent queries
 // =============================================================================
 
-/**
- * Fetches all agents from the database.
- *
- * @returns {Promise<Agent[]>} All registered agents.
- */
 export async function getAllAgents(): Promise<Agent[]> {
-  const result = await getPool().query(
+  const result = await getDb().query(
     'SELECT * FROM agents ORDER BY is_boss DESC, created_at ASC'
   );
   return result.rows.map(rowToAgent);
 }
 
-/**
- * Fetches a single agent by ID.
- *
- * @param {string} id - Agent UUID.
- * @returns {Promise<Agent | null>} The agent, or null if not found.
- */
 export async function getAgentById(id: string): Promise<Agent | null> {
-  const result = await getPool().query('SELECT * FROM agents WHERE id = $1', [id]);
+  const result = await getDb().query('SELECT * FROM agents WHERE id = $1', [id]);
   return result.rows.length > 0 ? rowToAgent(result.rows[0]) : null;
 }
 
 /**
- * Updates the runtime status of an agent.
+ * Look up an agent by its Slack bot user ID.
  *
- * @param {string} id - Agent UUID.
- * @param {AgentStatus} status - New status value.
- * @returns {Promise<void>}
+ * Used by the test-mode orchestrator to resolve `<@U...>` mentions in a boss
+ * agent's output back to the SlackHive agent they refer to, so the
+ * delegation chain can be simulated in test mode without Slack.
+ *
+ * Read-only: no writes, no caching. The DB is the source of truth and
+ * the roster may change while a test session is open.
  */
-export async function updateAgentStatus(id: string, status: AgentStatus): Promise<void> {
-  await getPool().query(
-    'UPDATE agents SET status = $1, updated_at = now() WHERE id = $2',
-    [status, id]
+export async function getAgentBySlackBotUserId(botUserId: string): Promise<Agent | null> {
+  const r = await getDb().query(
+    `SELECT a.* FROM agents a
+     JOIN platform_integrations pi ON pi.agent_id = a.id
+     WHERE pi.platform = $1 AND pi.bot_user_id = $2
+     LIMIT 1`,
+    ['slack', botUserId]
+  );
+  if (r.rows.length === 0) return null;
+  const agent = rowToAgent(r.rows[0]);
+  agent.slackBotUserId = botUserId;
+  return agent;
+}
+
+export async function updateAgentStatus(
+  id: string,
+  status: AgentStatus,
+  lastError?: string | null,
+  runnerId?: string,
+): Promise<void> {
+  // When lastError is explicitly passed (even null) we also write it. When it's
+  // undefined (default), the existing value is preserved — callers that don't
+  // care about the error text shouldn't accidentally wipe it.
+  //
+  // When runnerId is provided, also stamp runner_id + last_heartbeat so the
+  // read side can tell the owning runner's writes apart from stray ones.
+  const setHeartbeat = runnerId !== undefined;
+  const params: unknown[] = [status];
+  const sets: string[] = ['status = $1'];
+
+  if (lastError !== undefined) {
+    sets.push(`last_error = $${params.length + 1}`);
+    params.push(lastError);
+  }
+  if (setHeartbeat) {
+    sets.push(`runner_id = $${params.length + 1}`);
+    params.push(runnerId);
+    sets.push(`last_heartbeat = now()`);
+  }
+  sets.push('updated_at = now()');
+
+  params.push(id);
+  await getDb().query(
+    `UPDATE agents SET ${sets.join(', ')} WHERE id = $${params.length}`,
+    params,
   );
 }
 
 /**
- * Updates the Slack bot user ID for an agent after successful auth.test.
- *
- * @param {string} id - Agent UUID.
- * @param {string} slackBotUserId - The bot's Slack user ID (e.g., "U12345678").
- * @returns {Promise<void>}
+ * Bump `last_heartbeat` for every agent this runner owns. Called on a timer
+ * by AgentRunner so a crashed runner's "running" row decays and the UI can
+ * render it as `stale` instead of a false-positive green.
  */
-export async function updateAgentSlackUserId(id: string, slackBotUserId: string): Promise<void> {
-  await getPool().query(
-    'UPDATE agents SET slack_bot_user_id = $1, updated_at = now() WHERE id = $2',
-    [slackBotUserId, id]
+export async function heartbeatAgents(agentIds: string[], runnerId: string): Promise<void> {
+  if (agentIds.length === 0) return;
+  const placeholders = agentIds.map((_, i) => `$${i + 2}`).join(', ');
+  await getDb().query(
+    `UPDATE agents SET last_heartbeat = now(), runner_id = $1
+     WHERE id IN (${placeholders}) AND status = 'running'`,
+    [runnerId, ...agentIds],
   );
+}
+
+export async function updateAgentSlackUserId(id: string, slackBotUserId: string): Promise<void> {
+  await getDb().query(
+    'UPDATE platform_integrations SET bot_user_id = $1 WHERE agent_id = $2 AND platform = $3',
+    [slackBotUserId, id, 'slack']
+  );
+}
+
+/** Get platform integration for an agent. */
+export async function getPlatformIntegration(agentId: string, platform: string): Promise<{ credentials: Record<string, string>; botUserId?: string } | null> {
+  const r = await getDb().query(
+    'SELECT credentials, bot_user_id FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
+    [agentId, platform]
+  );
+  if (r.rows.length === 0) return null;
+  const row = r.rows[0];
+  const raw = row.credentials as string;
+  try {
+    const { decrypt } = await import('@slackhive/shared');
+    const { getEncryptionKey } = await import('./secrets.js');
+    const creds = JSON.parse(decrypt(raw, getEncryptionKey()));
+    return { credentials: creds, botUserId: row.bot_user_id as string | undefined };
+  } catch (err) {
+    console.error('[db] Failed to decrypt platform credentials — refusing plaintext fallback', err);
+    return null;
+  }
 }
 
 // =============================================================================
 // MCP server queries
 // =============================================================================
 
-/**
- * Fetches all MCP servers assigned to an agent, in catalog order.
- *
- * @param {string} agentId - Agent UUID.
- * @returns {Promise<McpServer[]>} MCP servers assigned to this agent.
- */
 export async function getAgentMcpServers(agentId: string): Promise<McpServer[]> {
-  const result = await getPool().query(
+  const result = await getDb().query(
     `SELECT m.* FROM mcp_servers m
      JOIN agent_mcps am ON am.mcp_id = m.id
      WHERE am.agent_id = $1 AND m.enabled = true
@@ -267,15 +253,8 @@ export async function getAgentMcpServers(agentId: string): Promise<McpServer[]> 
 // Skills queries
 // =============================================================================
 
-/**
- * Fetches all skills for an agent, ordered for CLAUDE.md compilation.
- * Skills are ordered by category (alphabetical) then sort_order (ascending).
- *
- * @param {string} agentId - Agent UUID.
- * @returns {Promise<Skill[]>} Ordered skill files for this agent.
- */
 export async function getAgentSkills(agentId: string): Promise<Skill[]> {
-  const result = await getPool().query(
+  const result = await getDb().query(
     `SELECT * FROM skills
      WHERE agent_id = $1
      ORDER BY category ASC, sort_order ASC, filename ASC`,
@@ -284,17 +263,6 @@ export async function getAgentSkills(agentId: string): Promise<Skill[]> {
   return result.rows.map(rowToSkill);
 }
 
-/**
- * Upserts a skill for an agent.
- * Conflicts on (agent_id, category, filename) update content and sort_order.
- *
- * @param {string} agentId - Agent UUID.
- * @param {string} category - Skill category directory (e.g. `'99-corrections'`).
- * @param {string} filename - Skill filename (e.g. `'corrections.md'`).
- * @param {string} content - Full markdown content of the skill.
- * @param {number} [sortOrder=0] - Sort order within the category.
- * @returns {Promise<Skill>} The upserted skill.
- */
 export async function upsertSkill(
   agentId: string,
   category: string,
@@ -302,31 +270,24 @@ export async function upsertSkill(
   content: string,
   sortOrder = 0
 ): Promise<Skill> {
-  const result = await getPool().query(
-    `INSERT INTO skills (agent_id, category, filename, content, sort_order)
-     VALUES ($1, $2, $3, $4, $5)
+  const id = randomUUID();
+  const result = await getDb().query(
+    `INSERT INTO skills (id, agent_id, category, filename, content, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (agent_id, category, filename)
      DO UPDATE SET content = EXCLUDED.content, sort_order = EXCLUDED.sort_order, updated_at = now()
      RETURNING *`,
-    [agentId, category, filename, content, sortOrder]
+    [id, agentId, category, filename, content, sortOrder]
   );
   return rowToSkill(result.rows[0]);
 }
 
-/**
- * Deletes a skill by agent_id, category, and filename.
- *
- * @param {string} agentId - Agent UUID.
- * @param {string} category - Skill category directory.
- * @param {string} filename - Skill filename.
- * @returns {Promise<boolean>} True if a row was deleted.
- */
 export async function deleteSkill(
   agentId: string,
   category: string,
   filename: string,
 ): Promise<boolean> {
-  const result = await getPool().query(
+  const result = await getDb().query(
     'DELETE FROM skills WHERE agent_id = $1 AND category = $2 AND filename = $3',
     [agentId, category, filename]
   );
@@ -337,14 +298,8 @@ export async function deleteSkill(
 // Permissions queries
 // =============================================================================
 
-/**
- * Fetches the tool permissions for an agent.
- *
- * @param {string} agentId - Agent UUID.
- * @returns {Promise<Permission | null>} The permission record, or null if not set.
- */
 export async function getAgentPermissions(agentId: string): Promise<Permission | null> {
-  const result = await getPool().query(
+  const result = await getDb().query(
     'SELECT * FROM permissions WHERE agent_id = $1',
     [agentId]
   );
@@ -355,23 +310,8 @@ export async function getAgentPermissions(agentId: string): Promise<Permission |
 // Restrictions queries
 // =============================================================================
 
-function rowToRestriction(row: Record<string, unknown>): Restriction {
-  return {
-    id: row.id as string,
-    agentId: row.agent_id as string,
-    allowedChannels: (row.allowed_channels as string[]) ?? [],
-    updatedAt: row.updated_at as Date,
-  };
-}
-
-/**
- * Fetches the channel restrictions for an agent.
- *
- * @param {string} agentId - Agent UUID.
- * @returns {Promise<Restriction | null>} The restriction record, or null if not configured.
- */
 export async function getAgentRestrictions(agentId: string): Promise<Restriction | null> {
-  const result = await getPool().query(
+  const result = await getDb().query(
     'SELECT * FROM agent_restrictions WHERE agent_id = $1',
     [agentId]
   );
@@ -382,14 +322,8 @@ export async function getAgentRestrictions(agentId: string): Promise<Restriction
 // Memory queries
 // =============================================================================
 
-/**
- * Fetches all memory entries for an agent, ordered by type then created_at.
- *
- * @param {string} agentId - Agent UUID.
- * @returns {Promise<Memory[]>} All memory entries for this agent.
- */
 export async function getAgentMemories(agentId: string): Promise<Memory[]> {
-  const result = await getPool().query(
+  const result = await getDb().query(
     `SELECT * FROM memories
      WHERE agent_id = $1
      ORDER BY type ASC, created_at ASC`,
@@ -398,63 +332,41 @@ export async function getAgentMemories(agentId: string): Promise<Memory[]> {
   return result.rows.map(rowToMemory);
 }
 
-/**
- * Upserts a memory entry for an agent.
- * If a memory with the same agent_id and name already exists, it is updated.
- * Otherwise a new entry is created.
- *
- * This is called by the memory watcher when the agent writes new memory files
- * to disk during a conversation.
- *
- * @param {string} agentId - Agent UUID.
- * @param {Memory['type']} type - Memory type classification.
- * @param {string} name - Unique name/identifier for this memory.
- * @param {string} content - Full markdown content of the memory.
- * @returns {Promise<Memory>} The upserted memory record.
- */
 export async function upsertMemory(
   agentId: string,
   type: Memory['type'],
   name: string,
   content: string
 ): Promise<Memory> {
-  const result = await getPool().query(
-    `INSERT INTO memories (agent_id, type, name, content)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (agent_id, (name)) DO UPDATE
+  const id = randomUUID();
+  const result = await getDb().query(
+    `INSERT INTO memories (id, agent_id, type, name, content)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (agent_id, name) DO UPDATE
        SET content = EXCLUDED.content,
            type = EXCLUDED.type,
            updated_at = now()
      RETURNING *`,
-    [agentId, type, name, content]
+    [id, agentId, type, name, content]
   );
   return rowToMemory(result.rows[0]);
 }
 
-/**
- * Upserts a memory entry by agent_id and name (no unique constraint version).
- * Uses a safe upsert pattern compatible with the current schema.
- *
- * @param {string} agentId - Agent UUID.
- * @param {Memory['type']} type - Memory type classification.
- * @param {string} name - Memory name (used as identifier).
- * @param {string} content - Full markdown content.
- * @returns {Promise<void>}
- */
 export async function upsertMemorySafe(
   agentId: string,
   type: Memory['type'],
   name: string,
   content: string
 ): Promise<void> {
-  await getPool().query(
-    `INSERT INTO memories (agent_id, type, name, content)
-     VALUES ($1, $2, $3, $4)
+  const id = randomUUID();
+  await getDb().query(
+    `INSERT INTO memories (id, agent_id, type, name, content)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (agent_id, name) DO UPDATE
        SET content = EXCLUDED.content,
            type = EXCLUDED.type,
            updated_at = now()`,
-    [agentId, type, name, content]
+    [id, agentId, type, name, content]
   );
 }
 
@@ -462,59 +374,37 @@ export async function upsertMemorySafe(
 // Session queries
 // =============================================================================
 
-/**
- * Fetches a conversation session by agent and session key.
- *
- * @param {string} agentId - Agent UUID.
- * @param {string} sessionKey - Composite key: {userId}-{channelId}-{threadTs|'direct'}.
- * @returns {Promise<Session | null>} The session, or null if not found.
- */
 export async function getSession(agentId: string, sessionKey: string): Promise<Session | null> {
-  const result = await getPool().query(
+  const result = await getDb().query(
     'SELECT * FROM sessions WHERE agent_id = $1 AND session_key = $2',
     [agentId, sessionKey]
   );
   return result.rows.length > 0 ? rowToSession(result.rows[0]) : null;
 }
 
-/**
- * Creates or updates a conversation session.
- * Updates last_activity on conflict.
- *
- * @param {string} agentId - Agent UUID.
- * @param {string} sessionKey - Composite session key.
- * @param {string | undefined} claudeSessionId - Claude Code SDK session ID.
- * @returns {Promise<Session>} The upserted session.
- */
 export async function upsertSession(
   agentId: string,
   sessionKey: string,
   claudeSessionId?: string,
   mcpHash?: string
 ): Promise<Session> {
-  const result = await getPool().query(
-    `INSERT INTO sessions (agent_id, session_key, claude_session_id, mcp_hash, last_activity)
-     VALUES ($1, $2, $3, $4, now())
+  const id = randomUUID();
+  const result = await getDb().query(
+    `INSERT INTO sessions (id, agent_id, session_key, claude_session_id, mcp_hash, last_activity)
+     VALUES ($1, $2, $3, $4, $5, now())
      ON CONFLICT (agent_id, session_key) DO UPDATE
        SET claude_session_id = COALESCE(EXCLUDED.claude_session_id, sessions.claude_session_id),
            mcp_hash = COALESCE(EXCLUDED.mcp_hash, sessions.mcp_hash),
            last_activity = now()
      RETURNING *`,
-    [agentId, sessionKey, claudeSessionId ?? null, mcpHash ?? null]
+    [id, agentId, sessionKey, claudeSessionId ?? null, mcpHash ?? null]
   );
   return rowToSession(result.rows[0]);
 }
 
-/**
- * Deletes sessions for an agent that have been inactive for longer than maxAgeMs.
- *
- * @param {string} agentId - Agent UUID.
- * @param {number} maxAgeMs - Maximum session age in milliseconds.
- * @returns {Promise<number>} Number of sessions deleted.
- */
 export async function cleanupStaleSessions(agentId: string, maxAgeMs: number): Promise<number> {
-  const cutoff = new Date(Date.now() - maxAgeMs);
-  const result = await getPool().query(
+  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+  const result = await getDb().query(
     'DELETE FROM sessions WHERE agent_id = $1 AND last_activity < $2',
     [agentId, cutoff]
   );
@@ -525,56 +415,38 @@ export async function cleanupStaleSessions(agentId: string, maxAgeMs: number): P
 // Scheduled Jobs
 // =============================================================================
 
-/**
- * Returns all enabled scheduled jobs.
- *
- * @returns {Promise<ScheduledJob[]>}
- */
 export async function getAllEnabledJobs(): Promise<ScheduledJob[]> {
-  const r = await getPool().query('SELECT * FROM scheduled_jobs WHERE enabled = true');
+  const r = await getDb().query('SELECT * FROM scheduled_jobs WHERE enabled = true');
   return r.rows.map(row => ({
-    id: row.id,
-    agentId: row.agent_id,
-    name: row.name,
-    prompt: row.prompt,
-    cronSchedule: row.cron_schedule,
-    targetType: row.target_type,
-    targetId: row.target_id,
-    enabled: row.enabled,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    name: row.name as string,
+    prompt: row.prompt as string,
+    cronSchedule: row.cron_schedule as string,
+    targetType: row.target_type as 'channel' | 'dm',
+    targetId: row.target_id as string,
+    enabled: row.enabled !== false && row.enabled !== 0,
+    createdAt: row.created_at as Date,
+    updatedAt: row.updated_at as Date,
   }));
 }
 
-/**
- * Inserts a new job run record with status 'running'.
- *
- * @param {string} jobId - The scheduled job ID.
- * @returns {Promise<string>} The new run ID.
- */
 export async function insertJobRun(jobId: string): Promise<string> {
-  const r = await getPool().query(
-    "INSERT INTO job_runs (job_id, status) VALUES ($1, 'running') RETURNING id",
-    [jobId]
+  const id = randomUUID();
+  await getDb().query(
+    "INSERT INTO job_runs (id, job_id, status) VALUES ($1, $2, 'running')",
+    [id, jobId]
   );
-  return r.rows[0].id;
+  return id;
 }
 
-/**
- * Updates a job run with final status, output, and error.
- *
- * @param {string} runId - The run ID.
- * @param {'success' | 'error'} status - Final status.
- * @param {string | null} output - Truncated output text.
- * @param {string | null} error - Error message if failed.
- */
 export async function updateJobRun(
   runId: string,
   status: 'success' | 'error',
   output?: string | null,
   error?: string | null
 ): Promise<void> {
-  await getPool().query(
+  await getDb().query(
     'UPDATE job_runs SET status = $1, output = $2, error = $3, finished_at = now() WHERE id = $4',
     [status, output ?? null, error ?? null, runId]
   );
@@ -584,21 +456,34 @@ export async function updateJobRun(
 // Env Vars
 // =============================================================================
 
-/**
- * Returns all env vars as a key→value map. Used by the runner to resolve
- * envRefs in MCP stdio configs at agent start time.
- *
- * @returns {Promise<Record<string, string>>}
- */
 export async function getAllEnvVarValues(): Promise<Record<string, string>> {
   const encKey = process.env.ENV_SECRET_KEY;
   if (!encKey) {
     logger.warn('ENV_SECRET_KEY not set — env var refs will not resolve');
     return {};
   }
-  const r = await getPool().query(
-    'SELECT key, pgp_sym_decrypt(value::bytea, $1::text)::text AS value FROM env_vars',
-    [encKey],
+
+  const r = await getDb().query('SELECT key, value FROM env_vars');
+  const result: Record<string, string> = {};
+  for (const row of r.rows) {
+    try {
+      result[row.key as string] = decrypt(row.value as string, encKey);
+    } catch (err) {
+      logger.warn('Failed to decrypt env var', { key: row.key, error: (err as Error).message });
+    }
+  }
+  return result;
+}
+
+// =============================================================================
+// Async result helper (namespaced settings row)
+// =============================================================================
+
+/** Write a result to the settings table with the exact key (no prefix). */
+export async function setResult(key: string, value: string): Promise<void> {
+  await getDb().query(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, value]
   );
-  return Object.fromEntries(r.rows.map((row: { key: string; value: string }) => [row.key, row.value]));
 }

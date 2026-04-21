@@ -28,25 +28,50 @@ When an agent starts, SlackHive launches all its assigned MCP servers and keeps 
 
 Tool names follow the pattern `mcp__{serverName}__{toolName}`. For example, a server named `redshift` with a `query` tool is called as `mcp__redshift__query`.
 
+## The catalog — Official vs Community
+
+The platform catalog surfaces two badges:
+
+| Badge | Meaning |
+|---|---|
+| **Official** | Curated template maintained by SlackHive — tested and kept in sync with upstream MCP packages |
+| **Community** | Server you or a teammate added — not vetted |
+
+Browse the catalog, assign an Official template, fill in env vars, and you're done.
+
 ## Adding a server to the catalog
 
 <Steps>
   <Step title="Open MCP Servers">
-    In the sidebar, click **MCP Servers** (under Settings).
+    Sidebar → **MCP Servers** (under Settings).
   </Step>
-  <Step title="Click Add Server">
-    Give it a name and description. The name becomes part of every tool name from this server (`mcp__{name}__...`).
+  <Step title="Pick a starting point">
+    Three options:
+    - **Browse Templates** — pick from 40+ Official and Community templates
+    - **Import from Claude Code CLI** — one-click add any MCP already registered in your local `claude` CLI (shows a **CLI** badge on the card)
+    - **Add Custom** — configure from scratch
   </Step>
-  <Step title="Choose a transport type">
-    Select how SlackHive connects to this server (see the [Transport Types](#transport-types) section below).
+  <Step title="Fill in the blanks">
+    Most templates have placeholders for env vars (API keys, database URLs). Use `envRefs` to point at the encrypted store — see [Keeping secrets safe](#keeping-secrets-safe) below.
   </Step>
-  <Step title="Enter the configuration">
-    Fill in the command, URL, or script depending on your transport type.
+  <Step title="Probe the server">
+    Click **Test Connection**. SlackHive runs a real MCP handshake — `initialize`, `tools/list` — against the server. You see the list of tools it exposes. If the probe fails, the error is shown inline with the tool stderr.
   </Step>
-  <Step title="Test and save">
-    Click **Test Connection** to verify the server starts and responds correctly. Then click **Save**.
+  <Step title="Save">
+    Saves to the catalog. The server is now available for agent assignment.
   </Step>
 </Steps>
+
+## Import from Claude Code CLI
+
+If you've already set up MCPs via the `claude` CLI (`claude mcp add ...`), SlackHive can import them one-click.
+
+1. In **MCP Servers**, click **Import from Claude Code**
+2. You see the full list from `claude mcp list`
+3. Click **Import** on any server — it's added to the catalog with a **CLI** badge
+4. Adjust the env and config as needed
+
+This is the fastest path for teams who already manage MCPs through `claude` locally.
 
 ## Transport types
 
@@ -187,9 +212,24 @@ The raw secret never appears in API responses, browser dev tools, or log files.
 
 ## Testing a server
 
-From **Settings → MCP Servers**, click the **Test** button next to any server. SlackHive starts the server process and verifies it responds to initialization. Results appear inline.
+From **Settings → MCP Servers**, click the **Test** button next to any server. SlackHive runs a full MCP handshake:
 
-If a server fails to start, the agent still runs — an error is logged, but the agent continues without that server's tools. Check the agent's **Logs** tab for details.
+1. Launches the server process (or connects to the remote URL)
+2. Sends `initialize`
+3. Sends `tools/list`
+4. Displays the discovered tools inline
+
+If the probe fails, you see the error with stderr. If a server fails to start at runtime, the agent still runs — the failure is logged, and the agent continues without that server's tools. Check the agent's **Logs** tab for details.
+
+## OAuth MCPs
+
+Some servers (Figma, Linear, remote Anthropic MCPs) require OAuth. SlackHive supports three OAuth flows:
+
+1. **Dynamic client registration** — click **Connect** in the catalog, complete the OAuth dance
+2. **Paste token** — for providers that block dynamic registration
+3. **Claude Code CLI import** — if the MCP is already authorized in your local `claude` install
+
+See [OAuth MCPs](/configuration/mcp-oauth) for the full flow.
 
 ## Next steps
 
@@ -197,7 +237,7 @@ If a server fails to start, the agent still runs — an error is logged, but the
   <Card title="Agent Tools & Permissions" icon="shield" href="/agents/tools">
     Control exactly which MCP tools each agent can use.
   </Card>
-  <Card title="Env Vars" icon="lock" href="/configuration/env-vars">
-    Configure your encryption key and other platform settings.
+  <Card title="OAuth MCPs" icon="key" href="/configuration/mcp-oauth">
+    Connect servers that require OAuth authentication.
   </Card>
 </CardGroup>

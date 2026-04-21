@@ -9,6 +9,8 @@
 import { NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Returns the current user's username and role from the session cookie.
  *

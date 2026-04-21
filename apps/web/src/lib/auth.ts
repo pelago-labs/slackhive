@@ -10,15 +10,21 @@
 import * as crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { getUserByUsername } from './db';
+import { getAuthSecret, getAdminPassword } from './secrets';
 
-if (process.env.NODE_ENV === 'production' && !process.env.CI && (!process.env.AUTH_SECRET || !process.env.ADMIN_PASSWORD)) {
-  throw new Error('AUTH_SECRET and ADMIN_PASSWORD must be set in production. See .env.example.');
-}
-
-const AUTH_SECRET = process.env.AUTH_SECRET || 'change-this-secret-in-production';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
 const COOKIE_NAME = 'auth_session';
+
+/**
+ * Constant-time string comparison. SHA-256 hashes both inputs to equalize
+ * length before `timingSafeEqual`, so attackers can't distinguish by length
+ * or by character-position timing.
+ */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
 
 export type Role = 'superadmin' | 'admin' | 'editor' | 'viewer';
 
@@ -35,7 +41,7 @@ export interface SessionPayload {
  */
 export function signSession(payload: SessionPayload): string {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(data).digest('base64url');
+  const sig = crypto.createHmac('sha256', getAuthSecret()).update(data).digest('base64url');
   return `${data}.${sig}`;
 }
 
@@ -49,8 +55,8 @@ export function verifySession(cookie: string): SessionPayload | null {
   const parts = cookie.split('.');
   if (parts.length !== 2) return null;
   const [data, sig] = parts;
-  const expected = crypto.createHmac('sha256', AUTH_SECRET).update(data).digest('base64url');
-  if (sig !== expected) return null;
+  const expected = crypto.createHmac('sha256', getAuthSecret()).update(data).digest('base64url');
+  if (!timingSafeStringEqual(sig, expected)) return null;
   try {
     return JSON.parse(Buffer.from(data, 'base64url').toString()) as SessionPayload;
   } catch {
@@ -67,8 +73,9 @@ export function verifySession(cookie: string): SessionPayload | null {
  * @returns {Promise<SessionPayload | null>} Session payload or null if auth fails.
  */
 export async function authenticateUser(username: string, password: string): Promise<SessionPayload | null> {
-  // Check superadmin
-  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+  // Check superadmin. Username compare is non-secret; password compare must be
+  // constant-time to prevent timing oracles on ADMIN_PASSWORD.
+  if (username === ADMIN_USERNAME && timingSafeStringEqual(password, getAdminPassword())) {
     return { username, role: 'superadmin' };
   }
 
@@ -113,7 +120,7 @@ export function getSessionFromRequest(req: Request): SessionPayload | null {
  * @returns {SessionPayload} Verified session.
  * @throws {Error} If not authenticated or insufficient role.
  */
-export function requireRole(req: Request, minRole: 'viewer' | 'editor' | 'admin'): SessionPayload {
+export function requireRole(req: Request, minRole: 'viewer' | 'editor' | 'admin' | 'superadmin'): SessionPayload {
   const session = getSessionFromRequest(req);
   if (!session) throw new Error('Not authenticated');
 

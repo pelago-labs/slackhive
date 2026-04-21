@@ -8,8 +8,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/api-error';
 import { getSnapshotById, deleteSnapshot } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/agents/[id]/snapshots/[sid]
@@ -27,7 +30,7 @@ export async function GET(
     if (!snapshot) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(snapshot);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/snapshots/[sid]', err);
   }
 }
 
@@ -48,6 +51,6 @@ export async function DELETE(
     await deleteSnapshot(sid);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/snapshots/[sid]', err);
   }
 }

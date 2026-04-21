@@ -8,8 +8,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/api-error';
 import { getAllEnvVars, setEnvVar } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/env-vars
@@ -22,7 +25,7 @@ export async function GET(): Promise<NextResponse> {
     const vars = await getAllEnvVars();
     return NextResponse.json(vars);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('env-vars', err);
   }
 }
 
@@ -54,6 +57,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await setEnvVar(key, value, description);
     return NextResponse.json({ key }, { status: 201 });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('env-vars', err);
   }
 }

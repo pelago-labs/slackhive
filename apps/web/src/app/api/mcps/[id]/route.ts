@@ -9,10 +9,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/api-error';
 import { getMcpServerById, updateMcpServer, deleteMcpServer } from '@/lib/db';
 import type { UpsertMcpServerRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
 import { maskMcpServer, mergeMcpConfig } from '@/lib/mcp-mask';
+
+export const dynamic = 'force-dynamic';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -23,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
     if (!server) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(maskMcpServer(server));
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('mcps/[id]', err);
   }
 }
 
@@ -43,7 +46,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(maskMcpServer(updated));
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('mcps/[id]', err);
   }
 }
 
@@ -55,6 +58,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams): Promise
     await deleteMcpServer(id);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('mcps/[id]', err);
   }
 }

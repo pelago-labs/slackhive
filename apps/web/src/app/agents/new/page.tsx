@@ -9,10 +9,11 @@
  * @module web/app/agents/new
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { AlertTriangle, Eye, EyeOff, Search, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import type { Agent, McpServer } from '@slackhive/shared';
+import type { Agent, McpServer, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ interface WizardState {
   reportsToIds: string[];
   slackBotToken: string; slackAppToken: string; slackSigningSecret: string;
   mcpServerIds: string[];
-  skillTemplate: 'blank' | 'data-analyst' | 'writer' | 'developer';
+  selectedPersona: PersonaTemplate | null;
   importPayload: AgentExportPayload | null;
 }
 
@@ -39,7 +40,7 @@ const INITIAL: WizardState = {
   model: 'claude-opus-4-6', isBoss: false,
   reportsToIds: [],
   slackBotToken: '', slackAppToken: '', slackSigningSecret: '',
-  mcpServerIds: [], skillTemplate: 'blank', importPayload: null,
+  mcpServerIds: [], selectedPersona: null, importPayload: null,
 };
 
 const MODELS = [
@@ -82,18 +83,25 @@ export default function NewAgentWizard() {
 
   const update = (patch: Partial<WizardState>) => setState(s => ({ ...s, ...patch }));
 
-  // Boss agents skip the MCPs & Skills step (their CLAUDE.md is auto-generated)
-  const totalSteps = state.isBoss ? 4 : 5;
+  // Boss agents skip Persona + Tools steps (their CLAUDE.md is auto-generated)
+  const totalSteps = state.isBoss ? 4 : 6;
   const stepLabels = state.isBoss
     ? ['Name & Role', 'Slack App', 'Credentials', 'Review']
-    : ['Name & Role', 'Slack App', 'Credentials', 'Tools', 'Review'];
+    : ['Name & Role', 'Persona', 'Slack App', 'Credentials', 'Tools', 'Review'];
 
   const next = () => setStep(s => Math.min(s + 1, totalSteps - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
 
+  const credStep = state.isBoss ? 2 : 3;
   const canNext = () => {
     if (step === 0) return !!(state.name && state.slug);
-    if (step === 2) return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
+    // Persona step (non-boss only, step index 1): if "Blank" is picked, the
+    // user must type a description. Otherwise the template supplies it and
+    // Coach bootstrap would silently skip (see seed check in submit()).
+    if (!state.isBoss && step === 1) {
+      if (!state.selectedPersona && !state.description.trim()) return false;
+    }
+    if (step === credStep) return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
     return true;
   };
 
@@ -103,15 +111,39 @@ export default function NewAgentWizard() {
       const r = await fetch('/api/agents', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...state,
+          slug: state.slug,
+          name: state.name,
+          persona: state.selectedPersona?.persona ?? state.persona,
+          description: state.selectedPersona?.description ?? state.description,
+          model: state.model,
+          isBoss: state.isBoss,
           reportsTo: state.isBoss ? [] : state.reportsToIds,
+          skillTemplate: 'blank',
+          mcpServerIds: state.mcpServerIds,
+          platform: 'slack',
+          platformCredentials: {
+            botToken: state.slackBotToken,
+            appToken: state.slackAppToken,
+            signingSecret: state.slackSigningSecret,
+          },
         }),
       });
       const data = await r.json();
       if (!r.ok) { setError(data.error ?? 'Failed to create agent'); return; }
 
-      // Apply imported config if provided
-      if (state.importPayload) {
+      // Apply selected persona (claudeMd + skills)
+      if (state.selectedPersona) {
+        const { claudeMd, skills } = state.selectedPersona;
+        await fetch(`/api/agents/${data.id}/claude-md`, {
+          method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: claudeMd,
+        });
+        await Promise.all(skills.map(s =>
+          fetch(`/api/agents/${data.id}/skills?noSnapshot=1`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(s),
+          })
+        ));
+      } else if (state.importPayload) {
         const { claudeMd, skills } = state.importPayload;
         await fetch(`/api/agents/${data.id}/claude-md`, {
           method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: claudeMd,
@@ -124,7 +156,22 @@ export default function NewAgentWizard() {
         ));
       }
 
-      router.push(`/agents/${data.slug}`);
+      // Kick off bootstrap in the background — don't await. The route returns
+      // 202 quickly; the runner then drafts claude.md + skills and writes the
+      // result to the coach session. The Instructions tab polls it live.
+      // Invariant: for non-import, non-boss agents, description is required
+      // (enforced in canNext() and API validation), so seed is always non-empty.
+      const seed = [state.description?.trim(), state.persona?.trim()].filter(Boolean).join('\n\n');
+      if (!state.importPayload && !state.isBoss && seed.length > 0) {
+        fetch(`/api/agents/${data.id}/coach`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userMessage: seed, autoApply: true, detached: true }),
+        }).catch(() => { /* non-fatal; user can run Coach manually */ });
+      }
+
+      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
+      router.push(`/agents/${data.slug}?coach=open`);
     } finally { setSubmitting(false); }
   };
 
@@ -164,11 +211,13 @@ export default function NewAgentWizard() {
                   fontSize: i < step ? 11 : 12, fontWeight: 600,
                   background: i < step ? 'var(--accent)' :
                                i === step ? 'rgba(59,130,246,0.15)' :
-                               'var(--border)',
+                               'transparent',
                   color: i < step ? '#fff' :
                          i === step ? 'var(--accent)' :
-                         'var(--subtle)',
-                  border: i === step ? '1.5px solid var(--accent)' : '1.5px solid transparent',
+                         'var(--muted)',
+                  border: i < step ? '1.5px solid transparent' :
+                          i === step ? '1.5px solid var(--accent)' :
+                          '1.5px solid var(--border-2)',
                   transition: 'all 0.2s',
                 }}>
                   {i < step ? '✓' : i + 1}
@@ -197,10 +246,16 @@ export default function NewAgentWizard() {
             key={step}
           >
             {step === 0 && <Step1Identity state={state} update={update} bosses={bosses} />}
-            {step === 1 && <Step2SlackApp state={state} />}
-            {step === 2 && <Step3Tokens state={state} update={update} />}
-            {step === 3 && !state.isBoss && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
-            {((step === 3 && state.isBoss) || step === 4) && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
+            {/* Specialist steps */}
+            {!state.isBoss && step === 1 && <Step2Persona state={state} update={update} />}
+            {!state.isBoss && step === 2 && <Step2SlackApp state={state} />}
+            {!state.isBoss && step === 3 && <Step3Tokens state={state} update={update} />}
+            {!state.isBoss && step === 4 && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
+            {!state.isBoss && step === 5 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
+            {/* Boss steps */}
+            {state.isBoss && step === 1 && <Step2SlackApp state={state} />}
+            {state.isBoss && step === 2 && <Step3Tokens state={state} update={update} />}
+            {state.isBoss && step === 3 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
           </div>
 
           {error && (
@@ -289,14 +344,6 @@ function Step1Identity({ state, update, bosses }: {
           hint="Lowercase, hyphens only"
           onChange={v => update({ slug: v.toLowerCase().replace(/[^a-z0-9-]/g, '') })} />
       </div>
-      <Field label="Description" value={state.description} placeholder="Data warehouse NLQ, Redshift queries, business metrics"
-        hint="Used by the boss to decide when to delegate here."
-        onChange={v => update({ description: v })} />
-      <TextArea label="Persona" value={state.persona}
-        placeholder="You are GILFOYLE, a cynical but brilliant data engineer…"
-        hint="Injected into CLAUDE.md as the agent's identity and personality."
-        rows={3} onChange={v => update({ persona: v })} />
-
       {/* Model selector */}
       <div style={{ marginBottom: 14 }}>
         <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 8 }}>
@@ -599,15 +646,15 @@ function Step2SlackApp({ state }: { state: WizardState }) {
             {state.name || 'agent'}-manifest.json
           </span>
           <button onClick={copy} style={{
-            background: copied ? '#dcfce7' : 'var(--accent)',
-            color: copied ? '#16a34a' : '#fff',
+            background: copied ? 'var(--green)' : 'var(--accent)',
+            color: copied ? '#fff' : 'var(--accent-fg)',
             border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
             fontFamily: 'var(--font-sans)', padding: '5px 12px', borderRadius: 6,
             transition: 'all 0.15s',
           }}>{copied ? '✓ Copied!' : 'Copy manifest'}</button>
         </div>
         <pre style={{
-          margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)',
+          margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--text)',
           fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 260, lineHeight: 1.6,
         }}>{manifest}</pre>
       </div>
@@ -920,7 +967,215 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ─── Step 4: MCPs & Skills ────────────────────────────────────────────────────
+// ─── Step 2: Persona browser ─────────────────────────────────────────────────
+
+const PERSONA_CATEGORY_LABELS: [PersonaCategory | 'all', string][] = [
+  ['all', 'All'],
+  ['engineering', 'Engineering'],
+  ['data', 'Data'],
+  ['product', 'Product'],
+  ['business', 'Business'],
+  ['generic', 'Generic'],
+];
+
+const PERSONA_CATEGORY_COLORS: Record<string, string> = {
+  engineering: '#3b82f6',
+  data: '#9333ea',
+  product: '#16a34a',
+  business: '#d97706',
+  generic: '#6b7280',
+};
+
+function Step2Persona({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState<PersonaCategory | 'all'>('all');
+
+  const filtered = useMemo(() => {
+    let list = search.trim() ? searchPersonas(search) : PERSONA_CATALOG;
+    if (category !== 'all') list = list.filter(p => p.category === category);
+    return list;
+  }, [search, category]);
+
+  const selected = state.selectedPersona;
+
+  return (
+    <div>
+      <StepHeader step={2} title="Choose a persona" desc="Pick a pre-built role to give your agent a system prompt and skills. You can skip and start blank." />
+
+      {/* Search + category chips */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ position: 'relative', marginBottom: 10 }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+          <input
+            type="text" placeholder="Search personas…" value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '8px 10px 8px 30px', fontSize: 13,
+              background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+              borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none',
+            }}
+            onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+            onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {PERSONA_CATEGORY_LABELS.map(([val, label]) => {
+            const active = category === val;
+            return (
+              <button key={val} onClick={() => setCategory(val)}
+                style={{
+                  padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: active ? 600 : 400,
+                  border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                  background: active ? 'rgba(59,130,246,0.1)' : 'transparent',
+                  color: active ? 'var(--accent)' : 'var(--muted)',
+                  cursor: 'pointer', fontFamily: 'var(--font-sans)', transition: 'all 0.12s',
+                }}
+              >{label}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Card grid */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+        gap: 8, maxHeight: 290, overflowY: 'auto', paddingRight: 2,
+      }}>
+        {/* Blank card — always first */}
+        {(() => {
+          const isBlank = selected === null;
+          return (
+            <div
+              onClick={() => update({ selectedPersona: null })}
+              style={{
+                padding: '11px 12px', borderRadius: 8, cursor: 'pointer',
+                border: `1.5px solid ${isBlank ? 'var(--border-2)' : 'var(--border)'}`,
+                background: isBlank ? 'var(--surface-2)' : 'transparent',
+                transition: 'border-color 0.12s, background 0.12s',
+                position: 'relative',
+              }}
+              onMouseEnter={e => { if (!isBlank) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
+              onMouseLeave={e => { if (!isBlank) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+            >
+              {isBlank && (
+                <div style={{
+                  position: 'absolute', top: 6, right: 6,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Check size={10} color="#fff" strokeWidth={3} />
+                </div>
+              )}
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'var(--subtle)', textTransform: 'uppercase', marginBottom: 5 }}>generic</div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 3, lineHeight: 1.3 }}>Blank</div>
+              <div style={{ fontSize: 11, color: 'var(--subtle)', lineHeight: 1.4 }}>No persona, no skills — start from scratch</div>
+              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>0 skills</div>
+            </div>
+          );
+        })()}
+        {filtered.map(p => {
+          const isSelected = selected?.id === p.id;
+          const catColor = PERSONA_CATEGORY_COLORS[p.category] ?? '#6b7280';
+          return (
+            <div key={p.id}
+              onClick={() => update({ selectedPersona: isSelected ? null : p })}
+              style={{
+                padding: '11px 12px', borderRadius: 8, cursor: 'pointer',
+                border: `1.5px solid ${isSelected ? catColor : 'var(--border)'}`,
+                background: isSelected ? `${catColor}12` : 'var(--surface-2)',
+                transition: 'border-color 0.12s, background 0.12s',
+                position: 'relative',
+              }}
+              onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
+              onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+            >
+              {isSelected && (
+                <div style={{
+                  position: 'absolute', top: 6, right: 6,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: catColor, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Check size={10} color="#fff" strokeWidth={3} />
+                </div>
+              )}
+              <div style={{
+                display: 'inline-block', marginBottom: 5,
+                fontSize: 10, fontWeight: 600, letterSpacing: '0.05em',
+                color: catColor, textTransform: 'uppercase',
+              }}>{p.category}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 3, lineHeight: 1.3 }}>{p.name}</div>
+              <div style={{
+                fontSize: 11, color: 'var(--subtle)', lineHeight: 1.4,
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>{p.cardDescription}</div>
+              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
+                {p.skills.length} skills
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--subtle)' }}>
+        {selected ? <><span style={{ color: 'var(--text)', fontWeight: 500 }}>{selected.name}</span> selected</> : 'Blank selected — describe the agent below'}
+      </p>
+
+      {/* When "Blank" is picked there's no template to supply description/persona.
+          Description is required so the agent has an identity AND so Coach bootstrap
+          has a seed to run with (see submit() — seed = description ?? persona). */}
+      {selected === null && (
+        <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
+              Description <span style={{ color: 'var(--accent)' }}>*</span>
+            </label>
+            <textarea
+              value={state.description}
+              onChange={e => update({ description: e.target.value })}
+              placeholder="What does this agent do in one sentence? (e.g. 'Daily team birthday reminders in #general')"
+              rows={2}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '9px 11px', fontSize: 13, lineHeight: 1.5,
+                background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+                borderRadius: 'var(--radius)', color: 'var(--text)',
+                fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+              Used to seed the agent&apos;s CLAUDE.md and kick off the Coach&apos;s first-turn draft.
+            </p>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
+              Persona <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <textarea
+              value={state.persona}
+              onChange={e => update({ persona: e.target.value })}
+              placeholder="Tone / voice / how it should speak. Leave blank and the Coach will draft one."
+              rows={2}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '9px 11px', fontSize: 13, lineHeight: 1.5,
+                background: 'var(--surface-2)', border: '1.5px solid var(--border)',
+                borderRadius: 'var(--radius)', color: 'var(--text)',
+                fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Step 4: MCPs ─────────────────────────────────────────────────────────────
 
 function Step4McpsSkills({
   state, update, catalog,
@@ -934,7 +1189,7 @@ function Step4McpsSkills({
 
   return (
     <div>
-      <StepHeader step={4} title="Tools & Skills" desc="Attach MCP servers and pick a starting skill template. You can change these anytime." />
+      <StepHeader step={5} title="Tools" desc="Attach MCP servers to give your agent access to external tools. You can change these anytime." />
 
       {/* MCP list */}
       <div style={{ marginBottom: 22 }}>
@@ -979,54 +1234,15 @@ function Step4McpsSkills({
         )}
       </div>
 
-      {/* Template grid */}
-      <div>
-        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-          Skill Template
-        </label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          {TEMPLATES.map(t => {
-            const active = state.skillTemplate === t.value && !state.importPayload;
-            return (
-              <label key={t.value} style={{
-                padding: '12px 14px', border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                borderRadius: 8, cursor: 'pointer',
-                background: active ? 'rgba(59,130,246,0.08)' : 'transparent',
-                transition: 'all 0.15s',
-              }}>
-                <input type="radio" name="template" value={t.value} checked={active}
-                  onChange={() => update({ skillTemplate: t.value as WizardState['skillTemplate'], importPayload: null })}
-                  style={{ display: 'none' }} />
-                <div style={{ fontSize: 13, fontWeight: 600, color: active ? 'var(--accent)' : 'var(--text)', marginBottom: 2 }}>
-                  {t.label}
-                </div>
-                <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{t.desc}</div>
-              </label>
-            );
-          })}
-
-          {/* Import tile */}
-          {(() => {
-            const active = !!state.importPayload;
-            return (
-              <div style={{
-                padding: '12px 14px',
-                border: `1px solid ${active ? '#8b5cf6' : 'var(--border)'}`,
-                borderRadius: 8,
-                background: active ? 'rgba(139,92,246,0.08)' : 'transparent',
-                transition: 'all 0.15s',
-                gridColumn: 'span 2',
-              }}>
-                <ImportConfigPicker
-                  value={state.importPayload}
-                  onChange={payload => update({ importPayload: payload })}
-                  compact
-                />
-              </div>
-            );
-          })()}
+      {state.selectedPersona && (
+        <div style={{
+          background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)',
+          borderRadius: 8, padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)',
+        }}>
+          Persona: <span style={{ fontWeight: 600, color: 'var(--text)' }}>{state.selectedPersona.name}</span>
+          {' '}· {state.selectedPersona.skills.length} skills will be applied after creation
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1036,9 +1252,11 @@ function Step4McpsSkills({
 function Step5Review({ state, update, catalog, agents }: { state: WizardState; update: (p: Partial<WizardState>) => void; catalog: McpServer[]; agents: Agent[] }) {
   const assignedBosses = agents.filter(a => state.reportsToIds.includes(a.id));
   const assignedMcps = catalog.filter(m => state.mcpServerIds.includes(m.id));
-  const template = state.importPayload
+  const template = state.selectedPersona
+    ? `${state.selectedPersona.name} (${state.selectedPersona.skills.length} skills)`
+    : state.importPayload
     ? `Import (${state.importPayload.skills.length} skills)`
-    : (TEMPLATES.find(t => t.value === state.skillTemplate)?.label ?? state.skillTemplate);
+    : 'Blank';
 
   const reportsToValue = state.isBoss
     ? '—'
@@ -1048,7 +1266,7 @@ function Step5Review({ state, update, catalog, agents }: { state: WizardState; u
 
   return (
     <div>
-      <StepHeader step={state.isBoss ? 4 : 5} title="Looks good?" desc="Review the details below, then hit Create Agent to launch." />
+      <StepHeader step={state.isBoss ? 4 : 6} title="Looks good?" desc="Review the details below, then hit Create Agent to launch." />
 
       <div style={{
         background: 'var(--surface-2)', border: '1px solid var(--border)',

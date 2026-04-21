@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/api-error';
 import {
   getAgentById,
   getAgentSkills,
@@ -19,6 +20,8 @@ import {
 import { guardAgentWrite } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { skillToSnapshotSkill } from '@/lib/compile';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/agents/[id]/snapshots
@@ -36,7 +39,7 @@ export async function GET(
     // Omit compiledMd from list view to keep payload small
     return NextResponse.json(snapshots.map(s => ({ ...s, compiledMd: undefined })));
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/snapshots', err);
   }
 }
 
@@ -79,6 +82,6 @@ export async function POST(
 
     return NextResponse.json(snapshot, { status: 201 });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/snapshots', err);
   }
 }

@@ -13,6 +13,8 @@ import { guardAdmin } from '@/lib/api-guard';
 import { getAgentWriteUsers, grantAgentWrite, revokeAgentWrite, getAllUsers, userCanWriteAgent } from '@/lib/db';
 import { getSessionFromRequest } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/agents/[id]/access
  * - For admins: returns write-grant list + all users for the assignment UI.

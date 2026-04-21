@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 
 const STATUS_DOT: Record<string, string> = {
-  running: '#059669', stopped: '#d4d4d4', error: '#dc2626',
+  running: '#059669', stopped: '#d4d4d4', error: '#dc2626', stale: '#f59e0b',
 };
 
 export const SidebarContext = createContext<{ collapsed: boolean; width: number }>({ collapsed: false, width: 240 });
@@ -41,7 +41,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  useEffect(() => {
+  const loadSidebarData = () => {
     fetch('/api/agents').then(r => r.json()).then(setAgents).catch(() => {});
     fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
       setBranding(prev => ({
@@ -50,6 +50,16 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         logoUrl: s.logoUrl ?? prev.logoUrl,
       }));
     }).catch(() => {});
+  };
+
+  useEffect(() => {
+    loadSidebarData();
+    // Poll every 5 seconds to keep sidebar in sync after mutations
+    const interval = setInterval(loadSidebarData, 5000);
+    // Also listen for instant refresh signals from other components
+    const handler = () => loadSidebarData();
+    window.addEventListener('slackhive:sidebar-refresh', handler);
+    return () => { clearInterval(interval); window.removeEventListener('slackhive:sidebar-refresh', handler); };
   }, []);
 
   return (
@@ -130,7 +140,8 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
 
           {agents.map(agent => {
             const isActive = pathname === `/agents/${agent.slug}`;
-            const dot = STATUS_DOT[agent.status] ?? '#d4d4d4';
+            const displayStatus = agent.liveStatus ?? agent.status;
+            const dot = STATUS_DOT[displayStatus] ?? '#d4d4d4';
             return (
               <Link key={agent.id} href={`/agents/${agent.slug}`} title={agent.name}
                 style={{
@@ -152,7 +163,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 11, fontWeight: 600, color: agent.isBoss ? '#fff' : 'var(--text)',
                   }}>{agent.name.charAt(0).toUpperCase()}</div>
-                  <div className={agent.status === 'running' ? 'status-running' : ''} style={{
+                  <div className={displayStatus === 'running' ? 'status-running' : ''} style={{
                     position: 'absolute', bottom: -1, right: -1,
                     width: 8, height: 8, borderRadius: '50%',
                     background: dot, border: '2px solid var(--surface)',

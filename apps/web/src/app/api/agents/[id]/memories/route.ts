@@ -8,9 +8,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/api-error';
 import { getAgentMemories, upsertMemory } from '@/lib/db';
 import type { UpsertMemoryRequest } from '@slackhive/shared';
 import { guardAgentWrite } from '@/lib/api-guard';
+
+export const dynamic = 'force-dynamic';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -27,7 +30,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
     const memories = await getAgentMemories(id);
     return NextResponse.json(memories);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/memories', err);
   }
 }
 
@@ -51,6 +54,6 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     const memory = await upsertMemory(id, body.type, body.name, body.content);
     return NextResponse.json(memory, { status: 201 });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/memories', err);
   }
 }

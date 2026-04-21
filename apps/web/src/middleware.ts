@@ -11,30 +11,39 @@
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { getAuthSecret } from './lib/secrets';
 
-if (process.env.NODE_ENV === 'production' && !process.env.CI && !process.env.AUTH_SECRET) {
-  throw new Error('AUTH_SECRET must be set in production. See .env.example.');
-}
-
-const AUTH_SECRET = process.env.AUTH_SECRET || 'change-this-secret-in-production';
 const COOKIE_NAME = 'auth_session';
 
+/** Decode a base64url string to bytes without leaking on invalid input. */
+function base64urlToBytes(s: string): Uint8Array | null {
+  try {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4);
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Verifies HMAC signature using Edge-compatible crypto.subtle.
+ * Verifies an HMAC signature using `crypto.subtle.verify`, which is
+ * constant-time by contract — avoids the timing oracle of string comparison.
  *
  * @param {string} data - The base64url-encoded payload.
  * @param {string} sig - The base64url-encoded signature.
  * @returns {Promise<boolean>} True if valid.
  */
 async function verifyHmac(data: string, sig: string): Promise<boolean> {
+  const sigBytes = base64urlToBytes(sig);
+  if (!sigBytes) return false;
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
-    'raw', enc.encode(AUTH_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    'raw', enc.encode(getAuthSecret()), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
   );
-  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(data));
-  const expected = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return sig === expected;
+  return crypto.subtle.verify('HMAC', key, sigBytes as BufferSource, enc.encode(data));
 }
 
 /**

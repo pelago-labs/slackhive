@@ -9,6 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { KeyRound } from 'lucide-react';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 
@@ -129,11 +130,11 @@ function GeneralTab() {
       )}
 
       <Section title="Branding">
-        <Field label="App Name" hint="Displayed in the sidebar header and browser tab."
+        <Field label="App Name" hint="Displayed in the sidebar header and browser tab." maxLength={30}
           value={appName} onChange={setAppName} onBlur={() => save('appName', appName)} />
-        <Field label="Tagline" hint="Short description shown below the app name."
+        <Field label="Tagline" hint="Short description shown below the app name." maxLength={60}
           value={tagline} onChange={setTagline} onBlur={() => save('tagline', tagline)} />
-        <Field label="Logo URL" hint="URL to a square image (28×28). Leave empty for the default icon."
+        <Field label="Logo URL" hint="URL to a square image (28×28). Leave empty for the default icon." maxLength={500}
           value={logoUrl} onChange={setLogoUrl} onBlur={() => save('logoUrl', logoUrl)} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>Preview:</div>
@@ -144,7 +145,7 @@ function GeneralTab() {
       </Section>
 
       <Section title="Dashboard">
-        <Field label="Dashboard Title" hint="Main heading on the dashboard page."
+        <Field label="Dashboard Title" hint="Main heading on the dashboard page." maxLength={80}
           value={dashboardTitle} onChange={setDashboardTitle} onBlur={() => save('dashboardTitle', dashboardTitle)} />
       </Section>
 
@@ -160,6 +161,8 @@ function GeneralTab() {
 // =============================================================================
 
 function UsersTab() {
+  const { role: currentRole } = useAuth();
+  const isSuperadmin = currentRole === 'superadmin';
   const [users, setUsers] = useState<User[]>([]);
   const [agents, setAgents] = useState<AgentBasic[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,6 +175,12 @@ function UsersTab() {
   // Map of userId → set of agentIds with write access
   const [writeGrants, setWriteGrants] = useState<Record<string, Set<string>>>({});
   const [loadingGrants, setLoadingGrants] = useState<string | null>(null);
+  // Password reset modal state
+  const [resetUser, setResetUser] = useState<User | null>(null);
+  const [resetPwd, setResetPwd] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -212,6 +221,40 @@ function UsersTab() {
     });
     setUpdatingRole(null);
     load();
+  };
+
+  const openReset = (u: User) => {
+    setResetUser(u);
+    setResetPwd('');
+    setResetError('');
+    setResetSuccess(false);
+  };
+
+  const closeReset = () => {
+    if (resetting) return;
+    setResetUser(null);
+    setResetPwd('');
+    setResetError('');
+    setResetSuccess(false);
+  };
+
+  const submitReset = async () => {
+    if (!resetUser) return;
+    if (resetPwd.length < 8) { setResetError('Password must be at least 8 characters'); return; }
+    setResetting(true); setResetError('');
+    try {
+      const r = await fetch(`/api/auth/users/${resetUser.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: resetPwd }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setResetError(data.error || 'Failed to reset password');
+        return;
+      }
+      setResetSuccess(true);
+      setTimeout(() => { setResetUser(null); setResetPwd(''); setResetSuccess(false); }, 1200);
+    } finally { setResetting(false); }
   };
 
   const toggleExpand = async (userId: string) => {
@@ -345,6 +388,21 @@ function UsersTab() {
                     background: 'var(--surface-2)', opacity: 0.5,
                   }}>Agent Access</span>
                 )}
+                {isSuperadmin && (
+                  <button
+                    onClick={() => openReset(u)}
+                    title="Reset password"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 28, height: 26, padding: 0,
+                      background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
+                      color: 'var(--muted)', cursor: 'pointer', opacity: 0.7,
+                      transition: 'opacity 0.12s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                    onMouseLeave={e => (e.currentTarget.style.opacity = '0.7')}
+                  ><KeyRound size={13} /></button>
+                )}
                 <button onClick={() => remove(u.id, u.username)} style={{
                   background: 'none', border: 'none', color: '#dc2626',
                   fontSize: 12, cursor: 'pointer', opacity: 0.6,
@@ -458,6 +516,61 @@ function UsersTab() {
         </div>
         </Portal>
       )}
+
+      {/* Reset password modal (superadmin only) */}
+      {resetUser && (
+        <Portal>
+        <div
+          onClick={closeReset}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+            backdropFilter: 'blur(2px)',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)',
+              padding: 28, width: 380, boxShadow: 'var(--shadow-lg)',
+              display: 'flex', flexDirection: 'column', gap: 16,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Reset password</h3>
+              <button onClick={closeReset} disabled={resetting}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>&times;</button>
+            </div>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+              Set a new password for <strong style={{ color: 'var(--text)' }}>{resetUser.username}</strong>. They&apos;ll need the new password on their next login.
+            </p>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>New password</label>
+              <input
+                type="password"
+                autoFocus
+                value={resetPwd}
+                disabled={resetting || resetSuccess}
+                onChange={e => setResetPwd(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') submitReset(); }}
+                placeholder="Minimum 8 characters"
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-sans)' }}
+              />
+            </div>
+            {resetError && <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '6px 10px', borderRadius: 6 }}>{resetError}</div>}
+            {resetSuccess && <div style={{ fontSize: 12, color: '#059669', background: 'rgba(5,150,105,0.08)', padding: '6px 10px', borderRadius: 6 }}>Password updated</div>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={closeReset} disabled={resetting}
+                style={{ padding: '8px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Cancel</button>
+              <button onClick={submitReset} disabled={resetting || resetSuccess || !resetPwd}
+                style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)', opacity: (resetting || resetSuccess || !resetPwd) ? 0.6 : 1 }}>
+                {resetting ? 'Saving…' : 'Reset password'}
+              </button>
+            </div>
+          </div>
+        </div>
+        </Portal>
+      )}
     </>
   );
 }
@@ -491,21 +604,30 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Field({ label, value, onChange, onBlur, hint }: {
-  label: string; value: string; onChange: (v: string) => void; onBlur?: () => void; hint?: string;
+function Field({ label, value, onChange, onBlur, hint, maxLength }: {
+  label: string; value: string; onChange: (v: string) => void; onBlur?: () => void; hint?: string; maxLength?: number;
 }) {
+  const overLimit = maxLength !== undefined && value.length > maxLength;
   return (
     <div>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>{label}</label>
-      <input type="text" value={value} onChange={e => onChange(e.target.value)}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+        <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>{label}</label>
+        {maxLength !== undefined && (
+          <span style={{ fontSize: 10, color: overLimit ? 'var(--red)' : 'var(--subtle)', fontFamily: 'var(--font-mono)' }}>
+            {value.length}/{maxLength}
+          </span>
+        )}
+      </div>
+      <input type="text" value={value} maxLength={maxLength} onChange={e => onChange(e.target.value)}
         onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; onBlur?.(); }}
         style={{
-          width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
+          width: '100%', background: 'var(--surface)',
+          border: `1px solid ${overLimit ? 'var(--red)' : 'var(--border)'}`,
           borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
           fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
           transition: 'border-color 0.15s', boxSizing: 'border-box',
         }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+        onFocus={e => { if (!overLimit) e.currentTarget.style.borderColor = 'var(--accent)'; }}
       />
       {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
     </div>

@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/api-error';
 import {
   getAllAgents,
   createAgent,
@@ -15,12 +16,16 @@ import {
   upsertSkill,
   upsertPermissions,
   publishAgentEvent,
+  applyLiveStatus,
 } from '@/lib/db';
 import type { CreateAgentRequest } from '@slackhive/shared';
 import { SKILL_TEMPLATES } from '@/lib/skill-templates';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
+import { toAgentPublic } from '@/lib/agent-public';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/agents
@@ -31,9 +36,9 @@ import { getSessionFromRequest } from '@/lib/auth';
 export async function GET(): Promise<NextResponse> {
   try {
     const agents = await getAllAgents();
-    return NextResponse.json(agents);
+    return NextResponse.json(agents.map(a => toAgentPublic(applyLiveStatus(a))));
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents', err);
   }
 }
 
@@ -52,10 +57,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = (await request.json()) as CreateAgentRequest;
 
-    // Validate required fields
-    if (!body.slug || !body.name || !body.slackBotToken || !body.slackAppToken || !body.slackSigningSecret) {
+    // Validate required fields. Description is required for non-boss agents so the
+    // Coach bootstrap seed is always non-empty and CLAUDE.md has a real identity.
+    // Boss agents get auto-generated CLAUDE.md from boss-registry, so description is optional.
+    if (!body.slug || !body.name) {
       return NextResponse.json(
-        { error: 'slug, name, slackBotToken, slackAppToken, slackSigningSecret are required' },
+        { error: 'slug and name are required' },
+        { status: 400 }
+      );
+    }
+    if (!body.isBoss && !body.description?.trim()) {
+      return NextResponse.json(
+        { error: 'description is required' },
         { status: 400 }
       );
     }
@@ -78,8 +91,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Create default permissions (Read + selected MCP tools)
-    const allowedTools = ['Read'];
+    // Create default permissions — safe tools for file access + code search
+    const allowedTools = ['Read', 'Write', 'Edit', 'Glob', 'Grep'];
     await upsertPermissions(agent.id, allowedTools, []);
 
     // Signal the runner to start this agent
@@ -88,12 +101,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Regenerate boss registry now that team has a new member
     await regenerateBossRegistry().catch(() => {});
 
-    return NextResponse.json(agent, { status: 201 });
+    return NextResponse.json(toAgentPublic(agent), { status: 201 });
   } catch (err) {
-    const message = (err as Error).message;
-    if (message.includes('unique')) {
+    if ((err as Error).message?.includes('unique')) {
       return NextResponse.json({ error: 'An agent with this slug already exists' }, { status: 409 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError('agents POST', err);
   }
 }

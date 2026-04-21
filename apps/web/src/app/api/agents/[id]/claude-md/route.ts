@@ -18,6 +18,8 @@ import { guardAgentWrite } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { skillToSnapshotSkill } from '@/lib/compile';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/agents/[id]/claude-md
  * Returns the agent's CLAUDE.md content with memories appended.

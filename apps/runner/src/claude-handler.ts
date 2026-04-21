@@ -372,10 +372,24 @@ export class ClaudeHandler {
       fs.mkdirSync(scriptDir, { recursive: true });
       fs.writeFileSync(scriptPath, c.tsSource as string, 'utf8');
       const resolvedEnv = this.resolveEnvRefs(c);
+      // Walk up from __dirname collecting every node_modules found — handles
+      // Docker (/app/node_modules), workspace hoisted deps, and per-package
+      // installs on any OS without hardcoding parent levels.
+      const nmDirs: string[] = [];
+      let cur = path.resolve(__dirname);
+      while (cur !== path.dirname(cur)) {
+        const nm = path.join(cur, 'node_modules');
+        if (fs.existsSync(nm)) nmDirs.push(nm);
+        cur = path.dirname(cur);
+      }
+      const tsxPath = nmDirs
+        .map(nm => path.join(nm, '.bin', 'tsx'))
+        .find(p => fs.existsSync(p)) ?? 'tsx';
+      const nodePath = nmDirs.join(path.delimiter);
       return {
-        command: '/app/node_modules/.bin/tsx',
+        command: tsxPath,
         args: [scriptPath],
-        env: { NODE_PATH: '/app/node_modules', ...resolvedEnv },
+        env: { NODE_PATH: nodePath, ...resolvedEnv },
       } as McpServerConfig;
     }
 
@@ -456,12 +470,17 @@ export class ClaudeHandler {
 
     const rawAllowed: string[] = this.permissions?.allowedTools?.length
       ? this.permissions.allowedTools
-      : [];
+      : ['Read', 'Write', 'Edit', 'Glob', 'Grep'];
     const denied: string[] = this.permissions?.deniedTools ?? [];
     const mcpToolPrefixes = this.mcpServers.map((s) => `mcp__${s.name}`);
 
     // Read and Write are always available — cannot be overridden.
+    // When a knowledge wiki exists for this agent, Grep is also force-allowed
+    // so the agent can actually search the wiki regardless of operator-configured
+    // permissions. Otherwise a locked-down agent with a wiki could never consult it.
     const alwaysAllowed = ['Read', 'Write'];
+    const hasWiki = fs.existsSync(path.join(this.workDir, 'knowledge', 'wiki'));
+    if (hasWiki) alwaysAllowed.push('Grep');
 
     // Separate Bash(pattern) rules from plain tool names.
     // e.g. "Bash(git *)" is a permission rule, "Bash" is a plain tool name.
@@ -485,19 +504,17 @@ export class ClaudeHandler {
     // Bash(pattern) rules go into settings.permissions.allow — this is the only place
     // the SDK supports command-level scoping (not in allowedTools/tools).
     if (hasBashRules) {
-      const agentNamespace = `/tmp/agents/${this.agent.slug}`;
-      // Block access to /tmp/agents/ broadly, then allow back in via the allow list
-      // which is scoped to this agent's namespace only.
+      // Resolve the actual agents base directory (works in both Docker and native mode)
+      const agentsBaseDir = path.dirname(this.workDir); // e.g. /tmp/agents or ~/.slackhive/agents
+      // Block access to ALL agent namespaces, then allow back this agent's own via the allow list
       const bashDeny = [
         ...denied,
         'Bash(rm *)', 'Bash(curl *)', 'Bash(wget *)', 'Bash(chmod *)', 'Bash(sudo *)', 'Bash(kill *)',
-        // Block access to ALL agent namespaces — the allow list re-opens only this agent's own
-        `Bash(cat /tmp/agents/*)`, `Bash(ls /tmp/agents/*)`,
-        `Bash(find /tmp/agents/*)`, `Bash(grep * /tmp/agents/*)`,
-        `Bash(python3 /tmp/agents/*)`, `Bash(python3 -m pytest /tmp/agents/*)`,
-        `Bash(pytest /tmp/agents/*)`, `Bash(git clone * /tmp/agents/*)`,
-        `Bash(git -C /tmp/agents/*)`, `Bash(git log /tmp/agents/*)`,
-        `Bash(/graphify /tmp/agents/*)`, `Bash(graphify /tmp/agents/*)`
+        `Bash(cat ${agentsBaseDir}/*)`, `Bash(ls ${agentsBaseDir}/*)`,
+        `Bash(find ${agentsBaseDir}/*)`, `Bash(grep * ${agentsBaseDir}/*)`,
+        `Bash(python3 ${agentsBaseDir}/*)`, `Bash(python3 -m pytest ${agentsBaseDir}/*)`,
+        `Bash(pytest ${agentsBaseDir}/*)`, `Bash(git clone * ${agentsBaseDir}/*)`,
+        `Bash(git -C ${agentsBaseDir}/*)`, `Bash(git log ${agentsBaseDir}/*)`,
       ];
       // Re-allow this agent's own namespace — substitute {agent} placeholder with actual slug.
       const bashAllow = bashRules.map(r => r.replace(/\{agent\}/g, this.agent.slug));

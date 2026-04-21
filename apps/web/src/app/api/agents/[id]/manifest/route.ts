@@ -7,8 +7,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError } from '@/lib/api-error';
 import { getAgentById } from '@/lib/db';
 import { generateSlackManifest } from '@/lib/slack-manifest';
+
+export const dynamic = 'force-dynamic';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -27,6 +30,6 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
     const manifest = generateSlackManifest({ name: agent.name, description: agent.description, isBoss: agent.isBoss });
     return NextResponse.json(manifest);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return apiError('agents/[id]/manifest', err);
   }
 }

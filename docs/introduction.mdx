@@ -79,16 +79,19 @@ The specialist receives the **full Slack thread** as context — nothing is lost
 
 <Steps>
   <Step title="Create an agent">
-    Give it a name, a persona ("You are a data analyst who writes concise SQL..."), and connect it to a Slack app. Takes about 5 minutes.
+    Pick one of 26 research-backed personas (or start blank). Give it a name, connect it to a Slack app, and you're live in about 5 minutes.
   </Step>
   <Step title="Connect it to your tools">
-    Assign MCP servers to give the agent real capabilities — query a database, read files, call an API, create Jira tickets, update Notion pages. Or leave it as a conversational agent.
+    Assign MCP servers to give the agent real capabilities — query a database, read files, call an API, create Jira tickets, update Notion pages.
+  </Step>
+  <Step title="Tune with Coach">
+    Open the Coach panel, describe what you want in plain English, and approve the proposed skill and prompt changes. No hand-editing.
   </Step>
   <Step title="Your team @mentions it in Slack">
     The agent wakes up, reads the thread for context, uses its tools, and replies directly in the thread.
   </Step>
   <Step title="It learns and improves">
-    After each conversation, the agent writes structured memory — who you are, what you prefer, what it learned about your team. Those memories are loaded at the start of every future conversation.
+    After each conversation, the agent writes structured memory and can build a per-agent Knowledge Base from your repos, files, and URLs. The longer it works with your team, the sharper it gets.
   </Step>
 </Steps>
 
@@ -97,29 +100,44 @@ The specialist receives the **full Slack thread** as context — nothing is lost
 ## What's included
 
 <CardGroup cols={2}>
-  <Card title="Boss Orchestration" icon="sitemap">
-    A Boss agent receives high-level requests and delegates to the right specialists via Slack thread @mentions. Specialists report back, and Boss consolidates results.
+  <Card title="Coach" icon="comments" href="/agents/coach">
+    An interactive chat panel that tunes your agent's system prompt, skills, and knowledge. You describe what you want — Coach proposes concrete changes, you approve.
   </Card>
-  <Card title="Persistent Memory" icon="brain">
-    Agents write structured memories during every session — feedback, user context, project state. Memories compound over time — the longer an agent works with your team, the sharper it gets.
+  <Card title="Persona Library" icon="users" href="/agents/personas">
+    26 research-backed starter personas covering engineering, data, product, ops, marketing, and support roles — ready to deploy.
   </Card>
-  <Card title="MCP Tool Servers" icon="plug">
-    Connect agents to any external tool — Notion, Jira, GitHub, Redshift, Figma, HubSpot — via the Model Context Protocol. Manage a global catalog and assign per-agent.
+  <Card title="Boss Orchestration" icon="sitemap" href="/agents/boss-agents">
+    A Boss agent receives high-level requests and delegates to specialists via Slack thread @mentions. Specialists report back, and Boss consolidates results.
   </Card>
-  <Card title="Skills" icon="terminal">
-    Skills are domain knowledge files your agent always carries — SQL conventions, writing guidelines, PR templates. Give agents repeatable workflows baked into their context.
+  <Card title="Knowledge Base" icon="book" href="/agents/knowledge-base">
+    Ingest repos, files, and URLs into a per-agent wiki the agent reads on demand — Karpathy-style LLM wiki with overview, concepts, flows, and modules.
   </Card>
-  <Card title="Encrypted Secret Store" icon="lock">
-    A platform-level encrypted store for API keys and credentials. MCP configs reference secrets by name — raw values are never exposed in the API or UI.
+  <Card title="Persistent Memory" icon="brain" href="/agents/memory">
+    Agents write structured memories during every session. Memories compound — the longer an agent works with your team, the sharper it gets.
+  </Card>
+  <Card title="MCP Tool Servers" icon="plug" href="/configuration/mcp-servers">
+    Connect agents to Notion, Jira, GitHub, Figma, and more via MCP. Global catalog with Official / Community badges; one-click import from Claude Code CLI.
+  </Card>
+  <Card title="Test Mode" icon="flask" href="/agents/testing">
+    A sandboxed conversation pane with real MCPs and multi-agent delegation — iterate without sending anything to Slack.
+  </Card>
+  <Card title="Version History" icon="clock-rotate-left" href="/features/history">
+    Every save auto-snapshots the full agent state. Browse history with GitHub-style file diffs and restore any version with one click.
   </Card>
   <Card title="Hot Reload" icon="bolt">
     Edit any agent — instructions, skills, tools, permissions — and changes take effect within seconds. No restarts, no downtime.
   </Card>
-  <Card title="Version History" icon="clock-rotate-left">
-    Every save auto-snapshots the full agent state. Browse history with line-level diffs and restore any version with one click.
+  <Card title="Encrypted Secrets" icon="lock">
+    A platform-level encrypted store for API keys and Slack tokens. Credentials are never exposed in the API or UI.
   </Card>
-  <Card title="Access Control" icon="shield">
-    Four roles: superadmin, admin, editor, and viewer. Grant per-agent access to specific team members. All permissions enforced server-side.
+  <Card title="Access Control" icon="shield" href="/features/users">
+    Four roles — superadmin, admin, editor, viewer — with per-agent grants. All permissions enforced server-side.
+  </Card>
+  <Card title="Dark Mode" icon="moon">
+    Toggle in the profile menu. Runs across the whole dashboard.
+  </Card>
+  <Card title="Claude Status" icon="signal">
+    A live badge on the dashboard header shows whether Claude Code is connected, where the token came from (file / Keychain / env), and when it expires. Auto-refreshes from Keychain on macOS.
   </Card>
 </CardGroup>
 
@@ -127,18 +145,33 @@ The specialist receives the **full Slack thread** as context — nothing is lost
 
 ## Under the hood
 
-SlackHive runs as four Docker Compose services:
+SlackHive runs two local processes:
 
 | Service | What it does |
-|---------|-------------|
+|---|---|
 | **Web** (Next.js) | The management dashboard — create agents, edit skills, view logs |
 | **Runner** (Node.js) | Hosts all agent processes and maintains their Slack connections |
-| **PostgreSQL** | Stores agents, memories, skills, sessions, users, and history |
-| **Redis** | Pub/sub bus that delivers hot-reload events from Web to Runner instantly |
+
+State is stored in a local SQLite database at `~/.slackhive/data.db`. One command (`slackhive start` / `slackhive stop`) manages the whole stack.
 
 <Note>
   SlackHive agents are powered by **Claude Code** — not a chatbot wrapper. Each agent is a real AI agent with tools, memory, and instructions. Works with a Claude Pro or Max subscription, or a standard API key.
 </Note>
+
+---
+
+## The four layers of an agent's brain
+
+Every SlackHive agent has four places content can live. Getting the mental model right up front saves a lot of trial-and-error later:
+
+| Layer | Purpose |
+|---|---|
+| **System Prompt** | Who the agent is — role, tone, hard rules. Loads every turn. |
+| **Skills** | Reusable procedures invoked as slash commands. Loads on demand. |
+| **Memory** | Facts the agent learned from conversations. Recalled when relevant. |
+| **Wiki** | Reference material (codebases, docs, URLs) the agent reads on demand. |
+
+See [Concepts — What Goes Where](/agents/concepts) for the decision matrix — it's the best first read after this page.
 
 ---
 
@@ -148,13 +181,16 @@ SlackHive runs as four Docker Compose services:
   <Card title="Quick Start" icon="rocket" href="/quickstart">
     From zero to your first agent responding in Slack — in under 10 minutes.
   </Card>
+  <Card title="Install with the CLI" icon="terminal" href="/getting-started/install-cli">
+    The one-command install path.
+  </Card>
+  <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
+    What goes where — system prompt vs skills vs memory vs wiki.
+  </Card>
   <Card title="Create an Agent" icon="robot" href="/agents/creating-agents">
-    Walk through the agent creation wizard in detail.
+    Walk through the 5-step agent wizard.
   </Card>
-  <Card title="Boss Agents" icon="sitemap" href="/agents/boss-agents">
-    Set up a Boss to orchestrate a team of specialists.
-  </Card>
-  <Card title="MCP Servers" icon="plug" href="/configuration/mcp-servers">
-    Connect agents to Notion, Jira, GitHub, databases, and more.
+  <Card title="Example Agents" icon="sparkles" href="/examples">
+    Ten ready-to-build setups — oncall triage, data analyst, birthday bot, and more.
   </Card>
 </CardGroup>

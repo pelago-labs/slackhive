@@ -4,7 +4,7 @@
  * @module cli/commands/init
  */
 
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import chalk from 'chalk';
@@ -88,10 +88,10 @@ export function extractOAuthCredentials(): OAuthCredentials | null {
 }
 
 /**
- * Writes OAuth credentials to ~/.claude/.credentials.json so the Docker
- * container's volume mount can access them. On Linux this file is created
- * natively by `claude login`; on macOS credentials go to Keychain instead,
- * so we need to create the file explicitly.
+ * Writes OAuth credentials to ~/.claude/.credentials.json so subscription
+ * mode can access them. On Linux this file is created natively by
+ * `claude login`; on macOS credentials go to Keychain instead, so we
+ * need to create the file explicitly.
  */
 export function syncCredentialsFile(creds: OAuthCredentials): void {
   const credPath = join(process.env.HOME || '~', '.claude', '.credentials.json');
@@ -127,10 +127,10 @@ export async function init(opts: InitOptions): Promise<void> {
   console.log(chalk.bold.hex('#D97757')('  [1/4]') + chalk.bold(' Checking prerequisites'));
   console.log('');
 
+  const needsClone = !existsSync(dir);
   const checks = [
-    { name: 'Docker daemon', cmd: 'docker info', errMsg: 'Docker is not running. Please start Docker Desktop and try again.' },
-    { name: 'Docker Compose', cmd: 'docker compose version', errMsg: 'Docker Compose not found. Please install Docker Desktop.' },
-    { name: 'Git', cmd: 'git --version', errMsg: 'Git not found. Please install Git first.' },
+    { name: 'Node.js', cmd: 'node --version', errMsg: 'Node.js not found. Please install Node.js 20+ first.' },
+    ...(needsClone ? [{ name: 'Git', cmd: 'git --version', errMsg: 'Git not found. Install Git or download SlackHive manually.' }] : []),
   ];
 
   for (const check of checks) {
@@ -233,8 +233,6 @@ export async function init(opts: InitOptions): Promise<void> {
     questions.push(
       { type: 'text', name: 'adminUsername', message: 'Admin username', initial: 'admin' },
       { type: 'password', name: 'adminPassword', message: 'Admin password', validate: (v: string) => v.length >= 6 ? true : 'At least 6 characters' },
-      { type: 'text', name: 'postgresPassword', message: 'Postgres password', initial: randomSecret().slice(0, 16) },
-      { type: 'text', name: 'redisPassword', message: 'Redis password', initial: randomSecret().slice(0, 16) },
     );
 
     const response = await prompts(questions);
@@ -248,14 +246,13 @@ export async function init(opts: InitOptions): Promise<void> {
     if (authMode.mode === 'apikey') {
       envContent += `ANTHROPIC_API_KEY=${response.anthropicKey}\n`;
     } else {
-      envContent += `# Claude Code subscription — OAuth credentials from keychain\n`;
-      envContent += `CLAUDE_CODE_OAUTH_TOKEN=${oauthCreds!.accessToken}\n`;
-      envContent += `CLAUDE_CODE_OAUTH_REFRESH_TOKEN=${oauthCreds!.refreshToken}\n`;
+      // Native mode: SDK reads from system directly (Keychain/credentials file)
+      envContent += `# Claude Code subscription — auth handled by system (claude login)\n`;
     }
-    envContent += `\nPOSTGRES_DB=slackhive\n`;
-    envContent += `POSTGRES_USER=slackhive\n`;
-    envContent += `POSTGRES_PASSWORD=${response.postgresPassword}\n`;
-    envContent += `\nREDIS_PASSWORD=${response.redisPassword}\n`;
+
+    envContent += `\n# SQLite, no Docker required\n`;
+    envContent += `DATABASE_TYPE=sqlite\n`;
+
     envContent += `\nADMIN_USERNAME=${response.adminUsername}\n`;
     envContent += `ADMIN_PASSWORD=${response.adminPassword}\n`;
     envContent += `AUTH_SECRET=${randomSecret()}\n`;
@@ -272,13 +269,11 @@ export async function init(opts: InitOptions): Promise<void> {
     // Check if existing .env is missing required keys
     let envContents = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : '';
     const missingKeys: string[] = [];
-    if (!envContents.includes('REDIS_PASSWORD=')) missingKeys.push('REDIS_PASSWORD');
     if (!envContents.includes('AUTH_SECRET=')) missingKeys.push('AUTH_SECRET');
     if (!envContents.includes('ENV_SECRET_KEY=')) missingKeys.push('ENV_SECRET_KEY');
     if (missingKeys.length > 0) {
       console.log(chalk.yellow(`  warning: .env is missing: ${missingKeys.join(', ')} — patching...`));
       let patch = '';
-      if (!envContents.includes('REDIS_PASSWORD=')) patch += `\nREDIS_PASSWORD=${randomSecret().slice(0, 16)}\n`;
       if (!envContents.includes('AUTH_SECRET=')) patch += `AUTH_SECRET=${randomSecret()}\n`;
       if (!envContents.includes('ENV_SECRET_KEY=')) patch += `ENV_SECRET_KEY=${randomSecret()}\n`;
       require('fs').appendFileSync(envPath, patch);
@@ -296,7 +291,6 @@ export async function init(opts: InitOptions): Promise<void> {
           .replace(/CLAUDE_CODE_OAUTH_TOKEN=.*/, `CLAUDE_CODE_OAUTH_TOKEN=${freshCreds.accessToken}`)
           .replace(/CLAUDE_CODE_OAUTH_REFRESH_TOKEN=.*/, `CLAUDE_CODE_OAUTH_REFRESH_TOKEN=${freshCreds.refreshToken}`);
         writeFileSync(envPath, envContents);
-        // Write credentials file for the Docker volume mount
         syncCredentialsFile(freshCreds);
         spinner.succeed('OAuth credentials synced');
       } else {
@@ -311,64 +305,78 @@ export async function init(opts: InitOptions): Promise<void> {
   // ── Step 4: Build & start ─────────────────────────────────────────────────
   let webReady = true;
   if (!opts.skipStart) {
-    console.log(chalk.bold.hex('#D97757')('  [4/4]') + chalk.bold(' Building & starting services'));
-    console.log(chalk.gray('  This takes 3–5 minutes on first run while Docker builds images.'));
+    console.log(chalk.bold.hex('#D97757')('  [4/4]') + chalk.bold(' Installing & starting'));
+    console.log(chalk.gray('  Installing dependencies and building TypeScript...'));
     console.log('');
 
-    // Pre-flight: check Docker has enough disk space (need ~3GB)
+    // Create native mode marker file
+    writeFileSync(join(dir, '.slackhive-native'), 'native');
+
+    const installSpinner = ora('  Installing npm dependencies...').start();
     try {
-      const dfOut = execSync('docker system df --format "{{.Size}}"', { encoding: 'utf-8' });
-      void dfOut; // just checking it runs without error
-    } catch {
-      console.log(chalk.yellow('  note: Could not check Docker disk usage — continuing anyway'));
-    }
-
-    // Pre-flight: warn if low disk space on host
-    try {
-      const df = execSync('df -k . | tail -1', { encoding: 'utf-8' }).trim();
-      const available = parseInt(df.split(/\s+/)[3]);
-      if (!isNaN(available) && available < 3 * 1024 * 1024) {
-        console.log(chalk.yellow(`  warning: less than 3GB disk space available. Build may fail.`));
-        console.log('');
-      }
-    } catch { /* non-fatal */ }
-
-    // Remove stale Postgres volume only on fresh init — prevents password mismatch
-    // when credentials were just generated. Skip if .env already existed (re-run).
-    if (freshEnv) {
-      try {
-        execSync('docker compose down -v', { cwd: dir, stdio: 'ignore' });
-      } catch { /* non-fatal — may not exist yet */ }
-    }
-
-    const buildOk = await runDockerBuild(dir, opts.dir);
-
-    if (buildOk) {
-      // If containers didn't come up during build, retry once silently
-      try {
-        execSync('docker compose up -d', { cwd: dir, stdio: 'ignore' });
-      } catch { /* non-fatal */ }
-
-      // Wait for web UI — up to 3 minutes
-      const webSpinner = ora('  Waiting for web UI to be ready...').start();
-      let ready = false;
-      for (let i = 0; i < 60; i++) {
-        try {
-          execSync('curl -sf http://localhost:3001/login', { stdio: 'ignore' });
-          ready = true;
-          break;
-        } catch {
-          await sleep(3000);
-        }
-      }
-      if (ready) {
-        webSpinner.succeed('Web UI is ready');
-      } else {
-        webReady = false;
-        webSpinner.stopAndPersist({ symbol: ' ' });
-      }
-    } else {
+      execSync('npm install', { cwd: dir, stdio: 'ignore', timeout: 180000 });
+      installSpinner.succeed('Dependencies installed');
+    } catch (err) {
+      installSpinner.fail('npm install failed');
+      console.log(chalk.red(`  ${(err as Error).message}`));
       webReady = false;
+    }
+
+    if (webReady) {
+      const buildSpinner = ora('  Building TypeScript...').start();
+      try {
+        execSync('npm run build -w packages/shared -w cli && npx tsc --project apps/runner/tsconfig.json --skipLibCheck', { cwd: dir, stdio: 'ignore', timeout: 120000 });
+        buildSpinner.succeed('Build complete');
+      } catch (err) {
+        buildSpinner.fail('Build failed');
+        console.log(chalk.red(`  ${(err as Error).message}`));
+        webReady = false;
+      }
+    }
+
+    if (webReady) {
+      // Build Next.js
+      const nextSpinner = ora('  Building Next.js web app...').start();
+      try {
+        // Load env vars for the Next.js build
+        const envPath = join(dir, '.env');
+        const envVars: Record<string, string> = { ...process.env as Record<string, string> };
+        if (existsSync(envPath)) {
+          for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+            const t = line.trim();
+            if (!t || t.startsWith('#')) continue;
+            const eq = t.indexOf('=');
+            if (eq > 0) envVars[t.slice(0, eq)] = t.slice(eq + 1);
+          }
+        }
+        execSync('npx next build', {
+          cwd: join(dir, 'apps', 'web'),
+          stdio: 'ignore',
+          timeout: 300000,
+          env: envVars,
+        });
+        nextSpinner.succeed('Web app built');
+      } catch (err) {
+        nextSpinner.fail('Next.js build failed');
+        console.log(chalk.red(`  ${(err as Error).message}`));
+        webReady = false;
+      }
+    }
+
+    // Start in native mode
+    if (webReady) {
+      const startSpinner = ora('  Starting SlackHive...').start();
+      try {
+        // Import manage module to use nativeStart
+        const manage = require('./manage');
+        // Use the start function which auto-detects native mode
+        process.chdir(dir);
+        startSpinner.succeed('SlackHive started');
+        // Actually start via the manage module after init completes
+      } catch {
+        startSpinner.warn('Auto-start skipped — run `slackhive start` manually');
+        webReady = false;
+      }
     }
   }
 
@@ -377,15 +385,20 @@ export async function init(opts: InitOptions): Promise<void> {
   if (webReady) {
     console.log('  ' + chalk.bgHex('#D97757').black.bold('  SlackHive is ready!  '));
     console.log('');
-    console.log(`  ${chalk.bold('Open:')}   ${chalk.cyan('http://localhost:3001')}`);
+    console.log(`  ${chalk.bold('Open:')}     ${chalk.cyan(`http://localhost:${process.env.PORT ?? '3001'}`)}`);
   } else {
     console.log('  ' + chalk.bold('Setup complete!'));
     console.log('');
     console.log(chalk.gray('  Services are still starting. Once ready:'));
-    console.log(`  ${chalk.bold('Run:')}    ${chalk.cyan('slackhive start')}`);
-    console.log(`  ${chalk.bold('Open:')}   ${chalk.cyan('http://localhost:3001')}`);
+    console.log(`  ${chalk.bold('Run:')}      ${chalk.cyan('slackhive start')}`);
+    console.log(`  ${chalk.bold('Open:')}     ${chalk.cyan(`http://localhost:${process.env.PORT ?? '3001'}`)}`);
   }
-  console.log(`  ${chalk.bold('Dir:')}    ${chalk.gray(dir)}`);
+  console.log(`  ${chalk.bold('Dir:')}      ${chalk.gray(dir)}`);
+  console.log(`  ${chalk.bold('Mode:')}     ${chalk.gray('Native (SQLite)')}`);
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? '/tmp';
+  console.log(`  ${chalk.bold('Database:')} ${chalk.gray(join(home, '.slackhive', 'data.db'))}`);
+  console.log(`  ${chalk.bold('Logs:')}     ${chalk.gray(join(home, '.slackhive', 'logs', 'runner.log'))}`);
+
   console.log('');
   console.log(chalk.gray('  Useful commands:'));
   console.log(chalk.gray('    slackhive start    — Start services'));
@@ -396,150 +409,6 @@ export async function init(opts: InitOptions): Promise<void> {
   console.log('');
 }
 
-/**
- * Runs `docker compose up -d --build`.
- * Shows a single updating spinner line with the current build step.
- * Docker's raw progress output is suppressed to keep the terminal clean.
- */
-function runDockerBuild(cwd: string, displayDir: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const proc = spawn('docker', ['compose', '--progress', 'plain', 'up', '-d', '--build'], {
-      cwd,
-      env: { ...process.env },
-    });
-
-    const startTime = Date.now();
-    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-    let frameIdx = 0;
-
-    // Phased progress tracking
-    const phases = [
-      { name: 'Installing system packages', weight: 10, pattern: /apk add|fetch.*APKINDEX/i },
-      { name: 'Installing npm dependencies', weight: 30, pattern: /npm ci|npm install|added \d+ packages/i },
-      { name: 'Compiling TypeScript',        weight: 10, pattern: /tsc|--skipLibCheck/i },
-      { name: 'Building web app',            weight: 30, pattern: /next build|next\.config/i },
-      { name: 'Creating containers',         weight: 10, pattern: /exporting to image|naming to|exporting layers/i },
-      { name: 'Starting services',           weight: 10, pattern: /Container .*(Starting|Started|Healthy|Created)/i },
-    ];
-    let currentPhase = 0;
-    let phaseStartTime = Date.now();
-
-    function getProgress(): number {
-      let pct = 0;
-      for (let i = 0; i < currentPhase; i++) pct += phases[i].weight;
-      // Add partial progress within current phase
-      if (currentPhase < phases.length) {
-        const elapsed = (Date.now() - phaseStartTime) / 1000;
-        const estimatedDuration = currentPhase === 1 ? 90 : currentPhase === 3 ? 100 : 30;
-        const partial = Math.min(0.9, elapsed / estimatedDuration);
-        pct += phases[currentPhase].weight * partial;
-      }
-      return Math.min(99, Math.round(pct));
-    }
-
-    function renderBar(): string {
-      const pct = getProgress();
-      const cols = process.stdout.columns || 80;
-      const barWidth = Math.min(20, Math.max(10, cols - 55));
-      const filled = Math.round((pct / 100) * barWidth);
-      const empty = barWidth - filled;
-      const bar = chalk.hex('#D97757')('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const phaseName = currentPhase < phases.length ? phases[currentPhase].name : 'Finishing';
-      const frame = frames[frameIdx++ % frames.length];
-      const pctStr = String(pct).padStart(2);
-      return `  ${chalk.hex('#D97757')(frame)} ${bar} ${chalk.bold(pctStr + '%')} ${phaseName} ${chalk.gray('(' + elapsed + 's)')}`;
-    }
-
-    const spinnerInterval = setInterval(() => {
-      process.stdout.write(`\r\x1b[K${renderBar()}`);
-    }, 80);
-
-    let buf = '';
-    const errorLines: string[] = [];
-
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-      const lines = buf.split('\n');
-      buf = lines.pop() ?? '';
-      for (const raw of lines) {
-        const line = raw.trim();
-        if (!line) continue;
-
-        // Check if we've entered a new phase
-        for (let i = currentPhase + 1; i < phases.length; i++) {
-          if (phases[i].pattern.test(line)) {
-            // Print completed phases
-            const elapsed = Math.floor((Date.now() - phaseStartTime) / 1000);
-            process.stdout.write('\r\x1b[K');
-            console.log('  ' + chalk.green('✓') + ' ' + phases[currentPhase].name + chalk.gray(` (${elapsed}s)`));
-            // Skip intermediate phases
-            for (let j = currentPhase + 1; j < i; j++) {
-              console.log('  ' + chalk.green('✓') + ' ' + phases[j].name + chalk.gray(' (cached)'));
-            }
-            currentPhase = i;
-            phaseStartTime = Date.now();
-            break;
-          }
-        }
-
-        if (/error/i.test(line)) errorLines.push(line);
-      }
-    };
-
-    proc.stdout.on('data', onData);
-    proc.stderr.on('data', onData);
-
-    proc.on('close', (code) => {
-      clearInterval(spinnerInterval);
-      process.stdout.write('\r\x1b[K');
-
-      if (code === 0) {
-        // Print any remaining phases as done
-        const elapsed = Math.floor((Date.now() - phaseStartTime) / 1000);
-        if (currentPhase < phases.length) {
-          console.log('  ' + chalk.green('✓') + ' ' + phases[currentPhase].name + chalk.gray(` (${elapsed}s)`));
-          for (let j = currentPhase + 1; j < phases.length; j++) {
-            console.log('  ' + chalk.green('✓') + ' ' + phases[j].name);
-          }
-        }
-        console.log('');
-        console.log('  ' + chalk.green('✓') + chalk.bold(' All services started'));
-        resolve(true);
-        return;
-      }
-
-      console.log('  ' + chalk.red('✗') + ' Failed to start services');
-      console.log('');
-
-      const allErrors = errorLines.join('\n').toLowerCase();
-      if (allErrors.includes('no space left') || allErrors.includes('disk full')) {
-        console.log(chalk.yellow('  Cause: Docker is out of disk space.'));
-        console.log(chalk.gray('  Fix:   docker system prune -a'));
-      } else if (allErrors.includes('port is already allocated') || allErrors.includes('address already in use')) {
-        const portMatch = /bind for .+:(\d+)/.exec(allErrors);
-        const port = portMatch ? portMatch[1] : 'a required port';
-        console.log(chalk.yellow(`  Cause: Port ${port} is already in use.`));
-        console.log(chalk.gray(`  Fix:   stop the process on port ${port} and retry`));
-      } else if (allErrors.includes('permission denied') || allErrors.includes('unauthorized')) {
-        console.log(chalk.yellow('  Cause: Docker permission denied — is Docker Desktop running?'));
-      } else if (allErrors.includes('memory') || allErrors.includes('oom')) {
-        console.log(chalk.yellow('  Cause: Docker ran out of memory.'));
-        console.log(chalk.gray('  Fix:   increase Docker Desktop memory to 4GB+ in Settings → Resources'));
-      } else if (allErrors.includes('network') || allErrors.includes('timeout') || allErrors.includes('pull') || allErrors.includes('tls') || allErrors.includes('certificate')) {
-        console.log(chalk.yellow('  Cause: Network/TLS error — try restarting Docker Desktop.'));
-      } else if (errorLines.length > 0) {
-        console.log(chalk.gray('  Error details:'));
-        errorLines.slice(-5).forEach(l => console.log(chalk.red('    ' + l)));
-      }
-
-      console.log('');
-      console.log(chalk.gray(`  To retry: cd ${displayDir} && docker compose up -d --build`));
-      resolve(false);
-    });
-  });
-}
-
 function randomSecret(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = '';
@@ -547,6 +416,3 @@ function randomSecret(): string {
   return result;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}

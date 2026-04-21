@@ -41,7 +41,7 @@ program
 
 program
   .command('stop')
-  .description('Stop all SlackHive services')
+  .description('Stop all SlackHive services (also kills orphaned runner processes)')
   .action(stop);
 
 program

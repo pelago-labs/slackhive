@@ -8,8 +8,13 @@
  */
 
 import 'dotenv/config';
+import { initDb } from '@slackhive/shared';
 import { AgentRunner } from './agent-runner';
 import { logger } from './logger';
+import { acquireRunnerLock } from './runner-lock';
+
+// Refuse to boot if another runner is already alive.
+acquireRunnerLock('dev');
 
 /**
  * Main entry point. Initializes and starts the AgentRunner.
@@ -28,10 +33,8 @@ process.on('unhandledRejection', (reason) => {
 async function main(): Promise<void> {
   logger.info('Starting Slack Claude Code Agent Team — Runner Service');
 
-  if (!process.env.DATABASE_URL) {
-    logger.error('DATABASE_URL is required');
-    process.exit(1);
-  }
+  await initDb();
+  logger.info('Database initialized');
 
   const runner = new AgentRunner();
 

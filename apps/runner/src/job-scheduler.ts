@@ -11,15 +11,14 @@
  */
 
 import cron from 'node-cron';
-import type { App } from '@slack/bolt';
-import type { ScheduledJob } from '@slackhive/shared';
+import type { ScheduledJob, PlatformAdapter } from '@slackhive/shared';
 import { getAllEnabledJobs, insertJobRun, updateJobRun } from './db';
 import type { ClaudeHandler } from './claude-handler';
 import { logger } from './logger';
 
 /** The shape of a running agent as exposed by AgentRunner. */
 interface RunningAgent {
-  app: App;
+  adapter: PlatformAdapter;
   claudeHandler: ClaudeHandler;
 }
 
@@ -136,20 +135,16 @@ export class JobScheduler {
         output = '_Job completed with no output._';
       }
 
-      // Post to target
-      if (job.targetType === 'dm') {
-        const dm = await agent.app.client.conversations.open({ users: job.targetId });
-        if (dm.channel?.id) {
-          await agent.app.client.chat.postMessage({
-            channel: dm.channel.id,
-            text: output,
-          });
+      // Post to target via platform adapter (with rich formatting)
+      const targetChannelId = job.targetType === 'dm'
+        ? await agent.adapter.openDm(job.targetId)
+        : job.targetId;
+
+      if (targetChannelId) {
+        const payloads = agent.adapter.buildPayloads(output);
+        for (const payload of payloads) {
+          await agent.adapter.postPayload(targetChannelId, payload);
         }
-      } else {
-        await agent.app.client.chat.postMessage({
-          channel: job.targetId,
-          text: output,
-        });
       }
 
       await updateJobRun(runId, 'success', output.slice(0, 2000));

@@ -1,18 +1,14 @@
 /**
- * @fileoverview PostgreSQL database client for the Next.js web application.
+ * @fileoverview Database client for the Next.js web application.
  *
- * Provides a singleton connection pool and typed query functions for
- * all tables managed by the web UI: agents, mcp_servers, agent_mcps,
- * skills, permissions, and memories.
- *
- * Also provides a Redis client for publishing agent lifecycle events
- * to the runner service (hot-reload).
+ * Uses the shared DbAdapter to support both PostgreSQL and SQLite.
+ * Provides typed query functions for all tables managed by the web UI.
+ * Uses the shared EventBus for publishing agent lifecycle events.
  *
  * @module web/lib/db
  */
 
-import { Pool } from 'pg';
-import { createClient } from 'redis';
+import { randomUUID } from 'crypto';
 import type {
   Agent,
   McpServer,
@@ -34,59 +30,45 @@ import type {
   SnapshotTrigger,
   Restriction,
 } from '@slackhive/shared';
-import { AGENT_EVENTS_CHANNEL } from '@slackhive/shared';
+import { getDb, initDb, encrypt, decrypt } from '@slackhive/shared';
+import { getEncryptionKey } from './secrets';
+import type { DbAdapter } from '@slackhive/shared';
 
 // =============================================================================
-// Connection pool
+// Database & Event Bus
 // =============================================================================
 
-let pool: Pool | null = null;
+let _dbInitialized = false;
 
 /**
- * Returns the singleton Postgres connection pool for the web app.
- *
- * @returns {Pool} Postgres connection pool.
- * @throws {Error} If DATABASE_URL is not configured.
+ * Returns the database adapter, initializing on first call.
+ * Supports both PostgreSQL and SQLite based on DATABASE_TYPE env.
  */
-function getPool(): Pool {
-  if (!pool) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error('DATABASE_URL is required');
-    pool = new Pool({ connectionString: url, max: 5 });
+async function db(): Promise<DbAdapter> {
+  if (!_dbInitialized) {
+    await initDb();
+    _dbInitialized = true;
   }
-  return pool;
-}
-
-// =============================================================================
-// Redis publisher
-// =============================================================================
-
-let redisPublisher: ReturnType<typeof createClient> | null = null;
-
-/**
- * Returns a connected Redis client for publishing agent events.
- * Lazy-connects on first call.
- *
- * @returns {Promise<ReturnType<typeof createClient>>} Connected Redis client.
- */
-async function getRedis(): Promise<ReturnType<typeof createClient>> {
-  if (!redisPublisher || !redisPublisher.isOpen) {
-    redisPublisher = createClient({ url: process.env.REDIS_URL ?? 'redis://localhost:6379' });
-    await redisPublisher.connect();
-  }
-  return redisPublisher;
+  return getDb();
 }
 
 /**
- * Publishes an agent lifecycle event to the runner via Redis.
- * Used to trigger hot-reload when config changes in the UI.
+ * Publishes an agent lifecycle event to the runner via internal HTTP server.
  *
  * @param {AgentEvent} event - The lifecycle event to publish.
  * @returns {Promise<void>}
  */
 export async function publishAgentEvent(event: AgentEvent): Promise<void> {
-  const redis = await getRedis();
-  await redis.publish(AGENT_EVENTS_CHANNEL, JSON.stringify(event));
+  const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+    });
+  } catch {
+    // Runner might not be running — silently ignore
+  }
 }
 
 // =============================================================================
@@ -106,20 +88,77 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     name: row.name as string,
     persona: row.persona as string | undefined,
     description: row.description as string | undefined,
-    slackBotToken: row.slack_bot_token as string,
-    slackAppToken: row.slack_app_token as string,
-    slackSigningSecret: row.slack_signing_secret as string,
-    slackBotUserId: row.slack_bot_user_id as string | undefined,
     model: row.model as string,
     status: row.status as AgentStatus,
     enabled: row.enabled !== false,
     isBoss: row.is_boss as boolean,
+    verbose: row.verbose !== 0 && row.verbose !== false,
     reportsTo: (row.reports_to as string[]) ?? [],
     claudeMd: (row.claude_md as string) ?? '',
     createdBy: (row.created_by as string) ?? 'system',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
+    lastError: (row.last_error as string | null | undefined) ?? null,
+    runnerId: (row.runner_id as string | null | undefined) ?? null,
+    lastHeartbeat: (row.last_heartbeat as string | null | undefined) ?? null,
   };
+}
+
+/**
+ * Compute `liveStatus` from persisted status + heartbeat age. The DB says
+ * "running" but if the owning runner hasn't bumped its heartbeat in >45s
+ * (3× the runner's 15s heartbeat), the process is likely dead. Surface that
+ * as `stale` so the UI doesn't paint a green dot over a ghost.
+ */
+const STALE_HEARTBEAT_MS = 45_000;
+
+/**
+ * SQLite's `datetime('now')` returns naive UTC like `"2026-04-20 00:51:59"`.
+ * `new Date(str)` parses that as LOCAL time, so in UTC+N every fresh
+ * heartbeat looks N hours old. Normalize to ISO-with-Z before parsing.
+ */
+function parseDbTimestampMs(value: string): number {
+  if (!value) return NaN;
+  const hasTz = /[Zz]|[+\-]\d{2}:?\d{2}$/.test(value);
+  const iso = hasTz ? value : value.replace(' ', 'T') + 'Z';
+  return new Date(iso).getTime();
+}
+
+export function applyLiveStatus(agent: Agent): Agent {
+  if (agent.status === 'running' && agent.lastHeartbeat) {
+    const age = Date.now() - parseDbTimestampMs(agent.lastHeartbeat);
+    agent.liveStatus = age > STALE_HEARTBEAT_MS ? 'stale' : 'running';
+  } else {
+    agent.liveStatus = agent.status;
+  }
+  return agent;
+}
+
+/** Enrich agent with platform credentials from platform_integrations table. */
+async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | null> {
+  if (!agent) return null;
+  const d = await db();
+  const r = await d.query(
+    'SELECT credentials, bot_user_id FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
+    [agent.id, 'slack']
+  );
+  if (r.rows.length > 0) {
+    const raw = r.rows[0].credentials as string;
+    const key = getEncryptionKey();
+    let creds: Record<string, string> | null = null;
+    try {
+      creds = JSON.parse(decrypt(raw, key));
+    } catch (err) {
+      console.error(`[db] failed to decrypt platform credentials for agent ${agent.id}:`, (err as Error).message);
+    }
+    if (creds) {
+      agent.slackBotToken = creds.botToken;
+      agent.slackAppToken = creds.appToken;
+      agent.slackSigningSecret = creds.signingSecret;
+      agent.slackBotUserId = r.rows[0].bot_user_id as string | undefined;
+    }
+  }
+  return agent;
 }
 
 /**
@@ -187,8 +226,37 @@ function rowToMemory(row: Record<string, unknown>): Memory {
  * @returns {Promise<Agent[]>} All registered agents.
  */
 export async function getAllAgents(): Promise<Agent[]> {
-  const r = await getPool().query('SELECT * FROM agents ORDER BY is_boss DESC, name ASC');
-  return r.rows.map(rowToAgent);
+  const d = await db();
+  const r = await d.query('SELECT * FROM agents ORDER BY is_boss DESC, name ASC');
+  const agents = r.rows.map(rowToAgent);
+
+  // Bulk load platform credentials for all agents
+  const pi = await d.query('SELECT agent_id, credentials, bot_user_id FROM platform_integrations WHERE platform = $1 AND enabled = 1', ['slack']);
+  const credsByAgent = new Map<string, { credentials: string; botUserId?: string }>();
+  for (const row of pi.rows) {
+    credsByAgent.set(row.agent_id as string, { credentials: row.credentials as string, botUserId: row.bot_user_id as string | undefined });
+  }
+
+  const key = getEncryptionKey();
+  for (const agent of agents) {
+    const entry = credsByAgent.get(agent.id);
+    if (entry) {
+      let creds: Record<string, string> | null = null;
+      try {
+        creds = JSON.parse(decrypt(entry.credentials, key));
+      } catch (err) {
+        console.error(`[db] failed to decrypt platform credentials for agent ${agent.id}:`, (err as Error).message);
+      }
+      if (creds) {
+        agent.slackBotToken = creds.botToken;
+        agent.slackAppToken = creds.appToken;
+        agent.slackSigningSecret = creds.signingSecret;
+        agent.slackBotUserId = entry.botUserId;
+      }
+    }
+  }
+
+  return agents;
 }
 
 /**
@@ -198,8 +266,8 @@ export async function getAllAgents(): Promise<Agent[]> {
  * @returns {Promise<Agent | null>} The agent, or null if not found.
  */
 export async function getAgentById(id: string): Promise<Agent | null> {
-  const r = await getPool().query('SELECT * FROM agents WHERE id = $1', [id]);
-  return r.rows.length ? rowToAgent(r.rows[0]) : null;
+  const r = await (await db()).query('SELECT * FROM agents WHERE id = $1', [id]);
+  return enrichAgentWithPlatform(r.rows.length ? rowToAgent(r.rows[0]) : null);
 }
 
 /**
@@ -209,8 +277,8 @@ export async function getAgentById(id: string): Promise<Agent | null> {
  * @returns {Promise<Agent | null>} The agent, or null if not found.
  */
 export async function getAgentBySlug(slug: string): Promise<Agent | null> {
-  const r = await getPool().query('SELECT * FROM agents WHERE slug = $1', [slug]);
-  return r.rows.length ? rowToAgent(r.rows[0]) : null;
+  const r = await (await db()).query('SELECT * FROM agents WHERE slug = $1', [slug]);
+  return enrichAgentWithPlatform(r.rows.length ? rowToAgent(r.rows[0]) : null);
 }
 
 /**
@@ -220,20 +288,32 @@ export async function getAgentBySlug(slug: string): Promise<Agent | null> {
  * @returns {Promise<Agent>} The created agent.
  */
 export async function createAgent(req: CreateAgentRequest, createdBy = 'system'): Promise<Agent> {
-  const r = await getPool().query(
+  const id = randomUUID();
+  const d = await db();
+  const r = await d.query(
     `INSERT INTO agents
-       (slug, name, persona, description, slack_bot_token, slack_app_token,
-        slack_signing_secret, model, is_boss, reports_to, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       (id, slug, name, persona, description, model, is_boss, reports_to, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING *`,
     [
-      req.slug, req.name, req.persona ?? null, req.description ?? null,
-      req.slackBotToken, req.slackAppToken, req.slackSigningSecret,
+      id, req.slug, req.name, req.persona ?? null, req.description ?? null,
       req.model ?? 'claude-opus-4-6', req.isBoss ?? false, req.reportsTo ?? [],
       createdBy,
     ]
   );
-  return rowToAgent(r.rows[0]);
+
+  // Create platform integration if credentials provided
+  if (req.platformCredentials && req.platform) {
+    const { encrypt } = await import('@slackhive/shared');
+    await d.query(
+      `INSERT INTO platform_integrations (id, agent_id, platform, credentials)
+       VALUES ($1, $2, $3, $4)`,
+      [randomUUID(), id, req.platform, encrypt(JSON.stringify(req.platformCredentials), getEncryptionKey())]
+    );
+  }
+
+  const agent = rowToAgent(r.rows[0]);
+  return (await enrichAgentWithPlatform(agent))!;
 }
 
 /**
@@ -244,14 +324,23 @@ export async function createAgent(req: CreateAgentRequest, createdBy = 'system')
  * @returns {Promise<void>}
  */
 export async function updateAgentStatus(id: string, status: AgentStatus): Promise<void> {
-  await getPool().query(
-    'UPDATE agents SET status = $1, updated_at = now() WHERE id = $2',
-    [status, id]
-  );
+  // Stopping the agent is an explicit user action — clear any stale last_error
+  // so the UI doesn't keep showing an old failure message under a 'stopped' chip.
+  if (status === 'stopped') {
+    await (await db()).query(
+      'UPDATE agents SET status = $1, last_error = NULL, updated_at = now() WHERE id = $2',
+      [status, id]
+    );
+  } else {
+    await (await db()).query(
+      'UPDATE agents SET status = $1, updated_at = now() WHERE id = $2',
+      [status, id]
+    );
+  }
 }
 
 export async function updateAgentEnabled(id: string, enabled: boolean): Promise<void> {
-  await getPool().query(
+  await (await db()).query(
     'UPDATE agents SET enabled = $1, updated_at = now() WHERE id = $2',
     [enabled, id]
   );
@@ -272,18 +361,42 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
   if (req.name !== undefined) { fields.push(`name = $${idx++}`); values.push(req.name); }
   if (req.persona !== undefined) { fields.push(`persona = $${idx++}`); values.push(req.persona); }
   if (req.description !== undefined) { fields.push(`description = $${idx++}`); values.push(req.description); }
-  if (req.slackBotToken !== undefined) { fields.push(`slack_bot_token = $${idx++}`); values.push(req.slackBotToken); }
-  if (req.slackAppToken !== undefined) { fields.push(`slack_app_token = $${idx++}`); values.push(req.slackAppToken); }
-  if (req.slackSigningSecret !== undefined) { fields.push(`slack_signing_secret = $${idx++}`); values.push(req.slackSigningSecret); }
   if (req.model !== undefined) { fields.push(`model = $${idx++}`); values.push(req.model); }
   if (req.isBoss !== undefined) { fields.push(`is_boss = $${idx++}`); values.push(req.isBoss); }
   if (req.reportsTo !== undefined) { fields.push(`reports_to = $${idx++}`); values.push(req.reportsTo); }
+  if (req.verbose !== undefined) { fields.push(`verbose = $${idx++}`); values.push(req.verbose); }
+
+  // Upsert platform credentials if provided
+  if (req.platformCredentials) {
+    const { encrypt } = await import('@slackhive/shared');
+    const d = await db();
+    const encrypted = encrypt(JSON.stringify(req.platformCredentials), getEncryptionKey());
+
+    // Check if integration row exists
+    const existing = await d.query(
+      `SELECT id FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
+      [id]
+    );
+
+    if (existing.rows.length > 0) {
+      await d.query(
+        `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = 'slack'`,
+        [encrypted, id]
+      );
+    } else {
+      await d.query(
+        `INSERT INTO platform_integrations (id, agent_id, platform, credentials)
+         VALUES ($1, $2, $3, $4)`,
+        [randomUUID(), id, 'slack', encrypted]
+      );
+    }
+  }
 
   if (fields.length === 0) return getAgentById(id);
 
   fields.push(`updated_at = now()`);
   values.push(id);
-  const r = await getPool().query(
+  const r = await (await db()).query(
     `UPDATE agents SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
     values
   );
@@ -299,7 +412,7 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
  * @returns {Promise<void>}
  */
 export async function updateAgentClaudeMd(id: string, content: string): Promise<void> {
-  await getPool().query(
+  await (await db()).query(
     'UPDATE agents SET claude_md = $1, updated_at = now() WHERE id = $2',
     [content, id]
   );
@@ -312,7 +425,7 @@ export async function updateAgentClaudeMd(id: string, content: string): Promise<
  * @returns {Promise<void>}
  */
 export async function deleteAgent(id: string): Promise<void> {
-  await getPool().query('DELETE FROM agents WHERE id = $1', [id]);
+  await (await db()).query('DELETE FROM agents WHERE id = $1', [id]);
 }
 
 /**
@@ -322,7 +435,7 @@ export async function deleteAgent(id: string): Promise<void> {
  * @returns {Promise<Session[]>} Array of sessions.
  */
 export async function getAgentSessions(agentId: string): Promise<Session[]> {
-  const r = await getPool().query(
+  const r = await (await db()).query(
     'SELECT * FROM sessions WHERE agent_id = $1 ORDER BY last_activity DESC',
     [agentId]
   );
@@ -350,13 +463,14 @@ export async function upsertMemory(
   name: string,
   content: string
 ): Promise<Memory> {
-  const r = await getPool().query(
-    `INSERT INTO memories (agent_id, type, name, content)
-     VALUES ($1, $2, $3, $4)
+  const id = randomUUID();
+  const r = await (await db()).query(
+    `INSERT INTO memories (id, agent_id, type, name, content)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (agent_id, name) DO UPDATE
        SET type = EXCLUDED.type, content = EXCLUDED.content, updated_at = now()
      RETURNING *`,
-    [agentId, type, name, content]
+    [id, agentId, type, name, content]
   );
   return rowToMemory(r.rows[0]);
 }
@@ -371,7 +485,7 @@ export async function upsertMemory(
  * @returns {Promise<McpServer[]>} All registered MCP servers.
  */
 export async function getAllMcpServers(): Promise<McpServer[]> {
-  const r = await getPool().query('SELECT * FROM mcp_servers ORDER BY name ASC');
+  const r = await (await db()).query('SELECT * FROM mcp_servers ORDER BY name ASC');
   return r.rows.map(rowToMcpServer);
 }
 
@@ -382,7 +496,7 @@ export async function getAllMcpServers(): Promise<McpServer[]> {
  * @returns {Promise<McpServer[]>} MCP servers assigned to this agent.
  */
 export async function getAgentMcpServers(agentId: string): Promise<McpServer[]> {
-  const r = await getPool().query(
+  const r = await (await db()).query(
     `SELECT m.* FROM mcp_servers m
      JOIN agent_mcps am ON am.mcp_id = m.id
      WHERE am.agent_id = $1 ORDER BY m.name`,
@@ -398,10 +512,11 @@ export async function getAgentMcpServers(agentId: string): Promise<McpServer[]> 
  * @returns {Promise<McpServer>} The created MCP server.
  */
 export async function createMcpServer(req: UpsertMcpServerRequest): Promise<McpServer> {
-  const r = await getPool().query(
-    `INSERT INTO mcp_servers (name, type, config, description, enabled)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [req.name, req.type, JSON.stringify(req.config), req.description ?? null, req.enabled ?? true]
+  const id = randomUUID();
+  const r = await (await db()).query(
+    `INSERT INTO mcp_servers (id, name, type, config, description, enabled)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [id, req.name, req.type, JSON.stringify(req.config), req.description ?? null, req.enabled ?? true]
   );
   return rowToMcpServer(r.rows[0]);
 }
@@ -430,7 +545,7 @@ export async function updateMcpServer(
   if (fields.length === 0) return getMcpServerById(id);
 
   values.push(id);
-  const r = await getPool().query(
+  const r = await (await db()).query(
     `UPDATE mcp_servers SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
     values
   );
@@ -444,7 +559,7 @@ export async function updateMcpServer(
  * @returns {Promise<McpServer | null>} The server, or null if not found.
  */
 export async function getMcpServerById(id: string): Promise<McpServer | null> {
-  const r = await getPool().query('SELECT * FROM mcp_servers WHERE id = $1', [id]);
+  const r = await (await db()).query('SELECT * FROM mcp_servers WHERE id = $1', [id]);
   return r.rows.length ? rowToMcpServer(r.rows[0]) : null;
 }
 
@@ -456,7 +571,7 @@ export async function getMcpServerById(id: string): Promise<McpServer | null> {
  * @returns {Promise<void>}
  */
 export async function deleteMcpServer(id: string): Promise<void> {
-  await getPool().query('DELETE FROM mcp_servers WHERE id = $1', [id]);
+  await (await db()).query('DELETE FROM mcp_servers WHERE id = $1', [id]);
 }
 
 /**
@@ -469,23 +584,16 @@ export async function deleteMcpServer(id: string): Promise<void> {
  * @throws {Error} If the transaction fails; changes are rolled back automatically.
  */
 export async function setAgentMcps(agentId: string, mcpIds: string[]): Promise<void> {
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('DELETE FROM agent_mcps WHERE agent_id = $1', [agentId]);
+  const adapter = await db();
+  await adapter.transaction(async (tx) => {
+    await tx.query('DELETE FROM agent_mcps WHERE agent_id = $1', [agentId]);
     for (const mcpId of mcpIds) {
-      await client.query(
+      await tx.query(
         'INSERT INTO agent_mcps (agent_id, mcp_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
         [agentId, mcpId]
       );
     }
-    await client.query('COMMIT');
-  } catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 // =============================================================================
@@ -500,7 +608,7 @@ export async function setAgentMcps(agentId: string, mcpIds: string[]): Promise<v
  * @returns {Promise<Skill[]>} Ordered skill files.
  */
 export async function getAgentSkills(agentId: string): Promise<Skill[]> {
-  const r = await getPool().query(
+  const r = await (await db()).query(
     'SELECT * FROM skills WHERE agent_id = $1 ORDER BY category, sort_order, filename',
     [agentId]
   );
@@ -525,13 +633,14 @@ export async function upsertSkill(
   content: string,
   sortOrder = 0
 ): Promise<Skill> {
-  const r = await getPool().query(
-    `INSERT INTO skills (agent_id, category, filename, content, sort_order)
-     VALUES ($1, $2, $3, $4, $5)
+  const id = randomUUID();
+  const r = await (await db()).query(
+    `INSERT INTO skills (id, agent_id, category, filename, content, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (agent_id, category, filename)
      DO UPDATE SET content = EXCLUDED.content, sort_order = EXCLUDED.sort_order, updated_at = now()
      RETURNING *`,
-    [agentId, category, filename, content, sortOrder]
+    [id, agentId, category, filename, content, sortOrder]
   );
   return rowToSkill(r.rows[0]);
 }
@@ -543,7 +652,7 @@ export async function upsertSkill(
  * @returns {Promise<void>}
  */
 export async function deleteSkill(id: string): Promise<void> {
-  await getPool().query('DELETE FROM skills WHERE id = $1', [id]);
+  await (await db()).query('DELETE FROM skills WHERE id = $1', [id]);
 }
 
 /**
@@ -553,7 +662,7 @@ export async function deleteSkill(id: string): Promise<void> {
  * @returns {Promise<void>}
  */
 export async function deleteSkillsByAgent(agentId: string): Promise<void> {
-  await getPool().query('DELETE FROM skills WHERE agent_id = $1', [agentId]);
+  await (await db()).query('DELETE FROM skills WHERE agent_id = $1', [agentId]);
 }
 
 // =============================================================================
@@ -567,15 +676,15 @@ export async function deleteSkillsByAgent(agentId: string): Promise<void> {
  * @returns {Promise<Permission | null>} The permission record, or null if not configured.
  */
 export async function getAgentPermissions(agentId: string): Promise<Permission | null> {
-  const r = await getPool().query('SELECT * FROM permissions WHERE agent_id = $1', [agentId]);
+  const r = await (await db()).query('SELECT * FROM permissions WHERE agent_id = $1', [agentId]);
   if (!r.rows.length) return null;
   const row = r.rows[0];
   return {
-    id: row.id,
-    agentId: row.agent_id,
-    allowedTools: row.allowed_tools,
-    deniedTools: row.denied_tools,
-    updatedAt: row.updated_at,
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    allowedTools: row.allowed_tools as string[],
+    deniedTools: row.denied_tools as string[],
+    updatedAt: row.updated_at as Date,
   };
 }
 
@@ -593,12 +702,13 @@ export async function upsertPermissions(
   allowedTools: string[],
   deniedTools: string[]
 ): Promise<void> {
-  await getPool().query(
-    `INSERT INTO permissions (agent_id, allowed_tools, denied_tools)
-     VALUES ($1, $2, $3)
+  const id = randomUUID();
+  await (await db()).query(
+    `INSERT INTO permissions (id, agent_id, allowed_tools, denied_tools)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (agent_id)
-     DO UPDATE SET allowed_tools = $2, denied_tools = $3, updated_at = now()`,
-    [agentId, allowedTools, deniedTools]
+     DO UPDATE SET allowed_tools = $3, denied_tools = $4, updated_at = now()`,
+    [id, agentId, allowedTools, deniedTools]
   );
 }
 
@@ -613,14 +723,14 @@ export async function upsertPermissions(
  * @returns {Promise<Restriction | null>} The restriction record, or null if not configured.
  */
 export async function getAgentRestrictions(agentId: string): Promise<Restriction | null> {
-  const r = await getPool().query('SELECT * FROM agent_restrictions WHERE agent_id = $1', [agentId]);
+  const r = await (await db()).query('SELECT * FROM agent_restrictions WHERE agent_id = $1', [agentId]);
   if (!r.rows.length) return null;
   const row = r.rows[0];
   return {
-    id: row.id,
-    agentId: row.agent_id,
+    id: row.id as string,
+    agentId: row.agent_id as string,
     allowedChannels: (row.allowed_channels as string[]) ?? [],
-    updatedAt: row.updated_at,
+    updatedAt: row.updated_at as Date,
   };
 }
 
@@ -635,12 +745,13 @@ export async function upsertRestrictions(
   agentId: string,
   allowedChannels: string[],
 ): Promise<void> {
-  await getPool().query(
-    `INSERT INTO agent_restrictions (agent_id, allowed_channels)
-     VALUES ($1, $2)
+  const id = randomUUID();
+  await (await db()).query(
+    `INSERT INTO agent_restrictions (id, agent_id, allowed_channels)
+     VALUES ($1, $2, $3)
      ON CONFLICT (agent_id)
-     DO UPDATE SET allowed_channels = $2, updated_at = now()`,
-    [agentId, allowedChannels]
+     DO UPDATE SET allowed_channels = $3, updated_at = now()`,
+    [id, agentId, allowedChannels]
   );
 }
 
@@ -655,7 +766,7 @@ export async function upsertRestrictions(
  * @returns {Promise<Memory[]>} All memory entries for this agent.
  */
 export async function getAgentMemories(agentId: string): Promise<Memory[]> {
-  const r = await getPool().query(
+  const r = await (await db()).query(
     'SELECT * FROM memories WHERE agent_id = $1 ORDER BY type, created_at',
     [agentId]
   );
@@ -669,7 +780,7 @@ export async function getAgentMemories(agentId: string): Promise<Memory[]> {
  * @returns {Promise<void>}
  */
 export async function deleteMemory(id: string): Promise<void> {
-  await getPool().query('DELETE FROM memories WHERE id = $1', [id]);
+  await (await db()).query('DELETE FROM memories WHERE id = $1', [id]);
 }
 
 // =============================================================================
@@ -683,7 +794,7 @@ export async function deleteMemory(id: string): Promise<void> {
  * @returns {Promise<string | null>} The value, or null if not set.
  */
 export async function getSetting(key: string): Promise<string | null> {
-  const r = await getPool().query('SELECT value FROM settings WHERE key = $1', [key]);
+  const r = await (await db()).query('SELECT value FROM settings WHERE key = $1', [key]);
   return r.rows.length ? (r.rows[0].value as string) : null;
 }
 
@@ -695,7 +806,7 @@ export async function getSetting(key: string): Promise<string | null> {
  * @returns {Promise<void>}
  */
 export async function setSetting(key: string, value: string): Promise<void> {
-  await getPool().query(
+  await (await db()).query(
     `INSERT INTO settings (key, value)
      VALUES ($1, $2)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
@@ -704,12 +815,22 @@ export async function setSetting(key: string, value: string): Promise<void> {
 }
 
 /**
+ * Deletes a single setting by key. No-op if the key is absent.
+ *
+ * @param {string} key - The setting key to remove.
+ * @returns {Promise<void>}
+ */
+export async function deleteSetting(key: string): Promise<void> {
+  await (await db()).query('DELETE FROM settings WHERE key = $1', [key]);
+}
+
+/**
  * Returns all settings as a flat key-value map.
  *
  * @returns {Promise<Record<string, string>>} All stored settings.
  */
 export async function getAllSettings(): Promise<Record<string, string>> {
-  const r = await getPool().query('SELECT key, value FROM settings ORDER BY key');
+  const r = await (await db()).query('SELECT key, value FROM settings ORDER BY key');
   const result: Record<string, string> = {};
   for (const row of r.rows) {
     result[row.key as string] = row.value as string;
@@ -728,13 +849,13 @@ export async function getAllSettings(): Promise<Record<string, string>> {
  * @returns {Promise<{ id: string; username: string; passwordHash: string; role: string; createdAt: string } | null>}
  */
 export async function getUserByUsername(username: string): Promise<{ id: string; username: string; passwordHash: string; role: string; createdAt: string } | null> {
-  const r = await getPool().query(
+  const r = await (await db()).query(
     'SELECT id, username, password_hash, role, created_at FROM users WHERE username = $1',
     [username]
   );
   if (!r.rows.length) return null;
   const row = r.rows[0];
-  return { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role, createdAt: row.created_at };
+  return { id: row.id as string, username: row.username as string, passwordHash: row.password_hash as string, role: row.role as string, createdAt: row.created_at as string };
 }
 
 /**
@@ -743,8 +864,8 @@ export async function getUserByUsername(username: string): Promise<{ id: string;
  * @returns {Promise<Array<{ id: string; username: string; role: string; createdAt: string }>>}
  */
 export async function getAllUsers(): Promise<Array<{ id: string; username: string; role: string; createdAt: string }>> {
-  const r = await getPool().query('SELECT id, username, role, created_at FROM users ORDER BY created_at');
-  return r.rows.map(row => ({ id: row.id, username: row.username, role: row.role, createdAt: row.created_at }));
+  const r = await (await db()).query('SELECT id, username, role, created_at FROM users ORDER BY created_at');
+  return r.rows.map(row => ({ id: row.id as string, username: row.username as string, role: row.role as string, createdAt: row.created_at as string }));
 }
 
 /**
@@ -756,11 +877,13 @@ export async function getAllUsers(): Promise<Array<{ id: string; username: strin
  * @returns {Promise<{ id: string; username: string; role: string }>}
  */
 export async function createUser(username: string, passwordHash: string, role: string): Promise<{ id: string; username: string; role: string }> {
-  const r = await getPool().query(
-    'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id, username, role',
-    [username, passwordHash, role]
+  const id = randomUUID();
+  const r = await (await db()).query(
+    'INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id, username, role',
+    [id, username, passwordHash, role]
   );
-  return r.rows[0];
+  const row = r.rows[0];
+  return { id: row.id as string, username: row.username as string, role: row.role as string };
 }
 
 /**
@@ -769,7 +892,7 @@ export async function createUser(username: string, passwordHash: string, role: s
  * @param {string} id - User UUID.
  */
 export async function deleteUser(id: string): Promise<void> {
-  await getPool().query('DELETE FROM users WHERE id = $1', [id]);
+  await (await db()).query('DELETE FROM users WHERE id = $1', [id]);
 }
 
 /**
@@ -780,7 +903,18 @@ export async function deleteUser(id: string): Promise<void> {
  * @returns {Promise<void>}
  */
 export async function updateUserRole(id: string, role: string): Promise<void> {
-  await getPool().query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
+  await (await db()).query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
+}
+
+/**
+ * Updates a user's password hash.
+ *
+ * @param {string} id - User UUID.
+ * @param {string} passwordHash - Bcrypt hash of the new password.
+ * @returns {Promise<void>}
+ */
+export async function updateUserPassword(id: string, passwordHash: string): Promise<void> {
+  await (await db()).query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, id]);
 }
 
 // =============================================================================
@@ -791,7 +925,7 @@ export async function updateUserRole(id: string, role: string): Promise<void> {
  * Returns the list of user IDs that have explicit write access to an agent.
  */
 export async function getAgentWriteUsers(agentId: string): Promise<{ userId: string; username: string }[]> {
-  const r = await getPool().query(
+  const r = await (await db()).query(
     `SELECT aa.user_id, u.username
      FROM agent_access aa
      JOIN users u ON u.id = aa.user_id
@@ -806,7 +940,7 @@ export async function getAgentWriteUsers(agentId: string): Promise<{ userId: str
  * Grants write access to a user for an agent.
  */
 export async function grantAgentWrite(agentId: string, userId: string): Promise<void> {
-  await getPool().query(
+  await (await db()).query(
     'INSERT INTO agent_access (agent_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
     [agentId, userId]
   );
@@ -816,7 +950,7 @@ export async function grantAgentWrite(agentId: string, userId: string): Promise<
  * Revokes write access from a user for an agent.
  */
 export async function revokeAgentWrite(agentId: string, userId: string): Promise<void> {
-  await getPool().query('DELETE FROM agent_access WHERE agent_id = $1 AND user_id = $2', [agentId, userId]);
+  await (await db()).query('DELETE FROM agent_access WHERE agent_id = $1 AND user_id = $2', [agentId, userId]);
 }
 
 /**
@@ -826,7 +960,7 @@ export async function revokeAgentWrite(agentId: string, userId: string): Promise
 export async function userCanWriteAgent(agentId: string, username: string, role: string): Promise<boolean> {
   if (role === 'admin' || role === 'superadmin') return true;
   // Check if creator or explicitly granted
-  const r = await getPool().query(
+  const r = await (await db()).query(
     `SELECT 1 FROM agents WHERE id = $1 AND created_by = $2
      UNION
      SELECT 1 FROM agent_access aa JOIN users u ON u.id = aa.user_id
@@ -880,7 +1014,32 @@ function rowToJobRun(row: Record<string, unknown>): JobRun {
  * @returns {Promise<Array<ScheduledJob & { lastRun?: JobRun }>>}
  */
 export async function getAllJobs(): Promise<Array<ScheduledJob & { lastRun?: JobRun }>> {
-  const r = await getPool().query(`
+  const adapter = await db();
+
+  if (adapter.type === 'sqlite') {
+    // SQLite does not support LATERAL joins — use a correlated subquery instead
+    const r = await adapter.query(`
+      SELECT j.*,
+             lr.id AS lr_id, lr.started_at AS lr_started_at, lr.finished_at AS lr_finished_at,
+             lr.status AS lr_status, lr.output AS lr_output, lr.error AS lr_error
+      FROM scheduled_jobs j
+      LEFT JOIN job_runs lr ON lr.id = (
+        SELECT jr.id FROM job_runs jr WHERE jr.job_id = j.id ORDER BY jr.started_at DESC LIMIT 1
+      )
+      ORDER BY j.created_at DESC
+    `);
+    return r.rows.map(row => ({
+      ...rowToJob(row),
+      lastRun: row.lr_id ? {
+        id: row.lr_id as string, jobId: row.id as string,
+        startedAt: row.lr_started_at as Date, finishedAt: (row.lr_finished_at as Date | null) ?? undefined,
+        status: row.lr_status as JobRun['status'], output: (row.lr_output as string | null) ?? undefined, error: (row.lr_error as string | null) ?? undefined,
+      } : undefined,
+    }));
+  }
+
+  // Postgres — use LATERAL for best performance
+  const r = await adapter.query(`
     SELECT j.*,
            lr.id AS lr_id, lr.started_at AS lr_started_at, lr.finished_at AS lr_finished_at,
            lr.status AS lr_status, lr.output AS lr_output, lr.error AS lr_error
@@ -893,9 +1052,9 @@ export async function getAllJobs(): Promise<Array<ScheduledJob & { lastRun?: Job
   return r.rows.map(row => ({
     ...rowToJob(row),
     lastRun: row.lr_id ? {
-      id: row.lr_id, jobId: row.id as string,
-      startedAt: row.lr_started_at, finishedAt: row.lr_finished_at ?? undefined,
-      status: row.lr_status, output: row.lr_output ?? undefined, error: row.lr_error ?? undefined,
+      id: row.lr_id as string, jobId: row.id as string,
+      startedAt: row.lr_started_at as Date, finishedAt: (row.lr_finished_at as Date | null) ?? undefined,
+      status: row.lr_status as JobRun['status'], output: (row.lr_output as string | null) ?? undefined, error: (row.lr_error as string | null) ?? undefined,
     } : undefined,
   }));
 }
@@ -907,7 +1066,7 @@ export async function getAllJobs(): Promise<Array<ScheduledJob & { lastRun?: Job
  * @returns {Promise<ScheduledJob | null>}
  */
 export async function getJobById(id: string): Promise<ScheduledJob | null> {
-  const r = await getPool().query('SELECT * FROM scheduled_jobs WHERE id = $1', [id]);
+  const r = await (await db()).query('SELECT * FROM scheduled_jobs WHERE id = $1', [id]);
   return r.rows.length ? rowToJob(r.rows[0]) : null;
 }
 
@@ -918,10 +1077,11 @@ export async function getJobById(id: string): Promise<ScheduledJob | null> {
  * @returns {Promise<ScheduledJob>}
  */
 export async function createJob(req: CreateJobRequest): Promise<ScheduledJob> {
-  const r = await getPool().query(
-    `INSERT INTO scheduled_jobs (agent_id, name, prompt, cron_schedule, target_type, target_id, enabled)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [req.agentId, req.name, req.prompt, req.cronSchedule, req.targetType ?? 'channel', req.targetId, req.enabled ?? true]
+  const id = randomUUID();
+  const r = await (await db()).query(
+    `INSERT INTO scheduled_jobs (id, agent_id, name, prompt, cron_schedule, target_type, target_id, enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [id, req.agentId, req.name, req.prompt, req.cronSchedule, req.targetType ?? 'channel', req.targetId, req.enabled ?? true]
   );
   return rowToJob(r.rows[0]);
 }
@@ -947,7 +1107,7 @@ export async function updateJob(id: string, req: UpdateJobRequest): Promise<Sche
   if (!sets.length) return getJobById(id);
   sets.push(`updated_at = now()`);
   vals.push(id);
-  const r = await getPool().query(
+  const r = await (await db()).query(
     `UPDATE scheduled_jobs SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, vals
   );
   return r.rows.length ? rowToJob(r.rows[0]) : null;
@@ -959,7 +1119,7 @@ export async function updateJob(id: string, req: UpdateJobRequest): Promise<Sche
  * @param {string} id - Job UUID.
  */
 export async function deleteJob(id: string): Promise<void> {
-  await getPool().query('DELETE FROM scheduled_jobs WHERE id = $1', [id]);
+  await (await db()).query('DELETE FROM scheduled_jobs WHERE id = $1', [id]);
 }
 
 /**
@@ -971,7 +1131,7 @@ export async function deleteJob(id: string): Promise<void> {
  * @returns {Promise<JobRun[]>}
  */
 export async function getJobRuns(jobId: string, limit = 20, offset = 0): Promise<JobRun[]> {
-  const r = await getPool().query(
+  const r = await (await db()).query(
     'SELECT * FROM job_runs WHERE job_id = $1 ORDER BY started_at DESC LIMIT $2 OFFSET $3',
     [jobId, limit, offset]
   );
@@ -1035,40 +1195,33 @@ export async function createSnapshot(
   compiledMd: string,
   allowedChannels: string[] = [],
 ): Promise<AgentSnapshot> {
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-
-    const insertResult = await client.query(
+  const id = (await import('crypto')).randomUUID();
+  const adapter = await db();
+  return adapter.transaction(async (tx) => {
+    const insertResult = await tx.query(
       `INSERT INTO agent_snapshots
-         (agent_id, label, trigger, created_by, skills_json,
+         (id, agent_id, label, trigger, created_by, skills_json,
           allowed_tools, denied_tools, mcp_ids, compiled_md, allowed_channels)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
-      [agentId, label, trigger, createdBy, JSON.stringify(skills),
+      [id, agentId, label, trigger, createdBy, JSON.stringify(skills),
        allowedTools, deniedTools, mcpIds, compiledMd, allowedChannels]
     );
 
     // Purge oldest auto-snapshots beyond cap=10 for this agent
-    await client.query(
+    await tx.query(
       `DELETE FROM agent_snapshots
        WHERE id IN (
          SELECT id FROM agent_snapshots
          WHERE agent_id = $1 AND trigger != 'manual'
          ORDER BY created_at DESC
-         OFFSET 10
+         LIMIT -1 OFFSET 10
        )`,
       [agentId]
     );
 
-    await client.query('COMMIT');
     return rowToSnapshot(insertResult.rows[0]);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 /**
@@ -1080,7 +1233,7 @@ export async function createSnapshot(
  * @returns {Promise<AgentSnapshot[]>}
  */
 export async function listSnapshots(agentId: string, limit = 100, offset = 0): Promise<AgentSnapshot[]> {
-  const r = await getPool().query(
+  const r = await (await db()).query(
     `SELECT id, agent_id, trigger, created_by, label, allowed_tools, denied_tools, mcp_ids, allowed_channels, created_at
      FROM agent_snapshots WHERE agent_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
     [agentId, limit, offset]
@@ -1095,7 +1248,7 @@ export async function listSnapshots(agentId: string, limit = 100, offset = 0): P
  * @returns {Promise<AgentSnapshot | null>}
  */
 export async function getSnapshotById(id: string): Promise<AgentSnapshot | null> {
-  const r = await getPool().query('SELECT * FROM agent_snapshots WHERE id = $1', [id]);
+  const r = await (await db()).query('SELECT * FROM agent_snapshots WHERE id = $1', [id]);
   return r.rows.length ? rowToSnapshot(r.rows[0]) : null;
 }
 
@@ -1106,7 +1259,7 @@ export async function getSnapshotById(id: string): Promise<AgentSnapshot | null>
  * @returns {Promise<void>}
  */
 export async function deleteSnapshot(id: string): Promise<void> {
-  await getPool().query('DELETE FROM agent_snapshots WHERE id = $1', [id]);
+  await (await db()).query('DELETE FROM agent_snapshots WHERE id = $1', [id]);
 }
 
 // =============================================================================
@@ -1117,23 +1270,15 @@ export async function deleteSnapshot(id: string): Promise<void> {
 // The runner decrypts values at agent start time using the same key.
 // =============================================================================
 
-/** The symmetric encryption key for env var values. Must be set in .env. */
-function getEnvSecretKey(): string {
-  const key = process.env.ENV_SECRET_KEY;
-  if (!key) throw new Error('ENV_SECRET_KEY is not set — required for env var encryption');
-  return key;
-}
-
 /**
  * Returns decrypted env var values keyed by name. For internal use only — never expose via API.
  */
 export async function getEnvVarValues(): Promise<Record<string, string>> {
-  const encKey = getEnvSecretKey();
-  const r = await getPool().query(
-    'SELECT key, pgp_sym_decrypt(value::bytea, $1::text)::text AS value FROM env_vars',
-    [encKey],
+  const encKey = getEncryptionKey();
+  const r = await (await db()).query('SELECT key, value FROM env_vars');
+  return Object.fromEntries(
+    r.rows.map((row) => [row.key as string, decrypt(row.value as string, encKey)])
   );
-  return Object.fromEntries(r.rows.map((row: { key: string; value: string }) => [row.key, row.value]));
 }
 
 /**
@@ -1142,32 +1287,35 @@ export async function getEnvVarValues(): Promise<Record<string, string>> {
  * @returns {Promise<Array<{ key: string; description?: string; updatedAt: Date }>>}
  */
 export async function getAllEnvVars(): Promise<Array<{ key: string; description?: string; updatedAt: Date }>> {
-  const r = await getPool().query('SELECT key, description, updated_at FROM env_vars ORDER BY key');
+  const r = await (await db()).query('SELECT key, description, updated_at FROM env_vars ORDER BY key');
   return r.rows.map(row => ({
-    key: row.key,
-    description: row.description ?? undefined,
+    key: row.key as string,
+    description: (row.description as string | null) ?? undefined,
     updatedAt: row.updated_at as Date,
   }));
 }
 
 /**
- * Upserts an env var. Value is encrypted using pgcrypto before storage.
+ * Upserts an env var. Value is AES-encrypted with ENV_SECRET_KEY (app-layer,
+ * via @slackhive/shared `encrypt`) before storage. Works identically for
+ * SQLite and Postgres — the column stores ciphertext either way.
  *
  * @param {string} key - Env var key (e.g. "REDSHIFT_DATABASE_URL").
- * @param {string} value - Secret value (encrypted before storage).
+ * @param {string} value - Plaintext secret; encrypted before storage.
  * @param {string} [description] - Optional human-readable description.
  * @returns {Promise<void>}
  */
 export async function setEnvVar(key: string, value: string, description?: string): Promise<void> {
-  const encKey = getEnvSecretKey();
-  await getPool().query(
+  const encKey = getEncryptionKey();
+  const encrypted = encrypt(value, encKey);
+  await (await db()).query(
     `INSERT INTO env_vars (key, value, description)
-     VALUES ($1, pgp_sym_encrypt($2, $3, 'cipher-algo=aes256'), $4)
+     VALUES ($1, $2, $3)
      ON CONFLICT (key) DO UPDATE SET
-       value = pgp_sym_encrypt(EXCLUDED.value, $3, 'cipher-algo=aes256'),
-       description = COALESCE(EXCLUDED.description, env_vars.description),
+       value = $2,
+       description = COALESCE($3, env_vars.description),
        updated_at = now()`,
-    [key, value, encKey, description ?? null],
+    [key, encrypted, description ?? null],
   );
 }
 
@@ -1179,7 +1327,7 @@ export async function setEnvVar(key: string, value: string, description?: string
  * @returns {Promise<void>}
  */
 export async function updateEnvVarDescription(key: string, description: string): Promise<void> {
-  await getPool().query(
+  await (await db()).query(
     'UPDATE env_vars SET description = $2, updated_at = now() WHERE key = $1',
     [key, description],
   );
@@ -1192,5 +1340,5 @@ export async function updateEnvVarDescription(key: string, description: string):
  * @returns {Promise<void>}
  */
 export async function deleteEnvVar(key: string): Promise<void> {
-  await getPool().query('DELETE FROM env_vars WHERE key = $1', [key]);
+  await (await db()).query('DELETE FROM env_vars WHERE key = $1', [key]);
 }

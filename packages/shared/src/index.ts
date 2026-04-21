@@ -6,3 +6,16 @@
  */
 
 export * from './types';
+export type {
+  PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment,
+  MessagePayload, PlatformCredentials, SlackCredentials,
+} from './platform';
+export { initDb, getDb, closeDb, setDb } from './db/adapter';
+export type { DbAdapter, DbResult, DbRow } from './db/adapter';
+export { encrypt, decrypt } from './db/crypto';
+export { getEventBus, setEventBus, closeEventBus } from './event-bus';
+export type { EventBus } from './event-bus';
+export { MCP_TEMPLATES, MCP_CATEGORIES, getTemplateById, getTemplatesByCategory, searchTemplates } from './mcp-templates';
+export type { McpTemplate, McpEnvKey, McpCategory } from './mcp-templates';
+export { PERSONA_CATALOG, getPersonaById, getPersonasByCategory, searchPersonas } from './personas';
+export type { PersonaTemplate, PersonaSkillSeed, PersonaCategory } from './personas';

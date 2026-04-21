@@ -1,60 +1,74 @@
 ---
 title: "Version History"
-description: "Auto-snapshot every change to an agent's configuration, browse diffs, and restore any previous version."
+description: "Every save auto-snapshots the agent. Browse GitHub-style file diffs and restore any version."
 ---
 
-## Overview
+Every save to an agent — system prompt, skills, tools, permissions, channel restrictions — automatically creates a snapshot. The **History** tab lets you browse the full timeline, see exactly what changed, and restore any previous version.
 
-Every time you save changes to an agent — skills, CLAUDE.md, tool permissions, or MCP assignments — SlackHive automatically creates a snapshot of the agent's full state. The **History** tab on each agent's detail page lets you browse these snapshots, view line-level diffs, and restore any previous version.
-
-This gives you a safety net for experimentation: try a new persona, restructure skills, or tighten permissions, and roll back immediately if something breaks.
+This gives you a safety net: experiment freely, and roll back cleanly if something breaks.
 
 ## What gets snapshotted
 
-Each snapshot captures the full agent state at the time of save:
+| Captured | Not captured |
+|---|---|
+| System Prompt (`CLAUDE.md`) | Name |
+| All skill files | Slug |
+| Tool allowlist and denylist | Description |
+| MCP server assignments | Slack credentials (stored separately) |
+| Capability toggles (WebFetch, WebSearch) | Memory (has its own storage) |
+| Channel restrictions | Knowledge Base / wiki (has its own storage) |
 
-- `CLAUDE.md` content
-- All skill files (content and metadata)
-- Tool permissions (allowlist and denylist)
-- Assigned MCP servers
+## Skip when nothing changed
 
-Slack credentials, agent name, slug, and description are not included in snapshots (they are managed separately as live fields).
+If you save without changing anything, **no snapshot is created**. The history only shows real state changes. This keeps the list clean.
 
-## Viewing history
+## GitHub-style file diffs
 
-1. Open an agent from the dashboard
-2. Click the **History** tab
+Open a snapshot and you see a file-level diff in GitHub's familiar layout:
 
-You'll see a chronological list of snapshots with timestamps. Click any snapshot to expand it.
+- **Left pane** — file tree of what changed (added / modified / removed badges)
+- **Right pane** — the unified diff for the selected file
+- Green additions, red deletions, gray context
+- Each changed file is collapsible
 
-## Reading a diff
+Works for every captured piece — skills, system prompt, MCP assignments, permission lists, and channel restrictions all render as unified diffs.
 
-Each snapshot shows a line-level diff against the previous version. Lines are color-coded:
+## Restore preview
 
-- **Green** (additions) — lines added in this snapshot
-- **Red** (deletions) — lines removed compared to the previous snapshot
-- Unchanged lines are shown for context
+Before you restore, you can preview what will happen:
 
-## Restoring a version
+1. Open a snapshot
+2. Click **Preview Restore**
+3. A new pane shows the file-level diff between **now** and the snapshot
+4. Every file that would change is listed with its diff
+5. Click **Restore** to apply, or close the preview to cancel
 
-To restore an agent to a previous state:
+This means no surprises — you see the exact impact before committing.
 
-1. Open the snapshot you want to restore
-2. Click **Restore this version**
-3. Confirm the restore
+## How to restore
 
-The runner hot-reloads the agent within seconds of the restore. The restored state becomes the current agent configuration and is itself snapshotted as a new entry in the history (so the restore is reversible).
+1. Open an agent → **History** tab
+2. Click the snapshot you want
+3. **Preview Restore** (optional — see above)
+4. Click **Restore this version**
+5. Confirm
 
-## Snapshot retention
+The runner hot-reloads the agent within seconds. The restored state becomes current and is itself snapshotted as a new entry — so restoring is always reversible.
 
-SlackHive keeps up to **10 snapshots per agent**. When a new snapshot would exceed the cap, the oldest snapshot is automatically deleted.
+## Retention
 
-If you need to preserve a specific version permanently, export the agent configuration (copy the CLAUDE.md and skill content) before it ages out of the snapshot cap.
+SlackHive keeps up to **10 snapshots per agent**. When a new snapshot would exceed the cap, the oldest is dropped automatically.
+
+To preserve a specific version permanently, export the agent config (see [Import / Export](/features/import-export)) before it ages out.
 
 ## Conversation history
 
-In addition to configuration history, each Slack thread maintains its own conversation context. Each Slack thread (identified by `userId + channelId + threadTs`) maps to a persistent Claude Code session.
+Separate from version history — each Slack thread has its own persistent Claude session.
 
-Session context survives runner restarts: the Claude session ID is stored in Postgres and reloaded when the runner starts. When an agent receives a message in an existing thread, it resumes the same Claude session — maintaining full conversation context including tool results, intermediate outputs, and prior exchanges.
+- Sessions identified by `userId + channelId + threadTs`
+- Session context survives runner restarts (the Claude session ID is stored in SQLite and reloaded on start)
+- Same thread next week? Same session — full context preserved, including tool results and prior exchanges
+- Sessions expire after **30 minutes of inactivity**
+- The runner runs a cleanup job every 10 minutes to prune stale sessions
 
-Sessions expire after **30 minutes of inactivity**. The runner runs a cleanup job every 10 minutes that removes stale sessions from both the in-memory cache and the database. After expiry, the next message in that thread starts a fresh session (though the agent still has all memories from previous conversations).
+After expiry, the next message in the thread starts a fresh session. The agent still has all memories from previous conversations — those live separately in the agent-level memory store.

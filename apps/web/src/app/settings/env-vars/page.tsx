@@ -115,31 +115,38 @@ export default function EnvVarsPage() {
           {error && <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '8px 12px', borderRadius: 6, marginBottom: 14 }}>{error}</div>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>Key *</label>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
+                Key {!editKey && '*'} {editKey && <span style={{ fontWeight: 400, color: 'var(--subtle)' }}>(cannot be changed)</span>}
+              </label>
               <input
                 value={form.key}
                 onChange={e => setForm(f => ({ ...f, key: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') }))}
                 placeholder="REDSHIFT_DATABASE_URL"
                 readOnly={!!editKey}
-                style={{ ...inputSt, fontFamily: 'var(--font-mono)', opacity: editKey ? 0.6 : 1 }}
-                onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                style={{
+                  ...inputSt,
+                  fontFamily: 'var(--font-mono)',
+                  ...(editKey && { background: 'var(--surface-2)', color: 'var(--muted)', cursor: 'not-allowed' }),
+                }}
+                onFocus={e => { if (!editKey) e.currentTarget.style.borderColor = 'var(--accent)'; }}
                 onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
               />
-              <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--subtle)' }}>Uppercase letters, digits, underscores</p>
+              {!editKey && <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--subtle)' }}>Uppercase letters, digits, underscores</p>}
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
-                Value {editKey ? <span style={{ fontWeight: 400 }}>(leave blank to keep existing)</span> : '*'}
+                Value {editKey ? <span style={{ fontWeight: 400, color: 'var(--green)' }}>✓ value saved · enter new to replace</span> : '*'}
               </label>
               <input
                 type="password"
                 value={form.value}
                 onChange={e => setForm(f => ({ ...f, value: e.target.value }))}
-                placeholder={editKey ? '••••••••' : 'Enter secret value'}
+                placeholder={editKey ? 'Enter new value to replace existing' : 'Enter secret value'}
                 style={{ ...inputSt, fontFamily: 'var(--font-mono)' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
               />
+              {editKey && <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--subtle)' }}>For security, the existing value is not shown. Leave blank to keep it unchanged.</p>}
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>Description</label>
@@ -175,7 +182,7 @@ export default function EnvVarsPage() {
           border: '1px dashed var(--border)', borderRadius: 12, padding: '48px',
           textAlign: 'center', color: 'var(--subtle)',
         }}>
-          <div style={{ marginBottom: 10, color: 'var(--subtle)' }}><KeyRound size={28} /></div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><KeyRound size={28} style={{ color: 'var(--border-2)' }} /></div>
           <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No env vars yet</p>
           <p style={{ margin: '0 0 16px', fontSize: 13 }}>
             Add secrets here and reference them in MCP configs instead of pasting raw values.

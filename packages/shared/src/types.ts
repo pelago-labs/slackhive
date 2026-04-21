@@ -104,18 +104,16 @@ export interface Agent {
    * @example "Data warehouse NLQ, Redshift queries, business metrics"
    */
   description?: string;
-  /** Slack bot token (xoxb-...) for sending messages. */
-  slackBotToken: string;
-  /** Slack app-level token (xapp-...) for Socket Mode connection. */
-  slackAppToken: string;
-  /** Slack signing secret for request verification. */
-  slackSigningSecret: string;
-  /**
-   * The bot's Slack user ID (e.g., U12345678).
-   * Populated automatically on first connection via auth.test API.
-   * Used by the boss agent to construct proper @mentions.
-   */
+  /** Populated from platform_integrations at query time — not stored on agents table. */
+  slackBotToken?: string;
+  slackAppToken?: string;
+  slackSigningSecret?: string;
   slackBotUserId?: string;
+  /**
+   * Derived presence flag for list endpoints that strip the raw credentials.
+   * True when an active slack platform_integrations row exists for this agent.
+   */
+  hasSlackCreds?: boolean;
   /**
    * The Claude model to use for this agent.
    * @default "claude-opus-4-6"
@@ -135,6 +133,12 @@ export interface Agent {
    * A boss agent's CLAUDE.md registry is auto-generated from agents that report to it.
    */
   isBoss: boolean;
+  /**
+   * When true (default), each assistant text block is posted to the platform immediately.
+   * When false, only the final answer is sent as a single message.
+   * @default true
+   */
+  verbose: boolean;
   /** UUIDs of boss agents this agent reports to. Empty array if this agent is a boss. */
   reportsTo: string[];
   /**
@@ -147,6 +151,32 @@ export interface Agent {
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * Human-readable reason for the most recent start failure. Set by the runner
+   * when `status` transitions to 'error'; cleared when the agent starts
+   * successfully. Shown under the status chip on the agent detail page so the
+   * user immediately sees *why* an agent isn't running.
+   */
+  lastError?: string | null;
+  /**
+   * UUID of the runner process that last wrote this agent's status. Lets the
+   * UI (and a future owning-runner check) distinguish the authoritative
+   * writer from a stray/legacy runner sharing the same DB.
+   */
+  runnerId?: string | null;
+  /**
+   * ISO timestamp of the last liveness write from the owning runner. The
+   * runner bumps this every 15s for agents it's actively running. If the
+   * read side sees a `running` status with a heartbeat older than ~45s, it
+   * renders the status as `stale` instead of trusting the flag.
+   */
+  lastHeartbeat?: string | null;
+  /**
+   * Derived at read time from `status` + `lastHeartbeat` age. Not persisted.
+   * `stale` means the DB says `running` but no runner heartbeat has landed
+   * recently — the owning process likely crashed.
+   */
+  liveStatus?: AgentStatus | 'stale';
 }
 
 /**
@@ -381,6 +411,113 @@ export interface JobsReloadEvent {
 /** Union of all lifecycle events published on Redis. */
 export type AgentEvent = AgentReloadEvent | AgentStartEvent | AgentStopEvent | JobsReloadEvent;
 
+// =============================================================================
+// Coach (interactive instruction tuning) types
+// =============================================================================
+
+/**
+ * A single change the coach wants to make to the agent's claude.md, a skill,
+ * or a memory row. Surfaced in the chat UI as an approval card — never
+ * auto-applied (except during wizard bootstrap).
+ */
+/**
+ * When a proposal removes domain-knowledge content from its store, the Coach
+ * can attach a ready-to-download wiki page here. The Coach cannot write to
+ * `knowledge/wiki/` directly — this payload is the handoff: the user clicks
+ * a download button on the proposal card and drops the `.md` into the wiki.
+ */
+export interface CoachWikiExtract {
+  /** Path suggestion under knowledge/wiki/. E.g. "domain/fraud-pipeline.md". */
+  suggestedPath: string;
+  /** Full markdown body of the wiki page (starts with a `#` heading). */
+  content: string;
+  /** One-line summary rendered under the download button. */
+  summary: string;
+}
+
+export type CoachProposal =
+  | {
+      kind: 'claude-md';
+      /** Full replacement content for agents.claude_md. */
+      content: string;
+      rationale: string;
+      /** Server-assigned id, unique within a session. */
+      id: string;
+      status: 'pending' | 'applied' | 'rejected';
+      wikiExtract?: CoachWikiExtract;
+    }
+  | {
+      kind: 'skill';
+      category: string;
+      filename: string;
+      action: 'create' | 'update' | 'delete';
+      /** New/updated skill body. Omit for delete. */
+      content?: string;
+      rationale: string;
+      id: string;
+      status: 'pending' | 'applied' | 'rejected';
+      wikiExtract?: CoachWikiExtract;
+    }
+  | {
+      kind: 'memory';
+      /** Target memory row id. Required for `update` and `delete`; unset on `create`. */
+      memoryId?: string;
+      /** Name of the memory being touched — shown on the approval card. */
+      memoryName: string;
+      action: 'create' | 'update' | 'delete';
+      /**
+       * Memory type — required for `create`, optional on `update` (lets the Coach
+       * retype a mis-categorized memory). Ignored on delete.
+       */
+      memoryType?: 'user' | 'feedback' | 'project' | 'reference';
+      /** New content for create/update; omit for delete. */
+      content?: string;
+      rationale: string;
+      id: string;
+      status: 'pending' | 'applied' | 'rejected';
+      wikiExtract?: CoachWikiExtract;
+    }
+  | {
+      /**
+       * Standalone wiki-page suggestion — no store edit. Used when the user's
+       * ask is "teach the agent this body of knowledge" and there's nothing
+       * to strip from an existing memory/skill/CLAUDE.md. The card only
+       * offers a Download button; Apply/Reject are hidden.
+       */
+      kind: 'wiki-extract';
+      wikiExtract: CoachWikiExtract;
+      rationale: string;
+      id: string;
+      status: 'pending' | 'applied' | 'rejected';
+    };
+
+/** One message in the coach conversation. */
+export interface CoachMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  /** Plain text shown in the bubble. Assistant messages may also carry proposals. */
+  text: string;
+  /** Compact record of tools Claude invoked during this turn (for UI chips). */
+  toolCalls?: { name: string; input: Record<string, unknown>; ok: boolean }[];
+  proposals?: CoachProposal[];
+  createdAt: string;
+  /**
+   * Assistant messages only — set to true while the runner is still producing
+   * this turn. Lets the UI show a "drafting" indicator when the user arrives
+   * before the turn has finished (e.g. wizard bootstrap).
+   */
+  inProgress?: boolean;
+}
+
+/** Persisted coach conversation for one agent. */
+export interface CoachSession {
+  agentId: string;
+  /** SDK session id used for resume on subsequent turns. */
+  sdkSessionId?: string;
+  messages: CoachMessage[];
+  updatedAt: string;
+}
+
 /** Redis channel name for agent lifecycle events. */
 export const AGENT_EVENTS_CHANNEL = 'agent:events';
 
@@ -468,33 +605,26 @@ export interface CreateAgentRequest {
   name: string;
   persona?: string;
   description?: string;
-  slackBotToken: string;
-  slackAppToken: string;
-  slackSigningSecret: string;
+  /** Platform credentials (stored in platform_integrations table). */
+  platform?: string;
+  platformCredentials?: Record<string, string>;
   model?: string;
   isBoss?: boolean;
-  /** UUIDs of boss agents this agent reports to. */
   reportsTo?: string[];
-  /** IDs of MCP servers from the catalog to assign to this agent. */
   mcpServerIds?: string[];
-  /** Skill template to bootstrap: blank | data-analyst | writer | developer */
   skillTemplate?: SkillTemplate;
 }
 
-/**
- * Request body for updating an existing agent's configuration.
- * Used in PATCH /api/agents/[id].
- */
 export interface UpdateAgentRequest {
   name?: string;
   persona?: string;
   description?: string;
-  slackBotToken?: string;
-  slackAppToken?: string;
-  slackSigningSecret?: string;
+  /** Update platform credentials. */
+  platformCredentials?: Record<string, string>;
   model?: string;
   isBoss?: boolean;
   reportsTo?: string[];
+  verbose?: boolean;
 }
 
 /**
@@ -557,6 +687,55 @@ export interface UpsertMemoryRequest {
  * - `developer`: Code review and development assistance skills.
  */
 export type SkillTemplate = 'blank' | 'data-analyst' | 'writer' | 'developer';
+
+// =============================================================================
+// Knowledge Base
+// =============================================================================
+
+/** Source type for knowledge base. */
+export type KnowledgeSourceType = 'url' | 'file' | 'repo';
+
+/** Status of a knowledge source. */
+export type KnowledgeSourceStatus = 'pending' | 'building' | 'compiled' | 'error';
+
+/**
+ * A knowledge source that feeds into the agent's wiki.
+ * Sources are compiled by Claude into structured wiki articles.
+ */
+
+/** Platform integration — connects an agent to a messaging platform. */
+export interface PlatformIntegration {
+  id: string;
+  agentId: string;
+  platform: 'slack' | 'discord' | 'telegram' | 'whatsapp' | 'teams';
+  credentials: Record<string, string>;
+  botUserId?: string;
+  enabled: boolean;
+  createdAt: Date;
+}
+
+export interface KnowledgeSource {
+  id: string;
+  agentId: string;
+  type: KnowledgeSourceType;
+  name: string;
+  /** URL for 'url' type sources. */
+  url?: string;
+  /** Git repo URL for 'repo' type sources. */
+  repoUrl?: string;
+  /** Branch to track (default: 'main'). */
+  branch?: string;
+  /** Env var key referencing a PAT for private repos. */
+  patEnvRef?: string;
+  /** Cron schedule for auto-sync. */
+  syncCron?: string;
+  /** Raw content (for url/file types, not repos). */
+  content?: string;
+  status: KnowledgeSourceStatus;
+  wordCount: number;
+  lastSynced?: string;
+  createdAt: Date;
+}
 
 // =============================================================================
 // Scheduled Jobs
