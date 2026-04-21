@@ -906,6 +906,17 @@ export async function updateUserRole(id: string, role: string): Promise<void> {
   await (await db()).query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
 }
 
+/**
+ * Updates a user's password hash.
+ *
+ * @param {string} id - User UUID.
+ * @param {string} passwordHash - Bcrypt hash of the new password.
+ * @returns {Promise<void>}
+ */
+export async function updateUserPassword(id: string, passwordHash: string): Promise<void> {
+  await (await db()).query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, id]);
+}
+
 // =============================================================================
 // Agent access control
 // =============================================================================

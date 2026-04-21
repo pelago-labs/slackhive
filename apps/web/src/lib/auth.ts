@@ -120,7 +120,7 @@ export function getSessionFromRequest(req: Request): SessionPayload | null {
  * @returns {SessionPayload} Verified session.
  * @throws {Error} If not authenticated or insufficient role.
  */
-export function requireRole(req: Request, minRole: 'viewer' | 'editor' | 'admin'): SessionPayload {
+export function requireRole(req: Request, minRole: 'viewer' | 'editor' | 'admin' | 'superadmin'): SessionPayload {
   const session = getSessionFromRequest(req);
   if (!session) throw new Error('Not authenticated');
 
