@@ -52,21 +52,13 @@ without lengthy preamble. They use BigQuery, not Redshift.
 | `type` | Yes | One of `user`, `feedback`, `project`, `reference` |
 | `description` | No | One-line summary shown in the Memory tab |
 
-## How agents recall memories
+## How agents see memories
 
-The agent runs the built-in `/recall` skill at the start of each conversation and whenever the topic shifts:
+Every memory is **inlined into the system prompt at compile time**, grouped by type (`feedback`, `user`, `project`, `reference`). The agent sees all of them on every turn — there is no retrieval step, no skill to invoke, and nothing for the user to trigger.
 
-1. Reads `memory/MEMORY.md` (the index)
-2. Loads only the memories that match the current topic
-3. Applies them to the response
+This replaces the earlier `/recall` flow. Rules like _"when the sender is U095…, answer in Bahasa"_ now fire deterministically because both the rule and the sender ID are present in the turn context.
 
-Users can trigger it manually in Slack:
-
-```
-/recall Kai's preferences
-```
-
-The context window stays small — memories aren't stuffed into every message.
+To keep the prompt bounded, total inlined memory size has a cap (see the runner's `MAX_INLINED_MEMORY_BYTES`). If an agent accumulates more memory than the budget allows, the oldest entries overflow and are dropped with a warning. Prune stale memories via the **Analyze** button or the Memory tab.
 
 ## The Analyze button
 

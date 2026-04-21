@@ -54,7 +54,7 @@ A skill runs only when called. It doesn't cost context until then. That's the wh
 
 ## 3. Memory — what the agent learned
 
-Structured facts the agent writes down during conversations. The agent recalls them on demand via the `/recall` skill.
+Structured facts the agent writes down during conversations. Every memory is inlined into the system prompt every turn, so the agent always sees what it has learned — no skill call, no retrieval step.
 
 **Put here:**
 
@@ -116,8 +116,8 @@ Ask yourself two questions:
                          |          |            |               |
                        Skill      Skill        Wiki           Memory
                             (short, reusable)   (agent       (agent
-                                                 reads        learns
-                                                 on demand)   & recalls)
+                                                 reads        learns,
+                                                 on demand)   always sees)
 ```
 
 ## Worked examples
@@ -138,11 +138,11 @@ Ask yourself two questions:
 The four layers are not isolated — they compose:
 
 1. **System Prompt** loads every turn. Sets the lens.
-2. **Memory index** (`MEMORY.md`) loads every turn. Tells the agent what it has learned.
-3. **Skills** load when invoked. `/recall`, `/wiki`, and your custom skills.
+2. **Memories** load every turn, inlined into the system prompt. The agent always knows what it has learned.
+3. **Skills** load when invoked. `/wiki` and your custom skills.
 4. **Wiki** loads page-by-page when the agent reads it via `/wiki`.
 
-This keeps the context window small by default, with everything available on demand.
+Memories and the system prompt are always in context; skills and wiki pages load on demand. That keeps the turn cost bounded while everything the agent has learned stays visible.
 
 ## Next steps
 
