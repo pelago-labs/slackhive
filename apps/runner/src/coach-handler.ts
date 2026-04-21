@@ -61,9 +61,12 @@ const MAX_ATTACHMENT_CHARS = 20_000;
  * otherwise break out of the workspace.
  */
 const SAFE_NAME = /^[A-Za-z0-9._-]+$/;
+// SAFE_NAME permits "." so bare `.` / `..` tokens pass the regex — reject
+// those separately since they're current-dir / parent-dir references.
+const DOTS_ONLY = /^\.+$/;
 export function assertSafeSkillPath(category: string, filename: string): void {
-  if (!SAFE_NAME.test(category)) throw new Error(`invalid category: ${category}`);
-  if (!SAFE_NAME.test(filename)) throw new Error(`invalid filename: ${filename}`);
+  if (!SAFE_NAME.test(category) || DOTS_ONLY.test(category)) throw new Error(`invalid category: ${category}`);
+  if (!SAFE_NAME.test(filename) || DOTS_ONLY.test(filename)) throw new Error(`invalid filename: ${filename}`);
 }
 
 /**
