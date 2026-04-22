@@ -365,16 +365,12 @@ export async function init(opts: InitOptions): Promise<void> {
 
     // Start in native mode
     if (webReady) {
-      const startSpinner = ora('  Starting SlackHive...').start();
       try {
-        // Import manage module to use nativeStart
-        const manage = require('./manage');
-        // Use the start function which auto-detects native mode
         process.chdir(dir);
-        startSpinner.succeed('SlackHive started');
-        // Actually start via the manage module after init completes
-      } catch {
-        startSpinner.warn('Auto-start skipped — run `slackhive start` manually');
+        const manage = require('./manage');
+        await manage.start();
+      } catch (err) {
+        console.log(chalk.yellow(`  Auto-start failed — run \`slackhive start\` manually (${(err as Error).message})`));
         webReady = false;
       }
     }
