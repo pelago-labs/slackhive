@@ -84,7 +84,7 @@ Open the agent to find five tabs:
 |---|---|
 | **Overview** | Name, description, model, persona, Slack credentials, channel restrictions, verbose toggle (see below) |
 | **Instructions** | System Prompt, Skills, Memory (three sub-tabs) |
-| **Tools** | MCP servers, Claude Code tools, capability toggles (WebFetch, WebSearch) |
+| **Tools** | MCP servers plus Internet Access and Shell Access toggles |
 | **Knowledge** | Per-agent wiki — ingest repos/files/URLs |
 | **Test** | Sandboxed conversation pane with real MCPs |
 | **History** | Auto-snapshots with GitHub-style file diffs and restore |
@@ -97,7 +97,7 @@ Changes hot-reload within seconds — no restart needed.
 |---|---|---|
 | **System Prompt** | The agent's identity. Always-loaded. Edit by hand or via Coach. **Optimize** button runs Coach to tighten it. | [Concepts](/agents/concepts) |
 | **Skills** | Reusable slash-command procedures. Each is one Markdown file. | [Coach](/agents/coach) |
-| **Memory** | What the agent has learned from conversations. **Analyze** button triggers a recall review. | [Memory](/agents/memory) |
+| **Memory** | What the agent has learned from conversations. Inlined into the system prompt every turn. | [Memory](/agents/memory) |
 
 <Note>
   **Boss agents:** the System Prompt is locked and the Optimize button is hidden. Boss identity is auto-generated from the team registry whenever any specialist is added, updated, or deleted.
@@ -105,14 +105,12 @@ Changes hot-reload within seconds — no restart needed.
 
 ## Tools tab
 
-The Tools tab is where **MCP servers** and **Claude Code tools** come together in one place. At the top:
+The Tools tab has two sections:
 
-- **WebFetch** toggle — enables `WebFetch` tool
-- **WebSearch** toggle — enables `WebSearch` tool
+- **MCP servers** — assignment grid for servers in the catalog
+- **Capabilities** — toggles for **Internet Access** (web search + fetch) and **Shell Access** (terminal commands, dangerous commands auto-blocked)
 
-Below: the MCP assignment grid (add/remove servers from the catalog) and the allowlist/denylist for fine-grained tool control.
-
-`Read` and `Write` are always on (the memory system needs `Write`). `Bash` runs inside a per-agent namespace at `~/.slackhive/agents/<slug>/bash/` — agents cannot touch each other's files. See [Tools & Permissions](/agents/tools).
+`Read` and `Write` are always on (the memory system needs `Write`). See [Tools](/agents/tools).
 
 ## Verbose toggle
 

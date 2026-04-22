@@ -1,28 +1,25 @@
 ---
 title: "Memory"
-description: "How agents learn from conversations and recall knowledge on demand."
+description: "Persistent facts the agent learns from conversations, always visible on every turn."
 ---
 
-Memory is one of the four layers of an agent's brain — see [Concepts](/agents/concepts) for how it fits with the system prompt, skills, and wiki. This page focuses on when memory is saved, how to manage it, and what the UI surfaces.
+Memory is one of the four layers of an agent's brain — see [Concepts](/agents/concepts) for how it fits with the system prompt, skills, and wiki.
+
+Every memory is **inlined into the system prompt on every turn**. There is no retrieval step, no command to trigger — the agent always sees what it has learned.
 
 ## Where memory lives in the UI
 
 Open any agent → **Instructions** tab → **Memory** sub-tab.
 
-You'll see:
-
 - A list of saved memories grouped by type
 - Content and description for each memory
-- An **Analyze** button at the top
 - A delete button on each memory
 
-## How agents save memories
+## How memories get saved
 
-An agent writes a memory when something in the conversation is worth keeping across sessions. The agent first **asks** the user before saving — "Should I remember that you prefer BigQuery over Redshift?" — and only writes the file after you confirm.
+When something in a conversation is worth keeping across sessions, the agent asks the user first — *"Should I remember that you prefer BigQuery over Redshift?"* — and only writes the memory after you confirm.
 
-Ask-before-saving is the default. This keeps memory clean and prevents the agent from filling its brain with noise.
-
-The agent saves to a `memory/*.md` file. SlackHive watches the directory, parses the YAML frontmatter, and upserts the memory into the SQLite database.
+Ask-before-saving keeps memory clean and prevents noise.
 
 ## Memory types
 
@@ -52,50 +49,16 @@ without lengthy preamble. They use BigQuery, not Redshift.
 | `type` | Yes | One of `user`, `feedback`, `project`, `reference` |
 | `description` | No | One-line summary shown in the Memory tab |
 
-## How agents see memories
+## Size budget
 
-Every memory is **inlined into the system prompt at compile time**, grouped by type (`feedback`, `user`, `project`, `reference`). The agent sees all of them on every turn — there is no retrieval step, no skill to invoke, and nothing for the user to trigger.
-
-This replaces the earlier `/recall` flow. Rules like _"when the sender is U095…, answer in Bahasa"_ now fire deterministically because both the rule and the sender ID are present in the turn context.
-
-To keep the prompt bounded, total inlined memory size has a cap (see the runner's `MAX_INLINED_MEMORY_BYTES`). If an agent accumulates more memory than the budget allows, the oldest entries overflow and are dropped with a warning. Prune stale memories via the **Analyze** button or the Memory tab.
-
-## The Analyze button
-
-Sometimes the agent should re-examine its memories for overlap, staleness, or redundancy. Click **Analyze** at the top of the Memory sub-tab to trigger a review. The agent:
-
-1. Reads every memory
-2. Flags duplicates, contradictions, and stale entries
-3. Proposes merges or deletions as Coach proposal cards
-
-Apply or reject each card. Good to run after a long working relationship with the agent, or after several ask-before-saving confirmations.
-
-## Memory storage layout
-
-Each agent has two memory locations on disk:
-
-```
-~/.slackhive/agents/<slug>/
-  memory/                              ← read-only, materialized from SQLite on startup
-    MEMORY.md                          ← the index
-    user_kai_team_lead.md
-    feedback_avoid_mocking.md
-
-  sessions/<userId-channelId-threadTs>/
-    memory/                            ← the agent writes new memories here during conversations
-      feedback_new_learning.md
-```
-
-The root `memory/` is read-only — populated at startup from the database. New memories land in the session's `memory/` directory, the watcher picks them up, and they're persisted. On next restart they appear in the root.
+Total inlined memory has a cap (`MAX_INLINED_MEMORY_BYTES` in the runner). If an agent accumulates more than the budget allows, the oldest entries overflow and are dropped with a warning. Prune stale memories from the Memory tab.
 
 ## Updating and deleting
 
-- **Update**: the agent overwrites the file with the same `name`. The DB uses `(agent_id, name)` as the unique key — no duplicates.
-- **Delete**: click × on the memory card. Removed from the database. Won't be reloaded on next start.
+- **Update** — the agent overwrites the file with the same `name`. The DB uses `(agent_id, name)` as the unique key, so there are no duplicates.
+- **Delete** — click × on the memory card. Removed from the database and not reloaded on next start.
 
-## Memory does not expire
-
-Memories persist until you delete them. There's no TTL. The longer an agent works with your team, the sharper it gets.
+Memories persist until you delete them. There is no TTL.
 
 ## Next steps
 

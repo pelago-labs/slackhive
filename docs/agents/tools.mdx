@@ -1,112 +1,39 @@
 ---
-title: "Tools & Permissions"
-description: "Control what tools the agent can use — MCPs, Claude Code tools, namespace-scoped Bash, allowlist, denylist."
+title: "Tools"
+description: "What the agent can invoke — MCP servers, internet access, and shell access."
 ---
 
-The **Tools** tab is the single place you manage everything an agent can invoke. MCP servers, built-in Claude Code tools, and fine-grained permissions all live here.
+The **Tools** tab is where you control what an agent can invoke. There are two sections: **MCP servers** and **Capabilities**.
 
 Open an agent → **Tools** tab.
 
-## Capability toggles
-
-At the top of the tab, two switches enable specific Claude Code tools:
-
-| Toggle | Adds tool | When to enable |
-|---|---|---|
-| **WebFetch** | `WebFetch` | Agent needs to read content from a URL on demand |
-| **WebSearch** | `WebSearch` | Agent needs to search the web for current information |
-
-Leave both off by default — turn on per agent as needed.
-
 ## MCP servers
 
-Below the toggles: the MCP grid. Each card is a server from your catalog (see [MCP Servers](/configuration/mcp-servers) for adding servers).
-
-- **Assigned** servers (checked) — all their tools are available to this agent
-- **Unassigned** servers (unchecked) — not available
-
-When a server is assigned, all its tools become available under the prefix `mcp__{serverName}__*`. To allow a server but block specific tools, use the denylist (below).
-
-## Always-allowed tools
-
-Two Claude Code tools are on for every agent and cannot be removed:
-
-| Tool | Why |
-|---|---|
-| `Read` | Reads files in the agent's workspace — needed for loading the system prompt, skills, and wiki |
-| `Write` | Writes files in the agent's workspace — **required for the memory system** |
-
-## Namespace-scoped Bash
-
-If you enable `Bash`, it runs inside a per-agent sandbox at:
-
-```
-~/.slackhive/agents/<slug>/bash/
-```
-
-Each agent's Bash activity is isolated:
-
-- Commands run with the working directory set to the agent's bash root
-- Agents cannot read or write each other's files
-- `/tmp` is namespaced too — `/tmp/agents/<slug>/` maps into the agent's own space
-
-This prevents cross-agent interference when multiple agents are active at once.
-
-## Bash(pattern) permission rules
-
-For tight control over specific shell operations, use `Bash(pattern)` rules. The pattern restricts which commands the agent can run.
+The MCP grid lists every server in your catalog (see [MCP Servers](/configuration/mcp-servers) for adding servers). Check a server to assign it — the agent gets access to all of that server's tools.
 
 Examples:
 
-| Rule | What it allows |
-|---|---|
-| `Bash(git *)` | Only `git` commands |
-| `Bash(ls *)` | Only `ls` commands |
-| `Bash(git log *, git diff *, git status)` | Multiple specific git subcommands |
-| `Bash(rm *)` | (avoid — grants destructive access) |
+- Assign `redshift-mcp` → agent can run SQL queries
+- Assign `github` → agent can open PRs, read issues, etc.
+- Assign `datadog-mcp` → agent can query logs
 
-Add the rule to the allowlist. The agent can only run commands matching an allowed pattern.
+Assign only what the agent needs for its job, then click **Save Assignments**.
 
-## Effective tool set
+## Capabilities
 
-```
-effective = (alwaysAllowed + allowlist + mcpToolPrefixes) - denylist
-```
+Two toggles below the MCP grid.
 
-- Everything in **Always allowed** (`Read`, `Write`)
-- Everything in the **allowlist** (what you check)
-- All tools from **assigned MCP servers** (`mcp__name__*`)
-- Minus everything in the **denylist**
+### Internet Access
 
-## Common patterns
+Enables web search and fetch — the agent can look up current information or read content from a URL on demand. Leave off by default; turn on for agents that do research or consume external docs.
 
-### Give a data-analyst agent read-only SQL access
+### Shell Access
 
-- Assign the `redshift` MCP server
-- No other tools needed — `Read`/`Write` are on, `Bash` off
+Enables terminal commands for the agent. Dangerous commands are auto-blocked. Useful for agents that need to run git operations, inspect files, or work with a local codebase.
 
-### Give a dev-ops agent GitHub access but no branch deletion
+## Always on
 
-- Assign the `github` MCP server
-- Denylist: `mcp__github__delete_branch`
-
-### Give a writer agent web research
-
-- Enable **WebFetch** and **WebSearch** toggles
-- No MCPs needed
-
-### Give a shell-savvy agent git-only Bash
-
-- Allowlist: `Bash(git *)`
-- No MCPs needed
-
-## Boss agents need no tools
-
-Boss agents don't use tools directly — they delegate to specialists. The Tools tab is still visible on a Boss agent, but leave it empty. If you assign MCPs or toggle tools, they're harmless but unused.
-
-## Permission mode
-
-All SlackHive agents run in `permissionMode: 'acceptEdits'` — tool calls are auto-approved without prompting. The allowlist/denylist is your only control. This is the right default for an async Slack agent.
+`Read` and `Write` are on for every agent and cannot be removed. They power loading the system prompt, skills, and wiki, and writing memory files.
 
 ## Changes are live
 
