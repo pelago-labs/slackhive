@@ -1,6 +1,6 @@
 {
   "name": "slackhive",
-  "version": "0.1.47",
+  "version": "0.1.48",
   "private": false,
   "description": "Open-source platform for managing teams of Claude Code Slack agents with a boss agent orchestrator",
   "workspaces": [
