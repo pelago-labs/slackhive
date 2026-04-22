@@ -3,8 +3,8 @@
  *
  * POST /api/agents/[id]/snapshots/[sid]/restore
  *
- * Replaces the agent's current skills, permissions, and MCP assignments
- * with the state captured in the snapshot, then triggers a runner reload.
+ * Replaces the agent's current system prompt, skills, permissions, and MCP
+ * assignments with the state captured in the snapshot, then triggers a reload.
  *
  * @module web/api/agents/[id]/snapshots/[sid]/restore
  */
@@ -17,6 +17,7 @@ import {
   upsertSkill,
   upsertPermissions,
   setAgentMcps,
+  updateAgentClaudeMd,
   publishAgentEvent,
 } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
@@ -53,6 +54,11 @@ export async function POST(
 
     // Replace MCP assignments
     await setAgentMcps(id, snapshot.mcpIds);
+
+    // Restore system prompt
+    if (snapshot.compiledMd) {
+      await updateAgentClaudeMd(id, snapshot.compiledMd);
+    }
 
     // Trigger runner reload
     await publishAgentEvent({ type: 'reload', agentId: id });
