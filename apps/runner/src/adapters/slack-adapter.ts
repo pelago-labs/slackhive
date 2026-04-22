@@ -126,15 +126,21 @@ export class SlackAdapter implements PlatformAdapter {
     // Register Slack event handlers
     this.app.event('app_mention', async ({ event, client }) => {
       if (!this.messageHandler) return;
+      const ev = event as any;
+      const { files: attFiles, text: attText } = this.extractFromAttachments(ev.attachments);
+      const directFiles = this.mapFiles(ev.files) ?? [];
+      const allFiles = [...directFiles, ...attFiles];
+      const baseText = this.stripMention(ev.text ?? '');
+      const fullText = attText ? `${baseText}\n${attText}`.trim() : baseText;
       await this.messageHandler({
         id: event.ts,
         platform: 'slack',
         userId: event.user ?? 'unknown',
         channelId: event.channel,
         threadId: event.thread_ts ?? event.ts,
-        text: this.stripMention(event.text ?? ''),
+        text: fullText,
         isDM: false,
-        files: this.mapFiles((event as any).files),
+        files: allFiles.length > 0 ? allFiles : undefined,
         raw: { client, messageTs: event.ts },
       });
     });
@@ -143,15 +149,20 @@ export class SlackAdapter implements PlatformAdapter {
       const msg = message as any;
       if (!msg.channel?.startsWith('D') || !msg.user) return;
       if (!this.messageHandler) return;
+      const { files: attFiles, text: attText } = this.extractFromAttachments(msg.attachments);
+      const directFiles = this.mapFiles(msg.files) ?? [];
+      const allFiles = [...directFiles, ...attFiles];
+      const baseText = this.stripMention(msg.text ?? '');
+      const fullText = attText ? `${baseText}\n${attText}`.trim() : baseText;
       await this.messageHandler({
         id: msg.ts,
         platform: 'slack',
         userId: msg.user,
         channelId: msg.channel,
         threadId: msg.thread_ts,
-        text: this.stripMention(msg.text ?? ''),
+        text: fullText,
         isDM: true,
-        files: this.mapFiles(msg.files),
+        files: allFiles.length > 0 ? allFiles : undefined,
         raw: { client, messageTs: msg.ts },
       });
     });
@@ -477,6 +488,21 @@ Good:
       size: f.size,
       url: f.url_private_download,
     }));
+  }
+
+  // Extract files and text buried inside Slack attachment objects (forwarded/shared messages).
+  // Slack puts the original message's content in event.attachments[] rather than event.files[].
+  private extractFromAttachments(attachments?: any[]): { files: FileAttachment[]; text: string } {
+    if (!attachments || attachments.length === 0) return { files: [], text: '' };
+    const files: FileAttachment[] = [];
+    const textParts: string[] = [];
+    for (const att of attachments) {
+      if (att.text) textParts.push(att.text);
+      if (att.pretext) textParts.push(att.pretext);
+      const attFiles = this.mapFiles(att.files);
+      if (attFiles) files.push(...attFiles);
+    }
+    return { files, text: textParts.join('\n') };
   }
 }
 
