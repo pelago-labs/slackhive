@@ -1,0 +1,66 @@
+/**
+ * @fileoverview List tasks for the activity dashboard, one kanban column at
+ * a time. Middleware-authenticated (any role); writes live on the runner
+ * side, so this is read-only.
+ *
+ * @module web/api/activity
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { listTasks, type TaskListColumn, type ActivityFilter } from '@slackhive/shared';
+import { apiError } from '@/lib/api-error';
+
+export const dynamic = 'force-dynamic';
+
+const VALID_COLUMNS: TaskListColumn[] = ['active', 'recent', 'errored'];
+const VALID_WINDOWS = new Set(['1h', '24h', '7d', '30d']);
+
+/**
+ * Translate a UI window string to an ISO timestamp floor. SQLite stores
+ * timestamps as `YYYY-MM-DD HH:MM:SS` via `datetime('now')`, and string
+ * comparison against ISO-lexicographic values sorts correctly.
+ */
+function windowFloor(w: string | null): string | undefined {
+  if (!w || !VALID_WINDOWS.has(w)) return undefined;
+  const now = Date.now();
+  const ms =
+    w === '1h'  ? 60 * 60 * 1000 :
+    w === '24h' ? 24 * 60 * 60 * 1000 :
+    w === '7d'  ? 7 * 24 * 60 * 60 * 1000 :
+                  30 * 24 * 60 * 60 * 1000;
+  // SQLite default format: 'YYYY-MM-DD HH:MM:SS'.
+  return new Date(now - ms).toISOString().replace('T', ' ').slice(0, 19);
+}
+
+/**
+ * GET /api/activity?column=active|recent|errored&window=24h&agent=&user=&cursor=&limit=
+ *
+ * Returns `{ tasks, nextCursor }`. Active has no pagination (Strict lifecycle
+ * keeps the column tiny). Recent + Errored paginate on `last_activity_at DESC`
+ * via `{lastActivityAt}|{taskId}` cursor.
+ */
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  try {
+    const { searchParams } = new URL(req.url);
+    const column = searchParams.get('column') as TaskListColumn | null;
+    if (!column || !VALID_COLUMNS.includes(column)) {
+      return NextResponse.json({ error: `column must be one of ${VALID_COLUMNS.join(', ')}` }, { status: 400 });
+    }
+
+    const filter: ActivityFilter = {
+      agentId: searchParams.get('agent') ?? undefined,
+      userId: searchParams.get('user') ?? undefined,
+      since: windowFloor(searchParams.get('window')),
+    };
+
+    const limit = column === 'active'
+      ? 200
+      : Math.max(1, Math.min(100, Number(searchParams.get('limit') ?? 20)));
+    const cursor = column === 'active' ? null : searchParams.get('cursor');
+
+    const result = await listTasks(column, filter, limit, cursor);
+    return NextResponse.json(result);
+  } catch (err) {
+    return apiError('activity-list', err);
+  }
+}

@@ -7,11 +7,13 @@
  * @module web/app/page
  */
 
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { Agent } from '@slackhive/shared';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Bot, LayoutGrid, GitBranch } from 'lucide-react';
+
+const InProgressContext = createContext<Record<string, number>>({});
 
 const STATUS_COLOR: Record<string, string> = {
   running: '#059669',
@@ -41,10 +43,20 @@ export default function Dashboard() {
   const [view, setView] = useState<'hierarchy' | 'grid'>('hierarchy');
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [inProgressByAgent, setInProgressByAgent] = useState<Record<string, number>>({});
   const { canEdit } = useAuth();
 
   const loadStatus = () => {
     fetch('/api/system/claude-status').then(r => r.json()).then(setClaudeStatus).catch(() => {});
+  };
+
+  const loadActivityStats = () => {
+    fetch('/api/activity/stats')
+      .then(r => r.json())
+      .then((s: { inProgressByAgent?: Record<string, number> }) => {
+        setInProgressByAgent(s.inProgressByAgent ?? {});
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -57,8 +69,10 @@ export default function Dashboard() {
       .then((s: Record<string, string>) => { if (s.dashboardTitle) setTitle(s.dashboardTitle); })
       .catch(() => {});
     loadStatus();
+    loadActivityStats();
     const interval = setInterval(loadStatus, 30000);
-    return () => clearInterval(interval);
+    const activityInterval = setInterval(loadActivityStats, 4000);
+    return () => { clearInterval(interval); clearInterval(activityInterval); };
   }, []);
 
   const running = agents.filter(a => a.status === 'running').length;
@@ -69,6 +83,7 @@ export default function Dashboard() {
   const hasHierarchy = agents.some(a => a.isBoss) || agents.some(a => a.reportsTo?.length > 0);
 
   return (
+    <InProgressContext.Provider value={inProgressByAgent}>
     <div style={{ padding: '36px 40px', maxWidth: 1200 }} className="fade-up responsive-pad">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
@@ -185,6 +200,7 @@ export default function Dashboard() {
         <GridView agents={agents} />
       )}
     </div>
+    </InProgressContext.Provider>
   );
 }
 
@@ -367,6 +383,8 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
   const displayStatus = (agent.liveStatus ?? agent.status) as string;
   const color = noCreds ? '#f59e0b' : (STATUS_COLOR[displayStatus] ?? '#a3a3a3');
   const statusLabel = noCreds ? 'Not configured' : STATUS_LABEL[displayStatus];
+  const inProgressMap = useContext(InProgressContext);
+  const inProgress = inProgressMap[agent.id] ?? 0;
 
   return (
     <Link
@@ -458,16 +476,28 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
 
         {/* Status */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 5,
+          display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3,
           flexShrink: 0, marginTop: 2,
         }}>
-          <div
-            className={displayStatus === 'running' ? 'status-running' : ''}
-            style={{ width: 7, height: 7, borderRadius: '50%', background: color }}
-          />
-          <span style={{ fontSize: 11.5, color, fontWeight: 500 }}>
-            {statusLabel}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <div
+              className={displayStatus === 'running' ? 'status-running' : ''}
+              style={{ width: 7, height: 7, borderRadius: '50%', background: color }}
+            />
+            <span style={{ fontSize: 11.5, color, fontWeight: 500 }}>
+              {statusLabel}
+            </span>
+          </div>
+          {inProgress > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span className="status-running" style={{
+                width: 6, height: 6, borderRadius: '50%', background: '#2563eb',
+              }} />
+              <span style={{ fontSize: 10.5, color: '#2563eb', fontWeight: 600 }}>
+                Replying{inProgress > 1 ? ` ×${inProgress}` : ''}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

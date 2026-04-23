@@ -26,6 +26,7 @@ const W_CLOSED = 56;
 export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: React.ReactNode; mobileOpen?: boolean; onMobileClose?: () => void }) {
   const pathname = usePathname();
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [activeTaskCount, setActiveTaskCount] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -49,6 +50,9 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         tagline: s.tagline || prev.tagline,
         logoUrl: s.logoUrl ?? prev.logoUrl,
       }));
+    }).catch(() => {});
+    fetch('/api/activity/stats').then(r => r.json()).then((s: { counts?: { active?: number } }) => {
+      setActiveTaskCount(s.counts?.active ?? 0);
     }).catch(() => {});
   };
 
@@ -122,6 +126,12 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               <rect x="9.5" y="9.5" width="5" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
             </svg>
           }>Dashboard</NavItem>
+
+          <NavItem href="/activity" active={pathname === '/activity' || pathname.startsWith('/activity/')} collapsed={collapsed} icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M1.5 8h3l2-5 3 10 2-5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          } badge={activeTaskCount > 0 ? activeTaskCount : undefined}>Activity</NavItem>
 
           {!collapsed && (
             <div style={{
@@ -360,8 +370,8 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
   );
 }
 
-function NavItem({ href, icon, children, active, collapsed, onClick }: {
-  href?: string; icon?: React.ReactNode; children: React.ReactNode; active?: boolean; collapsed?: boolean; onClick?: () => void;
+function NavItem({ href, icon, children, active, collapsed, onClick, badge }: {
+  href?: string; icon?: React.ReactNode; children: React.ReactNode; active?: boolean; collapsed?: boolean; onClick?: () => void; badge?: number;
 }) {
   const style: React.CSSProperties = {
     display: 'flex', alignItems: 'center',
@@ -373,10 +383,34 @@ function NavItem({ href, icon, children, active, collapsed, onClick }: {
     fontSize: 13, fontWeight: active ? 600 : 400,
     transition: 'background 0.12s, color 0.12s',
     cursor: 'pointer', width: '100%', fontFamily: 'var(--font-sans)',
+    position: 'relative',
   };
   const hover = (e: React.MouseEvent) => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }};
   const leave = (e: React.MouseEvent) => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }};
-  const content = <>{icon && <span style={{ flexShrink: 0 }}>{icon}</span>}{!collapsed && children}</>;
+  const iconNode = icon && (
+    <span style={{ flexShrink: 0, position: 'relative' }}>
+      {icon}
+      {collapsed && badge !== undefined && badge > 0 && (
+        <span className="status-running" style={{
+          position: 'absolute', top: -2, right: -4,
+          width: 8, height: 8, borderRadius: '50%',
+          background: '#2563eb', border: '2px solid var(--surface)',
+        }} />
+      )}
+    </span>
+  );
+  const content = <>
+    {iconNode}
+    {!collapsed && <span style={{ flex: 1 }}>{children}</span>}
+    {!collapsed && badge !== undefined && badge > 0 && (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+        <span className="status-running" style={{
+          width: 7, height: 7, borderRadius: '50%', background: '#2563eb',
+        }} />
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#2563eb' }}>{badge}</span>
+      </span>
+    )}
+  </>;
 
   if (onClick) {
     return <button onClick={onClick} title={collapsed ? String(children) : undefined} style={style} onMouseEnter={hover} onMouseLeave={leave}>{content}</button>;
