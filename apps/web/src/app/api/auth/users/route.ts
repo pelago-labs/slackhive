@@ -58,7 +58,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json(user, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '';
-    if (msg.includes('unique') || msg.includes('duplicate')) {
+    if (msg.includes('unique') || msg.includes('duplicate') || msg.toLowerCase().includes('unique constraint')) {
       return NextResponse.json({ error: 'Username already exists' }, { status: 409 });
     }
     return apiError('auth/users POST', e);
