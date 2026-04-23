@@ -73,6 +73,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // Validate platform credentials shape
+    const platform = body.platform ?? 'slack';
+    if (!['slack', 'telegram'].includes(platform)) {
+      return NextResponse.json({ error: `Unknown platform: ${platform}` }, { status: 400 });
+    }
+    if (body.platformCredentials) {
+      const creds = body.platformCredentials;
+      if (platform === 'slack') {
+        if (!creds.botToken || !creds.appToken || !creds.signingSecret) {
+          return NextResponse.json(
+            { error: 'Slack credentials must include botToken, appToken, and signingSecret' },
+            { status: 400 }
+          );
+        }
+      } else if (platform === 'telegram') {
+        if (!creds.botToken) {
+          return NextResponse.json(
+            { error: 'Telegram credentials must include botToken' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // Create the agent record, tracking who created it
     const session = getSessionFromRequest(request);
     const agent = await createAgent(body, session?.username ?? 'system');

@@ -363,7 +363,7 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
   compact?: boolean;
   multiReport?: boolean;
 }) {
-  const noCreds = !agent.hasSlackCreds;
+  const noCreds = !agent.hasPlatformCreds;
   const displayStatus = (agent.liveStatus ?? agent.status) as string;
   const color = noCreds ? '#f59e0b' : (STATUS_COLOR[displayStatus] ?? '#a3a3a3');
   const statusLabel = noCreds ? 'Not configured' : STATUS_LABEL[displayStatus];
@@ -501,10 +501,10 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
         </span>
         <span style={{
           fontSize: 11,
-          color: agent.slackBotUserId ? '#059669' : 'var(--subtle)',
+          color: agent.platformBotUserId ? '#059669' : 'var(--subtle)',
           display: 'flex', alignItems: 'center', gap: 4,
         }}>
-          {agent.slackBotUserId ? (
+          {agent.platformBotUserId ? (
             <>
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#059669' }} />
               Connected

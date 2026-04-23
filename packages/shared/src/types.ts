@@ -80,8 +80,8 @@ export type AgentStatus = 'running' | 'stopped' | 'error';
 
 /**
  * A registered agent in the platform.
- * Each agent maps to one Slack bot (one set of Slack credentials) and runs
- * as an independent Bolt application inside the runner service.
+ * Each agent maps to one messaging platform bot and runs as an independent
+ * process inside the runner service.
  */
 export interface Agent {
   /** UUID primary key. */
@@ -91,7 +91,7 @@ export interface Agent {
    * @example "gilfoyle", "boss", "data-analyst"
    */
   slug: string;
-  /** Human-readable display name shown in the UI and Slack. */
+  /** Human-readable display name shown in the UI. */
   name: string;
   /**
    * The agent's persona/identity description injected into its CLAUDE.md.
@@ -104,16 +104,20 @@ export interface Agent {
    * @example "Data warehouse NLQ, Redshift queries, business metrics"
    */
   description?: string;
-  /** Populated from platform_integrations at query time — not stored on agents table. */
-  slackBotToken?: string;
-  slackAppToken?: string;
-  slackSigningSecret?: string;
-  slackBotUserId?: string;
+  /**
+   * Messaging platform this agent uses ('slack' | 'telegram').
+   * Populated from platform_integrations at query time.
+   */
+  platform?: 'slack' | 'telegram';
+  /** Decrypted platform credentials (raw tokens). Populated at query time; stripped before sending to browsers. */
+  platformCredentials?: Record<string, string>;
+  /** The bot's user/account ID on the platform. Used for mention routing. */
+  platformBotUserId?: string;
   /**
    * Derived presence flag for list endpoints that strip the raw credentials.
-   * True when an active slack platform_integrations row exists for this agent.
+   * True when an active platform_integrations row exists for this agent.
    */
-  hasSlackCreds?: boolean;
+  hasPlatformCreds?: boolean;
   /**
    * The Claude model to use for this agent.
    * @default "claude-opus-4-6"
@@ -605,8 +609,8 @@ export interface CreateAgentRequest {
   name: string;
   persona?: string;
   description?: string;
-  /** Platform credentials (stored in platform_integrations table). */
-  platform?: string;
+  /** Platform to connect this agent to. Defaults to 'slack'. */
+  platform?: 'slack' | 'telegram';
   platformCredentials?: Record<string, string>;
   model?: string;
   isBoss?: boolean;

@@ -58,7 +58,7 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
         persona: 'A test persona',
         description: 'Integration test agent',
         platform: 'slack',
-        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
+        platformCredentials: { botToken: 'xoxb-test', appToken: 'xapp-test', signingSecret: 'secret' },
         model: 'claude-opus-4-6',
       }, 'test-user');
 
@@ -94,7 +94,7 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
         slug: `test-claude-md-${Date.now()}`,
         name: 'Claude MD Test',
         platform: 'slack',
-        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
+        platformCredentials: { botToken: 'xoxb-test', appToken: 'xapp-test', signingSecret: 'secret' },
       }, 'test-user');
       agentId = agent.id;
     });
@@ -124,7 +124,7 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
         slug: `test-skills-${Date.now()}`,
         name: 'Skills Test',
         platform: 'slack',
-        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
+        platformCredentials: { botToken: 'xoxb-test', appToken: 'xapp-test', signingSecret: 'secret' },
       }, 'test-user');
       agentId = agent.id;
     });
@@ -167,7 +167,7 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
         slug: `test-snapshot-${Date.now()}`,
         name: 'Snapshot Test',
         platform: 'slack',
-        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
+        platformCredentials: { botToken: 'xoxb-test', appToken: 'xapp-test', signingSecret: 'secret' },
       }, 'test-user');
       agentId = agent.id;
     });
@@ -227,7 +227,7 @@ describe.skipIf(!DB_AVAILABLE)('db integration tests', () => {
         slug: `test-access-${Date.now()}`,
         name: 'Access Test',
         platform: 'slack',
-        platformCredentials: { slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test', slackSigningSecret: 'secret' },
+        platformCredentials: { botToken: 'xoxb-test', appToken: 'xapp-test', signingSecret: 'secret' },
       }, 'system');
       agentId = agent.id;
 

@@ -139,8 +139,8 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
   if (!agent) return null;
   const d = await db();
   const r = await d.query(
-    'SELECT credentials, bot_user_id FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
-    [agent.id, 'slack']
+    'SELECT platform, credentials, bot_user_id FROM platform_integrations WHERE agent_id = $1 AND enabled = 1 LIMIT 1',
+    [agent.id]
   );
   if (r.rows.length > 0) {
     const raw = r.rows[0].credentials as string;
@@ -152,10 +152,10 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
       console.error(`[db] failed to decrypt platform credentials for agent ${agent.id}:`, (err as Error).message);
     }
     if (creds) {
-      agent.slackBotToken = creds.botToken;
-      agent.slackAppToken = creds.appToken;
-      agent.slackSigningSecret = creds.signingSecret;
-      agent.slackBotUserId = r.rows[0].bot_user_id as string | undefined;
+      agent.platform = r.rows[0].platform as 'slack' | 'telegram';
+      agent.platformCredentials = creds;
+      agent.platformBotUserId = r.rows[0].bot_user_id as string | undefined;
+      agent.hasPlatformCreds = true;
     }
   }
   return agent;
@@ -230,11 +230,16 @@ export async function getAllAgents(): Promise<Agent[]> {
   const r = await d.query('SELECT * FROM agents ORDER BY is_boss DESC, name ASC');
   const agents = r.rows.map(rowToAgent);
 
-  // Bulk load platform credentials for all agents
-  const pi = await d.query('SELECT agent_id, credentials, bot_user_id FROM platform_integrations WHERE platform = $1 AND enabled = 1', ['slack']);
-  const credsByAgent = new Map<string, { credentials: string; botUserId?: string }>();
+  // Bulk load platform credentials for all agents (any platform)
+  const pi = await d.query('SELECT agent_id, platform, credentials, bot_user_id FROM platform_integrations WHERE enabled = 1');
+  const credsByAgent = new Map<string, { platform: string; credentials: string; botUserId?: string }>();
   for (const row of pi.rows) {
-    credsByAgent.set(row.agent_id as string, { credentials: row.credentials as string, botUserId: row.bot_user_id as string | undefined });
+    // One agent → at most one enabled integration; last-write wins if somehow multiple exist
+    credsByAgent.set(row.agent_id as string, {
+      platform: row.platform as string,
+      credentials: row.credentials as string,
+      botUserId: row.bot_user_id as string | undefined,
+    });
   }
 
   const key = getEncryptionKey();
@@ -248,10 +253,10 @@ export async function getAllAgents(): Promise<Agent[]> {
         console.error(`[db] failed to decrypt platform credentials for agent ${agent.id}:`, (err as Error).message);
       }
       if (creds) {
-        agent.slackBotToken = creds.botToken;
-        agent.slackAppToken = creds.appToken;
-        agent.slackSigningSecret = creds.signingSecret;
-        agent.slackBotUserId = entry.botUserId;
+        agent.platform = entry.platform as 'slack' | 'telegram';
+        agent.platformCredentials = creds;
+        agent.platformBotUserId = entry.botUserId;
+        agent.hasPlatformCreds = true;
       }
     }
   }
@@ -372,18 +377,19 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
     const d = await db();
     const encrypted = encrypt(JSON.stringify(req.platformCredentials), getEncryptionKey());
 
-    // Check if integration row exists
+    // Look up the existing integration row to get the agent's platform
     const existing = await d.query(
-      `SELECT id FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
+      `SELECT id, platform FROM platform_integrations WHERE agent_id = $1 AND enabled = 1 LIMIT 1`,
       [id]
     );
 
     if (existing.rows.length > 0) {
       await d.query(
-        `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = 'slack'`,
-        [encrypted, id]
+        `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = $3`,
+        [encrypted, id, existing.rows[0].platform]
       );
     } else {
+      // No existing integration — default to slack for backward compatibility
       await d.query(
         `INSERT INTO platform_integrations (id, agent_id, platform, credentials)
          VALUES ($1, $2, $3, $4)`,

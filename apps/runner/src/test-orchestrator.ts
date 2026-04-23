@@ -25,7 +25,7 @@
 import type { IncomingMessage } from '@slackhive/shared';
 import type { TestEvent } from './adapters/test-adapter';
 import type { AgentRunner, TeamTestSession, AgentParticipant } from './agent-runner';
-import { getAgentBySlackBotUserId } from './db';
+import { getAgentByPlatformBotUserId } from './db';
 import { logger } from './logger';
 
 /** Max number of `<@...>` mentions we'll fan out from a single payload. */
@@ -114,7 +114,7 @@ export class TestOrchestrator {
     const seen = new Set<string>();
     const targets: string[] = [];
     for (const id of mentions) {
-      if (from.agent.slackBotUserId && id === from.agent.slackBotUserId) continue;
+      if (from.agent.platformBotUserId && id === from.agent.platformBotUserId) continue;
       if (seen.has(id)) continue;
       seen.add(id);
       targets.push(id);
@@ -150,10 +150,10 @@ export class TestOrchestrator {
       return;
     }
 
-    const target = await getAgentBySlackBotUserId(botId);
+    const target = await getAgentByPlatformBotUserId(botId);
     if (!target) {
       // Unknown mention — could be a human user or an agent outside SlackHive.
-      // In real Slack this would deliver to a real bot/user; in test mode
+      // In real mode this would deliver to a real bot/user; in test mode
       // there's nothing to dispatch to, so surface an inline note under the
       // sender's bubble so the user sees the chain stopped here.
       this.emitSse({
@@ -161,9 +161,9 @@ export class TestOrchestrator {
         agent: {
           id: from.agent.id,
           name: from.agent.name,
-          botUserId: from.agent.slackBotUserId ?? undefined,
+          botUserId: from.agent.platformBotUserId ?? undefined,
         },
-        text: `No agent found for <@${botId}> — would need a real Slack routing to deliver this.`,
+        text: `No agent found for mention ${botId} — would need a real platform to deliver this.`,
       });
       return;
     }
@@ -185,7 +185,7 @@ export class TestOrchestrator {
     // sending bot, in the shared test thread. `stripMention` inside the
     // target's adapter will strip only the target's own `<@>` before
     // the model sees the text, matching Slack behaviour.
-    const senderBotId = from.agent.slackBotUserId ?? from.adapter.getBotUserId();
+    const senderBotId = from.agent.platformBotUserId ?? from.adapter.getBotUserId();
     const msg: IncomingMessage = {
       id: `test-delegate-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       platform: 'test',

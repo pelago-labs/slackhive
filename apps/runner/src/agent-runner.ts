@@ -25,7 +25,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import type { Agent, PlatformAdapter, ThreadMessage } from '@slackhive/shared';
 import { type AgentEvent, getEventBus, type EventBus } from '@slackhive/shared';
-import { SlackAdapter } from './adapters/slack-adapter';
+import { createAdapter } from './adapters/index';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
 import { JobScheduler } from './job-scheduler';
@@ -41,7 +41,7 @@ import {
   updateAgentStatus,
   heartbeatAgents,
   setResult,
-  getPlatformIntegration,
+  getAgentPlatformIntegration,
 } from './db';
 import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
@@ -385,20 +385,17 @@ export class AgentRunner {
     ]);
 
     // Load platform integration from DB (needed for formatting rules in CLAUDE.md)
-    const { updateAgentSlackUserId } = await import('./db');
-    const integration = await getPlatformIntegration(agent.id, 'slack');
+    const { updateAgentPlatformUserId } = await import('./db');
+    const integration = await getAgentPlatformIntegration(agent.id);
     if (!integration) {
       logger.warn('No platform integration found — agent cannot start', { agent: agent.slug });
       // 'stopped', not 'error' — this is a not-yet-configured state, not a runtime failure.
-      await updateAgentStatus(agent.id, 'stopped', 'Slack is not configured for this agent.', this.runnerId);
+      await updateAgentStatus(agent.id, 'stopped', 'No messaging platform configured for this agent.', this.runnerId);
       return;
     }
 
-    // Create platform adapter
-    const adapter = new SlackAdapter(
-      { platform: 'slack', botToken: integration.credentials.botToken, appToken: integration.credentials.appToken, signingSecret: integration.credentials.signingSecret },
-      agent.slug,
-    );
+    // Create platform adapter using the factory
+    const adapter = createAdapter(integration, agent.slug);
 
     // Compile CLAUDE.md with platform-specific formatting rules.
     // compileClaudeMd inlines all learned memories directly into the system
@@ -423,8 +420,8 @@ export class AgentRunner {
     // Store bot user ID discovered during start
     const botUserId = adapter.getBotUserId();
     if (botUserId && botUserId !== integration.botUserId) {
-      await updateAgentSlackUserId(agent.id, botUserId);
-      agent.slackBotUserId = botUserId;
+      await updateAgentPlatformUserId(agent.id, integration.platform, botUserId);
+      agent.platformBotUserId = botUserId;
     }
 
     this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, memoryWatcher });
@@ -532,15 +529,14 @@ export class AgentRunner {
     const [permissions, envVarValues, integration, mcpServers] = await Promise.all([
       getAgentPermissions(agent.id),
       getAllEnvVarValues(),
-      getPlatformIntegration(agent.id, 'slack'),
+      getAgentPlatformIntegration(agent.id),
       getAgentMcpServers(agent.id),
     ]);
 
     // `getAgentById` reads the `agents` table only — the bot user ID lives in
-    // `platform_integrations`. The orchestrator's mention routing + the
-    // panel's `<@Uxxx>` rename both need it, so stamp it here.
-    if (!agent.slackBotUserId && integration?.botUserId) {
-      agent.slackBotUserId = integration.botUserId;
+    // `platform_integrations`. The orchestrator's mention routing needs it, so stamp it here.
+    if (!agent.platformBotUserId && integration?.botUserId) {
+      agent.platformBotUserId = integration.botUserId;
     }
 
     // Compile this agent's CLAUDE.md into its real workDir, then clone
@@ -562,9 +558,9 @@ export class AgentRunner {
     adapter.setAgentRef({
       id: agent.id,
       name: agent.name,
-      botUserId: agent.slackBotUserId,
+      botUserId: agent.platformBotUserId,
     });
-    if (agent.slackBotUserId) adapter.setBotUserId(agent.slackBotUserId);
+    if (agent.platformBotUserId) adapter.setBotUserId(agent.platformBotUserId);
 
     const messageHandler = new MessageHandler(adapter, claudeHandler, agent, null);
     adapter.onMessage(msg => messageHandler.handleMessage(msg));

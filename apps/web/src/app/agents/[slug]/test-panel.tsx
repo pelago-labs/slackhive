@@ -185,8 +185,8 @@ export function TestPanel({
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Map of slackBotUserId → agent display name, built from SSE events as they
-  // arrive. Used to rewrite `<@Uxxx>` tokens in rendered markdown.
+  // Map of platformBotUserId → agent display name, built from SSE events as they
+  // arrive. Used to rewrite mention tokens in rendered markdown.
   const botIdToName = useMemo(() => {
     const m: Record<string, string> = {};
     for (const msg of messages) {

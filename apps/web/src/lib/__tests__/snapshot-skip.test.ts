@@ -63,8 +63,8 @@ const session: SessionPayload = { username: 'admin', role: 'admin' };
 function makeAgent(claudeMd = '') {
   return {
     id: 'agent-1', name: 'Test', slug: 'test', claudeMd,
-    description: '', slackBotToken: 'xoxb-test', slackAppToken: 'xapp-test',
-    slackSigningSecret: 's', model: 'claude-opus-4-6', status: 'running',
+    description: '', platform: 'slack', platformCredentials: { botToken: 'xoxb-test', appToken: 'xapp-test', signingSecret: 's' },
+    hasPlatformCreds: true, model: 'claude-opus-4-6', status: 'running',
     enabled: true, isBoss: false, reportsTo: [], createdBy: 'system',
     createdAt: new Date(), updatedAt: new Date(),
   };
