@@ -135,26 +135,26 @@ export async function getAgentById(id: string): Promise<Agent | null> {
 }
 
 /**
- * Look up an agent by its Slack bot user ID.
+ * Look up an agent by its platform bot user ID.
  *
- * Used by the test-mode orchestrator to resolve `<@U...>` mentions in a boss
+ * Used by the test-mode orchestrator to resolve mention tokens in a boss
  * agent's output back to the SlackHive agent they refer to, so the
- * delegation chain can be simulated in test mode without Slack.
+ * delegation chain can be simulated in test mode without a live platform.
  *
- * Read-only: no writes, no caching. The DB is the source of truth and
- * the roster may change while a test session is open.
+ * Searches across all platforms. Read-only; no caching.
  */
-export async function getAgentBySlackBotUserId(botUserId: string): Promise<Agent | null> {
+export async function getAgentByPlatformBotUserId(botUserId: string): Promise<Agent | null> {
   const r = await getDb().query(
-    `SELECT a.* FROM agents a
+    `SELECT a.*, pi.platform, pi.bot_user_id FROM agents a
      JOIN platform_integrations pi ON pi.agent_id = a.id
-     WHERE pi.platform = $1 AND pi.bot_user_id = $2
+     WHERE pi.bot_user_id = $1 AND pi.enabled = 1
      LIMIT 1`,
-    ['slack', botUserId]
+    [botUserId]
   );
   if (r.rows.length === 0) return null;
   const agent = rowToAgent(r.rows[0]);
-  agent.slackBotUserId = botUserId;
+  agent.platform = r.rows[0].platform as 'slack' | 'telegram';
+  agent.platformBotUserId = botUserId;
   return agent;
 }
 
@@ -207,18 +207,18 @@ export async function heartbeatAgents(agentIds: string[], runnerId: string): Pro
   );
 }
 
-export async function updateAgentSlackUserId(id: string, slackBotUserId: string): Promise<void> {
+export async function updateAgentPlatformUserId(id: string, platform: string, botUserId: string): Promise<void> {
   await getDb().query(
     'UPDATE platform_integrations SET bot_user_id = $1 WHERE agent_id = $2 AND platform = $3',
-    [slackBotUserId, id, 'slack']
+    [botUserId, id, platform]
   );
 }
 
-/** Get platform integration for an agent. */
-export async function getPlatformIntegration(agentId: string, platform: string): Promise<{ credentials: Record<string, string>; botUserId?: string } | null> {
+/** Get the single enabled platform integration for an agent (any platform). */
+export async function getAgentPlatformIntegration(agentId: string): Promise<{ platform: string; credentials: Record<string, string>; botUserId?: string } | null> {
   const r = await getDb().query(
-    'SELECT credentials, bot_user_id FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
-    [agentId, platform]
+    'SELECT platform, credentials, bot_user_id FROM platform_integrations WHERE agent_id = $1 AND enabled = 1 LIMIT 1',
+    [agentId]
   );
   if (r.rows.length === 0) return null;
   const row = r.rows[0];
@@ -227,7 +227,7 @@ export async function getPlatformIntegration(agentId: string, platform: string):
     const { decrypt } = await import('@slackhive/shared');
     const { getEncryptionKey } = await import('./secrets.js');
     const creds = JSON.parse(decrypt(raw, getEncryptionKey()));
-    return { credentials: creds, botUserId: row.bot_user_id as string | undefined };
+    return { platform: row.platform as string, credentials: creds, botUserId: row.bot_user_id as string | undefined };
   } catch (err) {
     console.error('[db] Failed to decrypt platform credentials — refusing plaintext fallback', err);
     return null;

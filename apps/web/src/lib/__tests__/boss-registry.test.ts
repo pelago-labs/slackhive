@@ -2,8 +2,8 @@
  * @fileoverview Unit tests for boss-registry.ts — regenerateBossRegistry.
  *
  * Tests cover the registry content generation logic: team listing, delegation
- * instructions, Slack mention format, multi-boss routing, and edge cases like
- * agents with no Slack user ID or no team members.
+ * instructions, platform-specific mention format, multi-boss routing, and edge
+ * cases like agents with no platform user ID or no team members.
  *
  * All DB calls are mocked via vi.mock — no database connection required.
  *
@@ -32,10 +32,10 @@ function makeAgent(overrides: Partial<Agent>): Agent {
     name: 'Agent',
     persona: undefined,
     description: undefined,
-    slackBotToken: 'xoxb-fake',
-    slackAppToken: 'xapp-fake',
-    slackSigningSecret: 'secret',
-    slackBotUserId: undefined,
+    platform: 'slack',
+    platformCredentials: { botToken: 'xoxb-fake', appToken: 'xapp-fake', signingSecret: 'secret' },
+    platformBotUserId: undefined,
+    hasPlatformCreds: true,
     model: 'claude-opus-4-5',
     status: 'stopped',
     enabled: true,
@@ -68,9 +68,9 @@ describe('regenerateBossRegistry', () => {
     expect(publishAgentEvent).not.toHaveBeenCalled();
   });
 
-  it('does nothing when boss has no team members with slackBotUserId', async () => {
+  it('does nothing when boss has no team members with platformBotUserId', async () => {
     const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
-    const specialist = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: undefined });
+    const specialist = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: undefined });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, specialist]);
 
@@ -79,11 +79,11 @@ describe('regenerateBossRegistry', () => {
     expect(updateAgentClaudeMd).not.toHaveBeenCalled();
   });
 
-  it('generates registry with correct agent mention and description', async () => {
-    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
+  it('generates registry with correct Slack mention and description', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', platform: 'slack' });
     const specialist = makeAgent({
       id: 'spec-1', name: 'DataBot', isBoss: false,
-      reportsTo: ['boss-1'], slackBotUserId: 'U123ABC',
+      reportsTo: ['boss-1'], platform: 'slack', platformBotUserId: 'U123ABC',
       description: 'Runs Redshift queries',
     });
 
@@ -95,18 +95,35 @@ describe('regenerateBossRegistry', () => {
     expect(content).toContain('**DataBot** (<@U123ABC>) — Runs Redshift queries');
   });
 
-  it('uses slug-based fallback mention when slackBotUserId is missing', async () => {
+  it('generates registry with correct Telegram mention and description', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', platform: 'telegram' });
+    const specialist = makeAgent({
+      id: 'spec-1', name: 'TeleBot', isBoss: false,
+      reportsTo: ['boss-1'], platform: 'telegram', platformBotUserId: '987654321',
+      description: 'Handles customer queries',
+    });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, specialist]);
+
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('<a href="tg://user?id=987654321">TeleBot</a>');
+    expect(content).toContain('Handles customer queries');
+  });
+
+  it('uses slug-based fallback mention when platformBotUserId is missing', async () => {
     const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
-    // specialist has no slackBotUserId — registry should fall back to @slug
+    // specialist has no platformBotUserId — registry skips it (filter on platformBotUserId)
     const specialist = makeAgent({
       id: 'spec-1', name: 'DataBot', slug: 'data-bot', isBoss: false,
-      reportsTo: ['boss-1'], slackBotUserId: undefined,
+      reportsTo: ['boss-1'], platformBotUserId: undefined,
       description: 'Runs Redshift queries',
     });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, specialist]);
 
-    // regenerateSingleBossRegistry skips agents with no slackBotUserId
+    // regenerateSingleBossRegistry skips agents with no platformBotUserId
     // so updateAgentClaudeMd should NOT be called
     await regenerateBossRegistry();
     expect(updateAgentClaudeMd).not.toHaveBeenCalled();
@@ -116,7 +133,7 @@ describe('regenerateBossRegistry', () => {
     const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
     const specialist = makeAgent({
       id: 'spec-1', name: 'Writer', isBoss: false,
-      reportsTo: ['boss-1'], slackBotUserId: 'U999',
+      reportsTo: ['boss-1'], platformBotUserId: 'U999',
       description: undefined,
     });
 
@@ -131,7 +148,7 @@ describe('regenerateBossRegistry', () => {
   it('includes boss name in the registry heading', async () => {
     const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'HQ Boss' });
     const specialist = makeAgent({
-      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1',
+      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: 'U1',
     });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, specialist]);
@@ -145,7 +162,7 @@ describe('regenerateBossRegistry', () => {
   it('includes delegation instructions in the registry', async () => {
     const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
     const specialist = makeAgent({
-      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1',
+      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: 'U1',
     });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, specialist]);
@@ -161,7 +178,7 @@ describe('regenerateBossRegistry', () => {
   it('publishes a reload event after updating the registry', async () => {
     const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
     const specialist = makeAgent({
-      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1',
+      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: 'U1',
     });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, specialist]);
@@ -174,8 +191,8 @@ describe('regenerateBossRegistry', () => {
   it('handles multiple bosses independently', async () => {
     const boss1 = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss One' });
     const boss2 = makeAgent({ id: 'boss-2', isBoss: true, name: 'Boss Two' });
-    const spec1 = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1', name: 'Alpha' });
-    const spec2 = makeAgent({ id: 'spec-2', isBoss: false, reportsTo: ['boss-2'], slackBotUserId: 'U2', name: 'Beta' });
+    const spec1 = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: 'U1', name: 'Alpha' });
+    const spec2 = makeAgent({ id: 'spec-2', isBoss: false, reportsTo: ['boss-2'], platformBotUserId: 'U2', name: 'Beta' });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss1, boss2, spec1, spec2]);
 
@@ -193,8 +210,8 @@ describe('regenerateBossRegistry', () => {
   it('does not include agents from other boss teams in a boss registry', async () => {
     const boss1 = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss One' });
     const boss2 = makeAgent({ id: 'boss-2', isBoss: true, name: 'Boss Two' });
-    const spec1 = makeAgent({ id: 'spec-1', name: 'Alpha', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1' });
-    const spec2 = makeAgent({ id: 'spec-2', name: 'Beta', isBoss: false, reportsTo: ['boss-2'], slackBotUserId: 'U2' });
+    const spec1 = makeAgent({ id: 'spec-1', name: 'Alpha', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: 'U1' });
+    const spec2 = makeAgent({ id: 'spec-2', name: 'Beta', isBoss: false, reportsTo: ['boss-2'], platformBotUserId: 'U2' });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss1, boss2, spec1, spec2]);
 
@@ -213,7 +230,7 @@ describe('regenerateBossRegistry', () => {
     const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
     const specialist = makeAgent({
       id: 'spec-1', isBoss: false, reportsTo: ['boss-1'],
-      slackBotUserId: 'U1', description: '',
+      platformBotUserId: 'U1', description: '',
     });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, specialist]);
@@ -227,8 +244,8 @@ describe('regenerateBossRegistry', () => {
   it('skips a boss agent that appears in another boss team (boss is also a specialist)', async () => {
     const boss1 = makeAgent({ id: 'boss-1', isBoss: true, name: 'Top Boss' });
     // boss2 reports to boss1 but is also a boss itself
-    const boss2 = makeAgent({ id: 'boss-2', isBoss: true, name: 'Mid Boss', reportsTo: ['boss-1'], slackBotUserId: 'U2' });
-    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-2'], slackBotUserId: 'U3', name: 'Worker' });
+    const boss2 = makeAgent({ id: 'boss-2', isBoss: true, name: 'Mid Boss', reportsTo: ['boss-1'], platformBotUserId: 'U2' });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-2'], platformBotUserId: 'U3', name: 'Worker' });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss1, boss2, spec]);
 
@@ -252,7 +269,7 @@ describe('regenerateBossRegistry', () => {
     const boss2 = makeAgent({ id: 'boss-2', isBoss: true, name: 'Boss Two' });
     const shared = makeAgent({
       id: 'spec-1', name: 'SharedBot', isBoss: false,
-      reportsTo: ['boss-1', 'boss-2'], slackBotUserId: 'U1',
+      reportsTo: ['boss-1', 'boss-2'], platformBotUserId: 'U1',
     });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss1, boss2, shared]);
@@ -265,9 +282,9 @@ describe('regenerateBossRegistry', () => {
     expect(contents[1]).toContain('SharedBot');
   });
 
-  it('includes boss self-mention in delegation instructions when boss has slackBotUserId', async () => {
-    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slackBotUserId: 'UBOSS' });
-    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'USPEC' });
+  it('includes Slack boss self-mention in delegation instructions when boss has platformBotUserId', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', platform: 'slack', platformBotUserId: 'UBOSS' });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: 'USPEC' });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
     await regenerateBossRegistry();
@@ -276,9 +293,21 @@ describe('regenerateBossRegistry', () => {
     expect(content).toContain('<@UBOSS>');
   });
 
-  it('falls back to @slug in delegation instructions when boss has no slackBotUserId', async () => {
-    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slug: 'my-boss', slackBotUserId: undefined });
-    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'USPEC' });
+  it('includes Telegram boss self-mention as HTML link in delegation instructions', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', platform: 'telegram', platformBotUserId: '123456789', slug: 'telegram-boss' });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platform: 'telegram', platformBotUserId: '987654321' });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('<a href="tg://user?id=123456789">Boss</a>');
+    expect(content).not.toContain('<@123456789>');
+  });
+
+  it('falls back to @slug in delegation instructions when boss has no platformBotUserId', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slug: 'my-boss', platformBotUserId: undefined });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: 'USPEC' });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
     await regenerateBossRegistry();
@@ -288,8 +317,8 @@ describe('regenerateBossRegistry', () => {
   });
 
   it('includes post-delegation confirmation instructions', async () => {
-    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slackBotUserId: 'UBOSS' });
-    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'USPEC' });
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', platform: 'slack', platformBotUserId: 'UBOSS' });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platformBotUserId: 'USPEC' });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
     await regenerateBossRegistry();
@@ -300,25 +329,32 @@ describe('regenerateBossRegistry', () => {
   });
 });
 
-// ─── slug fallback branch (line 48) ──────────────────────────────────────────
-// The branch `a.slackBotUserId ? <@id> : @slug` is only reachable if the
-// filter on line 44 is bypassed. Since the filter removes agents without
-// slackBotUserId, the ternary's false branch (slug fallback) is dead code.
-// We document this explicitly rather than testing unreachable code.
-describe('mention format branch coverage note', () => {
+// ─── mention format coverage ──────────────────────────────────────────────────
+describe('mention format by platform', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('always uses <@userId> format because filter removes agents without slackBotUserId', async () => {
-    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
-    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'UABC', slug: 'my-bot' });
+  it('uses <@userId> format for Slack agents', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', platform: 'slack' });
+    const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], platform: 'slack', platformBotUserId: 'UABC', slug: 'my-bot' });
 
     vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
     await regenerateBossRegistry();
 
-    const calls = vi.mocked(updateAgentClaudeMd).mock.calls;
-    expect(calls.length).toBe(1);
-    const registryContent = calls[0][1];
+    const registryContent = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
     expect(registryContent).toContain('<@UABC>');
     expect(registryContent).not.toContain('@my-bot');
+  });
+
+  it('uses tg://user HTML link for Telegram agents', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', platform: 'telegram' });
+    const spec = makeAgent({ id: 'spec-1', name: 'TGBot', isBoss: false, reportsTo: ['boss-1'], platform: 'telegram', platformBotUserId: '111222333', slug: 'tg-bot' });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const registryContent = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(registryContent).toContain('tg://user?id=111222333');
+    expect(registryContent).not.toContain('<@111222333>');
+    expect(registryContent).not.toContain('@tg-bot');
   });
 });

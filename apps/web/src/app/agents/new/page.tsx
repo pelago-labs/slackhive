@@ -29,7 +29,9 @@ interface WizardState {
   name: string; slug: string; description: string; persona: string;
   model: string; isBoss: boolean;
   reportsToIds: string[];
+  platform: 'slack' | 'telegram';
   slackBotToken: string; slackAppToken: string; slackSigningSecret: string;
+  telegramBotToken: string;
   mcpServerIds: string[];
   selectedPersona: PersonaTemplate | null;
   importPayload: AgentExportPayload | null;
@@ -39,7 +41,9 @@ const INITIAL: WizardState = {
   name: '', slug: '', description: '', persona: '',
   model: 'claude-opus-4-6', isBoss: false,
   reportsToIds: [],
+  platform: 'slack',
   slackBotToken: '', slackAppToken: '', slackSigningSecret: '',
+  telegramBotToken: '',
   mcpServerIds: [], selectedPersona: null, importPayload: null,
 };
 
@@ -84,15 +88,18 @@ export default function NewAgentWizard() {
   const update = (patch: Partial<WizardState>) => setState(s => ({ ...s, ...patch }));
 
   // Boss agents skip Persona + Tools steps (their CLAUDE.md is auto-generated)
-  const totalSteps = state.isBoss ? 4 : 6;
+  // Both boss and specialist get a Platform picker step.
+  const totalSteps = state.isBoss ? 5 : 7;
   const stepLabels = state.isBoss
-    ? ['Name & Role', 'Slack App', 'Credentials', 'Review']
-    : ['Name & Role', 'Persona', 'Slack App', 'Credentials', 'Tools', 'Review'];
+    ? ['Name & Role', 'Platform', 'App Setup', 'Credentials', 'Review']
+    : ['Name & Role', 'Persona', 'Platform', 'App Setup', 'Credentials', 'Tools', 'Review'];
 
   const next = () => setStep(s => Math.min(s + 1, totalSteps - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
 
-  const credStep = state.isBoss ? 2 : 3;
+  // With platform step inserted: boss = [0:Identity, 1:Platform, 2:AppSetup, 3:Creds, 4:Review]
+  //                              spec = [0:Identity, 1:Persona, 2:Platform, 3:AppSetup, 4:Creds, 5:Tools, 6:Review]
+  const credStep = state.isBoss ? 3 : 4;
   const canNext = () => {
     if (step === 0) return !!(state.name && state.slug);
     // Persona step (non-boss only, step index 1): if "Blank" is picked, the
@@ -101,7 +108,10 @@ export default function NewAgentWizard() {
     if (!state.isBoss && step === 1) {
       if (!state.selectedPersona && !state.description.trim()) return false;
     }
-    if (step === credStep) return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
+    if (step === credStep) {
+      if (state.platform === 'telegram') return !!state.telegramBotToken;
+      return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
+    }
     return true;
   };
 
@@ -120,12 +130,10 @@ export default function NewAgentWizard() {
           reportsTo: state.isBoss ? [] : state.reportsToIds,
           skillTemplate: 'blank',
           mcpServerIds: state.mcpServerIds,
-          platform: 'slack',
-          platformCredentials: {
-            botToken: state.slackBotToken,
-            appToken: state.slackAppToken,
-            signingSecret: state.slackSigningSecret,
-          },
+          platform: state.platform,
+          platformCredentials: state.platform === 'telegram'
+            ? { botToken: state.telegramBotToken }
+            : { botToken: state.slackBotToken, appToken: state.slackAppToken, signingSecret: state.slackSigningSecret },
         }),
       });
       const data = await r.json();
@@ -248,14 +256,16 @@ export default function NewAgentWizard() {
             {step === 0 && <Step1Identity state={state} update={update} bosses={bosses} />}
             {/* Specialist steps */}
             {!state.isBoss && step === 1 && <Step2Persona state={state} update={update} />}
-            {!state.isBoss && step === 2 && <Step2SlackApp state={state} />}
-            {!state.isBoss && step === 3 && <Step3Tokens state={state} update={update} />}
-            {!state.isBoss && step === 4 && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
-            {!state.isBoss && step === 5 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
+            {!state.isBoss && step === 2 && <StepPlatformPicker state={state} update={update} />}
+            {!state.isBoss && step === 3 && (state.platform === 'telegram' ? <StepTelegramApp /> : <Step2SlackApp state={state} />)}
+            {!state.isBoss && step === 4 && <Step3Tokens state={state} update={update} />}
+            {!state.isBoss && step === 5 && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
+            {!state.isBoss && step === 6 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
             {/* Boss steps */}
-            {state.isBoss && step === 1 && <Step2SlackApp state={state} />}
-            {state.isBoss && step === 2 && <Step3Tokens state={state} update={update} />}
-            {state.isBoss && step === 3 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
+            {state.isBoss && step === 1 && <StepPlatformPicker state={state} update={update} />}
+            {state.isBoss && step === 2 && (state.platform === 'telegram' ? <StepTelegramApp /> : <Step2SlackApp state={state} />)}
+            {state.isBoss && step === 3 && <Step3Tokens state={state} update={update} />}
+            {state.isBoss && step === 4 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
           </div>
 
           {error && (
@@ -297,7 +307,7 @@ export default function NewAgentWizard() {
             ) : (
               <button
                 onClick={submit}
-                disabled={submitting || !state.slackBotToken || !state.slackAppToken || !state.slackSigningSecret}
+                disabled={submitting || (state.platform === 'telegram' ? !state.telegramBotToken : (!state.slackBotToken || !state.slackAppToken || !state.slackSigningSecret))}
                 style={{
                   background: submitting ? 'var(--border)' : '#16a34a',
                   color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
@@ -665,9 +675,31 @@ function Step2SlackApp({ state }: { state: WizardState }) {
 // ─── Step 3: Tokens ───────────────────────────────────────────────────────────
 
 function Step3Tokens({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
+  if (state.platform === 'telegram') {
+    return (
+      <div>
+        <StepHeader step={4} title="Add your bot token" desc="Paste the token you received from @BotFather." />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <TokenCard
+            label="Bot Token"
+            prefix=""
+            path={['@BotFather', 'HTTP API token']}
+            placeholder="123456:ABC-DEF1234..."
+            value={state.telegramBotToken}
+            onChange={v => update({ telegramBotToken: v })}
+          />
+        </div>
+        <div style={{ marginTop: 14, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.65 }}>
+          The token looks like <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw</code>.
+          Keep it secret — anyone with the token can send messages as your bot.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <StepHeader step={3} title="Add your tokens" desc="Three values from your Slack app — paste each one below." />
+      <StepHeader step={4} title="Add your tokens" desc="Three values from your Slack app — paste each one below." />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <TokenCard
           label="Bot Token"
@@ -697,6 +729,103 @@ function Step3Tokens({ state, update }: { state: WizardState; update: (p: Partia
           value={state.slackSigningSecret}
           onChange={v => update({ slackSigningSecret: v })}
         />
+      </div>
+    </div>
+  );
+}
+
+// ─── Step: Platform Picker ────────────────────────────────────────────────────
+
+function StepPlatformPicker({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
+  return (
+    <div>
+      <StepHeader step={3} title="Choose platform" desc="Where will this agent live? Pick the messaging platform it connects to." />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {([
+          {
+            value: 'slack' as const,
+            label: 'Slack',
+            sub: 'Socket Mode — no public webhook',
+            icon: '💬',
+          },
+          {
+            value: 'telegram' as const,
+            label: 'Telegram',
+            sub: 'Long-polling — no public webhook',
+            icon: '✈️',
+          },
+        ] as { value: 'slack' | 'telegram'; label: string; sub: string; icon: string }[]).map(p => (
+          <label key={p.value} style={{
+            display: 'flex', flexDirection: 'column', gap: 6,
+            padding: '16px', border: `1.5px solid ${state.platform === p.value ? 'var(--accent)' : 'var(--border)'}`,
+            borderRadius: 10, cursor: 'pointer',
+            background: state.platform === p.value ? 'rgba(59,130,246,0.08)' : 'transparent',
+            transition: 'border-color 0.15s, background 0.15s',
+          }}>
+            <input type="radio" name="platform" value={p.value} checked={state.platform === p.value}
+              onChange={() => update({ platform: p.value })} style={{ display: 'none' }} />
+            <span style={{ fontSize: 22 }}>{p.icon}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: state.platform === p.value ? 'var(--accent)' : 'var(--text)' }}>
+              {p.label}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--subtle)' }}>{p.sub}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Step: Telegram App Setup ─────────────────────────────────────────────────
+
+function StepTelegramApp() {
+  return (
+    <div>
+      <StepHeader step={4} title="Create your Telegram bot" desc="Takes about 30 seconds in the Telegram app." />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {([
+          {
+            n: 1,
+            title: 'Open @BotFather in Telegram',
+            body: <>Search for <strong>@BotFather</strong> in Telegram and open a chat with it.</>,
+          },
+          {
+            n: 2,
+            title: 'Create a new bot',
+            body: <>Send the command <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'rgba(59,130,246,0.08)', color: 'var(--accent)', padding: '1px 6px', borderRadius: 4 }}>/newbot</code> and follow the prompts to choose a name and username.</>,
+          },
+          {
+            n: 3,
+            title: 'Copy the HTTP API token',
+            body: <>BotFather will show you a token like <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>123456789:AAH…</code>. Copy it — you&apos;ll paste it in the next step.</>,
+          },
+        ] as { n: number; title: string; body: React.ReactNode }[]).map(({ n, title, body }, i, arr) => (
+          <div key={n} style={{ display: 'flex', gap: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 32, flexShrink: 0 }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--accent)', color: 'var(--accent-fg)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700, zIndex: 1,
+              }}>{n}</div>
+              {i < arr.length - 1 && (
+                <div style={{ width: 2, flex: 1, background: 'var(--border)', minHeight: 20, marginTop: 4 }} />
+              )}
+            </div>
+            <div style={{ paddingLeft: 14, paddingBottom: i < arr.length - 1 ? 20 : 0, paddingTop: 3 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>{title}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.65 }}>{body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{
+        marginTop: 20, padding: '12px 14px',
+        background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)',
+        borderRadius: 8, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6,
+      }}>
+        <strong style={{ color: 'var(--text)' }}>No public URL needed.</strong> This agent uses Telegram long-polling,
+        so it works behind firewalls and NAT — just like the Slack Socket Mode option.
       </div>
     </div>
   );
@@ -1279,9 +1408,14 @@ function Step5Review({ state, update, catalog, agents }: { state: WizardState; u
           { label: 'Role',          value: state.isBoss ? 'Boss (orchestrator)' : 'Specialist', mono: false },
           { label: 'Reports to',    value: reportsToValue,                         mono: false },
           { label: 'Description',   value: state.description || '—',               mono: false },
-          { label: 'Bot Token',     value: `${state.slackBotToken.slice(0, 12)}…`, mono: true  },
-          { label: 'App Token',     value: `${state.slackAppToken.slice(0, 12)}…`, mono: true  },
-          { label: 'Signing Secret',value: '••••••••',                             mono: true  },
+          { label: 'Platform',      value: state.platform === 'telegram' ? 'Telegram' : 'Slack', mono: false },
+          ...(state.platform === 'telegram' ? [
+            { label: 'Bot Token',   value: state.telegramBotToken.length > 12 ? `${state.telegramBotToken.slice(0, 12)}…` : '—', mono: true },
+          ] : [
+            { label: 'Bot Token',     value: state.slackBotToken.length > 12 ? `${state.slackBotToken.slice(0, 12)}…` : '—', mono: true  },
+            { label: 'App Token',     value: state.slackAppToken.length > 12 ? `${state.slackAppToken.slice(0, 12)}…` : '—', mono: true  },
+            { label: 'Signing Secret',value: '••••••••',                             mono: true  },
+          ]),
           ...(!state.isBoss ? [
             { label: 'MCPs',          value: assignedMcps.length > 0 ? assignedMcps.map(m => m.name).join(', ') : 'None', mono: false },
             { label: 'Skill Template',value: template,                               mono: false },
@@ -1307,7 +1441,7 @@ function Step5Review({ state, update, catalog, agents }: { state: WizardState; u
         background: '#f0fdf4', border: '1px solid #bbf7d0',
         borderRadius: 'var(--radius)', padding: '14px 16px', fontSize: 13, color: '#15803d', lineHeight: 1.65,
       }}>
-        Once created, the runner picks up the agent automatically and connects to Slack.
+        Once created, the runner picks up the agent automatically and connects to {state.platform === 'telegram' ? 'Telegram' : 'Slack'}.
         Manage skills, MCPs, and channel permissions from the agent detail page.
       </div>
     </div>

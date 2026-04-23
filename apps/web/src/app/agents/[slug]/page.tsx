@@ -345,9 +345,10 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
     description:        agent.description ?? '',
     persona:            agent.persona ?? '',
     model:              agent.model,
-    slackBotToken:      agent.slackBotToken,
-    slackAppToken:      agent.slackAppToken,
-    slackSigningSecret: agent.slackSigningSecret,
+    // Credential fields keyed by canonical name (botToken, appToken, signingSecret)
+    botToken:           agent.platformCredentials?.botToken ?? '',
+    appToken:           agent.platformCredentials?.appToken ?? '',
+    signingSecret:      agent.platformCredentials?.signingSecret ?? '',
     isBoss:             agent.isBoss,
     verbose:            agent.verbose ?? true,
     reportsTo:          agent.reportsTo ?? [] as string[],
@@ -357,16 +358,16 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
   const [manifest, setManifest]         = useState('');
   const [showManifest, setShowManifest] = useState(false);
   const [deleting, setDeleting]         = useState(false);
-  const [slackInfo, setSlackInfo]       = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
+  const [platformInfo, setPlatformInfo] = useState<{ displayName: string; handle: string | null; teamName: string | null; platform: string } | null>(null);
   const router = useRouter();
 
   useEffect(() => {
-    if (!agent.slackBotToken) return;
-    fetch(`/api/agents/${agent.id}/slack-info`)
+    if (!agent.hasPlatformCreds) return;
+    fetch(`/api/agents/${agent.id}/platform-info`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => d && setSlackInfo(d))
+      .then(d => d && setPlatformInfo(d))
       .catch(() => {});
-  }, [agent.id, agent.slackBotToken]);
+  }, [agent.id, agent.hasPlatformCreds]);
 
   // Channel restrictions state
   const [allowedChannels, setAllowedChannels] = useState('');
@@ -391,11 +392,10 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
             isBoss: form.isBoss,
             verbose: form.verbose,
             reportsTo: form.reportsTo,
-            ...(form.slackBotToken && {
+            ...(form.botToken && {
               platformCredentials: {
-                botToken: form.slackBotToken,
-                appToken: form.slackAppToken,
-                signingSecret: form.slackSigningSecret,
+                botToken: form.botToken,
+                ...(agent.platform !== 'telegram' && { appToken: form.appToken, signingSecret: form.signingSecret }),
               },
             }),
           }),
@@ -562,39 +562,45 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
         })()}
       </Section>
 
-      <Section title="Slack Credentials">
-        <Field label="Bot Token" value={form.slackBotToken ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
-          hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
-        <Field label="App-Level Token" value={form.slackAppToken ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
-          hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
-        <Field label="Signing Secret" value={form.slackSigningSecret ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
-          hint="Basic Information → App Credentials → Signing Secret" />
-        {slackInfo && (
+      <Section title={agent.platform === 'telegram' ? 'Telegram Credentials' : 'Slack Credentials'}>
+        <Field label="Bot Token" value={form.botToken ?? ''}
+          onChange={v => setForm(f => ({ ...f, botToken: v }))} type="password" readOnly={!canEdit}
+          hint={agent.platform === 'telegram'
+            ? '@BotFather → your bot → HTTP API token'
+            : <>{`api.slack.com/apps → your app → `}<strong>OAuth &amp; Permissions</strong>{` → Bot User OAuth Token`}</>} />
+        {agent.platform !== 'telegram' && <>
+          <Field label="App-Level Token" value={form.appToken ?? ''}
+            onChange={v => setForm(f => ({ ...f, appToken: v }))} type="password" readOnly={!canEdit}
+            hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
+          <Field label="Signing Secret" value={form.signingSecret ?? ''}
+            onChange={v => setForm(f => ({ ...f, signingSecret: v }))} type="password" readOnly={!canEdit}
+            hint="Basic Information → App Credentials → Signing Secret" />
+        </>}
+        {platformInfo && (
           <div style={{
             background: '#f0fdf4', border: '1px solid #bbf7d0',
             borderRadius: 7, padding: '10px 14px', fontSize: 12,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-              <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to Slack</span>
-              <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>{slackInfo.teamName}</span>
+              <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to {platformInfo.platform === 'telegram' ? 'Telegram' : 'Slack'}</span>
+              {platformInfo.teamName && <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>{platformInfo.teamName}</span>}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
               <span style={{ color: '#6b7280' }}>Display name</span>
-              <span style={{ color: '#166534', fontWeight: 500 }}>{slackInfo.displayName}</span>
-              <span style={{ color: '#6b7280' }}>@handle</span>
-              <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span>
-              {agent.slackBotUserId && <>
+              <span style={{ color: '#166534', fontWeight: 500 }}>{platformInfo.displayName}</span>
+              {platformInfo.handle && <>
+                <span style={{ color: '#6b7280' }}>@handle</span>
+                <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>@{platformInfo.handle}</span>
+              </>}
+              {agent.platformBotUserId && <>
                 <span style={{ color: '#6b7280' }}>Bot User ID</span>
-                <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>{agent.slackBotUserId}</span>
+                <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>{agent.platformBotUserId}</span>
               </>}
             </div>
           </div>
         )}
-        {!slackInfo && agent.slackBotUserId && (
+        {!platformInfo && agent.platformBotUserId && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8,
             background: '#f0fdf4', border: '1px solid #bbf7d0',
@@ -602,7 +608,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
           }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
             <span style={{ color: '#15803d' }}>Connected ·</span>
-            <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>Bot User ID: {agent.slackBotUserId}</span>
+            <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>Bot User ID: {agent.platformBotUserId}</span>
           </div>
         )}
       </Section>
