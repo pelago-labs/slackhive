@@ -104,6 +104,33 @@ describe('parseMcpJson — env substitution', () => {
       envRefs: { Authorization: 'GH_TOKEN' },
     });
   });
+
+  it('warns on mid-string ${env:NAME} refs and keeps the literal value', () => {
+    const result = parseMcpJson(JSON.stringify({
+      mcpServers: {
+        es: { command: 'node', env: { ES_URL: 'https://${env:HOST}/api' } },
+      },
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Value stays literal — not lifted into envRefs, not silently dropped.
+    expect(result.config).toEqual({
+      command: 'node',
+      env: { ES_URL: 'https://${env:HOST}/api' },
+    });
+    expect(result.warnings.some(w => w.includes('env.ES_URL') && w.includes('end of the value'))).toBe(true);
+  });
+
+  it('warns on multiple ${env:...} refs in the same value', () => {
+    const result = parseMcpJson(JSON.stringify({
+      mcpServers: {
+        x: { url: 'https://x', headers: { Mix: '${env:USER}@${env:HOST}' } },
+      },
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warnings.some(w => w.includes('headers.Mix'))).toBe(true);
+  });
 });
 
 // ─── parseMcpJson: error paths ─────────────────────────────────────────────────
@@ -121,6 +148,24 @@ describe('parseMcpJson — errors', () => {
     if (result.ok) return;
     expect(result.error).toMatch(/JSON|token|parse/i);
     if (result.line !== undefined) expect(result.line).toBeGreaterThanOrEqual(1);
+  });
+
+  it('extracts a line number when the runtime reports "position N"', () => {
+    // Some Node/V8 versions emit `Unexpected token ... in JSON at position N`
+    // and others emit `...snippet...`. Stub JSON.parse to throw a controlled
+    // message so the lineFromOffset path is exercised deterministically.
+    const src = 'a\nb\nc\nd'; // positions: a=0, \n=1, b=2, \n=3, c=4, \n=5, d=6
+    const err = new Error('Unexpected token at position 4'); // position 4 → line 3
+    const origParse = JSON.parse;
+    JSON.parse = () => { throw err; };
+    try {
+      const result = parseMcpJson(src);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.line).toBe(3);
+    } finally {
+      JSON.parse = origParse;
+    }
   });
 
   it('rejects arrays at top level', () => {

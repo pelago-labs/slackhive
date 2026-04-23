@@ -8,7 +8,7 @@
  * @module web/settings/mcps/page
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { McpServer, McpServerType } from '@slackhive/shared';
 import { MCP_TEMPLATES } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
@@ -317,10 +317,62 @@ export default function McpSettingsPage() {
   const apiType = (uiType: UiTransportType): McpServerType =>
     uiType === 'typescript' ? 'stdio' : uiType;
 
+  // Infer UI transport type from a raw config row.
+  const inferUiType = (cfg: Record<string, unknown>): UiTransportType => {
+    if (typeof cfg.tsSource === 'string') return 'typescript';
+    if (typeof cfg.url === 'string') return cfg.type === 'http' ? 'http' : 'sse';
+    return 'stdio';
+  };
+
+  /**
+   * Decompose an McpServerConfig into the form fields the granular editor
+   * needs. Shared by handleEdit (loading a saved server) and toggleMode
+   * (switching from JSON view to form view).
+   *
+   * @param cfg      Raw config record (an McpServerConfig cast to Record).
+   * @param argStyle How to render args: 'comma' for the legacy form-mode
+   *                 input, 'json' for the JSON-array placeholder shown after
+   *                 a JSON→form toggle.
+   */
+  const configToFormState = (cfg: Record<string, unknown>, argStyle: 'comma' | 'json'): Pick<
+    McpFormState,
+    'uiType' | 'command' | 'args' | 'envEntries' | 'tsSource' | 'url' | 'headerEntries'
+  > => {
+    const uiType = inferUiType(cfg);
+    const envObj = (cfg.env as Record<string, string>) ?? {};
+    const envRefsObj = (cfg.envRefs as Record<string, string>) ?? {};
+    const envEntries: EnvEntry[] = [
+      ...Object.entries(envObj).map(([k, v]) => ({ key: k, mode: 'value' as const, val: v })),
+      ...Object.entries(envRefsObj).map(([k, v]) => ({ key: k, mode: 'ref' as const, val: v })),
+    ];
+    const headersObj = (cfg.headers as Record<string, string>) ?? {};
+    const headerEntries: HeaderEntry[] = Object.entries(headersObj).map(([name, rawVal]) => {
+      if (envRefsObj[name] !== undefined) {
+        return { name, mode: 'ref' as const, val: envRefsObj[name], prefix: rawVal };
+      }
+      return { name, mode: 'value' as const, val: rawVal, prefix: '' };
+    });
+    const args = Array.isArray(cfg.args)
+      ? (argStyle === 'json' ? JSON.stringify(cfg.args) : (cfg.args as string[]).join(', '))
+      : '';
+    return {
+      uiType,
+      command: (cfg.command as string) ?? '',
+      args,
+      envEntries,
+      tsSource: uiType === 'typescript' ? (cfg.tsSource as string) : DEFAULT_FORM.tsSource,
+      url: (cfg.url as string) ?? '',
+      headerEntries,
+    };
+  };
+
   // ─── Handlers ───────────────────────────────────────────────────────────────
 
   // Live-parse the JSON textarea — drives the inline status line + Save enable
-  const jsonParse = jsonMode ? parseMcpJson(jsonInput) : null;
+  const jsonParse = useMemo(
+    () => (jsonMode ? parseMcpJson(jsonInput) : null),
+    [jsonMode, jsonInput],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -330,8 +382,10 @@ export default function McpSettingsPage() {
       if (jsonMode) {
         if (!jsonParse || !jsonParse.ok) throw new Error(jsonParse && !jsonParse.ok ? jsonParse.error : 'Invalid JSON');
         const { name: parsedName, config } = jsonParse;
-        const finalName = parsedName;
-        if (!finalName) throw new Error('Wrap your server in `{ "mcpServers": { "<name>": { ... } } }` so we know what to call it.');
+        // Bare shape (no mcpServers wrapper) has parsedName === null — fall back
+        // to the Name input shown inline in that case.
+        const finalName = parsedName ?? form.name.trim();
+        if (!finalName) throw new Error('Name is required — add it in the Name field below or wrap your JSON in `{ "mcpServers": { "<name>": { ... } } }`.');
         const c = config as unknown as Record<string, unknown>;
         const type: McpServerType = typeof c.url === 'string' ? (c.type === 'http' ? 'http' : 'sse') : 'stdio';
         body = {
@@ -392,34 +446,11 @@ export default function McpSettingsPage() {
     // typescript has no sensible JSON representation — force form mode
     setJsonMode(!isTs);
     setJsonInput(isTs ? '' : serializeMcpJson(server.name, server.config as McpServerConfig));
-    const envObj = (cfg.env as Record<string, string>) ?? {};
-    const envRefsObj = (cfg.envRefs as Record<string, string>) ?? {};
-
-    const envEntries: EnvEntry[] = [
-      ...Object.entries(envObj).map(([k, v]) => ({ key: k, mode: 'value' as const, val: v })),
-      ...Object.entries(envRefsObj).map(([k, v]) => ({ key: k, mode: 'ref' as const, val: v })),
-    ];
-
-    const headersObj = (cfg.headers as Record<string, string>) ?? {};
-    const envRefsObj2 = (cfg.envRefs as Record<string, string>) ?? {};
-    const headerEntries: HeaderEntry[] = Object.entries(headersObj).map(([name, rawVal]) => {
-      if (envRefsObj2[name] !== undefined) {
-        return { name, mode: 'ref' as const, val: envRefsObj2[name], prefix: rawVal };
-      }
-      return { name, mode: 'value' as const, val: rawVal, prefix: '' };
-    });
-
     setForm({
       name: server.name,
-      uiType: isTs ? 'typescript' : server.type,
       description: server.description ?? '',
       enabled: server.enabled,
-      command: (cfg.command as string) ?? '',
-      args: Array.isArray(cfg.args) ? (cfg.args as string[]).join(', ') : '',
-      envEntries,
-      tsSource: isTs ? (cfg.tsSource as string) : DEFAULT_FORM.tsSource,
-      url: (cfg.url as string) ?? '',
-      headerEntries,
+      ...configToFormState(cfg, 'comma'),
     });
     setEditingId(server.id);
     setShowForm(true);
@@ -450,34 +481,10 @@ export default function McpSettingsPage() {
       const parsed = parseMcpJson(jsonInput);
       if (!parsed.ok) { setError(parsed.error); return; }
       const cfg = parsed.config as unknown as Record<string, unknown>;
-      const isTs = typeof cfg.tsSource === 'string';
-      const uiType: UiTransportType =
-        isTs ? 'typescript'
-        : typeof cfg.url === 'string' ? (cfg.type === 'http' ? 'http' : 'sse')
-        : 'stdio';
-      const envObj = (cfg.env as Record<string, string>) ?? {};
-      const envRefsObj = (cfg.envRefs as Record<string, string>) ?? {};
-      const envEntries: EnvEntry[] = [
-        ...Object.entries(envObj).map(([k, v]) => ({ key: k, mode: 'value' as const, val: v })),
-        ...Object.entries(envRefsObj).map(([k, v]) => ({ key: k, mode: 'ref' as const, val: v })),
-      ];
-      const headersObj = (cfg.headers as Record<string, string>) ?? {};
-      const headerEntries: HeaderEntry[] = Object.entries(headersObj).map(([name, rawVal]) => {
-        if (envRefsObj[name] !== undefined) {
-          return { name, mode: 'ref' as const, val: envRefsObj[name], prefix: rawVal };
-        }
-        return { name, mode: 'value' as const, val: rawVal, prefix: '' };
-      });
       setForm(prev => ({
         ...prev,
         name: form.name || parsed.name || '',
-        uiType,
-        command: (cfg.command as string) ?? '',
-        args: Array.isArray(cfg.args) ? JSON.stringify(cfg.args) : '',
-        envEntries,
-        tsSource: isTs ? (cfg.tsSource as string) : prev.tsSource,
-        url: (cfg.url as string) ?? '',
-        headerEntries,
+        ...configToFormState(cfg, 'json'),
       }));
       setJsonMode(false);
       setError('');
@@ -795,6 +802,14 @@ export default function McpSettingsPage() {
                     </div>
                   );
                 })()}
+                {/* Bare-shape paste: no `mcpServers` wrapper → prompt for a name rather than erroring at save. */}
+                {jsonParse && jsonParse.ok && jsonParse.name === null && (
+                  <FField label="Name *" required style={{ marginBottom: 14 }}
+                    hint="Your JSON has no `mcpServers` wrapper — give the server a name here.">
+                    <input value={form.name} onChange={e => f('name', e.target.value)}
+                      placeholder="redshift-mcp" required {...inputStyle()} />
+                  </FField>
+                )}
                 <FField label="Description" style={{ marginBottom: 14 }}>
                   <input value={form.description} onChange={e => f('description', e.target.value)}
                     placeholder="What does this MCP server provide?" {...inputStyle()} />
@@ -879,12 +894,17 @@ export default function McpSettingsPage() {
               </span>
             </label>
 
+            {(() => {
+              const jsonInvalid = jsonMode && !(jsonParse && jsonParse.ok);
+              const bareWithoutName = !!(jsonMode && jsonParse && jsonParse.ok && jsonParse.name === null && !form.name.trim());
+              const submitDisabled = saving || jsonInvalid || bareWithoutName;
+              return (
             <div style={{ display: 'flex', gap: 10 }}>
-              <button type="submit" disabled={saving || (jsonMode && !(jsonParse && jsonParse.ok))} style={{
-                background: (saving || (jsonMode && !(jsonParse && jsonParse.ok))) ? 'var(--border)' : 'var(--accent)',
+              <button type="submit" disabled={submitDisabled} style={{
+                background: submitDisabled ? 'var(--border)' : 'var(--accent)',
                 color: 'var(--accent-fg)', border: 'none', borderRadius: 7,
                 padding: '9px 22px', fontSize: 13, fontWeight: 500,
-                cursor: (saving || (jsonMode && !(jsonParse && jsonParse.ok))) ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
+                cursor: submitDisabled ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
                 transition: 'opacity 0.15s',
               }}>{saving ? 'Saving…' : editingId ? 'Update Server' : 'Add Server'}</button>
               <button type="button" onClick={resetForm} style={{
@@ -893,6 +913,8 @@ export default function McpSettingsPage() {
                 padding: '9px 22px', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)',
               }}>Cancel</button>
             </div>
+              );
+            })()}
           </form>
         </div>
       )}

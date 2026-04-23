@@ -20,6 +20,9 @@ const MASK = '********';
 /** Matches `${env:NAME}` with an optional prefix (e.g. `"Bearer ${env:TOKEN}"`). */
 const ENV_REF_RE = /^(.*)\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
+/** Matches any `${env:NAME}` anywhere in a string — used to detect unsupported mid-string refs. */
+const ENV_REF_ANY_RE = /\$\{env:[A-Za-z_][A-Za-z0-9_]*\}/;
+
 export type ParseResult =
   | { ok: true; name: string | null; config: McpServerConfig; warnings: string[] }
   | { ok: false; error: string; line?: number };
@@ -87,19 +90,24 @@ export function parseMcpJson(input: string): ParseResult {
 export function serializeMcpJson(name: string, config: McpServerConfig): string {
   const c = config as unknown as Record<string, unknown>;
   const out: Record<string, unknown> = {};
+  const hasCommand = typeof c.command === 'string';
+  const hasUrl = typeof c.url === 'string';
 
-  if (typeof c.command === 'string') out.command = c.command;
+  if (hasCommand) out.command = c.command;
   if (Array.isArray(c.args)) out.args = c.args;
-  if (typeof c.url === 'string') out.url = c.url;
+  if (hasUrl) out.url = c.url;
   if (typeof c.type === 'string') out.type = c.type;
 
   const envRefs = (c.envRefs as Record<string, string> | undefined) ?? {};
 
-  if (c.command !== undefined) {
+  // env and headers are surfaced independently — if a config somehow has both
+  // (corrupted row), neither is silently dropped.
+  if (hasCommand) {
     const env = (c.env as Record<string, string> | undefined) ?? {};
     const merged = mergeRefsIntoMap(env, envRefs);
     if (Object.keys(merged).length > 0) out.env = merged;
-  } else if (c.url !== undefined) {
+  }
+  if (hasUrl) {
     const headers = (c.headers as Record<string, string> | undefined) ?? {};
     const merged = mergeRefsIntoMap(headers, envRefs);
     if (Object.keys(merged).length > 0) out.headers = merged;
@@ -131,10 +139,11 @@ function translateServer(raw: Record<string, unknown>): TranslateResult {
       }
       cfg.args = raw.args;
     }
-    const { values, refs, error } = splitEnvAndRefs(raw.env, 'env');
-    if (error) return { ok: false, error };
-    if (values && Object.keys(values).length > 0) cfg.env = values;
-    if (refs && Object.keys(refs).length > 0) cfg.envRefs = refs;
+    const split = splitEnvAndRefs(raw.env, 'env');
+    if (split.error) return { ok: false, error: split.error };
+    if (split.values && Object.keys(split.values).length > 0) cfg.env = split.values;
+    if (split.refs && Object.keys(split.refs).length > 0) cfg.envRefs = split.refs;
+    if (split.warnings) warnings.push(...split.warnings);
     if (typeof raw.tsSource === 'string') cfg.tsSource = raw.tsSource;
     return { ok: true, config: cfg as unknown as McpServerConfig, warnings };
   }
@@ -142,10 +151,11 @@ function translateServer(raw: Record<string, unknown>): TranslateResult {
   // sse / http
   const cfg: Record<string, unknown> = { url: raw.url };
   if (raw.type === 'sse' || raw.type === 'http') cfg.type = raw.type;
-  const { values, refs, error } = splitEnvAndRefs(raw.headers, 'headers');
-  if (error) return { ok: false, error };
-  if (values && Object.keys(values).length > 0) cfg.headers = values;
-  if (refs && Object.keys(refs).length > 0) cfg.envRefs = refs;
+  const split = splitEnvAndRefs(raw.headers, 'headers');
+  if (split.error) return { ok: false, error: split.error };
+  if (split.values && Object.keys(split.values).length > 0) cfg.headers = split.values;
+  if (split.refs && Object.keys(split.refs).length > 0) cfg.envRefs = split.refs;
+  if (split.warnings) warnings.push(...split.warnings);
   return { ok: true, config: cfg as unknown as McpServerConfig, warnings };
 }
 
@@ -162,29 +172,46 @@ function translateServer(raw: Record<string, unknown>): TranslateResult {
 function splitEnvAndRefs(
   input: unknown,
   field: 'env' | 'headers',
-): { values?: Record<string, string>; refs?: Record<string, string>; error?: string } {
+): {
+  values?: Record<string, string>;
+  refs?: Record<string, string>;
+  warnings?: string[];
+  error?: string;
+} {
   if (input === undefined || input === null) return {};
   if (typeof input !== 'object' || Array.isArray(input)) {
     return { error: `\`${field}\` must be an object` };
   }
   const values: Record<string, string> = {};
   const refs: Record<string, string> = {};
+  const warnings: string[] = [];
   for (const [key, raw] of Object.entries(input as Record<string, unknown>)) {
     if (typeof raw !== 'string') {
       return { error: `\`${field}.${key}\` must be a string` };
     }
     if (raw === MASK) continue; // unchanged — server-side merge restores it
     const m = raw.match(ENV_REF_RE);
-    if (m) {
+    // The `.*` in ENV_REF_RE is greedy, so `"${env:A}@${env:B}"` matches as
+    // prefix=`"${env:A}@"`, refName=`B` — that would silently ship the prefix
+    // as a literal. Reject the match if the prefix still contains `${env:...}`.
+    if (m && !ENV_REF_ANY_RE.test(m[1])) {
       const prefix = m[1];
       const refName = m[2];
       refs[key] = refName;
       if (prefix) values[key] = prefix; // runner prepends this to the resolved secret
     } else {
+      // Mid-string or multi-ref substitution isn't supported by the runner's
+      // prefix-only envRefs model. Warn loudly so the value doesn't silently
+      // ship as a literal `${env:...}` string to the subprocess.
+      if (ENV_REF_ANY_RE.test(raw)) {
+        warnings.push(
+          `\`${field}.${key}\`: \${env:NAME} must be at the end of the value (e.g. "Bearer \${env:TOKEN}"). Mid-string substitution isn't supported — the value will be used literally.`,
+        );
+      }
       values[key] = raw;
     }
   }
-  return { values, refs };
+  return { values, refs, warnings };
 }
 
 /**
