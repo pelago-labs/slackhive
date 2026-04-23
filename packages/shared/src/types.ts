@@ -931,4 +931,10 @@ export interface ActivityFilter {
   userId?: string;
   status?: 'active' | 'recent' | 'errored';
   since?: string;
+  /**
+   * Restrict results to tasks with at least one activity from one of these
+   * agent IDs. `undefined` = no restriction (admin view); empty array = the
+   * user has access to nothing, so the query returns zero rows.
+   */
+  accessibleAgentIds?: string[];
 }

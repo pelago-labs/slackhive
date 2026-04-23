@@ -127,11 +127,13 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
             </svg>
           }>Dashboard</NavItem>
 
-          <NavItem href="/activity" active={pathname === '/activity' || pathname.startsWith('/activity/')} collapsed={collapsed} icon={
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M1.5 8h3l2-5 3 10 2-5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          } badge={activeTaskCount > 0 ? activeTaskCount : undefined}>Activity</NavItem>
+          {role !== 'viewer' && (
+            <NavItem href="/activity" active={pathname === '/activity' || pathname.startsWith('/activity/')} collapsed={collapsed} icon={
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M1.5 8h3l2-5 3 10 2-5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            } badge={activeTaskCount > 0 ? activeTaskCount : undefined}>Activity</NavItem>
+          )}
 
           {!collapsed && (
             <div style={{

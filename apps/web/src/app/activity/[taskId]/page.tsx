@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { deepLinkLabelForPlatform } from '@slackhive/shared';
 import {
   ArrowLeft, ExternalLink, ChevronRight, ChevronDown,
   Wrench, CheckCircle2, AlertTriangle, Loader2,
@@ -237,7 +238,7 @@ export default function TaskDetailPage(): React.JSX.Element {
                 fontFamily: 'var(--font-sans)',
               }}
             >
-              Open in Slack <ExternalLink size={12} />
+              {deepLinkLabelForPlatform(task.platform as 'slack' | 'discord' | 'telegram' | 'whatsapp' | 'teams')} <ExternalLink size={12} />
             </a>
           )}
         </div>

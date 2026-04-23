@@ -1,0 +1,90 @@
+---
+title: "Activity Dashboard"
+description: "A live kanban of every task your agents are working on — Active, Completed, Errors — with drill-down to every tool call."
+---
+
+The **Activity Dashboard** is a live view of what your agents are actually doing. Every thread your agents touch becomes a **task**; every reply becomes an **activity**; every MCP tool invocation becomes a **tool call**. The dashboard rolls that up into a kanban so you can see in-flight work, recently finished work, and errors at a glance.
+
+Open it from the sidebar under **Activity**. The board polls every 4 seconds, so fresh work shows up without a reload.
+
+## Columns
+
+| Column | What's in it |
+|---|---|
+| **Active** | Tasks with at least one activity still `in_progress`. Capped at 200 rows — the column is expected to stay small since in-flight activities resolve to success or error. |
+| **Recent** | Tasks with no in-flight activity and no errored activity. Paginated, newest first. |
+| **Errors** | Tasks with at least one activity in `status='error'`. Paginated, newest first. |
+
+Each card shows the platform, channel, the initiator, the initial agent, an activity count, and relative time since the last activity. The **stats strip** above the board labels the Recent bucket as **Completed** — same tasks, shorter label.
+
+## Filters
+
+Narrow the board with the controls above the columns:
+
+- **Agent** — show only tasks that involved a specific agent.
+- **Window** — `1h`, `24h`, `7d`, or `30d` against each task's `last_activity_at`.
+
+Filters are URL-state, so you can link directly to a filtered view — e.g. `/activity?agent=<agent-id>&window=24h`. The **Activity** button on the agent detail page uses this.
+
+The API also accepts a `user=<initiator-user-id>` filter; there's no UI control for it yet, but you can hit `/api/activity?column=active&user=U01234` directly.
+
+## Stats strip
+
+Above the board, four cards summarize the current filtered view:
+
+- **Active** — tasks with in-flight work.
+- **Completed** — finished without any errors.
+- **Errors** — tasks with at least one errored activity.
+- **Total** — sum of the above.
+
+The Active card's subtext shows *N agents working* — scoped to the current filter (1 when you've filtered to a single agent with in-flight work, zero otherwise).
+
+## Task detail
+
+Click any card to open `/activity/<taskId>`:
+
+- Full timeline of activities, newest last.
+- Each activity expands to its tool calls, with args and result previews.
+- Deep-link button jumps back to the original thread. The label adapts to the platform — **Open in Slack**, **Open in Telegram**, etc. Platforms without a public deep-link scheme today (Discord, WhatsApp, Teams) hide the button.
+
+## Enabling
+
+Activity capture is gated by a feature flag. If the flag is off, the writer hooks short-circuit — no tasks, activities, or tool calls are recorded, and the dashboard is empty.
+
+```bash
+# in .env
+ACTIVITY_DASHBOARD=1
+```
+
+Restart the runner after toggling:
+
+```bash
+slackhive stop && slackhive start
+```
+
+## Access control
+
+Who sees what on the dashboard depends on role:
+
+| Role | What they see |
+|---|---|
+| **superadmin / admin** | Every task across every agent. |
+| **editor** | Only tasks that touched an agent they created **or** were granted access to via agent access. |
+| **viewer** | Blocked entirely — the sidebar link is hidden and all three activity API routes return `403`. |
+
+Enforcement happens server-side on every request, so URL tampering (e.g. passing `?agent=<someone-elses>`) can't bypass it. Agent access is managed on each agent's detail page → **Access** (admin/superadmin only).
+
+## Retention
+
+Tasks, activities, and tool calls live in the same SQLite database as everything else (`~/.slackhive/data.db`). There is no automatic pruning today — back up the DB if you want a long-term record, or truncate the `tasks`, `activities`, and `tool_calls` tables directly when you need to reclaim space.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Logs" icon="list" href="/features/logs">
+    Per-agent log stream — the raw runner output behind each activity.
+  </Card>
+  <Card title="Version History" icon="clock-rotate-left" href="/features/history">
+    Snapshots of the agent's configuration at the time of each run.
+  </Card>
+</CardGroup>

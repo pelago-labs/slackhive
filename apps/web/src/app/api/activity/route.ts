@@ -9,6 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listTasks, type TaskListColumn, type ActivityFilter } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
+import { getSessionFromRequest } from '@/lib/auth';
+import { listAccessibleAgentIds } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,16 +43,29 @@ function windowFloor(w: string | null): string | undefined {
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
+    const session = getSessionFromRequest(req);
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+    if (session.role === 'viewer') {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(req.url);
     const column = searchParams.get('column') as TaskListColumn | null;
     if (!column || !VALID_COLUMNS.includes(column)) {
       return NextResponse.json({ error: `column must be one of ${VALID_COLUMNS.join(', ')}` }, { status: 400 });
     }
 
+    // Admins/superadmins see everything; others are scoped to agents they
+    // created or have explicit access to.
+    const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
+
     const filter: ActivityFilter = {
       agentId: searchParams.get('agent') ?? undefined,
       userId: searchParams.get('user') ?? undefined,
       since: windowFloor(searchParams.get('window')),
+      accessibleAgentIds: accessibleAgentIds ?? undefined,
     };
 
     const limit = column === 'active'

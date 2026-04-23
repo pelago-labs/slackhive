@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -272,6 +272,27 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
             <MessageSquare size={13} />
             Test
           </button>
+
+          <Link
+            href={`/activity?agent=${encodeURIComponent(agent.id)}`}
+            title={`View activity for ${agent.name}`}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              color: 'var(--text)',
+              borderRadius: 6,
+              fontSize: 12.5,
+              fontWeight: 500,
+              cursor: 'pointer',
+              letterSpacing: 0.2,
+              textDecoration: 'none',
+            }}
+          >
+            <ActivityIcon size={13} />
+            Activity
+          </Link>
 
           <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
 

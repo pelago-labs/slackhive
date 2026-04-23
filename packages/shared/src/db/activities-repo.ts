@@ -329,6 +329,21 @@ export async function listTasks(
     params.push(filter.since);
   }
 
+  if (filter.accessibleAgentIds !== undefined) {
+    if (filter.accessibleAgentIds.length === 0) {
+      // User can access no agents — short-circuit to empty.
+      return { tasks: [], nextCursor: null };
+    }
+    const placeholders = filter.accessibleAgentIds
+      .map((_, i) => `$${params.length + 1 + i}`)
+      .join(', ');
+    wheres.push(`EXISTS (
+      SELECT 1 FROM activities a
+       WHERE a.task_id = tasks.id AND a.agent_id IN (${placeholders})
+    )`);
+    params.push(...filter.accessibleAgentIds);
+  }
+
   if (cursor) {
     const [cursorTs, cursorId] = cursor.split('|', 2);
     if (cursorTs && cursorId) {
@@ -407,15 +422,30 @@ export async function getTaskWithDetails(taskId: string): Promise<TaskWithDetail
 /**
  * Count in-progress activities per agent. Feeds the "Replying" chip on the
  * main dashboard's agent cards.
+ *
+ * If `accessibleAgentIds` is provided, counts are restricted to those agents
+ * (empty array yields an empty map).
  */
-export async function countInProgressByAgent(): Promise<Record<string, number>> {
+export async function countInProgressByAgent(
+  accessibleAgentIds?: string[],
+): Promise<Record<string, number>> {
+  if (accessibleAgentIds !== undefined && accessibleAgentIds.length === 0) {
+    return {};
+  }
   const db = getDb();
+  const params: unknown[] = [];
+  let whereExtra = '';
+  if (accessibleAgentIds !== undefined) {
+    const placeholders = accessibleAgentIds.map((_, i) => `$${i + 1}`).join(', ');
+    whereExtra = ` AND agent_id IN (${placeholders})`;
+    params.push(...accessibleAgentIds);
+  }
   const { rows } = await db.query(
     `SELECT agent_id, COUNT(*) AS n
        FROM activities
-      WHERE status = 'in_progress'
+      WHERE status = 'in_progress'${whereExtra}
       GROUP BY agent_id`,
-    [],
+    params,
   );
   const out: Record<string, number> = {};
   for (const row of rows) {

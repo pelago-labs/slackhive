@@ -10,6 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listTasks, countInProgressByAgent, type ActivityFilter } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
+import { getSessionFromRequest } from '@/lib/auth';
+import { listAccessibleAgentIds } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,11 +34,22 @@ function windowFloor(w: string | null): string | undefined {
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
+    const session = getSessionFromRequest(req);
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+    if (session.role === 'viewer') {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    }
+
+    const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
+
     const { searchParams } = new URL(req.url);
     const filter: ActivityFilter = {
       agentId: searchParams.get('agent') ?? undefined,
       userId: searchParams.get('user') ?? undefined,
       since: windowFloor(searchParams.get('window')),
+      accessibleAgentIds: accessibleAgentIds ?? undefined,
     };
 
     // Fetch up to 500 per column — plenty for the badge number. Filters apply
@@ -45,7 +58,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       listTasks('active', filter, 500, null),
       listTasks('recent', filter, 500, null),
       listTasks('errored', filter, 500, null),
-      countInProgressByAgent(),
+      countInProgressByAgent(accessibleAgentIds ?? undefined),
     ]);
 
     return NextResponse.json({

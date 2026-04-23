@@ -10,8 +10,9 @@
  * @module web/app/activity
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Activity as ActivityIcon, Users, Filter as FilterIcon, AlertTriangle, CheckCircle2, CircleDashed } from 'lucide-react';
 
 interface Task {
@@ -87,15 +88,37 @@ function agentColor(id: string): string {
 }
 
 export default function ActivityPage(): React.JSX.Element {
+  // useSearchParams forces dynamic rendering — wrap in Suspense so the
+  // page's static shell can still be emitted during build.
+  return (
+    <Suspense fallback={null}>
+      <ActivityPageBody />
+    </Suspense>
+  );
+}
+
+interface StatsResponse {
+  counts: { active: number; recent: number; errored: number };
+  inProgressByAgent: Record<string, number>;
+}
+
+function ActivityPageBody(): React.JSX.Element {
+  const searchParams = useSearchParams();
   const [agents, setAgents] = useState<AgentLite[]>([]);
   const [lists, setLists] = useState<Record<Column, TaskListResult>>({
     active:  { tasks: [], nextCursor: null },
     recent:  { tasks: [], nextCursor: null },
     errored: { tasks: [], nextCursor: null },
   });
+  const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [agentFilter, setAgentFilter] = useState<string>('');
-  const [windowKey, setWindowKey] = useState<WindowKey>('24h');
+  const [agentFilter, setAgentFilter] = useState<string>(searchParams?.get('agent') ?? '');
+  const [windowKey, setWindowKey] = useState<WindowKey>(
+    ((): WindowKey => {
+      const w = searchParams?.get('window');
+      return w === '1h' || w === '24h' || w === '7d' || w === '30d' ? w : '24h';
+    })(),
+  );
   // Per-activity agent participation map, populated lazily from task detail.
   const [agentsByTask, setAgentsByTask] = useState<Record<string, string[]>>({});
   const pollRef = useRef<number | null>(null);
@@ -118,13 +141,23 @@ export default function ActivityPage(): React.JSX.Element {
     return r.json();
   }, [agentFilter, windowKey]);
 
+  const fetchStats = useCallback(async (): Promise<StatsResponse | null> => {
+    const params = new URLSearchParams({ window: windowKey });
+    if (agentFilter) params.set('agent', agentFilter);
+    const r = await fetch(`/api/activity/stats?${params.toString()}`);
+    if (!r.ok) return null;
+    return r.json();
+  }, [agentFilter, windowKey]);
+
   const load = useCallback(async () => {
-    const [active, recent, errored] = await Promise.all([
+    const [active, recent, errored, s] = await Promise.all([
       fetchColumn('active'),
       fetchColumn('recent'),
       fetchColumn('errored'),
+      fetchStats(),
     ]);
     setLists({ active, recent, errored });
+    setStats(s);
     setLoaded(true);
 
     // Hydrate per-task agent lists for avatar stacks — only for visible tasks.
@@ -144,7 +177,7 @@ export default function ActivityPage(): React.JSX.Element {
         return next;
       });
     }
-  }, [fetchColumn, agentsByTask]);
+  }, [fetchColumn, fetchStats, agentsByTask]);
 
   useEffect(() => {
     load();
@@ -177,7 +210,7 @@ export default function ActivityPage(): React.JSX.Element {
             <ActivityIcon size={20} /> Activity
           </h1>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Every Slack thread your agents touched, live.
+            Every task your agents worked on, live.
           </p>
         </div>
         <div style={{
@@ -192,6 +225,8 @@ export default function ActivityPage(): React.JSX.Element {
           {activeCount > 0 ? `${activeCount} active` : 'Idle'}
         </div>
       </div>
+
+      <StatsStrip stats={stats} agentCount={agentCountForSubtext(stats, agentFilter)} />
 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
@@ -387,6 +422,74 @@ function AvatarStack(props: {
       })}
       {extra > 0 && (
         <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--muted)' }}>+{extra}</span>
+      )}
+    </div>
+  );
+}
+
+/** Agents with in-flight work — narrowed to the selected agent when filtered. */
+function agentCountForSubtext(stats: StatsResponse | null, agentFilter: string): number {
+  const map = stats?.inProgressByAgent ?? {};
+  if (agentFilter) return (map[agentFilter] ?? 0) > 0 ? 1 : 0;
+  return Object.keys(map).filter(k => (map[k] ?? 0) > 0).length;
+}
+
+function StatsStrip(props: { stats: StatsResponse | null; agentCount: number }): React.JSX.Element {
+  const { stats, agentCount } = props;
+  const active  = stats?.counts.active  ?? 0;
+  const recent  = stats?.counts.recent  ?? 0;
+  const errored = stats?.counts.errored ?? 0;
+  const total   = active + recent + errored;
+
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+      gap: 10,
+      marginBottom: 14,
+    }}>
+      <StatCard label="Active"     value={active}  color="#2563eb" pulse={active > 0}
+                sub={agentCount > 0 ? `${agentCount} agent${agentCount === 1 ? '' : 's'} working` : 'No agents in-flight'} />
+      <StatCard label="Completed"  value={recent}  color="#059669"
+                sub="Finished in window" />
+      <StatCard label="Errors"     value={errored} color={errored > 0 ? '#dc2626' : 'var(--muted)'}
+                sub={errored > 0 ? 'Needs attention' : 'No errors'} />
+      <StatCard label="Total"      value={total}
+                sub="In selected window" />
+    </div>
+  );
+}
+
+function StatCard(props: {
+  label: string; value: number; color?: string; sub?: string; pulse?: boolean;
+}): React.JSX.Element {
+  const { label, value, color, sub, pulse } = props;
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 10, padding: '12px 14px',
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
+        color: 'var(--subtle)', textTransform: 'uppercase',
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        {pulse && (
+          <span className="status-running" style={{
+            width: 6, height: 6, borderRadius: '50%', background: color ?? '#2563eb',
+          }} />
+        )}
+        {label}
+      </div>
+      <div style={{
+        fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em',
+        color: color ?? 'var(--text)', marginTop: 4, lineHeight: 1,
+        fontVariantNumeric: 'tabular-nums',
+      }}>
+        {value}
+      </div>
+      {sub && (
+        <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 5 }}>{sub}</div>
       )}
     </div>
   );

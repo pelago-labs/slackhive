@@ -35,12 +35,12 @@ SlackHive uses a simple built-in auth system — no external provider required.
 
 SlackHive has four roles with escalating permissions:
 
-| Role | View agents | Edit agents | Manage jobs | Settings | Manage users |
-|------|-------------|-------------|-------------|----------|-------------|
-| **Superadmin** | All | All | Yes | Yes | Yes |
-| **Admin** | All | All | Yes | Yes | Yes |
-| **Editor** | All | Own + granted | Yes | Yes | No |
-| **Viewer** | All | No | No | No | No |
+| Role | View agents | Edit agents | Manage jobs | Settings | Manage users | [Activity](/features/activity) |
+|------|-------------|-------------|-------------|----------|-------------|-------------|
+| **Superadmin** | All | All | Yes | Yes | Yes | All tasks |
+| **Admin** | All | All | Yes | Yes | Yes | All tasks |
+| **Editor** | All | Own + granted | Yes | Yes | No | Only own + granted agents |
+| **Viewer** | All | No | No | No | No | Blocked (403) |
 
 ### Superadmin
 
@@ -102,6 +102,7 @@ The permission model:
 - Write operations on an agent require: admin, superadmin, or (editor + agent ownership/grant)
 - Settings mutations require: admin or superadmin
 - User management requires: admin or superadmin
+- [Activity Dashboard](/features/activity): admin/superadmin see all tasks; editors are scoped to agents they own or were granted; viewers get 403
 
 ## Session behavior
 

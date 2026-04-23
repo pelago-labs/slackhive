@@ -971,6 +971,28 @@ export async function userCanWriteAgent(agentId: string, username: string, role:
   return r.rows.length > 0;
 }
 
+/**
+ * Returns the full list of agent IDs the user can access. Admins and
+ * superadmins return `null` to signal "no restriction" — this lets callers
+ * distinguish "see all" from "sees nothing". Editors/viewers get the union
+ * of agents they created and agents granted via `agent_access`.
+ */
+export async function listAccessibleAgentIds(
+  username: string,
+  role: string,
+): Promise<string[] | null> {
+  if (role === 'admin' || role === 'superadmin') return null;
+  const r = await (await db()).query(
+    `SELECT id FROM agents WHERE created_by = $1
+     UNION
+     SELECT aa.agent_id FROM agent_access aa
+       JOIN users u ON u.id = aa.user_id
+      WHERE u.username = $1`,
+    [username],
+  );
+  return r.rows.map(row => row.id as string);
+}
+
 // =============================================================================
 // Scheduled Jobs
 // =============================================================================

@@ -73,6 +73,7 @@
               "features/import-export",
               "features/logs",
               "features/history",
+              "features/activity",
               "features/users"
             ]
           },

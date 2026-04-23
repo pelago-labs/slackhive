@@ -79,6 +79,7 @@ openssl rand -hex 32
 | `RUNNER_INTERNAL_PORT` | auto | Runner port (default 3002, auto-negotiates) |
 | `AGENTS_TMP_DIR` | `~/.slackhive/agents` | Where per-agent workspaces live |
 | `DATABASE_TYPE` | `sqlite` | Always `sqlite` on CLI installs |
+| `ACTIVITY_DASHBOARD` | unset | Set to `1` to enable the [Activity Dashboard](/features/activity). When unset, the writer hooks short-circuit and no tasks/activities/tool calls are recorded. |
 
 ## Where data lives
 
@@ -118,6 +119,9 @@ ENV_SECRET_KEY=generate-with-openssl-rand-hex-32
 # --- Platform ---
 NODE_ENV=production
 DATABASE_TYPE=sqlite
+
+# --- Feature flags ---
+# ACTIVITY_DASHBOARD=1
 ```
 
 ## Next steps
