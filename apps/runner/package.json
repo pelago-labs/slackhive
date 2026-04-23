@@ -14,8 +14,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.59",
-    "@anthropic-ai/claude-code": "^2.1.59",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.118",
+    "@anthropic-ai/claude-code": "^2.1.118",
     "@datadog/datadog-api-client": "^1.41.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@notionhq/client": "^5.0.0",
