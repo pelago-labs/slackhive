@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="apps/web/public/logo.svg" alt="SlackHive" width="80" />
+<img src="https://raw.githubusercontent.com/pelago-labs/slackhive/main/apps/web/public/logo.svg" alt="SlackHive" width="80" />
 
 # SlackHive
 
