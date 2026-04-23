@@ -234,7 +234,7 @@ Rotating makes every stored secret unreadable. You must re-enter each secret aft
 4. Restart: `slackhive stop && slackhive start`
 5. Paste each secret back into **Settings → Env Vars**
 
-Plan the rotation during off-hours — MCP servers using `envRefs` will fail between steps 3 and 5.
+Plan the rotation during off-hours — MCP servers referencing `${env:NAME}` will fail between steps 3 and 5.
 
 ## Monitoring
 

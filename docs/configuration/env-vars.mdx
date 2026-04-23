@@ -67,7 +67,7 @@ openssl rand -hex 32
 ```
 
 <Warning>
-  Do not rotate `ENV_SECRET_KEY` after initial setup without a plan. All stored secrets become unreadable — every MCP server using `envRefs` will fail until you re-enter each secret in **Settings → Env Vars**.
+  Do not rotate `ENV_SECRET_KEY` after initial setup without a plan. All stored secrets become unreadable — every MCP server referencing `${env:NAME}` will fail until you re-enter each secret in **Settings → Env Vars**.
 </Warning>
 
 ## Platform

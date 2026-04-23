@@ -49,10 +49,10 @@ Browse the catalog, assign an Official template, fill in env vars, and you're do
     Three options:
     - **Browse Templates** — pick from 40+ Official and Community templates
     - **Import from Claude Code CLI** — one-click add any MCP already registered in your local `claude` CLI (shows a **CLI** badge on the card)
-    - **Add Custom** — configure from scratch
+    - **Custom Server** — paste a Cursor / Claude Desktop / VS Code config, or fill in fields
   </Step>
   <Step title="Fill in the blanks">
-    Most templates have placeholders for env vars (API keys, database URLs). Use `envRefs` to point at the encrypted store — see [Keeping secrets safe](#keeping-secrets-safe) below.
+    In **Custom Server** the default view is a JSON textarea that accepts the standard `{ "mcpServers": { ... } }` shape used by Cursor, Claude Desktop, and VS Code. Use `${env:NAME}` for secrets — see [Paste JSON from other tools](#paste-json-from-other-tools) below. Prefer granular fields? Switch to the **Form** tab.
   </Step>
   <Step title="Probe the server">
     Click **Test Connection**. SlackHive runs a real MCP handshake — `initialize`, `tools/list` — against the server. You see the list of tools it exposes. If the probe fails, the error is shown inline with the tool stderr.
@@ -86,27 +86,28 @@ There are four ways to run an MCP server:
 
 ## Configuration examples
 
+These examples use the standard Cursor / Claude Desktop / VS Code shape — paste them directly into the JSON textarea in **Custom Server**.
+
 ### Redshift / Data Warehouse
 
 Give your data analyst agent the ability to run real SQL queries:
 
 ```json
 {
-  "name": "redshift",
-  "type": "stdio",
-  "description": "Read-only Redshift query access",
-  "config": {
-    "command": "node",
-    "args": ["/path/to/redshift-mcp/dist/index.js"],
-    "envRefs": {
-      "DATABASE_URL": "REDSHIFT_DATABASE_URL"
+  "mcpServers": {
+    "redshift": {
+      "command": "node",
+      "args": ["/path/to/redshift-mcp/dist/index.js"],
+      "env": {
+        "DATABASE_URL": "${env:REDSHIFT_DATABASE_URL}"
+      }
     }
   }
 }
 ```
 
 <Tip>
-  Notice the `envRefs` instead of `env`. This references a secret from the encrypted store rather than embedding the connection string directly. See [Keeping secrets safe](#keeping-secrets-safe) below.
+  `${env:REDSHIFT_DATABASE_URL}` pulls the secret from the encrypted env store at spawn time instead of embedding it in the config. See [Keeping secrets safe](#keeping-secrets-safe) below.
 </Tip>
 
 ### Filesystem Access
@@ -115,12 +116,11 @@ Give an agent read access to files in a directory — useful for code review or 
 
 ```json
 {
-  "name": "filesystem",
-  "type": "stdio",
-  "description": "Read files from the codebase",
-  "config": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/your/repo"]
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/your/repo"]
+    }
   }
 }
 ```
@@ -133,17 +133,57 @@ Connect to a remote MCP server over the network:
 
 ```json
 {
-  "name": "analytics-api",
-  "type": "sse",
-  "description": "Internal analytics data API",
-  "config": {
-    "url": "https://mcp.internal.example.com/sse",
-    "headers": {
-      "Authorization": "Bearer your-token-here"
+  "mcpServers": {
+    "analytics-api": {
+      "url": "https://mcp.internal.example.com/sse",
+      "headers": {
+        "Authorization": "Bearer ${env:ANALYTICS_TOKEN}"
+      }
     }
   }
 }
 ```
+
+The `Bearer ` prefix stays literal; `${env:ANALYTICS_TOKEN}` is resolved at spawn time and the runner assembles the final header value.
+
+## Paste JSON from other tools
+
+The **Custom Server** editor opens on a JSON textarea by default. It accepts the same `{ "mcpServers": { ... } }` shape used by Cursor, Claude Desktop, and VS Code — so any config you already have elsewhere can be pasted verbatim.
+
+Two shapes are accepted:
+
+```json
+{
+  "mcpServers": {
+    "elasticsearch": {
+      "command": "npx",
+      "args": ["-y", "@elastic/mcp-server-elasticsearch"],
+      "env": {
+        "ES_URL": "${env:ES_URL}",
+        "ES_API_KEY": "${env:ES_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Or a bare server object (name comes from the **Name** field):
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@elastic/mcp-server-elasticsearch"],
+  "env": { "ES_URL": "${env:ES_URL}" }
+}
+```
+
+**`${env:NAME}` substitution.** Any value matching `${env:NAME}` is mapped to the SlackHive encrypted env store. At spawn time the runner resolves the reference and injects the secret into the subprocess environment — the raw value never lands in the config row. Prefixes are preserved, so `"Authorization": "Bearer ${env:GH_TOKEN}"` resolves to `Bearer <secret>`.
+
+**Missing env vars.** If your JSON references an env var that doesn't exist in the store yet, a chip appears under the textarea. Click it to set the value inline without leaving the editor.
+
+**Editing existing servers.** Reopening a saved server re-serializes its config back to the JSON shape. Inline secrets come back as `"********"` — leave them alone to preserve the stored value, or replace with a real value or `${env:NAME}` ref to change it.
+
+**Form mode.** A **Form** tab next to **JSON** exposes the granular fields for users who prefer them. Toggling seeds the other view, so switching mid-edit doesn't lose work.
 
 ### Inline TypeScript
 
@@ -194,12 +234,18 @@ The env store encrypts secrets at rest using AES-256. Values are never returned 
     4. Click **Save** — the value is encrypted immediately
   </Step>
   <Step title="Reference it in your MCP config">
-    In your MCP server configuration, use `envRefs` to map the store key to the environment variable name the server expects:
+    Use `${env:NAME}` inside any `env` value (or HTTP `headers` value) to pull the secret from the store:
 
     ```json
     {
-      "envRefs": {
-        "DATABASE_URL": "REDSHIFT_DATABASE_URL"
+      "mcpServers": {
+        "redshift": {
+          "command": "node",
+          "args": ["/path/to/redshift-mcp/dist/index.js"],
+          "env": {
+            "DATABASE_URL": "${env:REDSHIFT_DATABASE_URL}"
+          }
+        }
       }
     }
     ```
@@ -208,7 +254,7 @@ The env store encrypts secrets at rest using AES-256. Values are never returned 
   </Step>
 </Steps>
 
-The raw secret never appears in API responses, browser dev tools, or log files.
+The raw secret never appears in API responses, browser dev tools, or log files. Reopening the editor later shows `"********"` in place of any inline secret values you did paste literally — leaving them untouched preserves the stored value.
 
 ## Testing a server
 
