@@ -13,7 +13,9 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, Users, Filter as FilterIcon, AlertTriangle, CheckCircle2, CircleDashed } from 'lucide-react';
+import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDashed } from 'lucide-react';
+import { TabSwitcher } from './_components/TabSwitcher';
+import { FilterRow, type WindowKey } from './_components/FilterRow';
 
 interface Task {
   id: string;
@@ -41,19 +43,11 @@ interface AgentLite {
 }
 
 type Column = 'active' | 'recent' | 'errored';
-type WindowKey = '1h' | '24h' | '7d' | '30d';
 
 const COLUMNS: { key: Column; label: string; icon: React.ReactNode; accent: string }[] = [
   { key: 'active',  label: 'Active',  icon: <CircleDashed size={13} />,   accent: '#2563eb' },
   { key: 'recent',  label: 'Recent',  icon: <CheckCircle2 size={13} />,   accent: '#059669' },
   { key: 'errored', label: 'Errors',  icon: <AlertTriangle size={13} />,  accent: '#dc2626' },
-];
-
-const WINDOWS: { key: WindowKey; label: string }[] = [
-  { key: '1h',  label: 'Last 1 hour' },
-  { key: '24h', label: 'Last 24 hours' },
-  { key: '7d',  label: 'Last 7 days' },
-  { key: '30d', label: 'Last 30 days' },
 ];
 
 /** Relative time string ("4m", "2h", "3d") for dense card UIs. */
@@ -234,30 +228,17 @@ function ActivityPageBody(): React.JSX.Element {
         </div>
       </div>
 
+      <TabSwitcher />
+
       <StatsStrip stats={stats} agentCount={agentCountForSubtext(stats, agentFilter)} />
 
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
-        padding: '10px 14px', background: 'var(--surface)',
-        border: '1px solid var(--border)', borderRadius: 10,
-      }}>
-        <FilterIcon size={14} style={{ color: 'var(--muted)' }} />
-        <select
-          value={agentFilter}
-          onChange={e => setAgentFilter(e.target.value)}
-          style={selectStyle}
-        >
-          <option value="">All agents</option>
-          {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
-        <select
-          value={windowKey}
-          onChange={e => setWindowKey(e.target.value as WindowKey)}
-          style={selectStyle}
-        >
-          {WINDOWS.map(w => <option key={w.key} value={w.key}>{w.label}</option>)}
-        </select>
-      </div>
+      <FilterRow
+        agents={agents}
+        agentFilter={agentFilter}
+        windowKey={windowKey}
+        onAgentChange={setAgentFilter}
+        onWindowChange={setWindowKey}
+      />
 
       <div style={{
         display: 'grid',
@@ -280,13 +261,6 @@ function ActivityPageBody(): React.JSX.Element {
     </div>
   );
 }
-
-const selectStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 500, color: 'var(--text)',
-  background: 'var(--surface-2)', border: '1px solid var(--border)',
-  borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
-  fontFamily: 'var(--font-sans)',
-};
 
 function ColumnView(props: {
   column: { key: Column; label: string; icon: React.ReactNode; accent: string };
