@@ -13,7 +13,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AlertTriangle, Eye, EyeOff, Search, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Agent, McpServer, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
-import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas, MODELS, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -37,17 +37,11 @@ interface WizardState {
 
 const INITIAL: WizardState = {
   name: '', slug: '', description: '', persona: '',
-  model: 'claude-opus-4-6', isBoss: false,
+  model: DEFAULT_AGENT_MODEL, isBoss: false,
   reportsToIds: [],
   slackBotToken: '', slackAppToken: '', slackSigningSecret: '',
   mcpServerIds: [], selectedPersona: null, importPayload: null,
 };
-
-const MODELS = [
-  { value: 'claude-opus-4-6',           label: 'Opus 4.6',   sub: 'Most capable' },
-  { value: 'claude-sonnet-4-6',         label: 'Sonnet 4.6', sub: 'Balanced' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5',  sub: 'Fastest' },
-];
 
 const TEMPLATES = [
   { value: 'blank',        label: 'Blank',        desc: 'Minimal identity only' },

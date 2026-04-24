@@ -35,7 +35,7 @@ const defTool = tool as unknown as <S extends Record<string, unknown>>(
   extras?: { annotations?: Record<string, unknown> },
 ) => SdkTool;
 import type { CoachProposal } from '@slackhive/shared';
-import { getDb } from '@slackhive/shared';
+import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from '@slackhive/shared';
 import {
   getAgentById,
   getAgentSkills,
@@ -658,6 +658,10 @@ ${userBlock}`;
   const cwd = path.join(os.tmpdir(), `slackhive-coach-${input.agentId}`);
   try { fs.mkdirSync(cwd, { recursive: true }); } catch { /* exists */ }
 
+  // Admin-configurable via Settings → General → AI. Falls back to the
+  // subscription-friendly default rather than whatever the CLI picks.
+  const coachModel = (await readSetting(COACH_MODEL_SETTING_KEY)) ?? DEFAULT_COACH_MODEL;
+
   let assistantText = '';
   let finalSessionId: string | undefined = input.sdkSessionId;
 
@@ -665,6 +669,7 @@ ${userBlock}`;
     for await (const msg of query({
       prompt,
       options: {
+        model: coachModel,
         mcpServers: {
           coach: { type: 'sdk', name: 'coach', instance: mcpServer.instance },
         },

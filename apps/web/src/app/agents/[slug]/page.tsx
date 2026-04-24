@@ -14,7 +14,7 @@ import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2,
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
-import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas, MODELS } from '@slackhive/shared';
 import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
@@ -460,7 +460,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
           <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
             hint="Internal agent name." />
           <Field label="Model" value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))}
-            hint="claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001" readOnly={!canEdit} />
+            hint={MODELS.map(m => m.value).join(' · ')} readOnly={!canEdit} />
         </Grid2>
         <Field label="Description" value={form.description}
           onChange={v => setForm(f => ({ ...f, description: v }))}

@@ -10,6 +10,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { KeyRound } from 'lucide-react';
+import { MODELS, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 
@@ -33,6 +34,7 @@ const DEFAULTS: Record<string, string> = {
   tagline: 'AI agent teams on Slack',
   logoUrl: '',
   dashboardTitle: 'Welcome to SlackHive',
+  [COACH_MODEL_SETTING_KEY]: DEFAULT_COACH_MODEL,
 };
 
 /**
@@ -77,6 +79,7 @@ function GeneralTab() {
   const [tagline, setTagline] = useState(DEFAULTS.tagline);
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
+  const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -88,6 +91,7 @@ function GeneralTab() {
         if (s.tagline) setTagline(s.tagline);
         if (s.logoUrl !== undefined && s.logoUrl !== '') setLogoUrl(s.logoUrl);
         if (s.dashboardTitle) setDashboardTitle(s.dashboardTitle);
+        if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
       })
       .catch(() => {});
   }, []);
@@ -112,6 +116,7 @@ function GeneralTab() {
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'tagline', value: tagline }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'logoUrl', value: logoUrl }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'dashboardTitle', value: dashboardTitle }) }),
+        fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: COACH_MODEL_SETTING_KEY, value: coachModel }) }),
       ]);
       setToast('All settings saved');
       setTimeout(() => setToast(''), 2000);
@@ -147,6 +152,16 @@ function GeneralTab() {
       <Section title="Dashboard">
         <Field label="Dashboard Title" hint="Main heading on the dashboard page." maxLength={80}
           value={dashboardTitle} onChange={setDashboardTitle} onBlur={() => save('dashboardTitle', dashboardTitle)} />
+      </Section>
+
+      <Section title="AI">
+        <SelectField
+          label="Coach Model"
+          value={coachModel}
+          options={MODELS}
+          onChange={v => { setCoachModel(v); save(COACH_MODEL_SETTING_KEY, v); }}
+          hint="Model used by Coach to generate prompts and skills. Not the model your agents run on."
+        />
       </Section>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
@@ -629,6 +644,41 @@ function Field({ label, value, onChange, onBlur, hint, maxLength }: {
         }}
         onFocus={e => { if (!overLimit) e.currentTarget.style.borderColor = 'var(--accent)'; }}
       />
+      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+    </div>
+  );
+}
+
+function SelectField({ label, value, options, onChange, hint }: {
+  label: string;
+  value: string;
+  options: readonly { value: string; label: string; sub?: string }[];
+  onChange: (v: string) => void;
+  hint?: string;
+}) {
+  return (
+    <div>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>{label}</label>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          width: '100%', background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
+          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
+          transition: 'border-color 0.15s', boxSizing: 'border-box',
+          cursor: 'pointer',
+        }}
+        onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
+        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+      >
+        {options.map(o => (
+          <option key={o.value} value={o.value}>
+            {o.label}{o.sub ? ` — ${o.sub}` : ''}
+          </option>
+        ))}
+      </select>
       {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
