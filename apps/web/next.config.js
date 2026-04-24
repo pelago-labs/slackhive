@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ['@slackhive/shared'],
-  serverExternalPackages: ['better-sqlite3'],
+  serverExternalPackages: ['better-sqlite3', 'pdf-parse', 'pdfjs-dist'],
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {

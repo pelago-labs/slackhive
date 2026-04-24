@@ -1781,6 +1781,7 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
   const [addBranch, setAddBranch] = useState('main');
   const [addPat, setAddPat] = useState('');
   const [addContent, setAddContent] = useState('');
+  const [addFile, setAddFile] = useState<File | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [envVarKeys, setEnvVarKeys] = useState<string[]>([]);
@@ -1854,30 +1855,51 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
 
   const addSource = async () => {
     setSaving(true);
-    const body: any = { name: addName };
-    if (addType === 'url') body.url = addUrl;
-    if (addType === 'file') body.content = addContent;
-    if (addType === 'repo') {
-      body.repoUrl = addUrl;
-      body.branch = addBranch;
-      body.patEnvRef = addPat || null;
-    }
-    if (editingMetaId) {
-      // Edit existing source — PATCH with mutable fields only (type doesn't change)
-      await fetch(`/api/agents/${agentId}/knowledge/${editingMetaId}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
-    } else {
-      // Create new source
-      body.type = addType;
-      await fetch(`/api/agents/${agentId}/knowledge`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
+    setUploadError('');
+    try {
+      let res: Response;
+      // File sources with a picked File: multipart upload so the server can
+      // extract PDF/text content rather than trusting browser-side readAsText.
+      if (!editingMetaId && addType === 'file' && addFile) {
+        const fd = new FormData();
+        fd.append('name', addName);
+        fd.append('file', addFile);
+        res = await fetch(`/api/agents/${agentId}/knowledge`, { method: 'POST', body: fd });
+      } else {
+        const body: any = { name: addName };
+        if (addType === 'url') body.url = addUrl;
+        if (addType === 'file') body.content = addContent;
+        if (addType === 'repo') {
+          body.repoUrl = addUrl;
+          body.branch = addBranch;
+          body.patEnvRef = addPat || null;
+        }
+        if (editingMetaId) {
+          res = await fetch(`/api/agents/${agentId}/knowledge/${editingMetaId}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+          });
+        } else {
+          body.type = addType;
+          res = await fetch(`/api/agents/${agentId}/knowledge`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+          });
+        }
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setUploadError(d.error ?? `Add failed (HTTP ${res.status})`);
+        setSaving(false);
+        return;
+      }
+    } catch (err) {
+      setUploadError(`Add failed — ${(err as Error).message}`);
+      setSaving(false);
+      return;
     }
     setSaving(false);
     setShowAdd(false);
     setEditingMetaId(null);
-    setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat('');
+    setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat(''); setAddFile(null);
     load();
   };
 
@@ -1889,6 +1911,7 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
     setAddContent(src.content ?? '');
     setAddBranch(src.branch ?? 'main');
     setAddPat(src.patEnvRef ?? '');
+    setAddFile(null);
     setShowAdd(true);
     // Populate the PAT dropdown — otherwise the "Auth" field has no env vars to choose from.
     fetch('/api/env-vars').then(r => r.json()).then((vars: any[]) => setEnvVarKeys(vars.map(v => v.key))).catch(() => {});
@@ -2048,55 +2071,54 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
             {addType === 'file' && (
               <>
                 <div style={{
-                  border: '2px dashed var(--border)', borderRadius: 8, padding: '20px 16px',
-                  textAlign: 'center', cursor: 'pointer', background: 'var(--surface-2)',
-                  transition: 'border-color 0.15s',
+                  border: `2px dashed ${addFile ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: 8, padding: '20px 16px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                  cursor: 'pointer', background: addFile ? 'var(--surface)' : 'var(--surface-2)',
+                  transition: 'border-color 0.15s, background 0.15s',
                 }} onClick={() => document.getElementById('knowledge-file-input')?.click()}
                    onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                   onDragLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                   onDragLeave={e => { e.currentTarget.style.borderColor = addFile ? 'var(--accent)' : 'var(--border)'; }}
                    onDrop={e => {
                      e.preventDefault();
-                     e.currentTarget.style.borderColor = 'var(--border)';
+                     e.currentTarget.style.borderColor = 'var(--accent)';
                      const file = e.dataTransfer.files[0];
                      if (file) {
-                       const reader = new FileReader();
-                       reader.onload = () => {
-                         setAddContent(reader.result as string);
-                         if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
-                       };
-                       reader.readAsText(file);
+                       setAddFile(file);
+                       setAddContent('');
+                       if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
                      }
                    }}>
-                  <Upload size={20} style={{ color: 'var(--muted)', marginBottom: 6 }} />
-                  <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
-                    {addContent ? 'File loaded — click to replace' : 'Click to upload or drag and drop'}
+                  {addFile ? (
+                    <FileText size={20} style={{ color: 'var(--accent)' }} />
+                  ) : (
+                    <Upload size={20} style={{ color: 'var(--muted)' }} />
+                  )}
+                  <p style={{ margin: 0, fontSize: 12, fontWeight: addFile ? 600 : 400, color: addFile ? 'var(--text)' : 'var(--muted)' }}>
+                    {addFile ? addFile.name : 'Click to upload or drag and drop'}
                   </p>
-                  <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-                    .txt, .md, .csv, .json, .pdf (text only)
+                  <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>
+                    {addFile ? `${(addFile.size / 1024).toFixed(1)} KB — ready to upload. Click to replace.` : '.txt, .md, .csv, .json, .yaml, .xml, .html, .rst, .pdf'}
                   </p>
                   <input id="knowledge-file-input" type="file" accept=".txt,.md,.csv,.json,.pdf,.rst,.yaml,.yml,.xml,.html"
                     style={{ display: 'none' }} onChange={e => {
                       const file = e.target.files?.[0];
                       if (file) {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          setAddContent(reader.result as string);
-                          if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
-                        };
-                        reader.readAsText(file);
+                        setAddFile(file);
+                        setAddContent('');
+                        if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
                       }
                     }} />
                 </div>
-                {addContent && (
-                  <div style={{ fontSize: 11, color: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span>{addContent.split(/\s+/).length.toLocaleString()} words loaded</span>
-                    <button onClick={() => setAddContent('')} style={{
+                {addFile && (
+                  <div style={{ fontSize: 11, color: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    <button onClick={() => setAddFile(null)} style={{
                       background: 'none', border: 'none', color: 'var(--red)', fontSize: 11,
                       cursor: 'pointer', fontFamily: 'var(--font-sans)', opacity: 0.7,
                     }}>Clear</button>
                   </div>
                 )}
-                <textarea value={addContent} onChange={e => setAddContent(e.target.value)} placeholder="Or paste content here..."
+                <textarea value={addContent} onChange={e => { setAddContent(e.target.value); if (e.target.value) setAddFile(null); }} placeholder="Or paste content here..."
                   rows={addContent ? 8 : 4} style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.5 }} />
               </>
             )}
@@ -2118,14 +2140,21 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button onClick={addSource} disabled={saving || !addName} style={{
+            <button onClick={addSource} disabled={saving || !addName || (addType === 'file' && !editingMetaId && !addFile && !addContent.trim())} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
               background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 7,
-              padding: '7px 16px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>{saving ? (editingMetaId ? 'Saving...' : 'Adding...') : (editingMetaId ? 'Save Changes' : 'Add Source')}</button>
+              padding: '7px 16px', fontSize: 12, fontWeight: 500, cursor: saving ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
+              opacity: saving ? 0.8 : 1,
+            }}>
+              {saving && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+              {saving
+                ? (editingMetaId ? 'Saving...' : (addType === 'file' && addFile ? 'Uploading & extracting...' : 'Adding...'))
+                : (editingMetaId ? 'Save Changes' : 'Add Source')}
+            </button>
             <button onClick={() => {
               setShowAdd(false);
               setEditingMetaId(null);
-              setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat('');
+              setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat(''); setAddFile(null);
             }} style={{
               background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
               padding: '7px 16px', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: 'var(--text)',

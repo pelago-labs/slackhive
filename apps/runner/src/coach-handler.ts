@@ -6,7 +6,8 @@
  * set of in-process MCP tools, and it has read-only web access (WebFetch /
  * WebSearch) to look things up while drafting — but it cannot write to disk,
  * hit the DB, or call any other built-in tool (Read/Write/Edit/Bash/Grep/...).
- * Proposals are surfaced as approval cards in the web UI; the human clicks
+ * Proposals — including file-type knowledge sources the agent reads verbatim
+ * at runtime — are surfaced as approval cards in the web UI; the human clicks
  * Apply to actually mutate state via the existing REST routes.
  *
  * @module runner/coach-handler
@@ -34,6 +35,7 @@ const defTool = tool as unknown as <S extends Record<string, unknown>>(
   extras?: { annotations?: Record<string, unknown> },
 ) => SdkTool;
 import type { CoachProposal } from '@slackhive/shared';
+import { getDb } from '@slackhive/shared';
 import {
   getAgentById,
   getAgentSkills,
@@ -120,7 +122,8 @@ You can ONLY propose edits — a human clicks Apply to actually land them.
 
 # Runtime facts (true every turn)
 - Every memory row is inlined into the agent's CLAUDE.md at build time, so memories fire on EVERY Slack turn. Stale or conflicting memories are expensive. Total inlined bytes are capped at 32 KB.
-- The agent Greps \`knowledge/wiki/\` at runtime. That's the right home for large bodies of domain facts — docs, runbooks, reference tables, jargon. You cannot write the wiki directly; you hand the user a downloadable \`.md\` via \`propose_wiki_extract\` or the \`wikiExtract\` field on another proposal.
+- **File sources** are user-uploaded reference documents stored verbatim. On every agent reload they are materialized to \`knowledge/sources/<name>.md\` in the agent's workspace, so the agent can Grep/Read the exact original text. This is the right home for large bodies of domain facts — docs, runbooks, reference tables, jargon — that the agent should quote or search verbatim rather than paraphrase. Propose create/update/delete via \`propose_file_source_change\`; you inspect them with \`list_file_sources\` and \`read_file_source\`. Do NOT manage url or repo sources — those are pulled from their remotes, not authored here.
+- The agent Greps \`knowledge/wiki/\` at runtime too; the wiki is a Claude-built index over ALL sources. Applying a file-source proposal only lands the DB change — the user re-syncs the wiki themselves from the Knowledge tab. Mention this in your card framing when relevant so they know a Sync click is needed for the wiki to reflect the new/edited source.
 - You cannot edit the agent's name / persona / description — those are identity fields set at creation. \`propose_claude_md_update\` edits the longer system-prompt body only.
 
 # Where things go
@@ -131,28 +134,28 @@ You can ONLY propose edits — a human clicks Apply to actually land them.
 | Rule / preference / short fact / correction | Memory (feedback / user / project / reference) | \`propose_memory_change\` |
 | Workflow / procedure / multi-step task (multi-job agent) | Skill | \`propose_skill_change\` |
 | Workflow / procedure for a single-purpose agent (e.g. "birthday bot") | CLAUDE.md | \`propose_claude_md_update\` |
-| Domain knowledge — systems, products, data models, jargon, reference material | Wiki | \`propose_wiki_extract\` (or \`wikiExtract\` attached to a cleanup edit) |
+| Domain knowledge — systems, products, data models, jargon, reference material | File source | \`propose_file_source_change\` (create/update/delete) |
 | Recurring / scheduled task | Workflow → CLAUDE.md or Skill as above; schedule → tell the user to open \`/jobs\` in SlackHive and create a Job (you cannot create Jobs) | — |
 
-Note: memories are already inlined into CLAUDE.md, so there is no value in "promoting" a memory into CLAUDE.md prose. The only useful promotion is memory → skill when the content is a workflow that should run on-demand instead of always-on.
+Note: memories are already inlined into CLAUDE.md, so there is no value in "promoting" a memory into CLAUDE.md prose. The useful promotions are: memory → skill when the content is a workflow that should run on-demand, and memory/skill → file source when the content is a body of domain reference material.
 
 # Workflow for every turn
-1. **Inspect first.** Call \`read_claude_md\` / \`list_skills\` / \`read_skill\` / \`read_memories\` / \`list_mcps\` as needed. Never guess at current state.
+1. **Inspect first.** Call \`read_claude_md\` / \`list_skills\` / \`read_skill\` / \`read_memories\` / \`list_mcps\` / \`list_file_sources\` / \`read_file_source\` as needed. Never guess at current state.
 2. **Classify the user's intent** against the table above.
-3. **Propose.** For cleanups or when any store holds domain knowledge: propose UPDATE (strip the domain block) or DELETE (if the row/skill is fully domain), and attach \`wikiExtract\` with the extracted content + a descriptive lowercase-kebab \`suggestedPath\` (e.g. \`domain/fraud-pipeline.md\`, \`reference/redshift-tables.md\`). If the user is simply teaching the agent a body of domain knowledge with nothing to strip, call \`propose_wiki_extract\` directly.
+3. **Propose.** For cleanups where a memory/skill/CLAUDE.md block holds domain reference material: propose UPDATE to strip that block, AND a separate \`propose_file_source_change\` (action=create, with the extracted content as \`content\`). If the user is simply teaching the agent a body of reference material with nothing to strip, call \`propose_file_source_change\` with action=create directly. Use action=update on an existing file source when the user wants to edit the stored text; action=delete when a source is stale.
 4. **Keep prose short.** The UI renders cards — do not repeat their content in chat. One-line framing at most.
 
 # Audit checklist
-Use this same checklist when the user asks to review memories (\`read_memories\`), CLAUDE.md (\`read_claude_md\`), or a skill (\`read_skill\`). Apply in priority order; flag only what's actually wrong:
+Use this same checklist when the user asks to review memories (\`read_memories\`), CLAUDE.md (\`read_claude_md\`), a skill (\`read_skill\`), or a file source (\`read_file_source\`). Apply in priority order; flag only what's actually wrong:
 1. **Conflicts** — two \`feedback\` rules that contradict each other both fire every turn. Propose deleting one; rationale explains which survives and why.
 2. **Duplicates / near-duplicates** — merge into one; propose deleting the others.
 3. **User-ID format** — rules keyed on \`when user is U…\` must match the runtime format \`[Sender: name (U…) …]\` (all-caps Slack ID). Flag malformed or stale IDs.
-4. **Staleness** — \`project\` memories referencing past deadlines, shipped work, or people who left → propose deletion with the date as rationale.
+4. **Staleness** — \`project\` memories referencing past deadlines, shipped work, or people who left → propose deletion with the date as rationale. Same for file sources that reference retired systems.
 5. **Type mismatch** — a \`feedback\` row that's really a \`reference\` fact (or vice versa). Propose an UPDATE that changes \`memoryType\`.
 6. **Budget (memories only)** — total inlined bytes vs the 32 KB cap. If >70% full, propose trimming lowest-signal entries first; rewrite huge memories shorter.
 7. **Workflow-shaped memory** — a long procedural memory that only matters for certain tasks → propose creating a skill with the same content AND deleting the memory.
-8. **Domain-knowledge-shaped (anywhere)** — content that describes the user's systems/products/jargon/reference material is wiki content, not identity/rules/workflow. UPDATE to strip (if partial) or DELETE (if fully domain); always attach \`wikiExtract\` so the user can download the extracted wiki page.
-9. **Skill that's mostly WHAT not HOW** — a skill that's a lookup table or reference dump is wiki content. Propose DELETE + \`wikiExtract\`.
+8. **Domain-knowledge-shaped (anywhere)** — content that describes the user's systems/products/jargon/reference material is file-source content, not identity/rules/workflow. UPDATE to strip (if partial) or DELETE (if fully domain); always pair with \`propose_file_source_change\` (action=create) so the extracted content has a home.
+9. **Skill that's mostly WHAT not HOW** — a skill that's a lookup table or reference dump is file-source content. Propose DELETE of the skill plus a CREATE file-source with the same content.
 10. **Rule buried in CLAUDE.md prose** — "always format…", "never mention…" → propose extracting into a \`feedback\` memory.
 11. **Long procedural block in CLAUDE.md** (multi-job agent) → propose extracting into a skill.
 
@@ -163,7 +166,7 @@ If nothing needs fixing, reply in ONE short line (e.g. "Memory clean — 2 rows,
 - You have the listed tools (\`read_*\`, \`list_*\`, \`propose_*\`) plus \`WebFetch\` and \`WebSearch\` for looking things up on the open web when it helps you draft better proposals (e.g. verifying API shapes, pulling a canonical reference the user mentioned). No filesystem, no shell. Decline anything outside tuning this agent.
 - Inspect before proposing; never guess.
 - Prefer one proposal per distinct change — do not bundle unrelated edits into one card.
-- Never invent MCPs or skills that don't exist. Call \`list_mcps\` / \`list_skills\` first.
+- Never invent MCPs, skills, or file sources that don't exist. Call \`list_mcps\` / \`list_skills\` / \`list_file_sources\` first.
 - Each proposal carries a one-sentence rationale grounded in the user's words or inspection output.
 - Ask ONE short clarifying question when intent is ambiguous. Don't offer three hypothetical follow-ups.
 - For a pasted failed conversation, diagnose what's missing and route the fix through the table above.
@@ -331,31 +334,21 @@ function buildToolbox(ctx: ToolContext) {
     { annotations: { readOnlyHint: true } }
   );
 
-  // Shared Zod shape for the optional wiki-extract payload. When set on a
-  // propose_* call, the proposal card gets a "Download wiki page" button the
-  // user clicks to save the extracted content under knowledge/wiki/.
-  const wikiExtractSchema = z.object({
-    suggestedPath: z.string().min(1, 'suggestedPath required (e.g. "domain/fraud-pipeline.md")'),
-    content: z.string().min(1, 'content required'),
-    summary: z.string().min(1, 'summary required'),
-  }).optional();
-
   const proposeClaudeMd = defTool(
     'propose_claude_md_update',
-    'Propose a full replacement for CLAUDE.md. Does not apply — surfaces an approval card in the UI. Provide the complete new content plus a one-sentence rationale. If you are stripping a domain-knowledge block, attach wikiExtract so the user can download it as a wiki page.',
+    'Propose a full replacement for CLAUDE.md. Does not apply — surfaces an approval card in the UI. Provide the complete new content plus a one-sentence rationale. If you are stripping a domain-knowledge block, also call propose_file_source_change (action=create) with the extracted content so it has a home.',
     {
       content: z.string().min(1, 'content required'),
       rationale: z.string().min(1, 'rationale required'),
-      wikiExtract: wikiExtractSchema,
     },
-    wrap('propose_claude_md_update', async ({ content, rationale, wikiExtract }) => {
+    wrap('propose_claude_md_update', async ({ content, rationale }) => {
       const id = randomUUID();
       if (ctx.autoApply) {
         await updateAgentClaudeMd(ctx.agentId, content);
-        ctx.proposals.push({ kind: 'claude-md', id, content, rationale, status: 'applied', wikiExtract });
+        ctx.proposals.push({ kind: 'claude-md', id, content, rationale, status: 'applied' });
         return textResult(`Applied (id=${id}).`);
       }
-      ctx.proposals.push({ kind: 'claude-md', id, content, rationale, status: 'pending', wikiExtract });
+      ctx.proposals.push({ kind: 'claude-md', id, content, rationale, status: 'pending' });
       return textResult(`Proposal queued (id=${id}). The user will see a diff card and choose to Apply or Reject.`);
     }),
     { annotations: { readOnlyHint: false, destructiveHint: false } }
@@ -363,16 +356,15 @@ function buildToolbox(ctx: ToolContext) {
 
   const proposeSkill = defTool(
     'propose_skill_change',
-    'Propose creating, updating, or deleting ONE skill file. Does not apply — surfaces an approval card. For create/update include full content. For delete omit content. If you are removing a skill that is really reference material (not a workflow), attach wikiExtract so the user can download the content as a wiki page.',
+    'Propose creating, updating, or deleting ONE skill file. Does not apply — surfaces an approval card. For create/update include full content. For delete omit content. If you are removing a skill that is really reference material (not a workflow), also call propose_file_source_change (action=create) with its content.',
     {
       category: z.string().min(1),
       filename: z.string().min(1),
       action: z.enum(['create', 'update', 'delete']),
       content: z.string().optional(),
       rationale: z.string().min(1),
-      wikiExtract: wikiExtractSchema,
     },
-    wrap('propose_skill_change', async ({ category, filename, action, content, rationale, wikiExtract }) => {
+    wrap('propose_skill_change', async ({ category, filename, action, content, rationale }) => {
       assertSafeSkillPath(category, filename);
       if ((action === 'create' || action === 'update') && !content) {
         throw new Error('content is required for create/update');
@@ -392,14 +384,14 @@ function buildToolbox(ctx: ToolContext) {
         ctx.proposals.push({
           kind: 'skill', id, category, filename, action,
           content: action === 'delete' ? undefined : content,
-          rationale, status: 'applied', wikiExtract,
+          rationale, status: 'applied',
         });
         return textResult(`Applied ${action} for ${category}/${filename}.`);
       }
       ctx.proposals.push({
         kind: 'skill', id, category, filename, action,
         content: action === 'delete' ? undefined : content,
-        rationale, status: 'pending', wikiExtract,
+        rationale, status: 'pending',
       });
       return textResult(`Proposal queued (id=${id}) for ${action} ${category}/${filename}.`);
     }),
@@ -408,7 +400,7 @@ function buildToolbox(ctx: ToolContext) {
 
   const proposeMemory = defTool(
     'propose_memory_change',
-    'Propose creating, rewriting, or deleting ONE memory row. For `create`, provide name + memoryType + content (memoryId is ignored). For `update`, provide memoryId + content (memoryType optional — include it to retype a mis-categorized memory). For `delete`, provide memoryId only. If the edit strips domain knowledge out of the memory, attach wikiExtract so the user can download it as a wiki page.',
+    'Propose creating, rewriting, or deleting ONE memory row. For `create`, provide name + memoryType + content (memoryId is ignored). For `update`, provide memoryId + content (memoryType optional — include it to retype a mis-categorized memory). For `delete`, provide memoryId only. If the edit strips domain knowledge out of the memory, also call propose_file_source_change (action=create) with the extracted content.',
     {
       action: z.enum(['create', 'update', 'delete']),
       /** Required for update/delete. Ignored on create. Get this from read_memories. */
@@ -420,9 +412,8 @@ function buildToolbox(ctx: ToolContext) {
       /** Required for create and update. Omit for delete. */
       content: z.string().optional(),
       rationale: z.string().min(1),
-      wikiExtract: wikiExtractSchema,
     },
-    wrap('propose_memory_change', async ({ action, memoryId, name, memoryType, content, rationale, wikiExtract }) => {
+    wrap('propose_memory_change', async ({ action, memoryId, name, memoryType, content, rationale }) => {
       const id = randomUUID();
 
       if (action === 'create') {
@@ -441,7 +432,7 @@ function buildToolbox(ctx: ToolContext) {
           memoryName: name, memoryType,
           action: 'create',
           content,
-          rationale, status: 'pending', wikiExtract,
+          rationale, status: 'pending',
         });
         return textResult(`Proposal queued (id=${id}) for create memory ${name}.`);
       }
@@ -461,33 +452,121 @@ function buildToolbox(ctx: ToolContext) {
         action,
         memoryType: action === 'update' ? memoryType : undefined,
         content: action === 'delete' ? undefined : content,
-        rationale, status: 'pending', wikiExtract,
+        rationale, status: 'pending',
       });
       return textResult(`Proposal queued (id=${id}) for ${action} memory ${hit.name}.`);
     }),
     { annotations: { readOnlyHint: false, destructiveHint: true } }
   );
 
-  const proposeWikiExtract = defTool(
-    'propose_wiki_extract',
-    'Propose a standalone wiki page — no CLAUDE.md/skill/memory edit involved. Use this when the user asks you to teach the agent a body of domain knowledge (facts about their systems, products, jargon, reference material) and there is nothing to strip from an existing store. The UI shows a card with only a Download button; the user saves the .md under knowledge/wiki/ themselves.',
-    {
-      wikiExtract: z.object({
-        suggestedPath: z.string().min(1, 'suggestedPath required (e.g. "domain/fraud-pipeline.md")'),
-        content: z.string().min(1, 'content required'),
-        summary: z.string().min(1, 'summary required'),
-      }),
-      rationale: z.string().min(1),
-    },
-    wrap('propose_wiki_extract', async ({ wikiExtract, rationale }) => {
-      const id = randomUUID();
-      ctx.proposals.push({ kind: 'wiki-extract', id, wikiExtract, rationale, status: 'pending' });
-      return textResult(`Proposal queued (id=${id}) for wiki page ${wikiExtract.suggestedPath}.`);
+  // ── File-source tools ───────────────────────────────────────────────────
+  // Verbatim reference documents the agent Reads at turn-time from
+  // knowledge/sources/<name>.md. Scope is intentionally narrow: file type only.
+  // URL and repo sources are pulled from remotes and not coach-editable.
+
+  const MAX_FILE_SOURCE_BYTES = 1_048_576; // 1 MB
+
+  const listFileSources = defTool(
+    'list_file_sources',
+    "List every file-type knowledge source for this agent with id, name, word count, status, and a 200-char preview of the content. Takes no arguments. URL and repo sources are NOT included — they are pulled from remotes.",
+    {},
+    wrap('list_file_sources', async () => {
+      const r = await getDb().query(
+        `SELECT id, name, content, word_count, status, last_synced
+         FROM knowledge_sources
+         WHERE agent_id = $1 AND type = 'file'
+         ORDER BY created_at DESC`,
+        [ctx.agentId],
+      );
+      if (r.rows.length === 0) return textResult('(no file sources yet)');
+      const lines = r.rows.map(row => {
+        const preview = ((row.content as string) ?? '').slice(0, 200).replace(/\s+/g, ' ').trim();
+        return `- id=${row.id} name="${row.name}" words=${row.word_count} status=${row.status}${row.last_synced ? ` last_synced=${row.last_synced}` : ''}\n    preview: ${preview}${preview.length === 200 ? '…' : ''}`;
+      });
+      return textResult(lines.join('\n'));
     }),
     { annotations: { readOnlyHint: true } }
   );
 
-  return [readClaudeMd, listSkills, readSkill, listMcps, readMemories, proposeClaudeMd, proposeSkill, proposeMemory, proposeWikiExtract];
+  const readFileSource = defTool(
+    'read_file_source',
+    'Return the full verbatim content of one file source by id. Call list_file_sources first to pick the id.',
+    { sourceId: z.string().min(1, 'sourceId required') },
+    wrap('read_file_source', async ({ sourceId }) => {
+      const r = await getDb().query(
+        `SELECT name, content FROM knowledge_sources WHERE id = $1 AND agent_id = $2 AND type = 'file'`,
+        [sourceId, ctx.agentId],
+      );
+      if (r.rows.length === 0) throw new Error(`file source not found: ${sourceId}`);
+      const content = (r.rows[0].content as string) ?? '';
+      return textResult(`# ${r.rows[0].name}\n\n${content || '(empty)'}`);
+    }),
+    { annotations: { readOnlyHint: true } }
+  );
+
+  const proposeFileSourceChange = defTool(
+    'propose_file_source_change',
+    'Propose creating, updating, or deleting ONE file-type knowledge source. Does not apply — surfaces an approval card. On Apply the source row is saved; the wiki is NOT auto-rebuilt (the user syncs from the Knowledge tab). For `create`: provide name + content (sourceId ignored). For `update`: provide sourceId + content (the name can optionally be renamed via name). For `delete`: provide sourceId only. Content capped at 1 MB.',
+    {
+      action: z.enum(['create', 'update', 'delete']),
+      /** Required for update/delete. Ignored on create. Get from list_file_sources. */
+      sourceId: z.string().optional(),
+      /** Required for create (the stored name). Optional on update (rename). Ignored on delete. */
+      name: z.string().optional(),
+      /** Required for create and update. Omit for delete. Capped at 1 MB. */
+      content: z.string().optional(),
+      rationale: z.string().min(1),
+    },
+    wrap('propose_file_source_change', async ({ action, sourceId, name, content, rationale }) => {
+      const id = randomUUID();
+
+      if (content && Buffer.byteLength(content, 'utf8') > MAX_FILE_SOURCE_BYTES) {
+        throw new Error(`content exceeds 1 MB cap (${Buffer.byteLength(content, 'utf8')} bytes)`);
+      }
+
+      if (action === 'create') {
+        if (!name) throw new Error('name is required for create');
+        if (!content) throw new Error('content is required for create');
+        // Collision check — unique index on (agent_id, name) would throw at apply time.
+        const dup = await getDb().query(
+          `SELECT id FROM knowledge_sources WHERE agent_id = $1 AND name = $2`,
+          [ctx.agentId, name],
+        );
+        if (dup.rows.length > 0) {
+          throw new Error(`a knowledge source named "${name}" already exists — use action=update with sourceId=${dup.rows[0].id}, or choose a different name`);
+        }
+        ctx.proposals.push({
+          kind: 'file-source', id, action: 'create',
+          name, content, rationale, status: 'pending',
+        });
+        return textResult(`Proposal queued (id=${id}) for create file source ${name}.`);
+      }
+
+      // update / delete both need an existing row.
+      if (!sourceId) throw new Error(`sourceId is required for ${action}`);
+      const r = await getDb().query(
+        `SELECT id, name FROM knowledge_sources WHERE id = $1 AND agent_id = $2 AND type = 'file'`,
+        [sourceId, ctx.agentId],
+      );
+      if (r.rows.length === 0) throw new Error(`file source not found: ${sourceId}`);
+      const existingName = r.rows[0].name as string;
+
+      if (action === 'update' && !content) throw new Error('content is required for update');
+
+      ctx.proposals.push({
+        kind: 'file-source', id, action,
+        sourceId,
+        // Preserve the existing name on update unless the coach explicitly renamed.
+        name: name ?? existingName,
+        content: action === 'delete' ? undefined : content,
+        rationale, status: 'pending',
+      });
+      return textResult(`Proposal queued (id=${id}) for ${action} file source ${existingName}.`);
+    }),
+    { annotations: { readOnlyHint: false, destructiveHint: true } }
+  );
+
+  return [readClaudeMd, listSkills, readSkill, listMcps, readMemories, proposeClaudeMd, proposeSkill, proposeMemory, listFileSources, readFileSource, proposeFileSourceChange];
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -545,10 +624,12 @@ export async function runCoachTurn(input: CoachTurnInput): Promise<{
     'mcp__coach__read_skill',
     'mcp__coach__list_mcps',
     'mcp__coach__read_memories',
+    'mcp__coach__list_file_sources',
+    'mcp__coach__read_file_source',
     'mcp__coach__propose_claude_md_update',
     'mcp__coach__propose_skill_change',
     'mcp__coach__propose_memory_change',
-    'mcp__coach__propose_wiki_extract',
+    'mcp__coach__propose_file_source_change',
     'WebFetch',
     'WebSearch',
   ];

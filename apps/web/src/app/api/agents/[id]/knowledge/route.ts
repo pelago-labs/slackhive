@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import type { KnowledgeSource } from '@slackhive/shared';
+import { extractFileText } from '@/lib/knowledge-extract';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,13 +53,53 @@ export async function GET(
 
 /**
  * POST — add a new knowledge source.
- * Body: { type, name, url?, repoUrl?, branch?, patEnvRef?, syncCron?, content? }
+ * JSON body: { type, name, url?, repoUrl?, branch?, patEnvRef?, syncCron?, content? }
+ * Multipart body (file sources): `name` + `file` fields.
  */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id: agentId } = await params;
+  const contentType = req.headers.get('content-type') || '';
+
+  // Multipart: raw file upload. Extract text server-side and funnel into the
+  // same insert path as the JSON route.
+  if (contentType.startsWith('multipart/form-data')) {
+    try {
+      const form = await req.formData();
+      const file = form.get('file');
+      const name = String(form.get('name') || '');
+      if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 });
+      if (!(file instanceof File)) return NextResponse.json({ error: 'file required' }, { status: 400 });
+
+      console.log('[knowledge-upload]', { agentId, name, filename: file.name, size: file.size, mime: file.type });
+
+      const buf = Buffer.from(await file.arrayBuffer());
+      const extracted = await extractFileText(buf, file.name, file.type);
+      if (extracted === null) {
+        console.log('[knowledge-upload] unsupported ext', { filename: file.name, mime: file.type });
+        return NextResponse.json({ error: 'Unsupported file type — upload text or PDF' }, { status: 415 });
+      }
+      const text = extracted.slice(0, 1_048_576); // 1 MB cap
+      const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
+
+      const sourceId = randomUUID();
+      await (await db()).query(
+        `INSERT INTO knowledge_sources (id, agent_id, type, name, url, repo_url, branch, pat_env_ref, sync_cron, content, status, word_count)
+         VALUES ($1, $2, 'file', $3, NULL, NULL, 'main', NULL, NULL, $4, 'pending', $5)`,
+        [sourceId, agentId, name, text, wordCount]
+      );
+      const r = await (await db()).query('SELECT * FROM knowledge_sources WHERE id = $1', [sourceId]);
+      console.log('[knowledge-upload] ok', { sourceId, wordCount, chars: text.length });
+      return NextResponse.json(rowToSource(r.rows[0]), { status: 201 });
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      console.error('[knowledge-upload] failed', msg, err);
+      return NextResponse.json({ error: `Upload failed: ${msg}` }, { status: 500 });
+    }
+  }
+
   const body = await req.json();
   const { type, name, url, repoUrl, branch, patEnvRef, syncCron, content } = body;
 

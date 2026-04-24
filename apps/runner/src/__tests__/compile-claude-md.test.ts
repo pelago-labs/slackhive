@@ -45,4 +45,13 @@ describe('compile-claude-md source content', () => {
     expect(src).toContain('buildWikiIndexSection');
     expect(src).toContain('# Knowledge Base');
   });
+
+  it('materializes file-type knowledge sources to disk every compile', () => {
+    // The materializer must be called from compileClaudeMd so reload picks up
+    // added/edited/deleted file sources without a Build Wiki click.
+    expect(src).toContain('writeFileSourcesToDisk');
+    expect(src).toMatch(/await writeFileSourcesToDisk\(workDir, agent\.id\)/);
+    // And it must point the /wiki skill at knowledge/sources/ for raw lookups.
+    expect(src).toContain('knowledge/sources/');
+  });
 });

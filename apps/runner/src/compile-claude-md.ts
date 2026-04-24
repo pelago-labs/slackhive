@@ -26,6 +26,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Agent, Memory, Skill } from '@slackhive/shared';
+import { getDb } from '@slackhive/shared';
 import { getAgentSkills, getAgentMemories } from './db';
 import { logger } from './logger';
 
@@ -53,11 +54,57 @@ const WIKI_SKILL = `Search the knowledge wiki for information about: $ARGUMENTS
 4. Follow cross-references — articles link to related pages via relative paths. Follow "See also" sections for deeper context
 5. Check \`knowledge/wiki/log.md\` for recent ingests if the user asks about what sources were processed
 
+## Raw sources
+If you need the exact, verbatim text of a user-uploaded file, look in \`knowledge/sources/\` — those are unmodified uploads, not Claude-built. Grep them when an exact quote or figure from the original matters; fall back to the wiki for distilled/indexed reading.
+
 ## Tips
 - The wiki follows the Karpathy LLM Wiki pattern — pages are richly interlinked
 - Entity pages describe data models/classes, module pages describe code components, flow pages trace function call chains
 - Every page has source attribution showing where the information came from
 - If no relevant articles are found, say so and answer from your general knowledge`;
+
+
+/**
+ * Reject source names that could escape the `knowledge/sources/` directory.
+ * Kept narrow — the filename is the source's user-supplied `name`, sanitized to a
+ * safe slug here rather than pre-validated at insert time (old rows may exist).
+ */
+function toSafeFileName(name: string): string {
+  const base = name.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 120);
+  return (base || 'source') + '.md';
+}
+
+/**
+ * Materialize every file-type knowledge source to `knowledge/sources/<name>.md`
+ * inside the agent workspace. Called on every compile (agent reload) and at the
+ * end of `buildKnowledgeWiki`, so the on-disk view matches the DB.
+ *
+ * Called for side-effect. Failures are logged but don't block compile — a
+ * missing sources/ dir shouldn't stop the agent from starting.
+ */
+export async function writeFileSourcesToDisk(workDir: string, agentId: string): Promise<void> {
+  const sourcesDir = path.join(workDir, 'knowledge', 'sources');
+  try {
+    const r = await getDb().query(
+      `SELECT name, content FROM knowledge_sources
+       WHERE agent_id = $1 AND type = 'file' AND content IS NOT NULL AND content != ''`,
+      [agentId],
+    );
+    // Wipe first so deleted sources don't linger.
+    fs.rmSync(sourcesDir, { recursive: true, force: true });
+    if (r.rows.length === 0) return;
+    fs.mkdirSync(sourcesDir, { recursive: true });
+    for (const row of r.rows) {
+      const filename = toSafeFileName(row.name as string);
+      fs.writeFileSync(path.join(sourcesDir, filename), (row.content as string) ?? '', 'utf8');
+    }
+    logger.debug('File sources materialized', {
+      agentId, dir: sourcesDir, count: r.rows.length,
+    });
+  } catch (err) {
+    logger.warn('Failed to materialize file sources', { agentId, error: (err as Error).message });
+  }
+}
 
 
 /**
@@ -180,6 +227,11 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
   if (fs.existsSync(wikiDir)) {
     fs.writeFileSync(path.join(commandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
   }
+
+  // Materialize file-type knowledge sources as verbatim markdown next to the
+  // wiki so the agent can Grep/Read the exact original text. Re-derived from
+  // DB every compile — deletions, edits, and new uploads all propagate.
+  await writeFileSourcesToDisk(workDir, agent.id);
 
   for (const skill of skills) {
     const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;

@@ -13,10 +13,10 @@
  * @module web/app/agents/[slug]/coach-panel
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Send, Loader2, RotateCcw, Wand2, ChevronDown, ChevronRight, Check, FileText, History, ArrowLeft, Download, BookOpen } from 'lucide-react';
+import { X, Send, Loader2, RotateCcw, Wand2, ChevronDown, ChevronRight, Check, FileText, History, ArrowLeft, BookOpen } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { CoachMessage, CoachProposal, Skill, Memory } from '@slackhive/shared';
+import type { CoachMessage, CoachProposal, Skill, Memory, KnowledgeSource } from '@slackhive/shared';
 
 /** Shape of one archived conversation returned by `/coach?archive=1`. */
 interface ArchivedConversation {
@@ -56,6 +56,7 @@ function patchProposal(
   );
   return [...messages.slice(0, index), { ...msg, proposals }, ...messages.slice(index + 1)];
 }
+
 
 /**
  * Context-aware quick-start prompts. Blank agents get "build from scratch"
@@ -200,6 +201,7 @@ export function CoachPanel({
   const [currentClaudeMd, setCurrentClaudeMd] = useState<string>('');
   const [currentSkills, setCurrentSkills] = useState<Skill[]>([]);
   const [currentMemories, setCurrentMemories] = useState<Memory[]>([]);
+  const [currentFileSources, setCurrentFileSources] = useState<KnowledgeSource[]>([]);
   // History view state. `view: 'list'` shows archived conversations;
   // `view: 'archive'` shows one archived thread read-only; `view: 'current'`
   // is the default (live conversation).
@@ -220,10 +222,11 @@ export function CoachPanel({
     let cancelled = false;
     (async () => {
       try {
-        const [mdRes, skRes, memRes] = await Promise.all([
+        const [mdRes, skRes, memRes, ksRes] = await Promise.all([
           fetch(`/api/agents/${agentId}/claude-md`),
           fetch(`/api/agents/${agentId}/skills`),
           fetch(`/api/agents/${agentId}/memories`),
+          fetch(`/api/agents/${agentId}/knowledge`),
         ]);
         if (cancelled) return;
         if (mdRes.ok) {
@@ -242,6 +245,13 @@ export function CoachPanel({
           const arr: Memory[] = Array.isArray(mems) ? mems : [];
           setMemoryCount(arr.length);
           setCurrentMemories(arr);
+        }
+        if (ksRes.ok) {
+          const ks = await ksRes.json();
+          const arr: KnowledgeSource[] = Array.isArray(ks) ? ks : [];
+          // Coach only manages file-type sources. Filter here so `before`
+          // lookups and proposal rendering never pull from a url/repo row.
+          setCurrentFileSources(arr.filter(s => s.type === 'file'));
         }
       } catch { /* non-fatal — falls back to blank-agent suggestions */ }
     })();
@@ -427,15 +437,30 @@ export function CoachPanel({
 
   const applyProposal = async (messageIndex: number, proposal: CoachProposal) => {
     if (!canEdit) return;
-    // Wiki-extract proposals have no store edit to apply — the UI exposes only
-    // a Download button for them, so this branch exists to satisfy the type
-    // narrowing below in case `onApply` is ever wired up accidentally.
-    if (proposal.kind === 'wiki-extract') return;
     let res: Response;
     if (proposal.kind === 'claude-md') {
       res = await fetch(`/api/agents/${agentId}/claude-md`, {
         method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: proposal.content,
       });
+    } else if (proposal.kind === 'file-source') {
+      // Apply just lands the DB change; the wiki re-sync is NOT auto-triggered
+      // — the user runs it from the Knowledge tab's Sync/Build button, where
+      // they can watch progress on the tool that owns the ingest.
+      if (proposal.action === 'delete') {
+        if (!proposal.sourceId) { setError('file-source proposal missing id'); return; }
+        res = await fetch(`/api/agents/${agentId}/knowledge/${proposal.sourceId}`, { method: 'DELETE' });
+      } else if (proposal.action === 'create') {
+        res = await fetch(`/api/agents/${agentId}/knowledge`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'file', name: proposal.name, content: proposal.content ?? '' }),
+        });
+      } else {
+        if (!proposal.sourceId) { setError('file-source proposal missing id'); return; }
+        res = await fetch(`/api/agents/${agentId}/knowledge/${proposal.sourceId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: proposal.name, content: proposal.content ?? '' }),
+        });
+      }
     } else if (proposal.kind === 'memory') {
       // Memory proposals:
       //   create → POST /memories with type + name + content (new row).
@@ -706,7 +731,7 @@ export function CoachPanel({
               onApply={p => applyProposal(i, p)}
               onReject={p => rejectProposal(i, p)}
               isStreaming={sending && i === messages.length - 1 && m.role === 'assistant'}
-              getBefore={p => findProposalBefore(p, currentClaudeMd, currentSkills, currentMemories)}
+              getBefore={p => findProposalBefore(p, currentClaudeMd, currentSkills, currentMemories, currentFileSources)}
             />
           ))}
 
@@ -876,22 +901,6 @@ function MessageBubble({
   );
 }
 
-/**
- * Trigger a client-side blob download for a wiki extract. The user is expected
- * to drop the downloaded file into their agent's `knowledge/wiki/` directory.
- */
-function downloadWikiExtract(extract: { suggestedPath: string; content: string }): void {
-  const blob = new Blob([extract.content], { type: 'text/markdown;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = extract.suggestedPath.split('/').pop() || 'wiki-extract.md';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 function ProposalCard({
   proposal, canEdit, onApply, onReject, before,
 }: {
@@ -907,33 +916,32 @@ function ProposalCard({
   const applied = proposal.status === 'applied';
   const rejected = proposal.status === 'rejected';
 
-  const isWikiOnly = proposal.kind === 'wiki-extract';
-  const wikiExtract = proposal.kind === 'wiki-extract'
-    ? proposal.wikiExtract
-    : proposal.wikiExtract;
-
   const label = proposal.kind === 'claude-md'
     ? 'System Prompt (CLAUDE.md)'
     : proposal.kind === 'memory'
       ? `Memory: ${proposal.memoryName}${proposal.memoryType ? ` (${proposal.memoryType})` : ''}`
       : proposal.kind === 'skill'
         ? `Skill: ${proposal.category}/${proposal.filename}`
-        : `Wiki: ${proposal.wikiExtract.suggestedPath}`;
+        : `File source: ${proposal.name}`;
 
   const actionLabel = proposal.kind === 'claude-md'
     ? 'UPDATE'
-    : proposal.kind === 'wiki-extract'
-      ? 'SAVE'
-      : proposal.action.toUpperCase();
+    : proposal.action.toUpperCase();
 
-  // Destructive = deletes (skill or memory). Everything else is additive/editing.
-  const isDestructive = (proposal.kind === 'skill' && proposal.action === 'delete')
-    || (proposal.kind === 'memory' && proposal.action === 'delete');
+  // Destructive = deletes (skill, memory, or file source).
+  const isDestructive =
+    (proposal.kind === 'skill' && proposal.action === 'delete')
+    || (proposal.kind === 'memory' && proposal.action === 'delete')
+    || (proposal.kind === 'file-source' && proposal.action === 'delete');
+
   const hasExpandableContent =
     proposal.kind === 'claude-md'
     || (proposal.kind === 'skill' && proposal.action !== 'delete' && !!proposal.content)
     || (proposal.kind === 'memory' && proposal.action !== 'delete' && !!proposal.content)
-    || (!!wikiExtract); // wiki extract body is always worth showing
+    // File-source delete cards still expand — showing what's about to be removed.
+    || (proposal.kind === 'file-source' && (proposal.action !== 'delete' ? !!proposal.content : before !== null));
+
+  const isFileSource = proposal.kind === 'file-source';
 
   return (
     <div style={{
@@ -943,17 +951,17 @@ function ProposalCard({
       opacity: rejected ? 0.55 : 1,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        {isWikiOnly
+        {isFileSource
           ? <BookOpen size={13} style={{ color: 'var(--muted)' }} />
           : <FileText size={13} style={{ color: 'var(--muted)' }} />}
         <span style={{
           fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
           background: isDestructive
             ? 'var(--red-soft-bg)'
-            : isWikiOnly ? 'rgba(99,102,241,0.12)' : 'rgba(16,185,129,0.1)',
+            : isFileSource ? 'rgba(99,102,241,0.12)' : 'rgba(16,185,129,0.1)',
           color: isDestructive
             ? 'var(--red)'
-            : isWikiOnly ? 'var(--accent)' : 'var(--green)',
+            : isFileSource ? 'var(--accent)' : 'var(--green)',
         }}>{actionLabel}</span>
         <span style={{ fontSize: 12.5, fontWeight: 500, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{label}</span>
       </div>
@@ -961,17 +969,17 @@ function ProposalCard({
         {proposal.rationale}
       </p>
 
-      {/* Wiki-extract hint line — shown when the proposal carries an extract
-          alongside a store edit. For wiki-only proposals the summary lives in
-          the rationale above. */}
-      {wikiExtract && !isWikiOnly && (
+      {/* File-source: where this lands, and a reminder that applying the DB
+          change does NOT auto-sync the wiki — the user runs that from the
+          Knowledge tab where the progress UI lives. */}
+      {isFileSource && proposal.action !== 'delete' && (
         <p style={{
           fontSize: 11.5, color: 'var(--muted)', margin: '0 0 6px',
           display: 'inline-flex', alignItems: 'center', gap: 4,
         }}>
           <BookOpen size={11} />
-          Wiki page: <code style={{ fontFamily: 'var(--font-mono)' }}>{wikiExtract.suggestedPath}</code>
-          {wikiExtract.summary ? ` — ${wikiExtract.summary}` : ''}
+          Stored as <code style={{ fontFamily: 'var(--font-mono)' }}>knowledge/sources/{proposal.name}.md</code>
+          {' — open the Knowledge tab and click Sync to refresh the wiki.'}
         </p>
       )}
 
@@ -990,13 +998,13 @@ function ProposalCard({
       )}
 
       {expanded && hasExpandableContent && (() => {
-        // Wiki-only cards have no "before" — only the extract body matters.
-        if (isWikiOnly) {
-          return <ContentBlock text={proposal.wikiExtract.content} />;
-        }
         const afterText = proposal.kind === 'claude-md'
           ? proposal.content
           : (proposal.content ?? '');
+        // File-source delete: no `after` — just show what's about to disappear.
+        if (isFileSource && proposal.action === 'delete') {
+          return before ? <ContentBlock text={before} /> : null;
+        }
         return (
           <>
             {/* Show a line-diff when we have prior content that actually differs.
@@ -1004,38 +1012,26 @@ function ProposalCard({
             {before !== null && before !== afterText
               ? <DiffBlock before={before} after={afterText} />
               : (afterText ? <ContentBlock text={afterText} /> : null)}
-            {wikiExtract && (
-              <div style={{ marginTop: 6 }}>
-                <div style={{
-                  fontSize: 11, fontWeight: 600, color: 'var(--muted)',
-                  textTransform: 'uppercase', letterSpacing: 0.4, margin: '4px 0 3px',
-                }}>Wiki page to save</div>
-                <ContentBlock text={wikiExtract.content} />
-              </div>
-            )}
           </>
         );
       })()}
 
-      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-        {isWikiOnly ? (
-          <button
-            onClick={() => downloadWikiExtract(proposal.wikiExtract)}
-            style={{
-              fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 5,
-              background: 'var(--accent)', color: 'var(--accent-fg)',
-              border: 'none', cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              fontFamily: 'var(--font-sans)',
-            }}
-          >
-            <Download size={12} /> Download wiki page
-          </button>
-        ) : applied ? (
-          <span style={{
-            fontSize: 12, fontWeight: 500, color: 'var(--green)',
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-          }}><Check size={13} /> Applied</span>
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+        {applied ? (
+          <>
+            <span style={{
+              fontSize: 12, fontWeight: 500, color: 'var(--green)',
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+            }}><Check size={13} /> Applied</span>
+            {isFileSource && (
+              <>
+                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>·</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Sync from the Knowledge tab to refresh the wiki.
+                </span>
+              </>
+            )}
+          </>
         ) : rejected ? (
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Rejected</span>
         ) : (
@@ -1061,25 +1057,6 @@ function ProposalCard({
               }}
             >Reject</button>
           </>
-        )}
-        {/* Download button alongside Apply/Reject when the proposal carries an
-            extract. Stays active after apply/reject — downloading is always
-            safe and doesn't depend on the store edit succeeding. */}
-        {!isWikiOnly && wikiExtract && (
-          <button
-            onClick={() => downloadWikiExtract(wikiExtract)}
-            title={`Save ${wikiExtract.suggestedPath}`}
-            style={{
-              fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 5,
-              background: 'transparent', color: 'var(--muted)',
-              border: '1px solid var(--border)', cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              fontFamily: 'var(--font-sans)',
-              marginLeft: (applied || rejected) ? 0 : 'auto',
-            }}
-          >
-            <Download size={12} /> Download wiki page
-          </button>
         )}
       </div>
     </div>
@@ -1265,6 +1242,7 @@ function findProposalBefore(
   claudeMd: string,
   skills: Skill[],
   memories: Memory[],
+  fileSources: KnowledgeSource[],
 ): string | null {
   if (p.kind === 'claude-md') return claudeMd;
   if (p.kind === 'skill') {
@@ -1276,6 +1254,11 @@ function findProposalBefore(
     if (p.action === 'create') return null;
     const hit = memories.find(m => m.id === p.memoryId);
     return hit ? hit.content : null;
+  }
+  if (p.kind === 'file-source') {
+    if (p.action === 'create') return null;
+    const hit = fileSources.find(s => s.id === p.sourceId);
+    return hit ? (hit.content ?? '') : null;
   }
   return null;
 }

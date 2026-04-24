@@ -161,6 +161,14 @@ function buildParticipantWorkDir(
     try { fs.symlinkSync(wikiSrc, wikiDst); } catch { /* fs without symlink — skip */ }
   }
 
+  // Symlink raw file sources too — same reasoning as wiki above.
+  const sourcesSrc = path.join(agentWorkDir, 'knowledge', 'sources');
+  const sourcesDst = path.join(participantDir, 'knowledge', 'sources');
+  if (fs.existsSync(sourcesSrc) && !fs.existsSync(sourcesDst)) {
+    fs.mkdirSync(path.dirname(sourcesDst), { recursive: true });
+    try { fs.symlinkSync(sourcesSrc, sourcesDst); } catch { /* fs without symlink — skip */ }
+  }
+
   return participantDir;
 }
 
