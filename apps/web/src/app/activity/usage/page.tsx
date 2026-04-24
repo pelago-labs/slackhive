@@ -1,10 +1,9 @@
 'use client';
 
 /**
- * @fileoverview Token-usage dashboard — current 5-hour session card, totals
- * for the selected window, per-agent bar chart, and top-users leaderboard.
- *
- * Reads `/api/activity/usage` on filter changes. No polling.
+ * @fileoverview Token-usage dashboard — totals strip, per-agent bar chart,
+ * top-users leaderboard. All driven by the shared FilterRow's agent/window
+ * controls. Reads `/api/activity/usage` on filter changes; no polling.
  *
  * @module web/app/activity/usage
  */
@@ -50,6 +49,20 @@ interface UsageResponse {
 }
 
 const CLAUDE_USAGE_URL = 'https://claude.ai/settings/usage';
+
+const headerButtonStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '6px 10px', fontSize: 12, fontWeight: 500,
+  color: 'var(--muted)', background: 'var(--surface)',
+  border: '1px solid var(--border)', borderRadius: 8,
+  cursor: 'pointer', fontFamily: 'var(--font-sans)',
+  textDecoration: 'none', whiteSpace: 'nowrap',
+};
+
+const sectionStyle: React.CSSProperties = {
+  background: 'var(--surface)', border: '1px solid var(--border)',
+  borderRadius: 12, padding: '14px 16px',
+};
 
 export default function UsagePage(): React.JSX.Element {
   return (
@@ -165,15 +178,6 @@ function windowLabel(w: WindowKey): string {
        : w === '7d' ? 'last 7 days'
        : 'last 30 days';
 }
-
-const headerButtonStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-  padding: '6px 10px', fontSize: 12, fontWeight: 500,
-  color: 'var(--muted)', background: 'var(--surface)',
-  border: '1px solid var(--border)', borderRadius: 8,
-  cursor: 'pointer', fontFamily: 'var(--font-sans)',
-  textDecoration: 'none', whiteSpace: 'nowrap',
-};
 
 function TotalsStrip(props: { totals: Totals | null; windowLabel: string }): React.JSX.Element {
   const { totals, windowLabel } = props;
@@ -299,11 +303,6 @@ function PowerUsers(props: {
     </section>
   );
 }
-
-const sectionStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 12, padding: '14px 16px',
-};
 
 function SectionHeader(props: { title: string; subtitle?: string }): React.JSX.Element {
   return (

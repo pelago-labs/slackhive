@@ -110,7 +110,7 @@ function ActivityPageBody(): React.JSX.Element {
   const [windowKey, setWindowKey] = useState<WindowKey>(
     ((): WindowKey => {
       const w = searchParams?.get('window');
-      return w === '1h' || w === '24h' || w === '7d' || w === '30d' ? w : '24h';
+      return w === '1h' || w === '5h' || w === '24h' || w === '7d' || w === '30d' ? w : '24h';
     })(),
   );
   // Per-activity agent participation map, populated lazily from task detail.

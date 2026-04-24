@@ -1,6 +1,7 @@
 /**
- * @fileoverview Token usage aggregation for the Activity/Usage page — per-agent
- * token sums, power-user leaderboard, and a rolling 5-hour current-session card.
+ * @fileoverview Token-usage aggregation for the Activity/Usage page —
+ * per-agent token sums, power-user leaderboard, and a rolled-up totals strip.
+ * All three are scoped by the same `window` param so the UI stays consistent.
  *
  * @module web/api/activity/usage
  */
@@ -14,28 +15,14 @@ import {
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
+import { windowFloor } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
-
-const VALID_WINDOWS = new Set(['1h', '5h', '24h', '7d', '30d']);
-
-function windowFloor(w: string | null): string | undefined {
-  if (!w || !VALID_WINDOWS.has(w)) return undefined;
-  const ms =
-    w === '1h'  ? 60 * 60 * 1000 :
-    w === '5h'  ? 5 * 60 * 60 * 1000 :
-    w === '24h' ? 24 * 60 * 60 * 1000 :
-    w === '7d'  ? 7 * 24 * 60 * 60 * 1000 :
-                  30 * 24 * 60 * 60 * 1000;
-  return new Date(Date.now() - ms).toISOString().replace('T', ' ').slice(0, 19);
-}
 
 /**
  * GET /api/activity/usage?window=5h&agent=
  *
- * Returns `{ byAgent, byUser, totals }` — all three scoped by the `window`
- * query param. The UI renders the headline card, totals strip, agent bars,
- * and power-users list all off the same window.
+ * Returns `{ byAgent, byUser, totals }` — all three scoped by `window`.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {

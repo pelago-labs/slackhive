@@ -26,6 +26,9 @@ import {
   listTasks,
   getTaskWithDetails,
   countInProgressByAgent,
+  recordActivityUsage,
+  getTokensByAgent,
+  getTopUsers,
 } from '@slackhive/shared';
 
 let dbPath: string;
@@ -303,5 +306,213 @@ describe('cascade delete', () => {
     expect(Number(actRows.rows[0].n)).toBe(0);
     const tcRows = await getDb().query(`SELECT COUNT(*) AS n FROM tool_calls WHERE activity_id = $1`, [act]);
     expect(Number(tcRows.rows[0].n)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Usage aggregation
+// ---------------------------------------------------------------------------
+
+/** Seed a finished activity with explicit token usage for aggregation tests. */
+async function seedActivityWithUsage(opts: {
+  taskId: string;
+  agentId: string;
+  userId: string;
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheCreation?: number;
+  /** Offset the started_at by this many seconds into the past. */
+  ageSeconds?: number;
+}): Promise<string> {
+  const id = await beginActivity({
+    taskId: opts.taskId,
+    agentId: opts.agentId,
+    platform: 'slack',
+    initiatorKind: 'user',
+    initiatorUserId: opts.userId,
+  });
+  await recordActivityUsage(id, {
+    input_tokens: opts.input,
+    output_tokens: opts.output,
+    cache_read_input_tokens: opts.cacheRead ?? 0,
+    cache_creation_input_tokens: opts.cacheCreation ?? 0,
+  });
+  if (opts.ageSeconds != null && opts.ageSeconds > 0) {
+    const backdated = new Date(Date.now() - opts.ageSeconds * 1000)
+      .toISOString().replace('T', ' ').slice(0, 19);
+    await getDb().query(
+      `UPDATE activities SET started_at = $1 WHERE id = $2`,
+      [backdated, id],
+    );
+  }
+  await finishActivity(id, 'done');
+  return id;
+}
+
+describe('recordActivityUsage', () => {
+  it('writes the four token columns on the activity row', async () => {
+    const agentId = await seedAgent();
+    const taskId = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 't' });
+    const actId = await beginActivity({
+      taskId, agentId, platform: 'slack',
+      initiatorKind: 'user', initiatorUserId: 'U1',
+    });
+
+    await recordActivityUsage(actId, {
+      input_tokens: 100,
+      output_tokens: 200,
+      cache_read_input_tokens: 300,
+      cache_creation_input_tokens: 400,
+    });
+
+    const { rows } = await getDb().query(
+      `SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
+         FROM activities WHERE id = $1`, [actId],
+    );
+    expect(Number(rows[0].input_tokens)).toBe(100);
+    expect(Number(rows[0].output_tokens)).toBe(200);
+    expect(Number(rows[0].cache_read_tokens)).toBe(300);
+    expect(Number(rows[0].cache_creation_tokens)).toBe(400);
+  });
+
+  it('coerces missing fields to 0', async () => {
+    const agentId = await seedAgent();
+    const taskId = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 't' });
+    const actId = await beginActivity({
+      taskId, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1',
+    });
+
+    await recordActivityUsage(actId, { input_tokens: 5 });
+
+    const { rows } = await getDb().query(
+      `SELECT input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
+         FROM activities WHERE id = $1`, [actId],
+    );
+    expect(Number(rows[0].input_tokens)).toBe(5);
+    expect(Number(rows[0].output_tokens)).toBe(0);
+    expect(Number(rows[0].cache_read_tokens)).toBe(0);
+    expect(Number(rows[0].cache_creation_tokens)).toBe(0);
+  });
+});
+
+describe('getTokensByAgent', () => {
+  it('sums per-agent tokens within the window and sorts descending', async () => {
+    const aHigh = await seedAgent();
+    const aLow  = await seedAgent();
+    const task = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 't1', initiatorUserId: 'U1' });
+
+    await seedActivityWithUsage({ taskId: task, agentId: aHigh, userId: 'U1', input: 500,  output: 50 });
+    await seedActivityWithUsage({ taskId: task, agentId: aHigh, userId: 'U1', input: 500,  output: 50 });
+    await seedActivityWithUsage({ taskId: task, agentId: aLow,  userId: 'U1', input: 10,   output: 10 });
+
+    const rows = await getTokensByAgent({});
+    expect(rows).toHaveLength(2);
+    expect(rows[0].agentId).toBe(aHigh);
+    expect(rows[0].inputTokens).toBe(1000);
+    expect(rows[0].outputTokens).toBe(100);
+    expect(rows[0].turnCount).toBe(2);
+    expect(rows[1].agentId).toBe(aLow);
+  });
+
+  it('filters activities older than `since`', async () => {
+    const agentId = await seedAgent();
+    const task = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 't', initiatorUserId: 'U1' });
+
+    await seedActivityWithUsage({ taskId: task, agentId, userId: 'U1', input: 100, output: 10, ageSeconds: 3600 });
+    await seedActivityWithUsage({ taskId: task, agentId, userId: 'U1', input: 5,   output: 1 });
+
+    const since = new Date(Date.now() - 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+    const rows = await getTokensByAgent({ since });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].inputTokens).toBe(5);
+    expect(rows[0].turnCount).toBe(1);
+  });
+
+  it('respects accessibleAgentIds (empty array → empty result)', async () => {
+    const agentId = await seedAgent();
+    const task = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 't', initiatorUserId: 'U1' });
+    await seedActivityWithUsage({ taskId: task, agentId, userId: 'U1', input: 10, output: 10 });
+
+    expect(await getTokensByAgent({ accessibleAgentIds: [] })).toHaveLength(0);
+    expect(await getTokensByAgent({ accessibleAgentIds: [agentId] })).toHaveLength(1);
+    expect(await getTokensByAgent({ accessibleAgentIds: [randomUUID()] })).toHaveLength(0);
+  });
+
+  it('treats NULL token columns (pre-feature rows) as zero', async () => {
+    const agentId = await seedAgent();
+    const task = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 't', initiatorUserId: 'U1' });
+    await beginActivity({ taskId: task, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+
+    const rows = await getTokensByAgent({});
+    expect(rows).toHaveLength(1);
+    expect(rows[0].inputTokens).toBe(0);
+    expect(rows[0].outputTokens).toBe(0);
+    expect(rows[0].turnCount).toBe(1);
+  });
+});
+
+describe('getTopUsers', () => {
+  it('ranks by distinct task count with turn-count tiebreaker', async () => {
+    const agentId = await seedAgent();
+    const big   = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'big',   initiatorUserId: 'U_big',  initiatorHandle: 'alice' });
+    const busy1 = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'busy1', initiatorUserId: 'U_busy', initiatorHandle: 'bob' });
+    const busy2 = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'busy2', initiatorUserId: 'U_busy', initiatorHandle: 'bob' });
+
+    for (let i = 0; i < 5; i++) {
+      await seedActivityWithUsage({ taskId: big, agentId, userId: 'U_big', input: 1, output: 1 });
+    }
+    await seedActivityWithUsage({ taskId: busy1, agentId, userId: 'U_busy', input: 1, output: 1 });
+    await seedActivityWithUsage({ taskId: busy2, agentId, userId: 'U_busy', input: 1, output: 1 });
+
+    const rows = await getTopUsers({});
+    expect(rows[0].userId).toBe('U_busy');
+    expect(rows[0].taskCount).toBe(2);
+    expect(rows[0].handle).toBe('bob');
+    expect(rows[1].userId).toBe('U_big');
+    expect(rows[1].taskCount).toBe(1);
+    expect(rows[1].turnCount).toBe(5);
+  });
+
+  it('user totals reconcile with getTokensByAgent for the same window (regression guard)', async () => {
+    // Earlier version filtered on tasks.last_activity_at, which over-counted
+    // turns on long-lived tasks. Now both aggregates filter on a.started_at
+    // so a user's totalTokens equals the sum of per-agent tokens they drove.
+    const agentId = await seedAgent();
+    const task = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 't', initiatorUserId: 'U', initiatorHandle: 'amy' });
+
+    await seedActivityWithUsage({ taskId: task, agentId, userId: 'U', input: 100, output: 10, ageSeconds: 7200 });
+    await seedActivityWithUsage({ taskId: task, agentId, userId: 'U', input: 50,  output: 5 });
+
+    const since = new Date(Date.now() - 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+    const byAgent = await getTokensByAgent({ since });
+    const byUser  = await getTopUsers({ since });
+
+    expect(byAgent[0].inputTokens).toBe(50);
+    expect(byAgent[0].outputTokens).toBe(5);
+    expect(byAgent[0].turnCount).toBe(1);
+    expect(byUser[0].totalTokens).toBe(55);
+    expect(byUser[0].turnCount).toBe(1);
+    expect(byUser[0].taskCount).toBe(1);
+  });
+
+  it('excludes tasks with no initiator_user_id', async () => {
+    const agentId = await seedAgent();
+    const anon = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'anon' });
+    await seedActivityWithUsage({ taskId: anon, agentId, userId: 'U_ignored', input: 100, output: 10 });
+
+    expect(await getTopUsers({})).toHaveLength(0);
+  });
+
+  it('respects the limit arg', async () => {
+    const agentId = await seedAgent();
+    for (let i = 0; i < 5; i++) {
+      const t = await upsertTask({
+        platform: 'slack', channelId: 'C', threadTs: `t${i}`,
+        initiatorUserId: `U${i}`, initiatorHandle: `u${i}`,
+      });
+      await seedActivityWithUsage({ taskId: t, agentId, userId: `U${i}`, input: 1, output: 1 });
+    }
+    expect(await getTopUsers({}, 3)).toHaveLength(3);
   });
 });
