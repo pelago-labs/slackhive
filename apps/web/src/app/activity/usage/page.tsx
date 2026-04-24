@@ -128,17 +128,19 @@ function UsagePageBody(): React.JSX.Element {
 
       <TabSwitcher />
 
-      <FilterRow
-        agents={agents}
-        agentFilter={agentFilter}
-        windowKey={windowKey}
-        onAgentChange={setAgentFilter}
-        onWindowChange={setWindowKey}
-      />
-
       <HeadlineCard totals={data?.totals ?? null} windowLabel={windowLabel(windowKey)} />
 
       <TotalsStrip totals={data?.totals ?? null} windowLabel={windowLabel(windowKey)} />
+
+      <div style={{ marginTop: 14 }}>
+        <FilterRow
+          agents={agents}
+          agentFilter={agentFilter}
+          windowKey={windowKey}
+          onAgentChange={setAgentFilter}
+          onWindowChange={setWindowKey}
+        />
+      </div>
 
       <div style={{
         display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)',
