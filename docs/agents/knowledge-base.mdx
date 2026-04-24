@@ -34,9 +34,11 @@ Click **Add source** and pick one of three types:
 |---|---|---|
 | **Git repo** | You want the agent to understand a codebase | `github.com/pelago-labs/slackhive` |
 | **URL** | The content lives on a public or internal webpage | `docs.internal.co/runbooks/checkout` |
-| **File upload** | You have Markdown, PDF, or text files on disk | Internal design doc export |
+| **File upload** | You have a document on disk you want the agent to quote or search verbatim | Internal spec PDF, a runbook, a schedule |
 
 Paste the input, give it a name, and save. The source lands as "pending ingest" — click **Ingest** to build the wiki.
+
+File uploads support **PDF, Markdown, text, CSV, JSON, YAML, XML, HTML** — up to 1 MB each.
 
 <Note>
   Git repos use the agent's own credentials if needed. For private repos on GitHub, add a personal access token via **Settings → Env Vars** as `GITHUB_TOKEN`.
@@ -109,9 +111,11 @@ No configuration needed. It just works.
 
 Duplicate sources are auto-prevented — adding the same repo URL twice is a no-op.
 
-## Hand-written pages from Coach
+## Managing files from Coach
 
-Coach can extract a wiki page from a conversation — "write up what you just told me about our metrics model" — and propose it as a downloadable `.md`. Drop the file into `~/.slackhive/agents/<slug>/knowledge/wiki/` and the agent reads it next turn.
+Instead of opening this tab, you can ask **Coach** to add, edit, or remove a file — e.g. "add this API spec", "rename that source and add a header", "drop the old runbook". Coach proposes the change as a card with a before/after preview; you click **Apply** to save it.
+
+After you apply a Coach change, come back here and click **Sync** on the affected source so the wiki reflects it.
 
 See [Coach](/agents/coach) for the full flow.
 

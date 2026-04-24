@@ -31,26 +31,36 @@ Coach reads the current system prompt, skills, memories, and knowledge, then str
 
 Coach's changes arrive as **proposal cards** — one per distinct change. Each card shows:
 
-- **What will change** (skill, system prompt, permission, or wiki page)
+- **What will change** (system prompt, a skill, a memory, or a knowledge file)
 - **A diff preview** (green = added, red = removed)
 - **Apply** and **Reject** buttons
 
 You can apply some cards and reject others. Nothing changes until you click Apply.
 
-## Where changes land
+## What Coach can change
 
-| Proposal kind | Where it lands |
+| Proposal kind | What it is |
 |---|---|
-| Skill change | **Instructions → Skills** |
-| System prompt edit | **Instructions → System Prompt** |
-| Permission change | **Tools** (allow / deny rules) |
-| Wiki extract | A downloadable `.md` page — see [Wiki extraction](#wiki-extraction) |
+| System prompt | Rewrites the agent's instructions |
+| Skill | Adds, edits, or removes a skill (slash command) |
+| Memory | Adds, rewrites, or removes a saved fact/rule |
+| Knowledge file | Adds, edits, or removes a file in the Knowledge Base |
 
-A **snapshot** is taken automatically on every applied change, so you can restore via **History** if something goes wrong.
+Every applied change is **snapshotted automatically**, so you can restore via **History** if something goes wrong.
 
-## Wiki extraction
+## Knowledge files
 
-Coach can propose a new wiki page ("extract what you know about our metrics taxonomy"). The proposal card shows a **Download wiki page** button. Save the `.md` into `~/.slackhive/agents/<slug>/knowledge/wiki/` — the agent's `/wiki` skill picks it up automatically. See [Knowledge Base](/agents/knowledge-base).
+You can ask Coach to add, edit, or remove files in the agent's knowledge — e.g. "add this API spec", "rename that source and add a header", "drop the old runbook". The card shows a before/after preview on edits and the full content on adds, so you can see exactly what's landing before approving.
+
+Coach only manages **uploaded files**. Git repo and URL sources stay in the Knowledge tab — those are pulled from their remotes.
+
+<Note>
+  After you apply a knowledge-file change, open the **Knowledge** tab and click **Sync** on the affected file so the agent's wiki reflects it.
+</Note>
+
+## Looking things up
+
+Coach can browse the web while drafting a proposal — useful when you ask it to pull in an API shape, a canonical reference, or a public doc you mentioned.
 
 ## Close mid-stream
 
