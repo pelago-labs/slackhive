@@ -140,6 +140,26 @@ describe('writeFileSourcesToDisk', () => {
     expect(files.some(f => f.includes('has-spaces'))).toBe(true);
   });
 
+  it('disambiguates sanitize-collision filenames — no silent overwrite', async () => {
+    // "my file" and "my-file" both sanitize to "my-file.md". Without the hash
+    // suffix the second write clobbered the first.
+    const agentId = await seedAgent();
+    await insertSource(agentId, { name: 'my file',  content: 'space-version' });
+    await insertSource(agentId, { name: 'my-file',  content: 'dash-version' });
+
+    await writeFileSourcesToDisk(workDir, agentId);
+
+    const dir = path.join(workDir, 'knowledge', 'sources');
+    const files = fs.readdirSync(dir).sort();
+    expect(files.length).toBe(2);
+    // One is the untouched slug, the other gets the hash suffix.
+    expect(files).toContain('my-file.md');
+    expect(files.some(f => /^my-file-[0-9a-f]{8}\.md$/.test(f))).toBe(true);
+    // Both original contents survive.
+    const contents = files.map(f => fs.readFileSync(path.join(dir, f), 'utf8')).sort();
+    expect(contents).toEqual(['dash-version', 'space-version']);
+  });
+
   it('is isolated per agent — sources from other agents are not written', async () => {
     const a1 = await seedAgent();
     const a2 = await seedAgent();

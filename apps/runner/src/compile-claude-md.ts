@@ -75,6 +75,20 @@ function toSafeFileName(name: string): string {
 }
 
 /**
+ * FNV-1a 32-bit hash — deterministic, 8-char hex. Used to disambiguate source
+ * filenames that sanitize to the same slug (e.g. "my file" vs "my-file"), so
+ * one source never silently overwrites another on disk.
+ */
+function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
  * Materialize every file-type knowledge source to `knowledge/sources/<name>.md`
  * inside the agent workspace. Called on every compile (agent reload) and at the
  * end of `buildKnowledgeWiki`, so the on-disk view matches the DB.
@@ -87,15 +101,26 @@ export async function writeFileSourcesToDisk(workDir: string, agentId: string): 
   try {
     const r = await getDb().query(
       `SELECT name, content FROM knowledge_sources
-       WHERE agent_id = $1 AND type = 'file' AND content IS NOT NULL AND content != ''`,
+       WHERE agent_id = $1 AND type = 'file' AND content IS NOT NULL AND content != ''
+       ORDER BY name ASC`,
       [agentId],
     );
     // Wipe first so deleted sources don't linger.
     fs.rmSync(sourcesDir, { recursive: true, force: true });
     if (r.rows.length === 0) return;
     fs.mkdirSync(sourcesDir, { recursive: true });
+    // Track already-used filenames this pass. If the sanitized slug collides,
+    // suffix with a short hash of the original name so both sources persist.
+    // Two rows can't share `name` (DB unique (agent_id, name)), so hashing the
+    // original name is a stable, collision-free disambiguator.
+    const used = new Set<string>();
     for (const row of r.rows) {
-      const filename = toSafeFileName(row.name as string);
+      const originalName = row.name as string;
+      let filename = toSafeFileName(originalName);
+      if (used.has(filename)) {
+        filename = filename.replace(/\.md$/, `-${shortHash(originalName)}.md`);
+      }
+      used.add(filename);
       fs.writeFileSync(path.join(sourcesDir, filename), (row.content as string) ?? '', 'utf8');
     }
     logger.debug('File sources materialized', {

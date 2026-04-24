@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import type { KnowledgeSource } from '@slackhive/shared';
 import { extractFileText } from '@/lib/knowledge-extract';
+import { guardAgentWrite } from '@/lib/api-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,6 +62,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id: agentId } = await params;
+  const denied = await guardAgentWrite(req, agentId);
+  if (denied) return denied;
   const contentType = req.headers.get('content-type') || '';
 
   // Multipart: raw file upload. Extract text server-side and funnel into the
@@ -73,12 +76,9 @@ export async function POST(
       if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 });
       if (!(file instanceof File)) return NextResponse.json({ error: 'file required' }, { status: 400 });
 
-      console.log('[knowledge-upload]', { agentId, name, filename: file.name, size: file.size, mime: file.type });
-
       const buf = Buffer.from(await file.arrayBuffer());
       const extracted = await extractFileText(buf, file.name, file.type);
       if (extracted === null) {
-        console.log('[knowledge-upload] unsupported ext', { filename: file.name, mime: file.type });
         return NextResponse.json({ error: 'Unsupported file type — upload text or PDF' }, { status: 415 });
       }
       const text = extracted.slice(0, 1_048_576); // 1 MB cap
@@ -91,7 +91,6 @@ export async function POST(
         [sourceId, agentId, name, text, wordCount]
       );
       const r = await (await db()).query('SELECT * FROM knowledge_sources WHERE id = $1', [sourceId]);
-      console.log('[knowledge-upload] ok', { sourceId, wordCount, chars: text.length });
       return NextResponse.json(rowToSource(r.rows[0]), { status: 201 });
     } catch (err) {
       const msg = (err as Error).message ?? String(err);

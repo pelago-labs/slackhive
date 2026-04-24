@@ -9,6 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { guardAgentWrite } from '@/lib/api-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +29,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; sourceId: string }> }
 ): Promise<NextResponse> {
-  const { sourceId } = await params;
+  const { id: agentId, sourceId } = await params;
+  const denied = await guardAgentWrite(req, agentId);
+  if (denied) return denied;
   const body = await req.json() as {
     name?: string;
     url?: string;
@@ -70,10 +73,12 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string; sourceId: string }> }
 ): Promise<NextResponse> {
   const { id: agentId, sourceId } = await params;
+  const denied = await guardAgentWrite(req, agentId);
+  if (denied) return denied;
   const d = await db();
 
   // Delete the source

@@ -121,6 +121,13 @@ function ActivityPageBody(): React.JSX.Element {
   );
   // Per-activity agent participation map, populated lazily from task detail.
   const [agentsByTask, setAgentsByTask] = useState<Record<string, string[]>>({});
+  // Ref mirror of `agentsByTask` so `load` can read the latest value without
+  // taking it as a dependency — otherwise every hydrated task rebuilds `load`,
+  // re-fires the mount effect, tears down & recreates the 4s polling interval,
+  // and kicks off an extra fetch. Keep the state for rendering, the ref for
+  // checks inside `load`.
+  const agentsByTaskRef = useRef(agentsByTask);
+  useEffect(() => { agentsByTaskRef.current = agentsByTask; }, [agentsByTask]);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -162,7 +169,8 @@ function ActivityPageBody(): React.JSX.Element {
 
     // Hydrate per-task agent lists for avatar stacks — only for visible tasks.
     const visible = [...active.tasks, ...recent.tasks, ...errored.tasks];
-    const needDetail = visible.filter(t => !agentsByTask[t.id] && t.activityCount > 1).slice(0, 12);
+    const cache = agentsByTaskRef.current;
+    const needDetail = visible.filter(t => !cache[t.id] && t.activityCount > 1).slice(0, 12);
     if (needDetail.length > 0) {
       const detailed = await Promise.all(needDetail.map(async t => {
         const r = await fetch(`/api/activity/${encodeURIComponent(t.id)}`);
@@ -177,7 +185,7 @@ function ActivityPageBody(): React.JSX.Element {
         return next;
       });
     }
-  }, [fetchColumn, fetchStats, agentsByTask]);
+  }, [fetchColumn, fetchStats]);
 
   useEffect(() => {
     load();
