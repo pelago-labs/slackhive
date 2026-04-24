@@ -25,6 +25,7 @@ export {
   upsertTask, beginActivity, finishActivity,
   beginToolCall, finishToolCall,
   listTasks, getTaskWithDetails, countInProgressByAgent,
+  sweepStaleActivities,
   recordActivityUsage, getTokensByAgent, getTopUsers,
 } from './db/activities-repo';
 export type {

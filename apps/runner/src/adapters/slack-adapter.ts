@@ -159,7 +159,7 @@ export class SlackAdapter implements PlatformAdapter {
         platform: 'slack',
         userId: msg.user,
         channelId: msg.channel,
-        threadId: msg.thread_ts,
+        threadId: msg.thread_ts ?? msg.ts,
         text: fullText,
         isDM: true,
         files: allFiles.length > 0 ? allFiles : undefined,

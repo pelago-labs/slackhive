@@ -325,6 +325,9 @@ export async function listTasks(
   const params: unknown[] = [];
 
   // Column-specific filter against subqueries over `activities`.
+  // All three columns use the most-recent activity status to avoid tasks
+  // with old error/interrupt rows being permanently stuck or invisible.
+  // Priority: active (any in_progress) > errored (most-recent=error, no in_progress) > recent (most-recent=done).
   if (column === 'active') {
     wheres.push(`EXISTS (
       SELECT 1 FROM activities a
@@ -335,15 +338,22 @@ export async function listTasks(
       SELECT 1 FROM activities a
        WHERE a.task_id = tasks.id AND a.status = 'in_progress'
     )`);
+    wheres.push(`(
+      SELECT a.status FROM activities a
+       WHERE a.task_id = tasks.id
+       ORDER BY a.started_at DESC LIMIT 1
+    ) = 'done'`);
+  } else if (column === 'errored') {
+    // Most-recent activity is error, and no activity is currently in_progress
     wheres.push(`NOT EXISTS (
       SELECT 1 FROM activities a
-       WHERE a.task_id = tasks.id AND a.status = 'error'
+       WHERE a.task_id = tasks.id AND a.status = 'in_progress'
     )`);
-  } else if (column === 'errored') {
-    wheres.push(`EXISTS (
-      SELECT 1 FROM activities a
-       WHERE a.task_id = tasks.id AND a.status = 'error'
-    )`);
+    wheres.push(`(
+      SELECT a.status FROM activities a
+       WHERE a.task_id = tasks.id
+       ORDER BY a.started_at DESC LIMIT 1
+    ) = 'error'`);
   }
 
   if (filter.agentId) {
@@ -487,6 +497,29 @@ export async function countInProgressByAgent(
     out[row.agent_id as string] = Number(row.n ?? 0);
   }
   return out;
+}
+
+/**
+ * Mark any activities/tool_calls that are still `in_progress` as `error`.
+ * Called once at runner startup to recover from unclean shutdowns (SIGKILL,
+ * crashes) that bypassed the normal closeActivity path.
+ */
+export async function sweepStaleActivities(): Promise<number> {
+  const db = getDb();
+  await db.query(
+    `UPDATE tool_calls SET status = 'ok'
+      WHERE status = 'in_progress'`,
+    [],
+  );
+  const { rows } = await db.query(
+    `UPDATE activities
+        SET status = 'error', error = 'Interrupted — runner restarted',
+            finished_at = datetime('now')
+      WHERE status = 'in_progress'
+  RETURNING id`,
+    [],
+  );
+  return rows.length;
 }
 
 // =============================================================================
