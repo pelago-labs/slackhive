@@ -12,9 +12,11 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 
+export type Role = 'superadmin' | 'admin' | 'editor' | 'viewer';
+
 interface AuthState {
   username: string;
-  role: 'superadmin' | 'admin' | 'editor' | 'viewer' | null;
+  role: Role | null;
   loading: boolean;
   /** Can create/edit/delete agents, jobs, settings, MCPs. */
   canEdit: boolean;

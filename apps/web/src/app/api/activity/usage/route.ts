@@ -30,7 +30,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-    if (session.role === 'viewer') {
+    // Token usage + power-user leaderboard are billing-adjacent — superadmin only.
+    if (session.role !== 'superadmin') {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 

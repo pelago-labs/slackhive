@@ -12,21 +12,29 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Activity as ActivityIcon, BarChart3 } from 'lucide-react';
+import { useAuth, type Role } from '@/lib/auth-context';
 
 interface Tab {
   href: string;
   label: string;
   icon: React.ReactNode;
+  /** Only render this tab when the user's role is in this list. `undefined` = visible to everyone. */
+  roles?: Role[];
 }
 
 const TABS: Tab[] = [
   { href: '/activity',       label: 'Tasks', icon: <ActivityIcon size={13} /> },
-  { href: '/activity/usage', label: 'Usage', icon: <BarChart3    size={13} /> },
+  { href: '/activity/usage', label: 'Usage', icon: <BarChart3    size={13} />, roles: ['superadmin'] },
 ];
 
-export function TabSwitcher(): React.JSX.Element {
+export function TabSwitcher(): React.JSX.Element | null {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { role, loading } = useAuth();
+
+  if (loading) return null;
+  const visibleTabs = TABS.filter(t => !t.roles || (role && t.roles.includes(role)));
+  if (visibleTabs.length <= 1) return null;
 
   const query = (() => {
     const qs = new URLSearchParams();
@@ -48,7 +56,7 @@ export function TabSwitcher(): React.JSX.Element {
         marginBottom: 16,
       }}
     >
-      {TABS.map(tab => {
+      {visibleTabs.map(tab => {
         const active = pathname === tab.href;
         return (
           <Link

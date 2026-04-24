@@ -171,7 +171,7 @@ Every agent is a full **Claude Code** agent — with tools, memory, identity, an
 | 🚦 **Channel Restrictions** | Lock agents to specific Slack channels. Bot auto-leaves uninvited channels with a notice. |
 | 📊 **Live Logs** | SSE-streamed log output per agent — with level filters and search. |
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type — feedback, user, project, reference. |
-| 📡 **Activity Dashboard** | Live kanban of every task your agents are working on — Active, Completed, Errors — with drill-down to every tool call. A **Usage** tab breaks down token consumption per agent and ranks power users by tasks started. Admins see everything; editors see only agents they own or are granted access to; viewers are blocked. |
+| 📡 **Activity Dashboard** | Live kanban of every task your agents are working on — Active, Completed, Errors — with drill-down to every tool call. A superadmin-only **Usage** tab breaks down token consumption per agent and ranks power users by tasks started. Admins see everything; editors see only agents they own or are granted access to; viewers are blocked. |
 | 🌐 **Multi-Workspace** | Connect multiple Slack workspaces to a single SlackHive instance. Each workspace gets its own agents and configurations. |
 
 ---

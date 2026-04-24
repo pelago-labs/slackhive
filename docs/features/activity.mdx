@@ -41,9 +41,9 @@ The Active card's subtext shows *N agents working* — scoped to the current fil
 
 ## Usage tab
 
-Activity has two tabs: **Tasks** (the kanban above) and **Usage**. The switcher sits just below the page header and preserves the current agent + window filters when you move between tabs.
+Activity has two tabs: **Tasks** (the kanban above) and **Usage** — the latter is **superadmin-only**. The switcher only renders for superadmin sessions; admins, editors, and viewers see just the Tasks board, and `/api/activity/usage` returns `403` for any non-superadmin call. Enforcement is server-side, so direct navigation to `/activity/usage` by a non-superadmin loads an empty page.
 
-Usage is the same shape as Tasks — tabs → summary cards → filter → detail — but instead of kanban columns it shows token consumption rolled up for the selected window:
+Usage shares the same layout as Tasks — tabs → summary cards → filter → detail — but instead of kanban columns it shows token consumption rolled up for the selected window:
 
 - **Totals strip** — five KPIs across the selected window: *Input*, *Output*, *Cache read*, *Cache written*, *Turns*. All formatted at human scale (`1.2M`, `340K`, or raw digits).
 - **By agent** — horizontal bars ranking agents by `input + output` tokens in the window. Each row shows the agent name, a proportional bar, and the per-agent breakdown (`in · out · turns`).

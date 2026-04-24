@@ -10,7 +10,7 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { BarChart3, ExternalLink, RefreshCw } from 'lucide-react';
+import { BarChart3, ExternalLink, Lock, RefreshCw } from 'lucide-react';
 import { TabSwitcher } from '../_components/TabSwitcher';
 import { FilterRow, type WindowKey } from '../_components/FilterRow';
 import { formatTokens } from '../_components/formatTokens';
@@ -85,6 +85,7 @@ function UsagePageBody(): React.JSX.Element {
   );
   const [data, setData] = useState<UsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [denied, setDenied] = useState(false);
 
   useEffect(() => {
     fetch('/api/agents').then(r => r.json()).then((rows: AgentLite[]) => setAgents(rows)).catch(() => {});
@@ -102,6 +103,12 @@ function UsagePageBody(): React.JSX.Element {
     if (agentFilter) params.set('agent', agentFilter);
     try {
       const r = await fetch(`/api/activity/usage?${params.toString()}`);
+      if (r.status === 403) {
+        setDenied(true);
+        setData(null);
+        return;
+      }
+      setDenied(false);
       if (r.ok) setData(await r.json());
     } finally {
       setLoading(false);
@@ -148,25 +155,31 @@ function UsagePageBody(): React.JSX.Element {
 
       <TabSwitcher />
 
-      <TotalsStrip totals={data?.totals ?? null} windowLabel={windowLabel(windowKey)} />
+      {denied ? (
+        <AccessDeniedCard />
+      ) : (
+        <>
+          <TotalsStrip totals={data?.totals ?? null} windowLabel={windowLabel(windowKey)} />
 
-      <div style={{ marginTop: 14 }}>
-        <FilterRow
-          agents={agents}
-          agentFilter={agentFilter}
-          windowKey={windowKey}
-          onAgentChange={setAgentFilter}
-          onWindowChange={setWindowKey}
-        />
-      </div>
+          <div style={{ marginTop: 14 }}>
+            <FilterRow
+              agents={agents}
+              agentFilter={agentFilter}
+              windowKey={windowKey}
+              onAgentChange={setAgentFilter}
+              onWindowChange={setWindowKey}
+            />
+          </div>
 
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)',
-        gap: 14, marginTop: 14,
-      }}>
-        <AgentBars byAgent={data?.byAgent ?? null} agentById={agentById} loading={loading && !data} />
-        <PowerUsers byUser={data?.byUser ?? null} loading={loading && !data} />
-      </div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)',
+            gap: 14, marginTop: 14,
+          }}>
+            <AgentBars byAgent={data?.byAgent ?? null} agentById={agentById} loading={loading && !data} />
+            <PowerUsers byUser={data?.byUser ?? null} loading={loading && !data} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -177,6 +190,32 @@ function windowLabel(w: WindowKey): string {
        : w === '24h' ? 'last 24 hours'
        : w === '7d' ? 'last 7 days'
        : 'last 30 days';
+}
+
+function AccessDeniedCard(): React.JSX.Element {
+  return (
+    <section style={{
+      ...sectionStyle,
+      textAlign: 'center',
+      padding: '32px 16px',
+    }}>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 40, height: 40, borderRadius: '50%',
+        background: 'var(--surface-2)', marginBottom: 12,
+        color: 'var(--muted)',
+      }}>
+        <Lock size={18} />
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+        Usage is superadmin-only
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--subtle)', maxWidth: 420, margin: '0 auto' }}>
+        Token usage and the power-user leaderboard contain billing-adjacent
+        data. Ask a superadmin if you need access.
+      </div>
+    </section>
+  );
 }
 
 function TotalsStrip(props: { totals: Totals | null; windowLabel: string }): React.JSX.Element {
