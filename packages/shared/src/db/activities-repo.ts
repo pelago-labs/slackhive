@@ -256,6 +256,41 @@ export async function finishToolCall(
   );
 }
 
+/** SDK `result` message usage shape — matches `@anthropic-ai/claude-agent-sdk`. */
+export interface ActivityUsageInput {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}
+
+/**
+ * Persist per-turn token usage on an activity row. Called once per SDK `result`
+ * message. Missing/null fields are coerced to 0 — NULL is reserved for rows
+ * that pre-date this feature.
+ */
+export async function recordActivityUsage(
+  activityId: string,
+  usage: ActivityUsageInput,
+): Promise<void> {
+  const db = getDb();
+  await db.query(
+    `UPDATE activities
+        SET input_tokens          = $1,
+            output_tokens         = $2,
+            cache_read_tokens     = $3,
+            cache_creation_tokens = $4
+      WHERE id = $5`,
+    [
+      Number(usage.input_tokens ?? 0),
+      Number(usage.output_tokens ?? 0),
+      Number(usage.cache_read_input_tokens ?? 0),
+      Number(usage.cache_creation_input_tokens ?? 0),
+      activityId,
+    ],
+  );
+}
+
 // =============================================================================
 // Reader API
 // =============================================================================
@@ -486,3 +521,154 @@ export async function sweepStaleActivities(): Promise<number> {
   );
   return rows.length;
 }
+
+// =============================================================================
+// Usage aggregation
+// =============================================================================
+
+export interface AgentTokenUsage {
+  agentId: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  turnCount: number;
+}
+
+export interface UserActivitySummary {
+  userId: string;
+  handle: string | null;
+  taskCount: number;
+  turnCount: number;
+  totalTokens: number;
+}
+
+/**
+ * Render a bare SQLite `IN (…)` clause for the accessible-agent allowlist —
+ * the caller decides whether to join it with `AND` or prepend it.
+ *
+ * Returns `null` when there are no accessible agents (caller should short-circuit
+ * to an empty result), `{ sql: '', params: [] }` for admin callers (no restriction),
+ * or `{ sql: 'a.agent_id IN (...)', params: [...] }` when there is a restriction.
+ */
+function accessClause(
+  accessibleAgentIds: string[] | undefined,
+  startIdx: number,
+): { sql: string; params: unknown[] } | null {
+  if (accessibleAgentIds === undefined) return { sql: '', params: [] };
+  if (accessibleAgentIds.length === 0) return null;
+  const placeholders = accessibleAgentIds.map((_, i) => `$${startIdx + i}`).join(', ');
+  return { sql: `a.agent_id IN (${placeholders})`, params: [...accessibleAgentIds] };
+}
+
+/** Sum token columns per agent within the filter window. Sorted by descending total. */
+export async function getTokensByAgent(filter: ActivityFilter = {}): Promise<AgentTokenUsage[]> {
+  const db = getDb();
+  const wheres: string[] = [];
+  const params: unknown[] = [];
+
+  if (filter.since) {
+    wheres.push(`a.started_at >= $${params.length + 1}`);
+    params.push(filter.since);
+  }
+
+  if (filter.agentId) {
+    wheres.push(`a.agent_id = $${params.length + 1}`);
+    params.push(filter.agentId);
+  }
+
+  const access = accessClause(filter.accessibleAgentIds, params.length + 1);
+  if (access === null) return [];
+  if (access.sql) {
+    wheres.push(access.sql);
+    params.push(...access.params);
+  }
+
+  const whereSql = wheres.length ? `WHERE ${wheres.join(' AND ')}` : '';
+
+  const { rows } = await db.query(
+    `SELECT a.agent_id                                  AS agent_id,
+            COALESCE(SUM(a.input_tokens), 0)            AS input_tokens,
+            COALESCE(SUM(a.output_tokens), 0)           AS output_tokens,
+            COALESCE(SUM(a.cache_read_tokens), 0)       AS cache_read_tokens,
+            COALESCE(SUM(a.cache_creation_tokens), 0)   AS cache_creation_tokens,
+            COUNT(*)                                     AS turn_count
+       FROM activities a
+       ${whereSql}
+      GROUP BY a.agent_id
+      ORDER BY (COALESCE(SUM(a.input_tokens), 0) + COALESCE(SUM(a.output_tokens), 0)) DESC`,
+    params,
+  );
+
+  return rows.map(row => ({
+    agentId: row.agent_id as string,
+    inputTokens: Number(row.input_tokens ?? 0),
+    outputTokens: Number(row.output_tokens ?? 0),
+    cacheReadTokens: Number(row.cache_read_tokens ?? 0),
+    cacheCreationTokens: Number(row.cache_creation_tokens ?? 0),
+    turnCount: Number(row.turn_count ?? 0),
+  }));
+}
+
+/**
+ * Top N users by distinct task count within the filter window. Ties broken
+ * by turn count descending. Excludes rows with no initiator_user_id.
+ *
+ * All counts filter on `a.started_at` so a user's totals match what the
+ * per-agent bars show for the same window — the earlier version filtered
+ * on `t.last_activity_at`, which over-counted turns on long-lived tasks.
+ */
+export async function getTopUsers(
+  filter: ActivityFilter = {},
+  limit = 10,
+): Promise<UserActivitySummary[]> {
+  const db = getDb();
+  const wheres: string[] = [`t.initiator_user_id IS NOT NULL`];
+  const params: unknown[] = [];
+
+  if (filter.since) {
+    wheres.push(`a.started_at >= $${params.length + 1}`);
+    params.push(filter.since);
+  }
+
+  if (filter.agentId) {
+    wheres.push(`a.agent_id = $${params.length + 1}`);
+    params.push(filter.agentId);
+  }
+
+  const access = accessClause(filter.accessibleAgentIds, params.length + 1);
+  if (access === null) return [];
+  if (access.sql) {
+    wheres.push(access.sql);
+    params.push(...access.params);
+  }
+
+  params.push(limit);
+
+  // MAX(initiator_handle) is a SQLite-idiomatic way to pull any one handle
+  // for the grouped user — we only store one handle per task, so it's
+  // effectively "pick the lexicographically largest" (stable, arbitrary).
+  const { rows } = await db.query(
+    `SELECT t.initiator_user_id                                      AS user_id,
+            MAX(t.initiator_handle)                                  AS handle,
+            COUNT(DISTINCT t.id)                                     AS task_count,
+            COUNT(a.id)                                              AS turn_count,
+            COALESCE(SUM(COALESCE(a.input_tokens, 0) + COALESCE(a.output_tokens, 0)), 0) AS total_tokens
+       FROM tasks t
+       JOIN activities a ON a.task_id = t.id
+      WHERE ${wheres.join(' AND ')}
+      GROUP BY t.initiator_user_id
+      ORDER BY task_count DESC, turn_count DESC
+      LIMIT $${params.length}`,
+    params,
+  );
+
+  return rows.map(row => ({
+    userId: row.user_id as string,
+    handle: (row.handle as string | null) ?? null,
+    taskCount: Number(row.task_count ?? 0),
+    turnCount: Number(row.turn_count ?? 0),
+    totalTokens: Number(row.total_tokens ?? 0),
+  }));
+}
+

@@ -11,28 +11,11 @@ import { listTasks, type TaskListColumn, type ActivityFilter } from '@slackhive/
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
+import { windowFloor } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
 
 const VALID_COLUMNS: TaskListColumn[] = ['active', 'recent', 'errored'];
-const VALID_WINDOWS = new Set(['1h', '24h', '7d', '30d']);
-
-/**
- * Translate a UI window string to an ISO timestamp floor. SQLite stores
- * timestamps as `YYYY-MM-DD HH:MM:SS` via `datetime('now')`, and string
- * comparison against ISO-lexicographic values sorts correctly.
- */
-function windowFloor(w: string | null): string | undefined {
-  if (!w || !VALID_WINDOWS.has(w)) return undefined;
-  const now = Date.now();
-  const ms =
-    w === '1h'  ? 60 * 60 * 1000 :
-    w === '24h' ? 24 * 60 * 60 * 1000 :
-    w === '7d'  ? 7 * 24 * 60 * 60 * 1000 :
-                  30 * 24 * 60 * 60 * 1000;
-  // SQLite default format: 'YYYY-MM-DD HH:MM:SS'.
-  return new Date(now - ms).toISOString().replace('T', ' ').slice(0, 19);
-}
 
 /**
  * GET /api/activity?column=active|recent|errored&window=24h&agent=&user=&cursor=&limit=

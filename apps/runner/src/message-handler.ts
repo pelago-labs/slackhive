@@ -18,6 +18,7 @@ import {
   finishActivity,
   beginToolCall,
   finishToolCall,
+  recordActivityUsage,
 } from '@slackhive/shared';
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
@@ -195,6 +196,17 @@ export class MessageHandler {
             status: (message as any).subtype,
             num_turns: (message as any).num_turns,
           });
+
+          if (recorder) {
+            const usage = (message as any).usage;
+            if (usage) {
+              try {
+                await recordActivityUsage(recorder.activityId, usage);
+              } catch (err) {
+                this.log.warn('activity: recordActivityUsage failed', { error: (err as Error).message });
+              }
+            }
+          }
 
           if ((message as any).subtype === 'success') {
             const finalResult = (message as any).result as string | undefined;

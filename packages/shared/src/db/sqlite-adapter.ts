@@ -386,19 +386,23 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE TABLE IF NOT EXISTS activities (
-  id                 TEXT PRIMARY KEY,
-  task_id            TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  agent_id           TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-  platform           TEXT NOT NULL DEFAULT 'slack',
-  initiator_kind     TEXT NOT NULL CHECK (initiator_kind IN ('user','agent')),
-  initiator_user_id  TEXT,
-  message_ref        TEXT,
-  message_preview    TEXT,
-  started_at         TEXT NOT NULL DEFAULT (datetime('now')),
-  finished_at        TEXT,
-  status             TEXT NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress','done','error')),
-  error              TEXT,
-  tool_call_count    INTEGER NOT NULL DEFAULT 0
+  id                     TEXT PRIMARY KEY,
+  task_id                TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  agent_id               TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  platform               TEXT NOT NULL DEFAULT 'slack',
+  initiator_kind         TEXT NOT NULL CHECK (initiator_kind IN ('user','agent')),
+  initiator_user_id      TEXT,
+  message_ref            TEXT,
+  message_preview        TEXT,
+  started_at             TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at            TEXT,
+  status                 TEXT NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress','done','error')),
+  error                  TEXT,
+  tool_call_count        INTEGER NOT NULL DEFAULT 0,
+  input_tokens           INTEGER,
+  output_tokens          INTEGER,
+  cache_read_tokens      INTEGER,
+  cache_creation_tokens  INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS tool_calls (
@@ -454,6 +458,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_last_activity     ON tasks(last_activity_at
 CREATE INDEX IF NOT EXISTS idx_tasks_platform_keys     ON tasks(platform, channel_id, thread_ts);
 CREATE INDEX IF NOT EXISTS idx_activities_task         ON activities(task_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_activities_agent        ON activities(agent_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activities_started      ON activities(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activities_in_progress  ON activities(status) WHERE status = 'in_progress';
 CREATE INDEX IF NOT EXISTS idx_tool_calls_activity     ON tool_calls(activity_id, started_at);
 `;
@@ -512,6 +517,20 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   }
   if (!agentCols.includes('last_heartbeat')) {
     db.exec('ALTER TABLE agents ADD COLUMN last_heartbeat TEXT');
+  }
+
+  const activityCols = (db.pragma('table_info(activities)') as { name: string }[]).map(c => c.name);
+  if (!activityCols.includes('input_tokens')) {
+    db.exec('ALTER TABLE activities ADD COLUMN input_tokens INTEGER');
+  }
+  if (!activityCols.includes('output_tokens')) {
+    db.exec('ALTER TABLE activities ADD COLUMN output_tokens INTEGER');
+  }
+  if (!activityCols.includes('cache_read_tokens')) {
+    db.exec('ALTER TABLE activities ADD COLUMN cache_read_tokens INTEGER');
+  }
+  if (!activityCols.includes('cache_creation_tokens')) {
+    db.exec('ALTER TABLE activities ADD COLUMN cache_creation_tokens INTEGER');
   }
 
   // Install a custom function to generate UUIDs

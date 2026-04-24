@@ -12,20 +12,9 @@ import { listTasks, countInProgressByAgent, type ActivityFilter } from '@slackhi
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
+import { windowFloor } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
-
-const VALID_WINDOWS = new Set(['1h', '24h', '7d', '30d']);
-
-function windowFloor(w: string | null): string | undefined {
-  if (!w || !VALID_WINDOWS.has(w)) return undefined;
-  const ms =
-    w === '1h'  ? 60 * 60 * 1000 :
-    w === '24h' ? 24 * 60 * 60 * 1000 :
-    w === '7d'  ? 7 * 24 * 60 * 60 * 1000 :
-                  30 * 24 * 60 * 60 * 1000;
-  return new Date(Date.now() - ms).toISOString().replace('T', ' ').slice(0, 19);
-}
 
 /**
  * GET /api/activity/stats?window=24h&agent=&user=
