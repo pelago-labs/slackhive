@@ -13,7 +13,7 @@
   },
   "scripts": {
     "dev": "sh scripts/dev.sh",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w packages/shared && npm run build --workspaces --if-present",
     "prepare": "npm run build -w cli"
   },
   "files": [
