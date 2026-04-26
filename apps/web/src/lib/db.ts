@@ -30,7 +30,7 @@ import type {
   SnapshotTrigger,
   Restriction,
 } from '@slackhive/shared';
-import { getDb, initDb, encrypt, decrypt } from '@slackhive/shared';
+import { getDb, initDb, encrypt, decrypt, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 import { getEncryptionKey } from './secrets';
 import type { DbAdapter } from '@slackhive/shared';
 
@@ -297,7 +297,7 @@ export async function createAgent(req: CreateAgentRequest, createdBy = 'system')
      RETURNING *`,
     [
       id, req.slug, req.name, req.persona ?? null, req.description ?? null,
-      req.model ?? 'claude-opus-4-6', req.isBoss ?? false, req.reportsTo ?? [],
+      req.model ?? DEFAULT_AGENT_MODEL, req.isBoss ?? false, req.reportsTo ?? [],
       createdBy,
     ]
   );

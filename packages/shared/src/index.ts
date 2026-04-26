@@ -33,3 +33,5 @@ export type {
   TaskWithDetails,
   ActivityUsageInput, AgentTokenUsage, UserActivitySummary,
 } from './db/activities-repo';
+export { MODELS, DEFAULT_AGENT_MODEL, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from './models';
+export type { ModelOption } from './models';
