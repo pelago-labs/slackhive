@@ -1,6 +1,6 @@
 ---
 title: "Settings & Users"
-description: "Brand the dashboard, create users, assign roles, and control per-agent write access."
+description: "Brand the dashboard, create users, assign roles, and control per-agent access."
 ---
 
 The **Settings** page has two tabs: **General** (platform branding) and **Users** (accounts and roles). This page covers both.
@@ -39,8 +39,8 @@ SlackHive has four roles with escalating permissions:
 |------|-------------|-------------|-------------|----------|-------------|-------------|
 | **Superadmin** | All | All | Yes | Yes | Yes | All tasks |
 | **Admin** | All | All | Yes | Yes | Yes | All tasks |
-| **Editor** | All | Own + granted | Yes | Yes | No | Only own + granted agents |
-| **Viewer** | All | No | No | No | No | Blocked (403) |
+| **Editor** | Granted only | Own + granted | Yes | Yes | No | Only own + granted agents |
+| **Viewer** | Granted only | No | No | No | No | Blocked (403) |
 
 ### Superadmin
 
@@ -48,19 +48,21 @@ Configured via `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`. This account is 
 
 ### Admin
 
-Full access equivalent to superadmin, but stored in the database and manageable via the Users page. Admins can create other users, change roles, and grant per-agent write access to editors.
+Full access equivalent to superadmin, but stored in the database and manageable via the Users page. Admins can create other users, change roles, and grant per-agent access (View or Edit) to editors and viewers.
 
 ### Editor
 
-Read access to all agents by default. Write access on:
-- Agents they created themselves
-- Any agents an admin has explicitly granted them access to
+Agents are **hidden by default**. Editors only see:
+- Agents they created themselves (full edit access automatically)
+- Agents an admin has explicitly granted them access to (View or Edit)
 
-Editors can create and manage scheduled jobs. They cannot manage users or change platform settings.
+Editors can create and manage scheduled jobs. They can add env vars and edit/delete ones they added themselves. They cannot manage users or change platform settings.
 
 ### Viewer
 
-Read-only access to everything. Can see all agents, memories, and history, but cannot make changes.
+Agents are **hidden by default**. Viewers only see agents an admin has explicitly granted them (View access only).
+
+On a granted agent, viewers can browse all content tabs (Overview, Instructions, Skills, Tools, Knowledge, Memory) but cannot make changes. The **Test**, **Export**, **Download wiki**, **Logs**, and **History** tabs are hidden.
 
 ## Creating users
 
@@ -81,25 +83,47 @@ Users can log in immediately at the `/login` page.
 3. Use the role dropdown to select a new role
 4. Changes take effect on the user's next page load (their active session remains valid)
 
-## Per-agent write access for editors
+## Per-agent access grants
 
-Admins can grant editors write access to specific agents beyond what they created themselves:
+Agents are invisible to editors and viewers until an admin grants access. There are two access levels:
+
+| Level | Who can receive it | What they can do |
+|---|---|---|
+| **View** | Editors and viewers | Browse all content tabs read-only; Test, Export, Logs, History hidden |
+| **Edit** | Editors only | Full edit rights — identical to owning the agent |
+
+To grant access:
 
 1. Go to **Settings → Users**
-2. Click a user with the **Editor** role
-3. Under **Agent Access**, you'll see a checklist of all agents
-4. Check the agents this editor should have full write access to
+2. Click the user (editor or viewer)
+3. Under **Agent Access**, find the agent
+4. Select **View** or **Edit** (viewers can only receive View)
 5. Save
 
-Checked agents grant the editor full edit rights: skills, CLAUDE.md, tool permissions, MCP assignments, and history restore.
+To revoke access, set the toggle back to **None**.
+
+<Note>
+  Editors automatically have Edit access on agents they created — no grant needed. Admins and superadmins always see all agents regardless of grants.
+</Note>
+
+## Env Vars ownership
+
+The **Settings → Env Vars** secret store tracks who added each secret:
+
+- **Admins** can create, edit, and delete any env var
+- **Editors** can create env vars; they can only edit or delete ones they added themselves
+- **Viewers** have no access to env vars
+
+Each row shows **Added by {username} · date** so admins can see who owns each secret and when it was last rotated.
 
 ## Permissions enforcement
 
 All permissions are enforced **server-side** in API route guards - not just hidden in the UI. A viewer who manually calls an API endpoint to edit an agent will receive a 403 response.
 
 The permission model:
-- Read operations require any authenticated session
-- Write operations on an agent require: admin, superadmin, or (editor + agent ownership/grant)
+- Agent list (`GET /api/agents`) is filtered — editors and viewers only receive agents they have access to
+- Individual agent routes return 404 (not 403) for agents a user has no access to — this avoids leaking agent existence
+- Write operations on an agent require: admin, superadmin, or (editor + agent ownership/Edit grant)
 - Settings mutations require: admin or superadmin
 - User management requires: admin or superadmin
 - [Activity Dashboard](/features/activity): admin/superadmin see all tasks; editors are scoped to agents they own or were granted; viewers get 403
