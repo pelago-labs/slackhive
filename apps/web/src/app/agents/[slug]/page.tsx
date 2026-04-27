@@ -71,6 +71,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const [agent, setAgent] = useState<Agent | null>(null);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [canEdit, setCanEdit] = useState(false);
+  const [viewOnly, setViewOnly] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
   /** Full-main-window mode swap. `test` replaces the agent header + tabs +
    *  tab content with <TestPanel>. The global SlackHive sidebar (rendered by
@@ -120,8 +121,10 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
           fetch(`/api/agents/${found.id}/access`)
             .then(r => r.json())
             .then(data => {
-              const writable = role === 'editor' && (data.canWrite ?? false);
+              const canRead = data.canRead ?? false;
+              const writable = canRead && (data.canWrite ?? false);
               setCanEdit(writable);
+              setViewOnly(canRead && !writable);
               if (writable) {
                 // Editors with write access can also see tokens
                 fetch(`/api/agents/${found.id}`)
@@ -253,7 +256,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16 }}>
           {actionMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{actionMsg}</span>}
 
-          <button
+          {!viewOnly && <button
             onClick={() => setMode('test')}
             title="Test this agent — chat with it without connecting to Slack"
             style={{
@@ -271,7 +274,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
           >
             <MessageSquare size={13} />
             Test
-          </button>
+          </button>}
 
           <Link
             href={`/activity?agent=${encodeURIComponent(agent.id)}`}
@@ -315,7 +318,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         background: 'var(--surface)',
         overflowX: 'auto', WebkitOverflowScrolling: 'touch',
       }}>
-        {TABS.map(t => (
+        {TABS.filter(t => !viewOnly || (t.id !== 'logs' && t.id !== 'history')).map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -932,9 +935,9 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
             {importError && <span style={{ fontSize: 11, color: 'var(--danger)', marginLeft: 8, fontWeight: 400, textTransform: 'none' }}>{importError}</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <IconBtn title="Export instructions as JSON" onClick={handleExport} loading={exporting}>
+            {canEdit && <IconBtn title="Export instructions as JSON" onClick={handleExport} loading={exporting}>
               <Download size={14} />
-            </IconBtn>
+            </IconBtn>}
             {canEdit && (
               <IconBtn title="Import persona" onClick={() => setPersonaLibOpen(true)}>
                 <Upload size={14} />
@@ -2270,7 +2273,7 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
                   Built {new Date(wikiData.lastBuilt).toLocaleDateString()} {new Date(wikiData.lastBuilt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
-              <button
+              {canEdit && <button
                 onClick={async () => {
                   setDownloading(true);
                   try {
@@ -2294,7 +2297,7 @@ function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentS
                 }}
               >
                 {downloading ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Downloading...</> : <><Download size={13} /> Download</>}
-              </button>
+              </button>}
               {canEdit && (
                 <>
                   <button
