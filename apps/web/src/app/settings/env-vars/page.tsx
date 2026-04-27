@@ -15,7 +15,7 @@ import { KeyRound } from 'lucide-react';
 interface EnvVarRow { key: string; description?: string; updatedAt: string; }
 
 export default function EnvVarsPage() {
-  const { canEdit } = useAuth();
+  const { canManageUsers: canEdit } = useAuth();
   const [vars, setVars]         = useState<EnvVarRow[]>([]);
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
