@@ -1,13 +1,13 @@
 ---
 title: "Introduction"
-description: "SlackHive turns your Slack workspace into a team of AI agents — specialists you @mention, a Boss that coordinates, and memory that compounds over time."
+description: "SlackHive turns your Slack workspace into a team of AI agents - specialists you @mention, a Boss that coordinates, and memory that compounds over time."
 ---
 
 ## Build your AI-first company on Slack
 
-Andrej Karpathy made two observations that shaped how we built it: LLMs read **wikis** better than file dumps, and **specialists beat generalists**. So every agent gets its own Karpathy-style wiki, its own tools, its own memory — and a Boss agent that delegates to the right specialist instead of cramming everything into one context window.
+Andrej Karpathy made two observations that shaped how we built it: LLMs read **wikis** better than file dumps, and **specialists beat generalists**. So every agent gets its own Karpathy-style wiki, its own tools, its own memory - and a Boss agent that delegates to the right specialist instead of cramming everything into one context window.
 
-These aren't chatbots you switch to. They're **colleagues you @mention** — in the same channels, the same threads, with the same @mention pattern your team already uses for each other. Each one connects to the tools your team already uses — Notion, Jira, GitHub, Figma, your database, your analytics stack.
+These aren't chatbots you switch to. They're **colleagues you @mention** - in the same channels, the same threads, with the same @mention pattern your team already uses for each other. Each one connects to the tools your team already uses - Notion, Jira, GitHub, Figma, your database, your analytics stack.
 
 **Anyone on the team can create an agent.** No engineers required. If you can describe what you need, you can deploy it in minutes.
 
@@ -15,15 +15,15 @@ These aren't chatbots you switch to. They're **colleagues you @mention** — in 
 
 ## What this looks like in practice
 
-A CEO who wants to drill into metrics doesn't open a BI tool — they ask `@data-analyst` directly in Slack. An engineer debugging a production issue asks `@devops` to tail logs and open a PR with the fix. A PM sketches a feature idea and asks `@designer` to create the initial wireframe in Figma. A marketer asks `@content-writer` to draft a campaign brief in their brand voice.
+A CEO who wants to drill into metrics doesn't open a BI tool - they ask `@data-analyst` directly in Slack. An engineer debugging a production issue asks `@devops` to tail logs and open a PR with the fix. A PM sketches a feature idea and asks `@designer` to create the initial wireframe in Figma. A marketer asks `@content-writer` to draft a campaign brief in their brand voice.
 
-Every tool your company uses — Notion, Jira, GitHub, Redshift, HubSpot, Figma — becomes accessible through a simple @mention in Slack.
+Every tool your company uses - Notion, Jira, GitHub, Redshift, HubSpot, Figma - becomes accessible through a simple @mention in Slack.
 
 ```
 CEO:            @data-analyst revenue is down 8% this week, can you dig in?
 DataBot:        [queries Redshift across 6 dimensions]
-                Found it — enterprise tier churn spiked on Tuesday after
-                the pricing page change. 3 accounts, $42k ARR. @boss — done!
+                Found it - enterprise tier churn spiked on Tuesday after
+                the pricing page change. 3 accounts, $42k ARR. @boss - done!
 
 Engineer:       @devops the checkout service is throwing 500s, what's happening?
 DevOps:         [reads logs via MCP, identifies root cause]
@@ -32,7 +32,7 @@ DevOps:         [reads logs via MCP, identifies root cause]
 
 PM:             @designer can you mock up a simpler onboarding flow?
 Designer:       [uses Figma MCP to create frames]
-                Done — here's the Figma link with 3 variants. Let me know
+                Done - here's the Figma link with 3 variants. Let me know
                 which direction you want to take.
 ```
 
@@ -58,20 +58,20 @@ When you're not sure who handles it, tag your Boss agent. Boss reads your reques
 ```
 You:          @boss can you analyze last week's conversion funnel?
 Boss:         That's right up @data-analyst's alley. Let me loop them in 👇
-              @data-analyst — user wants conversion funnel analysis for last week.
+              @data-analyst - user wants conversion funnel analysis for last week.
               When you're done, please tag @boss.
 
 DataBot:      [reads full thread, runs Redshift query]
               Conversions were up 12% WoW, driven by a 3× improvement
-              in checkout completion. @boss — done!
+              in checkout completion. @boss - done!
 
-Boss:         Great find @data-analyst! To summarize —
+Boss:         Great find @data-analyst! To summarize -
               conversions are up 12% week-over-week. The big win was
               checkout: completion rate jumped 3×. Want me to dig into
               which channels drove that?
 ```
 
-The specialist receives the **full Slack thread** as context — nothing is lost in the handoff.
+The specialist receives the **full Slack thread** as context - nothing is lost in the handoff.
 
 ---
 
@@ -82,7 +82,7 @@ The specialist receives the **full Slack thread** as context — nothing is lost
     Pick one of 26 research-backed personas (or start blank). Give it a name, connect it to a Slack app, and you're live in about 5 minutes.
   </Step>
   <Step title="Connect it to your tools">
-    Assign MCP servers to give the agent real capabilities — query a database, read files, call an API, create Jira tickets, update Notion pages.
+    Assign MCP servers to give the agent real capabilities - query a database, read files, call an API, create Jira tickets, update Notion pages.
   </Step>
   <Step title="Tune with Coach">
     Open the Coach panel, describe what you want in plain English, and approve the proposed skill and prompt changes. No hand-editing.
@@ -101,40 +101,40 @@ The specialist receives the **full Slack thread** as context — nothing is lost
 
 <CardGroup cols={2}>
   <Card title="Coach" icon="comments" href="/agents/coach">
-    An interactive chat panel that tunes your agent's system prompt, skills, and knowledge. You describe what you want — Coach proposes concrete changes, you approve.
+    An interactive chat panel that tunes your agent's system prompt, skills, and knowledge. You describe what you want - Coach proposes concrete changes, you approve.
   </Card>
   <Card title="Persona Library" icon="users" href="/agents/personas">
-    26 research-backed starter personas covering engineering, data, product, ops, marketing, and support roles — ready to deploy.
+    26 research-backed starter personas covering engineering, data, product, ops, marketing, and support roles - ready to deploy.
   </Card>
   <Card title="Boss Orchestration" icon="sitemap" href="/agents/boss-agents">
     A Boss agent receives high-level requests and delegates to specialists via Slack thread @mentions. Specialists report back, and Boss consolidates results.
   </Card>
   <Card title="Knowledge Base" icon="book" href="/agents/knowledge-base">
-    Ingest repos, files, and URLs into a per-agent wiki the agent reads on demand — Karpathy-style LLM wiki with overview, concepts, flows, and modules.
+    Ingest repos, files, and URLs into a per-agent wiki the agent reads on demand - Karpathy-style LLM wiki with overview, concepts, flows, and modules.
   </Card>
   <Card title="Persistent Memory" icon="brain" href="/agents/memory">
-    Agents write structured memories during every session. Memories compound — the longer an agent works with your team, the sharper it gets.
+    Agents write structured memories during every session. Memories compound - the longer an agent works with your team, the sharper it gets.
   </Card>
   <Card title="MCP Tool Servers" icon="plug" href="/configuration/mcp-servers">
     Connect agents to Notion, Jira, GitHub, Figma, and more via MCP. Global catalog with Official / Community badges; one-click import from Claude Code CLI.
   </Card>
   <Card title="Test Mode" icon="flask" href="/agents/testing">
-    A sandboxed conversation pane with real MCPs and multi-agent delegation — iterate without sending anything to Slack.
+    A sandboxed conversation pane with real MCPs and multi-agent delegation - iterate without sending anything to Slack.
   </Card>
   <Card title="Version History" icon="clock-rotate-left" href="/features/history">
     Every save auto-snapshots the full agent state. Browse history with GitHub-style file diffs and restore any version with one click.
   </Card>
   <Card title="Activity Dashboard" icon="wave-pulse" href="/features/activity">
-    Live kanban of every task your agents are working on — Active, Completed, Errors — with drill-down to every MCP tool call. A superadmin-only Usage tab breaks down token consumption per agent and ranks power users. Scoped by role.
+    Live kanban of every task your agents are working on - Active, Completed, Errors - with drill-down to every MCP tool call. A superadmin-only Usage tab breaks down token consumption per agent and ranks power users. Scoped by role.
   </Card>
   <Card title="Hot Reload" icon="bolt">
-    Edit any agent — instructions, skills, tools, permissions — and changes take effect within seconds. No restarts, no downtime.
+    Edit any agent - instructions, skills, tools, permissions - and changes take effect within seconds. No restarts, no downtime.
   </Card>
   <Card title="Encrypted Secrets" icon="lock">
     A platform-level encrypted store for API keys and Slack tokens. Credentials are never exposed in the API or UI.
   </Card>
   <Card title="Access Control" icon="shield" href="/features/users">
-    Four roles — superadmin, admin, editor, viewer — with per-agent grants. All permissions enforced server-side.
+    Four roles - superadmin, admin, editor, viewer - with per-agent grants. All permissions enforced server-side.
   </Card>
   <Card title="Dark Mode" icon="moon">
     Toggle in the profile menu. Runs across the whole dashboard.
@@ -152,13 +152,13 @@ SlackHive runs two local processes:
 
 | Service | What it does |
 |---|---|
-| **Web** (Next.js) | The management dashboard — create agents, edit skills, view logs |
+| **Web** (Next.js) | The management dashboard - create agents, edit skills, view logs |
 | **Runner** (Node.js) | Hosts all agent processes and maintains their Slack connections |
 
 State is stored in a local SQLite database at `~/.slackhive/data.db`. One command (`slackhive start` / `slackhive stop`) manages the whole stack.
 
 <Note>
-  SlackHive agents are powered by **Claude Code** — not a chatbot wrapper. Each agent is a real AI agent with tools, memory, and instructions. Works with a Claude Pro or Max subscription, or a standard API key.
+  SlackHive agents are powered by **Claude Code** - not a chatbot wrapper. Each agent is a real AI agent with tools, memory, and instructions. Works with a Claude Pro or Max subscription, or a standard API key.
 </Note>
 
 ---
@@ -169,12 +169,12 @@ Every SlackHive agent has four places content can live. Getting the mental model
 
 | Layer | Purpose |
 |---|---|
-| **System Prompt** | Who the agent is — role, tone, hard rules. Loads every turn. |
+| **System Prompt** | Who the agent is - role, tone, hard rules. Loads every turn. |
 | **Skills** | Reusable procedures invoked as slash commands. Loads on demand. |
 | **Memory** | Facts the agent learned from conversations. Recalled when relevant. |
 | **Wiki** | Reference material (codebases, docs, URLs) the agent reads on demand. |
 
-See [Concepts — What Goes Where](/agents/concepts) for the decision matrix — it's the best first read after this page.
+See [Concepts - What Goes Where](/agents/concepts) for the decision matrix - it's the best first read after this page.
 
 ---
 
@@ -182,18 +182,18 @@ See [Concepts — What Goes Where](/agents/concepts) for the decision matrix —
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="rocket" href="/quickstart">
-    From zero to your first agent responding in Slack — in under 10 minutes.
+    From zero to your first agent responding in Slack - in under 10 minutes.
   </Card>
   <Card title="Install with the CLI" icon="terminal" href="/getting-started/install-cli">
     The one-command install path.
   </Card>
   <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
-    What goes where — system prompt vs skills vs memory vs wiki.
+    What goes where - system prompt vs skills vs memory vs wiki.
   </Card>
   <Card title="Create an Agent" icon="robot" href="/agents/creating-agents">
     Walk through the 5-step agent wizard.
   </Card>
   <Card title="Example Agents" icon="sparkles" href="/examples">
-    Ten ready-to-build setups — oncall triage, data analyst, birthday bot, and more.
+    Ten ready-to-build setups - oncall triage, data analyst, birthday bot, and more.
   </Card>
 </CardGroup>

@@ -5,7 +5,7 @@ description: "Connect your agents to databases, APIs, and external services usin
 
 ## What is MCP?
 
-**MCP (Model Context Protocol)** is a standard that lets AI agents connect to external tools and data sources. Think of MCP servers as plugins for your agents — they give agents the ability to actually *do* things beyond just having a conversation.
+**MCP (Model Context Protocol)** is a standard that lets AI agents connect to external tools and data sources. Think of MCP servers as plugins for your agents - they give agents the ability to actually *do* things beyond just having a conversation.
 
 Without MCP, an agent can only talk. With MCP, an agent can:
 - Query your database and return real results
@@ -14,28 +14,28 @@ Without MCP, an agent can only talk. With MCP, an agent can:
 - Fetch data from any internal API
 - Run custom scripts
 
-An MCP server is a small program that exposes a set of **tools**. When an agent needs to do something — like run a SQL query — it calls the appropriate MCP tool, gets back the result, and incorporates it into its response.
+An MCP server is a small program that exposes a set of **tools**. When an agent needs to do something - like run a SQL query - it calls the appropriate MCP tool, gets back the result, and incorporates it into its response.
 
 <Note>
-  You don't need to build MCP servers from scratch. There are [many open-source MCP servers](https://github.com/modelcontextprotocol/servers) for common tools. SlackHive also supports **inline TypeScript MCPs** — you can paste code directly into the UI without deploying anything.
+  You don't need to build MCP servers from scratch. There are [many open-source MCP servers](https://github.com/modelcontextprotocol/servers) for common tools. SlackHive also supports **inline TypeScript MCPs** - you can paste code directly into the UI without deploying anything.
 </Note>
 
 ## How SlackHive manages MCP
 
 SlackHive manages MCP servers at the **platform level**. You add a server once to the global catalog, then assign it to any number of agents.
 
-When an agent starts, SlackHive launches all its assigned MCP servers and keeps them running. There's no per-message startup overhead — once the agent is live, its tools are always ready.
+When an agent starts, SlackHive launches all its assigned MCP servers and keeps them running. There's no per-message startup overhead - once the agent is live, its tools are always ready.
 
 Tool names follow the pattern `mcp__{serverName}__{toolName}`. For example, a server named `redshift` with a `query` tool is called as `mcp__redshift__query`.
 
-## The catalog — Official vs Community
+## The catalog - Official vs Community
 
 The platform catalog surfaces two badges:
 
 | Badge | Meaning |
 |---|---|
-| **Official** | Curated template maintained by SlackHive — tested and kept in sync with upstream MCP packages |
-| **Community** | Server you or a teammate added — not vetted |
+| **Official** | Curated template maintained by SlackHive - tested and kept in sync with upstream MCP packages |
+| **Community** | Server you or a teammate added - not vetted |
 
 Browse the catalog, assign an Official template, fill in env vars, and you're done.
 
@@ -47,15 +47,15 @@ Browse the catalog, assign an Official template, fill in env vars, and you're do
   </Step>
   <Step title="Pick a starting point">
     Three options:
-    - **Browse Templates** — pick from 40+ Official and Community templates
-    - **Import from Claude Code CLI** — one-click add any MCP already registered in your local `claude` CLI (shows a **CLI** badge on the card)
-    - **Custom Server** — paste a Cursor / Claude Desktop / VS Code config, or fill in fields
+    - **Browse Templates** - pick from 40+ Official and Community templates
+    - **Import from Claude Code CLI** - one-click add any MCP already registered in your local `claude` CLI (shows a **CLI** badge on the card)
+    - **Custom Server** - paste a Cursor / Claude Desktop / VS Code config, or fill in fields
   </Step>
   <Step title="Fill in the blanks">
-    In **Custom Server** the default view is a JSON textarea that accepts the standard `{ "mcpServers": { ... } }` shape used by Cursor, Claude Desktop, and VS Code. Use `${env:NAME}` for secrets — see [Paste JSON from other tools](#paste-json-from-other-tools) below. Prefer granular fields? Switch to the **Form** tab.
+    In **Custom Server** the default view is a JSON textarea that accepts the standard `{ "mcpServers": { ... } }` shape used by Cursor, Claude Desktop, and VS Code. Use `${env:NAME}` for secrets - see [Paste JSON from other tools](#paste-json-from-other-tools) below. Prefer granular fields? Switch to the **Form** tab.
   </Step>
   <Step title="Probe the server">
-    Click **Test Connection**. SlackHive runs a real MCP handshake — `initialize`, `tools/list` — against the server. You see the list of tools it exposes. If the probe fails, the error is shown inline with the tool stderr.
+    Click **Test Connection**. SlackHive runs a real MCP handshake - `initialize`, `tools/list` - against the server. You see the list of tools it exposes. If the probe fails, the error is shown inline with the tool stderr.
   </Step>
   <Step title="Save">
     Saves to the catalog. The server is now available for agent assignment.
@@ -68,7 +68,7 @@ If you've already set up MCPs via the `claude` CLI (`claude mcp add ...`), Slack
 
 1. In **MCP Servers**, click **Import from Claude Code**
 2. You see the full list from `claude mcp list`
-3. Click **Import** on any server — it's added to the catalog with a **CLI** badge
+3. Click **Import** on any server - it's added to the catalog with a **CLI** badge
 4. Adjust the env and config as needed
 
 This is the fastest path for teams who already manage MCPs through `claude` locally.
@@ -79,14 +79,14 @@ There are four ways to run an MCP server:
 
 | Transport | Use case |
 |-----------|----------|
-| `stdio` | A local process (Node.js script, Python script, binary) — most common |
+| `stdio` | A local process (Node.js script, Python script, binary) - most common |
 | `sse` | A remote server accessible via HTTP server-sent events |
 | `http` | A remote server accessible via HTTP |
-| TypeScript inline | Paste TypeScript source directly — no deployment needed |
+| TypeScript inline | Paste TypeScript source directly - no deployment needed |
 
 ## Configuration examples
 
-These examples use the standard Cursor / Claude Desktop / VS Code shape — paste them directly into the JSON textarea in **Custom Server**.
+These examples use the standard Cursor / Claude Desktop / VS Code shape - paste them directly into the JSON textarea in **Custom Server**.
 
 ### Redshift / Data Warehouse
 
@@ -112,7 +112,7 @@ Give your data analyst agent the ability to run real SQL queries:
 
 ### Filesystem Access
 
-Give an agent read access to files in a directory — useful for code review or documentation agents:
+Give an agent read access to files in a directory - useful for code review or documentation agents:
 
 ```json
 {
@@ -148,7 +148,7 @@ The `Bearer ` prefix stays literal; `${env:ANALYTICS_TOKEN}` is resolved at spaw
 
 ## Paste JSON from other tools
 
-The **Custom Server** editor opens on a JSON textarea by default. It accepts the same `{ "mcpServers": { ... } }` shape used by Cursor, Claude Desktop, and VS Code — so any config you already have elsewhere can be pasted verbatim.
+The **Custom Server** editor opens on a JSON textarea by default. It accepts the same `{ "mcpServers": { ... } }` shape used by Cursor, Claude Desktop, and VS Code - so any config you already have elsewhere can be pasted verbatim.
 
 Two shapes are accepted:
 
@@ -177,17 +177,17 @@ Or a bare server object (name comes from the **Name** field):
 }
 ```
 
-**`${env:NAME}` substitution.** Any value matching `${env:NAME}` is mapped to the SlackHive encrypted env store. At spawn time the runner resolves the reference and injects the secret into the subprocess environment — the raw value never lands in the config row. Prefixes are preserved, so `"Authorization": "Bearer ${env:GH_TOKEN}"` resolves to `Bearer <secret>`.
+**`${env:NAME}` substitution.** Any value matching `${env:NAME}` is mapped to the SlackHive encrypted env store. At spawn time the runner resolves the reference and injects the secret into the subprocess environment - the raw value never lands in the config row. Prefixes are preserved, so `"Authorization": "Bearer ${env:GH_TOKEN}"` resolves to `Bearer <secret>`.
 
 **Missing env vars.** If your JSON references an env var that doesn't exist in the store yet, a chip appears under the textarea. Click it to set the value inline without leaving the editor.
 
-**Editing existing servers.** Reopening a saved server re-serializes its config back to the JSON shape. Inline secrets come back as `"********"` — leave them alone to preserve the stored value, or replace with a real value or `${env:NAME}` ref to change it.
+**Editing existing servers.** Reopening a saved server re-serializes its config back to the JSON shape. Inline secrets come back as `"********"` - leave them alone to preserve the stored value, or replace with a real value or `${env:NAME}` ref to change it.
 
 **Form mode.** A **Form** tab next to **JSON** exposes the granular fields for users who prefer them. Toggling seeds the other view, so switching mid-edit doesn't lose work.
 
 ### Inline TypeScript
 
-The most convenient option for internal tools: paste TypeScript source directly into the UI. SlackHive writes it to disk and runs it — no separate deployment needed.
+The most convenient option for internal tools: paste TypeScript source directly into the UI. SlackHive writes it to disk and runs it - no separate deployment needed.
 
 Select **TypeScript inline script** as the transport type, then paste your implementation:
 
@@ -215,8 +215,8 @@ This is ideal for simple tools you want to prototype quickly, or for internal ut
 ## Assigning servers to agents
 
 Once a server is in the catalog, you can assign it to agents:
-- **During agent creation** — Step 4 (Tools) of the wizard
-- **After creation** — from the agent's **Tools** tab
+- **During agent creation** - Step 4 (Tools) of the wizard
+- **After creation** - from the agent's **Tools** tab
 
 An agent can have any number of MCP servers assigned. All tools from all assigned servers become available to the agent.
 
@@ -224,14 +224,14 @@ An agent can have any number of MCP servers assigned. All tools from all assigne
 
 Never paste database credentials, API keys, or passwords directly into MCP config `env` fields. Use the **encrypted env store** instead.
 
-The env store encrypts secrets at rest using AES-256. Values are never returned by the API or shown in the browser — only the key names are visible.
+The env store encrypts secrets at rest using AES-256. Values are never returned by the API or shown in the browser - only the key names are visible.
 
 <Steps>
   <Step title="Add your secret to the store">
     1. Go to **Settings → Env Vars** in the sidebar
     2. Click **Add Variable**
     3. Enter a name (e.g. `REDSHIFT_DATABASE_URL`) and the secret value
-    4. Click **Save** — the value is encrypted immediately
+    4. Click **Save** - the value is encrypted immediately
   </Step>
   <Step title="Reference it in your MCP config">
     Use `${env:NAME}` inside any `env` value (or HTTP `headers` value) to pull the secret from the store:
@@ -254,7 +254,7 @@ The env store encrypts secrets at rest using AES-256. Values are never returned 
   </Step>
 </Steps>
 
-The raw secret never appears in API responses, browser dev tools, or log files. Reopening the editor later shows `"********"` in place of any inline secret values you did paste literally — leaving them untouched preserves the stored value.
+The raw secret never appears in API responses, browser dev tools, or log files. Reopening the editor later shows `"********"` in place of any inline secret values you did paste literally - leaving them untouched preserves the stored value.
 
 ## Testing a server
 
@@ -265,15 +265,15 @@ From **Settings → MCP Servers**, click the **Test** button next to any server.
 3. Sends `tools/list`
 4. Displays the discovered tools inline
 
-If the probe fails, you see the error with stderr. If a server fails to start at runtime, the agent still runs — the failure is logged, and the agent continues without that server's tools. Check the agent's **Logs** tab for details.
+If the probe fails, you see the error with stderr. If a server fails to start at runtime, the agent still runs - the failure is logged, and the agent continues without that server's tools. Check the agent's **Logs** tab for details.
 
 ## OAuth MCPs
 
 Some servers (Figma, Linear, remote Anthropic MCPs) require OAuth. SlackHive supports three OAuth flows:
 
-1. **Dynamic client registration** — click **Connect** in the catalog, complete the OAuth dance
-2. **Paste token** — for providers that block dynamic registration
-3. **Claude Code CLI import** — if the MCP is already authorized in your local `claude` install
+1. **Dynamic client registration** - click **Connect** in the catalog, complete the OAuth dance
+2. **Paste token** - for providers that block dynamic registration
+3. **Claude Code CLI import** - if the MCP is already authorized in your local `claude` install
 
 See [OAuth MCPs](/configuration/mcp-oauth) for the full flow.
 

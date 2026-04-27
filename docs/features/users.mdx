@@ -5,7 +5,7 @@ description: "Brand the dashboard, create users, assign roles, and control per-a
 
 The **Settings** page has two tabs: **General** (platform branding) and **Users** (accounts and roles). This page covers both.
 
-## General — platform branding
+## General - platform branding
 
 The **General** tab lets admins rebrand the dashboard. Useful for white-labeling an internal deployment.
 
@@ -25,11 +25,11 @@ Changes apply instantly for all users. Only admins and superadmins can edit; edi
 
 ## Authentication overview
 
-SlackHive uses a simple built-in auth system — no external provider required.
+SlackHive uses a simple built-in auth system - no external provider required.
 
-- **Superadmin** is configured via environment variables (`ADMIN_USERNAME` / `ADMIN_PASSWORD`) — never stored in the database
+- **Superadmin** is configured via environment variables (`ADMIN_USERNAME` / `ADMIN_PASSWORD`) - never stored in the database
 - **Sessions** use HMAC-signed cookies. The signing key is `AUTH_SECRET` in your `.env`
-- All routes are protected — unauthenticated requests redirect to `/login`
+- All routes are protected - unauthenticated requests redirect to `/login`
 
 ## Roles
 
@@ -44,7 +44,7 @@ SlackHive has four roles with escalating permissions:
 
 ### Superadmin
 
-Configured via `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`. This account is never stored in the database — it exists only in environment configuration. The superadmin has all permissions and cannot be deleted or demoted.
+Configured via `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`. This account is never stored in the database - it exists only in environment configuration. The superadmin has all permissions and cannot be deleted or demoted.
 
 ### Admin
 
@@ -95,7 +95,7 @@ Checked agents grant the editor full edit rights: skills, CLAUDE.md, tool permis
 
 ## Permissions enforcement
 
-All permissions are enforced **server-side** in API route guards — not just hidden in the UI. A viewer who manually calls an API endpoint to edit an agent will receive a 403 response.
+All permissions are enforced **server-side** in API route guards - not just hidden in the UI. A viewer who manually calls an API endpoint to edit an agent will receive a 403 response.
 
 The permission model:
 - Read operations require any authenticated session
@@ -110,4 +110,4 @@ Sessions use HMAC-signed cookies with no expiry by default (persistent sessions)
 - The user logs out explicitly
 - `AUTH_SECRET` is rotated in `.env` (invalidates all sessions immediately)
 
-There is no session table — sessions are stateless HMAC tokens, which means there's no way to invalidate individual sessions without rotating the `AUTH_SECRET`.
+There is no session table - sessions are stateless HMAC tokens, which means there's no way to invalidate individual sessions without rotating the `AUTH_SECRET`.

@@ -1,6 +1,6 @@
 ---
-title: "Concepts — What Goes Where"
-description: "System prompt vs skills vs memory vs wiki — the four places an agent's brain lives, and how to decide where to put what."
+title: "Concepts - What Goes Where"
+description: "System prompt vs skills vs memory vs wiki - the four places an agent's brain lives, and how to decide where to put what."
 ---
 
 A SlackHive agent's brain has four layers. Each layer has a different purpose, a different lifespan, and a different place in the UI. Getting this right is the difference between an agent that sharpens over time and one that forgets everything.
@@ -9,12 +9,12 @@ A SlackHive agent's brain has four layers. Each layer has a different purpose, a
 
 | Layer | What it is | Where it lives | Lifespan |
 |---|---|---|---|
-| **System Prompt** | The agent's identity — role, tone, rules | Instructions → System Prompt | Forever, until you edit it |
-| **Skills** | Reusable procedures — how to do specific tasks | Instructions → Skills | Forever, until you edit them |
+| **System Prompt** | The agent's identity - role, tone, rules | Instructions → System Prompt | Forever, until you edit it |
+| **Skills** | Reusable procedures - how to do specific tasks | Instructions → Skills | Forever, until you edit them |
 | **Memory** | Facts the agent learned from conversations | Instructions → Memory | Forever, until you delete them |
 | **Wiki** | Reference material the agent looks up on demand | Knowledge tab | Forever, ingested from sources |
 
-## 1. System Prompt — who the agent is
+## 1. System Prompt - who the agent is
 
 The agent's always-loaded identity. Every conversation starts with this in context.
 
@@ -23,7 +23,7 @@ The agent's always-loaded identity. Every conversation starts with this in conte
 - Role: "You are a senior data analyst for Pelago"
 - Tone: "Concise, direct, no filler words"
 - Hard rules: "Never run DELETE or UPDATE queries"
-- Domain scope: "Focus on bookings, revenue, and churn — not marketing"
+- Domain scope: "Focus on bookings, revenue, and churn - not marketing"
 
 **Don't put here:**
 
@@ -33,35 +33,35 @@ The agent's always-loaded identity. Every conversation starts with this in conte
 
 Kept short. A bloated system prompt wastes context on every turn.
 
-## 2. Skills — how the agent does things
+## 2. Skills - how the agent does things
 
-Slash commands the agent can invoke **on demand**. Each skill is one Markdown file with step-by-step instructions for a specific task. Skills stay out of the agent's context until someone — a user, a scheduled job, or the agent itself during a chain — invokes them by name.
+Slash commands the agent can invoke **on demand**. Each skill is one Markdown file with step-by-step instructions for a specific task. Skills stay out of the agent's context until someone - a user, a scheduled job, or the agent itself during a chain - invokes them by name.
 
 **Put here:**
 
-- `/weekly-report` — steps to pull, format, and post the weekly digest
-- `/onboard-new-user` — the full onboarding checklist
-- `/debug-checkout` — the triage flow for checkout errors
+- `/weekly-report` - steps to pull, format, and post the weekly digest
+- `/onboard-new-user` - the full onboarding checklist
+- `/debug-checkout` - the triage flow for checkout errors
 
 **Don't put here:**
 
 - One-off logic (just tell the agent in Slack)
 - Identity or tone (use the system prompt)
 - Data the agent needs to read (use the wiki)
-- **An agent's single always-on job** — if the agent has one job it always does (e.g. birthday bot, daily digest), put the instruction in the system prompt and trigger via scheduled job. A skill adds ceremony without payoff.
+- **An agent's single always-on job** - if the agent has one job it always does (e.g. birthday bot, daily digest), put the instruction in the system prompt and trigger via scheduled job. A skill adds ceremony without payoff.
 
-A skill runs only when called. It doesn't cost context until then. That's the whole point — skills let an agent carry dozens of procedures at near-zero idle cost.
+A skill runs only when called. It doesn't cost context until then. That's the whole point - skills let an agent carry dozens of procedures at near-zero idle cost.
 
-## 3. Memory — what the agent learned
+## 3. Memory - what the agent learned
 
-Structured facts the agent writes down during conversations. Every memory is inlined into the system prompt every turn, so the agent always sees what it has learned — no skill call, no retrieval step.
+Structured facts the agent writes down during conversations. Every memory is inlined into the system prompt every turn, so the agent always sees what it has learned - no skill call, no retrieval step.
 
 **Put here:**
 
-- **user** — "Kai leads the data team, prefers concise answers"
-- **feedback** — "Don't mock the database in integration tests — last quarter's incident"
-- **project** — "Merge freeze starts 2026-03-05 for mobile release"
-- **reference** — "Pipeline bugs tracked in Linear project INGEST"
+- **user** - "Kai leads the data team, prefers concise answers"
+- **feedback** - "Don't mock the database in integration tests - last quarter's incident"
+- **project** - "Merge freeze starts 2026-03-05 for mobile release"
+- **reference** - "Pipeline bugs tracked in Linear project INGEST"
 
 **Don't put here:**
 
@@ -71,7 +71,7 @@ Structured facts the agent writes down during conversations. Every memory is inl
 
 Memory grows organically. Every conversation is a chance for the agent to learn.
 
-## 4. Wiki — what the agent can look up
+## 4. Wiki - what the agent can look up
 
 The agent's Knowledge Base. Ingest a repo, file, or URL and SlackHive builds a Karpathy-style wiki (`overview.md`, `concepts/`, `flows/`, `modules/`) that the agent reads on demand via the `/wiki` skill.
 
@@ -135,7 +135,7 @@ Ask yourself two questions:
 
 ## How they interact
 
-The four layers are not isolated — they compose:
+The four layers are not isolated - they compose:
 
 1. **System Prompt** loads every turn. Sets the lens.
 2. **Memories** load every turn, inlined into the system prompt. The agent always knows what it has learned.
@@ -151,7 +151,7 @@ Memories and the system prompt are always in context; skills and wiki pages load
     Set up the system prompt and pick a persona in the 5-step wizard.
   </Card>
   <Card title="Coach" icon="comments" href="/agents/coach">
-    Tune skills, system prompt, and wiki via chat — no hand-editing.
+    Tune skills, system prompt, and wiki via chat - no hand-editing.
   </Card>
   <Card title="Memory" icon="brain" href="/agents/memory">
     How agents save and manage memories.

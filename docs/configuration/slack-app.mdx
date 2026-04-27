@@ -1,26 +1,26 @@
 ---
 title: "Slack App Setup"
-description: "Create and configure a Slack app for each agent — the wizard generates everything, you just copy and paste."
+description: "Create and configure a Slack app for each agent - the wizard generates everything, you just copy and paste."
 ---
 
 Every SlackHive agent needs its own Slack app. The app is how your agent gets a Slack identity (`@handle`), connects to your workspace, and receives messages.
 
-The good news: **you don't need to configure scopes or settings manually.** The SlackHive wizard generates a complete app manifest — you just paste it into Slack and click a few buttons.
+The good news: **you don't need to configure scopes or settings manually.** The SlackHive wizard generates a complete app manifest - you just paste it into Slack and click a few buttons.
 
 This page walks through that process in detail, and covers troubleshooting if something goes wrong.
 
 ## What you're creating
 
 Each Slack app gives your agent:
-- A **bot user** — the `@handle` your team @mentions in channels
-- **Socket Mode** — a persistent connection that receives messages in real time (no webhooks needed, no public URL required)
-- The right **OAuth scopes** — permissions to read messages, post replies, and add reactions
+- A **bot user** - the `@handle` your team @mentions in channels
+- **Socket Mode** - a persistent connection that receives messages in real time (no webhooks needed, no public URL required)
+- The right **OAuth scopes** - permissions to read messages, post replies, and add reactions
 
 ## Step 1: Generate the manifest
 
 When you're on **Step 2** of the agent creation wizard, click **Generate Manifest**. SlackHive creates a JSON manifest pre-configured for your agent with the correct name, scopes, and Socket Mode settings.
 
-Keep this manifest JSON ready — you'll paste it into Slack in the next step.
+Keep this manifest JSON ready - you'll paste it into Slack in the next step.
 
 ## Step 2: Create the Slack app
 
@@ -71,7 +71,7 @@ You need three values to connect the agent in SlackHive. Here's exactly where to
 
 1. Go to **OAuth & Permissions** in the left sidebar
 2. Under **OAuth Tokens for Your Workspace**, find **Bot User OAuth Token**
-3. Copy it — it starts with `xoxb-`
+3. Copy it - it starts with `xoxb-`
 
 ### App Token (`xapp-...`)
 
@@ -81,7 +81,7 @@ You need three values to connect the agent in SlackHive. Here's exactly where to
 4. Give it a name (e.g. `socket-mode`)
 5. Click **Add Scope** and select `connections:write`
 6. Click **Generate**
-7. Copy the token — it starts with `xapp-`
+7. Copy the token - it starts with `xapp-`
 
 ### Signing Secret
 
@@ -91,7 +91,7 @@ You need three values to connect the agent in SlackHive. Here's exactly where to
 
 ## Step 5: Enter credentials in SlackHive
 
-Go back to the SlackHive agent wizard (Step 3 — Credentials) and paste all three values:
+Go back to the SlackHive agent wizard (Step 3 - Credentials) and paste all three values:
 
 | Field | Value |
 |-------|-------|
@@ -122,7 +122,7 @@ The generated manifest includes these bot token scopes. Here's what each one is 
 
 ## Troubleshooting
 
-<Accordion title="Verification failed — connection refused">
+<Accordion title="Verification failed - connection refused">
   The most common cause is **Socket Mode not being enabled**.
 
   1. Go to your Slack app settings
@@ -131,7 +131,7 @@ The generated manifest includes these bot token scopes. Here's what each one is 
   4. Go back to SlackHive and try verifying again
 </Accordion>
 
-<Accordion title="Verification failed — invalid token">
+<Accordion title="Verification failed - invalid token">
   - Check that you pasted the **Bot Token** (starts with `xoxb-`) in the Bot Token field, not the App Token
   - Make sure there are no extra spaces before or after the token
   - If you recently regenerated the token, make sure you copied the new one
@@ -155,7 +155,7 @@ The generated manifest includes these bot token scopes. Here's what each one is 
 <Accordion title="Agent is Active but not responding">
   If the dashboard shows the agent as Active but it doesn't respond to @mentions:
   1. Make sure you've **invited the bot to the channel**: `/invite @your-agent-name`
-  2. Check the **Logs** tab on the agent — it will show if messages are being received
+  2. Check the **Logs** tab on the agent - it will show if messages are being received
   3. Verify the agent doesn't have channel restrictions set (Overview tab → Allowed Channels)
 </Accordion>
 

@@ -1,6 +1,6 @@
 ---
 title: "Production Deployment"
-description: "Run SlackHive as a long-lived service — systemd/launchd, reverse proxy, SQLite backup, key rotation."
+description: "Run SlackHive as a long-lived service - systemd/launchd, reverse proxy, SQLite backup, key rotation."
 ---
 
 For production use, you want SlackHive to survive reboots, serve HTTPS, and get backed up. This page covers the operational recipe on top of the standard CLI install.
@@ -14,14 +14,14 @@ Before exposing SlackHive to a production network:
 - [ ] Strong `ADMIN_PASSWORD` in `.env` (regenerate if it was auto-filled during testing)
 - [ ] `AUTH_SECRET` and `ENV_SECRET_KEY` generated with `openssl rand -hex 32` (`slackhive init` does this automatically)
 - [ ] `NODE_ENV=production` in `.env`
-- [ ] Reverse proxy terminating TLS — never expose port 3001 directly
+- [ ] Reverse proxy terminating TLS - never expose port 3001 directly
 - [ ] `.env` not in version control
 - [ ] MCP secrets stored in **Settings → Env Vars** (encrypted), not in plain MCP config `env` fields
 - [ ] `~/.slackhive/` directory permissions limited to the runtime user
 
 ## Run as a service
 
-### macOS — launchd
+### macOS - launchd
 
 Create `~/Library/LaunchAgents/co.pelago.slackhive.plist`:
 
@@ -55,13 +55,13 @@ Load:
 launchctl load ~/Library/LaunchAgents/co.pelago.slackhive.plist
 ```
 
-### Linux — systemd
+### Linux - systemd
 
 For OAuth subscription mode on Linux, make sure the service user has access to either:
 - A running keyring daemon (`secret-tool` works for that user), **or**
 - A pre-populated `~/.claude/.credentials.json` in the service user's home
 
-Headless servers almost always want option 2 — run `claude login` once as that user before enabling the service.
+Headless servers almost always want option 2 - run `claude login` once as that user before enabling the service.
 
 Create `/etc/systemd/system/slackhive.service`:
 
@@ -117,7 +117,7 @@ server {
 ```
 
 <Note>
-  `proxy_buffering off` is required for the live logs stream — otherwise the UI shows log lines in lumps instead of real time.
+  `proxy_buffering off` is required for the live logs stream - otherwise the UI shows log lines in lumps instead of real time.
 </Note>
 
 ## Reverse proxy with Caddy
@@ -176,7 +176,7 @@ The online backup is atomic and safe while SlackHive is running.
 | Path | Contents |
 |---|---|
 | `~/.slackhive/data.db` | All agents, memories, skills, history, MCP catalog, users, settings |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace — CLAUDE.md, knowledge/wiki, sessions |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace - CLAUDE.md, knowledge/wiki, sessions |
 | `~/.slackhive/.env` | Encryption keys, admin password, Claude auth |
 
 <Warning>
@@ -218,7 +218,7 @@ Each active agent maintains a Slack Bolt Socket Mode connection. Memory scales w
 
 ### `AUTH_SECRET`
 
-Rotating invalidates every active session — everyone is logged out.
+Rotating invalidates every active session - everyone is logged out.
 
 1. Generate: `openssl rand -hex 32`
 2. Update `.env`
@@ -234,13 +234,13 @@ Rotating makes every stored secret unreadable. You must re-enter each secret aft
 4. Restart: `slackhive stop && slackhive start`
 5. Paste each secret back into **Settings → Env Vars**
 
-Plan the rotation during off-hours — MCP servers referencing `${env:NAME}` will fail between steps 3 and 5.
+Plan the rotation during off-hours - MCP servers referencing `${env:NAME}` will fail between steps 3 and 5.
 
 ## Monitoring
 
 SlackHive doesn't ship built-in metrics or alerting. For production monitoring:
 
-- **Live Logs** tab in the UI — real-time diagnostics
-- **Runner log** — `~/.slackhive/logs/runner.log` streams JSON-per-line; pipe to Loki, Datadog, CloudWatch
-- **Health check** — `curl http://127.0.0.1:3001/api/health` returns 200 when the stack is live
-- **Status command** — `slackhive status` reports process state and ports
+- **Live Logs** tab in the UI - real-time diagnostics
+- **Runner log** - `~/.slackhive/logs/runner.log` streams JSON-per-line; pipe to Loki, Datadog, CloudWatch
+- **Health check** - `curl http://127.0.0.1:3001/api/health` returns 200 when the stack is live
+- **Status command** - `slackhive status` reports process state and ports

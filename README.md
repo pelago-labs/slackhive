@@ -26,14 +26,14 @@
 
 Andrej Karpathy made two observations that changed how we think about AI systems: LLMs read **wikis** better than file dumps, and **specialists beat generalists**. SlackHive is what fell out when we took both seriously.
 
-One agent per role. Each with its own Karpathy-style wiki, its own tools, its own memory. A Boss agent that delegates instead of cramming everything into one context window. And all of it living in the workspace your team already uses — Slack.
+One agent per role. Each with its own Karpathy-style wiki, its own tools, its own memory. A Boss agent that delegates instead of cramming everything into one context window. And all of it living in the workspace your team already uses - Slack.
 
-These aren't chatbots you switch to. They're **colleagues you @mention** — side by side with your people, in the same channels, in the same threads. Each agent connects to the tools your team already uses — Notion, Jira, GitHub, Figma, your database, your analytics stack. **Anyone on the team can create one.** No engineers, no platform team — if you can describe what you need, you can deploy it in minutes.
+These aren't chatbots you switch to. They're **colleagues you @mention** - side by side with your people, in the same channels, in the same threads. Each agent connects to the tools your team already uses - Notion, Jira, GitHub, Figma, your database, your analytics stack. **Anyone on the team can create one.** No engineers, no platform team - if you can describe what you need, you can deploy it in minutes.
 
 ```
 CEO:        @data-analyst revenue is down 8% this week, can you dig in?
 DataBot:    [queries Redshift across 6 dimensions]
-            Found it — enterprise churn spiked Tuesday after the pricing change.
+            Found it - enterprise churn spiked Tuesday after the pricing change.
             3 accounts, $42k ARR at risk.
 
 Engineer:   @devops the checkout service is throwing 500s
@@ -42,18 +42,18 @@ DevOps:     [reads logs, identifies root cause, opens PR]
 
 PM:         @designer mock up a simpler onboarding flow
 Designer:   [creates Figma frames via MCP]
-            Done — 3 variants in Figma. Which direction do you want to take?
+            Done - 3 variants in Figma. Which direction do you want to take?
 ```
 
-Tag a specialist directly when you know who to ask. Or tag `@boss` when you're not sure — Boss finds the right specialist, delegates, and summarizes the result:
+Tag a specialist directly when you know who to ask. Or tag `@boss` when you're not sure - Boss finds the right specialist, delegates, and summarizes the result:
 
 ```
 You:        @boss can you analyze last week's conversion funnel?
 Boss:       That's right up @data-analyst's alley 👇
-            @data-analyst — conversion funnel analysis for last week.
+            @data-analyst - conversion funnel analysis for last week.
             When you're done, please tag @boss.
-DataBot:    Conversions up 12% WoW, checkout completion jumped 3×. @boss — done!
-Boss:       Conversions are up 12% WoW. The win was checkout — 3× completion rate.
+DataBot:    Conversions up 12% WoW, checkout completion jumped 3×. @boss - done!
+Boss:       Conversions are up 12% WoW. The win was checkout - 3× completion rate.
             Want me to pull a channel or cohort breakdown?
 ```
 
@@ -76,13 +76,13 @@ The CLI will:
 2. Clone the repository
 3. Auto-detect your Claude installation (cross-platform compatible)
 4. Walk you through configuration (API key or subscription, admin credentials)
-5. Build and start the services natively — no Docker required
+5. Build and start the services natively - no Docker required
 
 Open `http://localhost:3001` and create your first agent.
 
 #### Hit `EACCES: permission denied` on install?
 
-If you installed Node from nodejs.org on macOS/Linux, `/usr/local/lib/node_modules` is root-owned and `npm install -g` fails without sudo. Point npm at a user-owned prefix once — no sudo needed again:
+If you installed Node from nodejs.org on macOS/Linux, `/usr/local/lib/node_modules` is root-owned and `npm install -g` fails without sudo. Point npm at a user-owned prefix once - no sudo needed again:
 
 ```bash
 mkdir -p ~/.npm-global
@@ -92,7 +92,7 @@ source ~/.zshrc
 npm install -g slackhive
 ```
 
-Installing Node via [nvm](https://github.com/nvm-sh/nvm) or Homebrew (`brew install node`) puts it in a user-writable location by default and avoids this entirely. If you'd rather skip global install, `npx slackhive init` works too — just prefix every command with `npx`.
+Installing Node via [nvm](https://github.com/nvm-sh/nvm) or Homebrew (`brew install node`) puts it in a user-writable location by default and avoids this entirely. If you'd rather skip global install, `npx slackhive init` works too - just prefix every command with `npx`.
 
 ### CLI Commands
 
@@ -123,7 +123,7 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=<strong-random-password>
 AUTH_SECRET=                        # generate: openssl rand -hex 32
 ENV_SECRET_KEY=                     # generate: openssl rand -hex 32
-DATABASE_TYPE=sqlite                # embedded — no external DB needed
+DATABASE_TYPE=sqlite                # embedded - no external DB needed
 ```
 
 ```bash
@@ -142,18 +142,18 @@ Open `http://localhost:3001`, log in, and create your first agent.
 
 ## ✨ Features
 
-### 🤖 Real AI Agents — Not Chatbots
+### 🤖 Real AI Agents - Not Chatbots
 
-Every agent is a full **Claude Code** agent — with tools, memory, identity, and instructions. When you @mention one in Slack, you're running a real AI agent that can use tools, take action, and get smarter over time.
+Every agent is a full **Claude Code** agent - with tools, memory, identity, and instructions. When you @mention one in Slack, you're running a real AI agent that can use tools, take action, and get smarter over time.
 
 | | |
 |---|---|
-| 🧠 **Persistent Memory** | Agents write memories during conversations — feedback, user context, project state. Synced to SQLite, injected on next start. They don't forget. |
-| 🔌 **MCP Tool Integration** | Connect any MCP server (Redshift, GitHub, Notion, Figma, custom APIs) — stdio, SSE, or HTTP transports. |
-| 📝 **Inline TypeScript MCPs** | Paste TypeScript source directly into the UI — no deployment needed. The runner compiles and executes it. |
-| 🧵 **Full Thread Context** | Agents fetch the entire Slack thread on every invocation — zero context lost in handoffs. |
+| 🧠 **Persistent Memory** | Agents write memories during conversations - feedback, user context, project state. Synced to SQLite, injected on next start. They don't forget. |
+| 🔌 **MCP Tool Integration** | Connect any MCP server (Redshift, GitHub, Notion, Figma, custom APIs) - stdio, SSE, or HTTP transports. |
+| 📝 **Inline TypeScript MCPs** | Paste TypeScript source directly into the UI - no deployment needed. The runner compiles and executes it. |
+| 🧵 **Full Thread Context** | Agents fetch the entire Slack thread on every invocation - zero context lost in handoffs. |
 | 💾 **Session Continuity** | Slack thread ↔ Claude session mapping survives restarts. Pick up exactly where you left off. |
-| 🔐 **Encrypted Secret Store** | API keys encrypted at rest (AES-256). MCPs reference secrets by name — raw values never touch the API or UI. |
+| 🔐 **Encrypted Secret Store** | API keys encrypted at rest (AES-256). MCPs reference secrets by name - raw values never touch the API or UI. |
 | 🔁 **Hot Reload** | Edit instructions, skills, or tools and the agent picks up changes within seconds. No restart needed. |
 
 ### 👑 Boss + Specialist Hierarchy
@@ -164,7 +164,7 @@ Every agent is a full **Claude Code** agent — with tools, memory, identity, an
 | 🏢 **Multi-Boss Support** | Run multiple Boss agents for different domains (engineering, data, support). Specialists can report to more than one boss. |
 | 📋 **Auto-Generated Registries** | Every Boss gets a live team roster auto-regenerated whenever the team changes. No manual maintenance. |
 | 🛠 **Skills** | Markdown files deployed as Claude Code slash commands. Give agents SQL rules, writing guidelines, or domain playbooks. |
-| ⏰ **Scheduled Jobs** | Cron-based recurring tasks — daily reports, weekly digests, monitoring alerts — posted to any Slack channel or DM. |
+| ⏰ **Scheduled Jobs** | Cron-based recurring tasks - daily reports, weekly digests, monitoring alerts - posted to any Slack channel or DM. |
 
 ### ⚙️ Platform
 
@@ -174,9 +174,9 @@ Every agent is a full **Claude Code** agent — with tools, memory, identity, an
 | 🕓 **Version Control** | Every save auto-snapshots the full agent state. Browse history with line-level diffs, restore any version in one click. |
 | 🔒 **Auth & RBAC** | 4 roles (superadmin / admin / editor / viewer), HMAC-signed sessions, per-agent write access grants. No external auth provider needed. |
 | 🚦 **Channel Restrictions** | Lock agents to specific Slack channels. Bot auto-leaves uninvited channels with a notice. |
-| 📊 **Live Logs** | SSE-streamed log output per agent — with level filters and search. |
-| 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type — feedback, user, project, reference. |
-| 📡 **Activity Dashboard** | Live kanban of every task your agents are working on — Active, Completed, Errors — with drill-down to every tool call. A superadmin-only **Usage** tab breaks down token consumption per agent and ranks power users by tasks started. Admins see everything; editors see only agents they own or are granted access to; viewers are blocked. |
+| 📊 **Live Logs** | SSE-streamed log output per agent - with level filters and search. |
+| 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type - feedback, user, project, reference. |
+| 📡 **Activity Dashboard** | Live kanban of every task your agents are working on - Active, Completed, Errors - with drill-down to every tool call. A superadmin-only **Usage** tab breaks down token consumption per agent and ranks power users by tasks started. Admins see everything; editors see only agents they own or are granted access to; viewers are blocked. |
 | 🌐 **Multi-Workspace** | Connect multiple Slack workspaces to a single SlackHive instance. Each workspace gets its own agents and configurations. |
 
 ---
@@ -188,7 +188,7 @@ Slack Workspace (@boss, @data-bot, @writer, ...)
         │ Socket Mode (Bolt)
         ▼
 ┌──────────────────────────────────────────────────┐
-│  Local host — two Node.js processes              │
+│  Local host - two Node.js processes              │
 │                                                  │
 │  Web (Next.js :3001) ──HTTP──► Runner (:3002)    │
 │            │                        │            │
@@ -199,9 +199,9 @@ Slack Workspace (@boss, @data-bot, @writer, ...)
 
 | Service | Description |
 |---------|-------------|
-| **Web** (Next.js 15) | Dashboard — create agents, edit skills, view logs, manage users |
+| **Web** (Next.js 15) | Dashboard - create agents, edit skills, view logs, manage users |
 | **Runner** (Node.js) | Hosts all agent processes and Slack connections |
-| **SQLite** | Embedded — stores agents, memories, skills, sessions, users, history. No external DB to install |
+| **SQLite** | Embedded - stores agents, memories, skills, sessions, users, history. No external DB to install |
 | **Event bus** | Web posts to the runner's internal HTTP port to deliver hot-reload events |
 
 **How a message flows:**
@@ -217,19 +217,19 @@ Slack Workspace (@boss, @data-bot, @writer, ...)
 
 ## 🔑 Claude Code Authentication
 
-Two options — use whichever fits your setup:
+Two options - use whichever fits your setup:
 
-**Option A — API Key**
+**Option A - API Key**
 ```env
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 Billed per token via the Anthropic API. Best for teams and production.
 
-**Option B — Claude Pro or Max Subscription**
+**Option B - Claude Pro or Max Subscription**
 
 First, install Claude Code on your host machine:
 
-> **Note:** Do not install via `npm` — the npm package is deprecated and incompatible with SlackHive.
+> **Note:** Do not install via `npm` - the npm package is deprecated and incompatible with SlackHive.
 
 MacOS/Linux (Recommended):
 ```bash
@@ -247,7 +247,7 @@ Then log in:
 ```bash
 claude login    # saves credentials to your system keychain / ~/.claude/
 ```
-Leave `ANTHROPIC_API_KEY` unset — the runner picks up credentials from the system keychain automatically. Best for individual developers.
+Leave `ANTHROPIC_API_KEY` unset - the runner picks up credentials from the system keychain automatically. Best for individual developers.
 
 > Full guide → [slackhive.mintlify.app/configuration/env-vars](https://slackhive.mintlify.app/configuration/env-vars)
 
@@ -267,7 +267,7 @@ Leave `ANTHROPIC_API_KEY` unset — the runner picks up credentials from the sys
 - [ ] Analytics dashboard
 - [ ] Custom tool builder (no MCP server needed)
 - [ ] Agent templates marketplace
-- [ ] RAG integration — connect agents to document stores
+- [ ] RAG integration - connect agents to document stores
 
 Have an idea? [Open an issue](https://github.com/pelago-labs/slackhive/issues)
 
@@ -282,7 +282,7 @@ cd slackhive && npm install
 # Configure
 cp .env.example .env    # then fill in ADMIN_PASSWORD, AUTH_SECRET, ENV_SECRET_KEY
 
-# Run locally (SQLite — no external services required)
+# Run locally (SQLite - no external services required)
 cd apps/web && npm run dev      # http://localhost:3000
 cd apps/runner && npm run dev   # http://localhost:3002
 ```
@@ -313,7 +313,7 @@ Open an issue before submitting large PRs so we can align on the approach.
 
 ## 🔒 Security
 
-Use [GitHub's private vulnerability reporting](https://github.com/pelago-labs/slackhive/security/advisories/new) — click **"Report a vulnerability"** on the Security tab. Please don't open public issues for security bugs. We respond within 48 hours.
+Use [GitHub's private vulnerability reporting](https://github.com/pelago-labs/slackhive/security/advisories/new) - click **"Report a vulnerability"** on the Security tab. Please don't open public issues for security bugs. We respond within 48 hours.
 
 ---
 

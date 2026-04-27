@@ -1,11 +1,11 @@
 ---
 title: "Scheduled Jobs"
-description: "Trigger any agent on a schedule — get proactive alerts, reports, and monitoring delivered to Slack automatically."
+description: "Trigger any agent on a schedule - get proactive alerts, reports, and monitoring delivered to Slack automatically."
 ---
 
 ## Your agents don't just wait to be asked
 
-Most AI tools are reactive — you ask, they answer. Scheduled Jobs make your agents **proactive**. Set a schedule, point it at any agent, and it fires automatically — running queries, checking metrics, scanning for anomalies, and posting results directly to a Slack channel or DM.
+Most AI tools are reactive - you ask, they answer. Scheduled Jobs make your agents **proactive**. Set a schedule, point it at any agent, and it fires automatically - running queries, checking metrics, scanning for anomalies, and posting results directly to a Slack channel or DM.
 
 No dashboards to check. No reports to pull. The insight comes to you.
 
@@ -21,7 +21,7 @@ No dashboards to check. No reports to pull. The insight comes to you.
     Run a fraud check every hour. If anomalies are detected, post a summary to `#fraud-alerts` with transaction IDs and risk scores.
   </Card>
   <Card title="Daily Business Digest" icon="newspaper">
-    Every morning at 8 AM, post yesterday's key metrics — bookings, revenue, churn, NPS — to `#analytics`.
+    Every morning at 8 AM, post yesterday's key metrics - bookings, revenue, churn, NPS - to `#analytics`.
   </Card>
   <Card title="Weekly Engineering Report" icon="code">
     Every Monday, summarize last week's PRs, incidents, and deploy count. Post to `#engineering`.
@@ -40,13 +40,13 @@ No dashboards to check. No reports to pull. The insight comes to you.
 
 <Steps>
   <Step title="You set up a job">
-    Pick an agent, write a prompt, set a schedule (cron), and choose where results go — a Slack channel or a direct message.
+    Pick an agent, write a prompt, set a schedule (cron), and choose where results go - a Slack channel or a direct message.
   </Step>
   <Step title="The schedule fires">
-    At the configured time, SlackHive sends your prompt to the agent — exactly like a Slack message, but automated.
+    At the configured time, SlackHive sends your prompt to the agent - exactly like a Slack message, but automated.
   </Step>
   <Step title="The agent runs">
-    The agent executes fully — it can run queries, call APIs, check metrics, compare against thresholds, and reason about the results.
+    The agent executes fully - it can run queries, call APIs, check metrics, compare against thresholds, and reason about the results.
   </Step>
   <Step title="Results posted to Slack">
     The response is posted to the channel or DM you configured. If nothing notable happened, the agent can say so. If something needs attention, it flags it.
@@ -75,7 +75,7 @@ Go to **Jobs** in the sidebar → **New Job**.
 
 <Steps>
   <Step title="Name the job">
-    Give it a clear name — e.g. `Daily Revenue Digest` or `Hourly Fraud Check`.
+    Give it a clear name - e.g. `Daily Revenue Digest` or `Hourly Fraud Check`.
   </Step>
   <Step title="Choose an agent">
     Select which agent should run this job. Pick the specialist best suited for the task.
@@ -103,25 +103,25 @@ Go to **Jobs** in the sidebar → **New Job**.
 
     <Tip>The UI shows cron expressions in plain English so you can verify the schedule before saving.</Tip>
   </Step>
-  <Step title="Set the target — Channel or DM">
+  <Step title="Set the target - Channel or DM">
     Choose where the agent posts its results.
 
     <Tabs>
       <Tab title="Post to a Channel">
-        Post results publicly to any Slack channel — `#analytics`, `#fraud-alerts`, `#engineering`, etc.
+        Post results publicly to any Slack channel - `#analytics`, `#fraud-alerts`, `#engineering`, etc.
 
         **How to get the channel ID:**
         1. Open Slack and right-click the channel name in the sidebar
         2. Click **Copy link**
         3. The link looks like: `https://app.slack.com/client/T.../C08ABCD1234`
-        4. The channel ID is the part starting with `C` — e.g. `C08ABCD1234`
+        4. The channel ID is the part starting with `C` - e.g. `C08ABCD1234`
 
         Paste it into the **Target** field and select **Channel**.
 
         <Note>Make sure the agent's Slack bot has been invited to the channel first. If not, invite it with `/invite @agent-name`.</Note>
       </Tab>
       <Tab title="Send a DM">
-        Send results as a direct message to any individual — CEO, on-call engineer, finance lead, or yourself.
+        Send results as a direct message to any individual - CEO, on-call engineer, finance lead, or yourself.
 
         **How to get the user ID:**
         1. In Slack, click on the person's name or profile picture
@@ -132,7 +132,7 @@ Go to **Jobs** in the sidebar → **New Job**.
 
         Paste it into the **Target** field and select **DM**.
 
-        The message arrives as a direct message from the agent's Slack bot — clean and personal.
+        The message arrives as a direct message from the agent's Slack bot - clean and personal.
       </Tab>
     </Tabs>
   </Step>
@@ -140,7 +140,7 @@ Go to **Jobs** in the sidebar → **New Job**.
 
 ---
 
-## Channel vs DM — when to use which
+## Channel vs DM - when to use which
 
 | Use case | Channel | DM |
 |----------|---------|-----|
@@ -148,10 +148,10 @@ Go to **Jobs** in the sidebar → **New Job**.
 | Public monitoring dashboards (`#fraud-alerts`, `#ops`) | ✅ | |
 | Personal alerts (CEO wants GMV drop notification) | | ✅ |
 | On-call paging (engineer gets error spike alert) | | ✅ |
-| Sensitive metrics (revenue, churn — exec-only) | | ✅ |
+| Sensitive metrics (revenue, churn - exec-only) | | ✅ |
 | Cross-team awareness (PM, data, eng all need to know) | ✅ | |
 
-<Tip>You can create multiple jobs for the same agent — one that posts to a channel for team visibility, and another that DMs the team lead for immediate personal attention.</Tip>
+<Tip>You can create multiple jobs for the same agent - one that posts to a channel for team visibility, and another that DMs the team lead for immediate personal attention.</Tip>
 
 ---
 
@@ -189,7 +189,7 @@ The prompt is the most important part. A few principles:
 
 ## Rich Slack formatting
 
-Scheduled jobs aren't limited to plain text. Agents can post **Slack Block Kit** payloads — tables, sections, dividers, buttons — for readable reports.
+Scheduled jobs aren't limited to plain text. Agents can post **Slack Block Kit** payloads - tables, sections, dividers, buttons - for readable reports.
 
 Ask the agent in your prompt:
 
@@ -199,13 +199,13 @@ week-over-week change. Use Block Kit. Highlight anything down more
 than 10% in red emoji.
 ```
 
-Under the hood the agent emits a `postPayload` with `blocks` — SlackHive delivers it to Slack verbatim. The rendered message has proper columns, section headers, and colored highlights instead of a wall of text.
+Under the hood the agent emits a `postPayload` with `blocks` - SlackHive delivers it to Slack verbatim. The rendered message has proper columns, section headers, and colored highlights instead of a wall of text.
 
 When to use:
 
-- Daily digest with multiple metrics — tables are much easier to scan
-- Fraud alerts with transaction IDs — columns keep fields aligned
-- Weekly engineering report — sections with dividers between topics
+- Daily digest with multiple metrics - tables are much easier to scan
+- Fraud alerts with transaction IDs - columns keep fields aligned
+- Weekly engineering report - sections with dividers between topics
 
 For simple one-line alerts, plain text is still best. Reserve rich formatting for reports with structure.
 
@@ -213,7 +213,7 @@ For simple one-line alerts, plain text is still best. Reserve rich formatting fo
 
 ## Monitoring job runs
 
-Every job run is logged — status, output, duration, and timestamp — visible in **Jobs → [job name] → Run History**.
+Every job run is logged - status, output, duration, and timestamp - visible in **Jobs → [job name] → Run History**.
 
 | Status | Meaning |
 |--------|---------|
@@ -237,9 +237,9 @@ Here's a complete setup for a GMV monitoring job:
 | **Agent** | `@data-analyst` |
 | **Schedule** | `0 * * * *` (every hour) |
 | **Target** | DM → CEO's Slack user ID |
-| **Prompt** | Compare GMV for the last hour vs the same hour last week. If it's down more than 15%, send an urgent alert with a breakdown by channel, device type, and acquisition source. If it's within normal range, send a single line: "GMV on track — $X this hour vs $Y last week." |
+| **Prompt** | Compare GMV for the last hour vs the same hour last week. If it's down more than 15%, send an urgent alert with a breakdown by channel, device type, and acquisition source. If it's within normal range, send a single line: "GMV on track - $X this hour vs $Y last week." |
 
-The CEO gets a DM every hour. 99% of the time it's one line. When something breaks, they know immediately — with the breakdown already in their pocket.
+The CEO gets a DM every hour. 99% of the time it's one line. When something breaks, they know immediately - with the breakdown already in their pocket.
 
 ---
 

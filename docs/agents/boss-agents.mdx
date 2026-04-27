@@ -5,31 +5,31 @@ description: "Set up orchestrating Boss agents that delegate tasks to specialist
 
 ## What is a Boss agent?
 
-A Boss agent is a special type of SlackHive agent whose sole job is to receive high-level requests and delegate them to the right specialist agents. The Boss never does the specialist work itself — it orchestrates.
+A Boss agent is a special type of SlackHive agent whose sole job is to receive high-level requests and delegate them to the right specialist agents. The Boss never does the specialist work itself - it orchestrates.
 
 ```
 User:     @boss help me analyze last week's bookings
 Boss:     I'll get @data-bot on this 👇
-          @data-bot — user wants booking analysis for last week.
+          @data-bot - user wants booking analysis for last week.
           When you're done, please tag @boss so I can confirm.
 DataBot:  [reads full thread, runs Redshift query via MCP]
           Bookings were up 12% to 4,320...
 Boss:     Thanks @data-bot! Here's the summary: bookings increased 12%...
 ```
 
-The Boss reads the message, looks up its team registry, and delegates to the right specialist by @mentioning them in the same Slack thread. The specialist receives the full thread as context — nothing is lost in the handoff.
+The Boss reads the message, looks up its team registry, and delegates to the right specialist by @mentioning them in the same Slack thread. The specialist receives the full thread as context - nothing is lost in the handoff.
 
 ## Creating a Boss agent
 
-During agent creation (Step 1 — Name & Description), toggle **This agent is a Boss**.
+During agent creation (Step 1 - Name & Description), toggle **This agent is a Boss**.
 
 When the Boss toggle is enabled:
-- The Persona step is skipped — Boss identity is auto-generated from the team registry
-- The System Prompt is **locked** — not editable in the UI, and the **Optimize** button is hidden
+- The Persona step is skipped - Boss identity is auto-generated from the team registry
+- The System Prompt is **locked** - not editable in the UI, and the **Optimize** button is hidden
 - The agent connects to Slack like any other agent and receives @mentions normally
 
 <Note>
-  The lock is intentional. Boss behavior is driven entirely by the team roster — adding a specialist automatically updates every Boss whose team they report to. Hand-edits would drift out of sync.
+  The lock is intentional. Boss behavior is driven entirely by the team roster - adding a specialist automatically updates every Boss whose team they report to. Hand-edits would drift out of sync.
 </Note>
 
 ## The team registry
@@ -41,16 +41,16 @@ Example registry section:
 ```markdown
 ## Your Team
 
-- **DataBot** (<@U12345678>) — Data warehouse NLQ, Redshift queries, business metrics
-- **Writer** (<@U87654321>) — Content generation, Slack summaries, announcements
-- **Engineer** (<@U11112222>) — Code review, debugging, GitHub PR summaries
+- **DataBot** (<@U12345678>) - Data warehouse NLQ, Redshift queries, business metrics
+- **Writer** (<@U87654321>) - Content generation, Slack summaries, announcements
+- **Engineer** (<@U11112222>) - Code review, debugging, GitHub PR summaries
 ```
 
 The registry also includes explicit delegation rules:
 
 ```markdown
 ## Delegation Rules
-- ALWAYS delegate — do not attempt to perform specialist work yourself
+- ALWAYS delegate - do not attempt to perform specialist work yourself
 - Use the thread so specialists have full context
 - If unsure who to delegate to, ask the user for clarification
 - Always instruct the specialist to @mention you when they are done
@@ -64,7 +64,7 @@ To add a specialist to a Boss's team, set the **Reports To** field on the specia
 
 1. Open the specialist agent's **Overview** tab
 2. Select one or more Boss agents in the **Reports To** dropdown
-3. Save — the Boss's registry regenerates automatically within seconds
+3. Save - the Boss's registry regenerates automatically within seconds
 
 A specialist can report to multiple bosses. It will appear in each selected boss's team registry. This supports multi-domain setups where the same specialist (e.g. an "Engineer" agent) is available to multiple boss agents (e.g. "Product Boss" and "Infra Boss").
 
@@ -92,11 +92,11 @@ When the Boss receives a message:
 6. Specialist tags the Boss to signal completion
 7. Boss reviews the result, confirms for the user, and decides if another specialist is needed or the task is done
 
-The key design: everything happens **in the Slack thread**. Every participant can see the full conversation history — no context loss when multiple agents collaborate.
+The key design: everything happens **in the Slack thread**. Every participant can see the full conversation history - no context loss when multiple agents collaborate.
 
 ## System Prompt is locked
 
-A Boss agent's **Instructions → System Prompt** is read-only. The Optimize button is hidden. SlackHive manages this file end-to-end — it regenerates whenever any agent is created, updated, or deleted.
+A Boss agent's **Instructions → System Prompt** is read-only. The Optimize button is hidden. SlackHive manages this file end-to-end - it regenerates whenever any agent is created, updated, or deleted.
 
 Generated content includes:
 - The Boss's name and orchestrator role description
@@ -105,10 +105,10 @@ Generated content includes:
 - The exact delegation format to use in Slack
 - What to do after a specialist responds
 
-If you want custom behavior, do it on the specialists — their descriptions, skills, and memory shape what the Boss sees in the registry.
+If you want custom behavior, do it on the specialists - their descriptions, skills, and memory shape what the Boss sees in the registry.
 
 ## Scheduled jobs
 
-Boss agents work great with scheduled jobs — set up a daily cross-team digest, a weekly summary, or an alert that fires when something needs escalation across multiple specialists.
+Boss agents work great with scheduled jobs - set up a daily cross-team digest, a weekly summary, or an alert that fires when something needs escalation across multiple specialists.
 
 → See [Scheduled Jobs](/features/scheduled-jobs) for the full setup guide.

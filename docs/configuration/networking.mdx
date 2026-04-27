@@ -1,6 +1,6 @@
 ---
 title: "How Slack Connects"
-description: "SlackHive works from your laptop with no public URL, no ngrok, no port forwarding. Here's why — and whether it's safe."
+description: "SlackHive works from your laptop with no public URL, no ngrok, no port forwarding. Here's why - and whether it's safe."
 ---
 
 One of the most common questions from new users:
@@ -24,30 +24,30 @@ SlackHive uses **Socket Mode** for every agent, so you don't need ngrok, a rever
 
 Think of it like a doorbell vs. a phone call you make.
 
-**Webhook = doorbell.** Slack needs your public street address to ring your bell. Your laptop at home doesn't have one — it sits behind your Wi-Fi router, which is why webhooks would normally need ngrok to lend you a temporary public address.
+**Webhook = doorbell.** Slack needs your public street address to ring your bell. Your laptop at home doesn't have one - it sits behind your Wi-Fi router, which is why webhooks would normally need ngrok to lend you a temporary public address.
 
 **Socket Mode = you call Slack.** Your laptop dials Slack first: *"Keep the line open, tell me whenever something happens."* Slack holds that line open, and every Slack message flows down it. Your laptop replies on the same line.
 
-Key point: **you dialed out.** Slack never had to find you. That's why it works from home Wi-Fi, a coffee shop, or behind any corporate NAT — outgoing calls always work, even when nobody can reach you directly.
+Key point: **you dialed out.** Slack never had to find you. That's why it works from home Wi-Fi, a coffee shop, or behind any corporate NAT - outgoing calls always work, even when nobody can reach you directly.
 
 The "phone line" is a WebSocket (`wss://wss-primary.slack.com/...`), and it stays open as long as the runner is running. Stop SlackHive → line hangs up → Slack has nowhere to send messages → commands stop working.
 
 ## Does it need "internet presence"?
 
-No — just **internet access**.
+No - just **internet access**.
 
 - **Internet access** = you can reach out to other servers. Required.
 - **Internet presence** = others can reach you at a public address. **Not** required.
 
-Your router's NAT lets your laptop reach out but blocks strangers from reaching in. Socket Mode rides on an outgoing connection, so NAT is fine with it — the same reason your browser works on any network without configuration.
+Your router's NAT lets your laptop reach out but blocks strangers from reaching in. Socket Mode rides on an outgoing connection, so NAT is fine with it - the same reason your browser works on any network without configuration.
 
 ## Is it secure?
 
-Yes — Socket Mode is what Slack recommends for local dev and internal tools. Four reasons:
+Yes - Socket Mode is what Slack recommends for local dev and internal tools. Four reasons:
 
-1. **Encrypted.** The connection is `wss://` — WebSocket Secure, same TLS as `https://`. Nobody on your Wi-Fi can read the traffic.
+1. **Encrypted.** The connection is `wss://` - WebSocket Secure, same TLS as `https://`. Nobody on your Wi-Fi can read the traffic.
 2. **Authenticated.** Opening the socket requires an **app-level token** (`xapp-...`) that proves you're the real SlackHive app. Slack rejects the connection if the token is invalid.
-3. **No open door.** Webhooks require a public URL — a door on the internet that attackers scan for. Socket Mode opens no ports. You dialed out; nothing is listening for incoming connections.
+3. **No open door.** Webhooks require a public URL - a door on the internet that attackers scan for. Socket Mode opens no ports. You dialed out; nothing is listening for incoming connections.
 4. **Revocable.** If a token leaks, rotate it in the Slack admin panel. The active connection dies instantly.
 
 The real risks are generic to any app:
@@ -67,11 +67,11 @@ lsof -iTCP -sTCP:ESTABLISHED -nP | grep -i slack
 
 You'll see an established TCP connection from the runner process to a Slack edge IP on port `443`. That's the WebSocket.
 
-If that grep returns nothing, the runner hasn't connected yet — check `~/.slackhive/logs/runner.log` for the Bolt startup line, and verify `SLACK_APP_TOKEN` and `SLACK_BOT_TOKEN` are set for the agent.
+If that grep returns nothing, the runner hasn't connected yet - check `~/.slackhive/logs/runner.log` for the Bolt startup line, and verify `SLACK_APP_TOKEN` and `SLACK_BOT_TOKEN` are set for the agent.
 
 ## When you'd switch to webhooks
 
-Almost never, for SlackHive's use case. Socket Mode is the recommended path for self-hosted deployments too — a VM running SlackHive is just a machine that dials out to Slack, same as your laptop.
+Almost never, for SlackHive's use case. Socket Mode is the recommended path for self-hosted deployments too - a VM running SlackHive is just a machine that dials out to Slack, same as your laptop.
 
 You'd only reach for webhooks if:
 

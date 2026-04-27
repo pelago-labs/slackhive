@@ -7,12 +7,12 @@ description: "Export an agent's configuration as a JSON file and import it into 
 
 The export captures the full agent configuration:
 
-- **Persona** — the starter persona slug (if one was picked in the wizard)
-- **Description** — the one-line description shown to boss agents
-- **CLAUDE.md** — identity, instructions, and behavior rules
-- **Skills** — all Markdown skill files (category, filename, content, sort order)
+- **Persona** - the starter persona slug (if one was picked in the wizard)
+- **Description** - the one-line description shown to boss agents
+- **CLAUDE.md** - identity, instructions, and behavior rules
+- **Skills** - all Markdown skill files (category, filename, content, sort order)
 
-Slack credentials, memories, wiki content, and scheduled jobs are **not** included. This keeps exports portable — you can import a config into any agent without overwriting live credentials, ingested wiki, or accumulated memory.
+Slack credentials, memories, wiki content, and scheduled jobs are **not** included. This keeps exports portable - you can import a config into any agent without overwriting live credentials, ingested wiki, or accumulated memory.
 
 ---
 
@@ -44,7 +44,7 @@ The file looks like:
 
 ## Importing a config
 
-Import applies an exported config to an **existing** agent — it overwrites that agent's CLAUDE.md and upserts its skills. Persona and description are applied if present in the export.
+Import applies an exported config to an **existing** agent - it overwrites that agent's CLAUDE.md and upserts its skills. Persona and description are applied if present in the export.
 
 1. Open the target agent in the dashboard
 2. Click the **Upload** icon in the top-right
@@ -56,7 +56,7 @@ Import applies an exported config to an **existing** agent — it overwrites tha
 5. Click **Apply Import** to confirm
 
 <Note>
-  Import **overwrites** the agent's current CLAUDE.md. Skills are upserted — existing skills with the same name are updated, new ones are added, and skills not in the import are left untouched.
+  Import **overwrites** the agent's current CLAUDE.md. Skills are upserted - existing skills with the same name are updated, new ones are added, and skills not in the import are left untouched.
 </Note>
 
 ---
@@ -77,7 +77,7 @@ Import applies an exported config to an **existing** agent — it overwrites tha
 
 <CardGroup cols={2}>
   <Card title="Version History" icon="clock-rotate-left" href="/features/history">
-    Auto-snapshots on every save — browse diffs and restore any version.
+    Auto-snapshots on every save - browse diffs and restore any version.
   </Card>
   <Card title="Creating Agents" icon="robot" href="/agents/creating-agents">
     Set up a new agent to import a config into.

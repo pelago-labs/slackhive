@@ -1,11 +1,11 @@
 ---
 title: "Example Agents"
-description: "Eleven agents that change how a team operates — with the pain, the setup, and the shift each one creates."
+description: "Eleven agents that change how a team operates - with the pain, the setup, and the shift each one creates."
 ---
 
 ## The vision
 
-A team shouldn't spend its best hours on the same ten questions, the same five dashboards, the same Monday release ritual. SlackHive agents are there to absorb the routine — answer the FAQ, triage the alert, pull the metric, nudge the stale PR — so humans spend their time on judgment calls and creative work.
+A team shouldn't spend its best hours on the same ten questions, the same five dashboards, the same Monday release ritual. SlackHive agents are there to absorb the routine - answer the FAQ, triage the alert, pull the metric, nudge the stale PR - so humans spend their time on judgment calls and creative work.
 
 Each agent below is a realistic starting point. Pick one that matches a pain you actually have. Ship it. Then add the next.
 
@@ -37,22 +37,22 @@ Three agents. All live in Slack. All get sharper the longer you use them.
 
 ### Oncall triage
 
-Pager fires at 3 a.m. You tag the agent. It reads the alert, checks the dashboards it knows about, pulls the last few deploys, and posts back a two-line theory: *what broke, who touched it last, where to look first.* Over weeks it learns your repo — "errors spiking in checkout usually means the Stripe webhook retry loop" — and the theories get scarier-accurate.
+Pager fires at 3 a.m. You tag the agent. It reads the alert, checks the dashboards it knows about, pulls the last few deploys, and posts back a two-line theory: *what broke, who touched it last, where to look first.* Over weeks it learns your repo - "errors spiking in checkout usually means the Stripe webhook retry loop" - and the theories get scarier-accurate.
 
 | Layer | What to put here |
 |---|---|
 | **System Prompt** | Role: senior SRE for `<your service>`. Tone: blunt, post a theory not a novel. Hard rule: never restart services, only suggest. |
-| **Skills** | `/triage` — read alert → correlate with recent deploys → post theory. `/postmortem` — draft write-up after the fire's out. |
+| **Skills** | `/triage` - read alert → correlate with recent deploys → post theory. `/postmortem` - draft write-up after the fire's out. |
 | **Wiki** | Service architecture docs. Past incident postmortems. The runbook repo. |
 
 ### PR reviewer
 
-You paste a PR link. The agent reads the diff the way a senior on your team would — checks it against your own codebase, flags the thing that'll bite you in prod, ignores the style nits your linter already caught. First week it's generic. By month two it sounds like the person on your team whose reviews you actually trust.
+You paste a PR link. The agent reads the diff the way a senior on your team would - checks it against your own codebase, flags the thing that'll bite you in prod, ignores the style nits your linter already caught. First week it's generic. By month two it sounds like the person on your team whose reviews you actually trust.
 
 | Layer | What to put here |
 |---|---|
 | **System Prompt** | Role: senior reviewer for `<team>`. Tone: one-line comments, no hedging. Hard rule: suggest, don't approve. |
-| **Skills** | `/review` — pull diff, check against team conventions, post findings. `/security-check` — scan for auth, injection, secret leaks. |
+| **Skills** | `/review` - pull diff, check against team conventions, post findings. `/security-check` - scan for auth, injection, secret leaks. |
 | **Wiki** | The codebase itself. Your style guide. Past PR discussions worth remembering. |
 
 ### QA sandbox
@@ -62,7 +62,7 @@ CI fails. Someone re-runs it. Same failure. You tag the agent. It runs the test 
 | Layer | What to put here |
 |---|---|
 | **System Prompt** | Role: QA engineer for `<product>`. Tone: one-word verdict first, detail after. Hard rule: never auto-rerun beyond a fixed budget. |
-| **Skills** | `/run-e2e` — execute the failing test in the sandbox. `/flake-check` — compare signature to registry. `/bisect` — narrow down the offending commit. |
+| **Skills** | `/run-e2e` - execute the failing test in the sandbox. `/flake-check` - compare signature to registry. `/bisect` - narrow down the offending commit. |
 | **Wiki** | Which tests cover which user journeys. Known-flake registry. Environment map. |
 
 ---
@@ -71,12 +71,12 @@ CI fails. Someone re-runs it. Same failure. You tag the agent. It runs the test 
 
 ### Data analyst
 
-Someone in `#analytics` asks "how many paid signups yesterday?" Normally that's an analyst context-switch, a query, a paste-back. The agent does it directly — writes the SQL, runs it, posts the number, links the chart. It knows your schema cold because the wiki holds every table's meaning and the "use this view, not that one" folklore. Non-analysts stop waiting; analysts do real analysis instead of answering the same shape of question.
+Someone in `#analytics` asks "how many paid signups yesterday?" Normally that's an analyst context-switch, a query, a paste-back. The agent does it directly - writes the SQL, runs it, posts the number, links the chart. It knows your schema cold because the wiki holds every table's meaning and the "use this view, not that one" folklore. Non-analysts stop waiting; analysts do real analysis instead of answering the same shape of question.
 
 | Layer | What to put here |
 |---|---|
 | **System Prompt** | Role: data analyst for `<company>`. Tone: number first, caveat second. Hard rule: reads only, never writes. |
-| **Skills** | `/query` — plain-English question → SQL → result. `/funnel` — cohort and conversion walks. `/explain-table` — describe a schema from the wiki. |
+| **Skills** | `/query` - plain-English question → SQL → result. `/funnel` - cohort and conversion walks. `/explain-table` - describe a schema from the wiki. |
 | **Wiki** | Full warehouse schema. Column meanings. Canonical joins. Metric definitions. |
 
 ---
@@ -85,12 +85,12 @@ Someone in `#analytics` asks "how many paid signups yesterday?" Normally that's 
 
 ### Design system steward
 
-A designer updates a button in Figma. A week later the shipped UI has three button styles. The agent watches both sides — every week it compares Figma components against the token file in your repo and flags the drift: *"button/primary is `radius: 8` in Figma, `6` in code."* Proposes a PR, leaves a Figma comment, posts the mismatch list. Design and eng argue less because disagreements surface as diffs.
+A designer updates a button in Figma. A week later the shipped UI has three button styles. The agent watches both sides - every week it compares Figma components against the token file in your repo and flags the drift: *"button/primary is `radius: 8` in Figma, `6` in code."* Proposes a PR, leaves a Figma comment, posts the mismatch list. Design and eng argue less because disagreements surface as diffs.
 
 | Layer | What to put here |
 |---|---|
 | **System Prompt** | Role: design systems engineer. Tone: factual drift reports, no opinions. Hard rule: propose PRs, never merge them. |
-| **Skills** | `/sync-tokens` — compare Figma variables to the repo token file. `/diff-figma-vs-code` — post weekly drift digest. `/propose-component` — draft the Storybook page for a new component. |
+| **Skills** | `/sync-tokens` - compare Figma variables to the repo token file. `/diff-figma-vs-code` - post weekly drift digest. `/propose-component` - draft the Storybook page for a new component. |
 | **Wiki** | Component inventory. Token docs. Design principles. |
 
 ---
@@ -99,12 +99,12 @@ A designer updates a button in Figma. A week later the shipped UI has three butt
 
 ### Release manager
 
-Every Thursday the PM pulls merged PRs, writes notes, posts to `#releases`, updates the changelog, closes tickets. The agent drafts the whole thing — groups PRs by area, picks a customer-facing tone from past release notes, posts for the PM to edit. Once approved, it publishes, updates Notion, closes the Linear tickets. PMs get their Thursday afternoon back.
+Every Thursday the PM pulls merged PRs, writes notes, posts to `#releases`, updates the changelog, closes tickets. The agent drafts the whole thing - groups PRs by area, picks a customer-facing tone from past release notes, posts for the PM to edit. Once approved, it publishes, updates Notion, closes the Linear tickets. PMs get their Thursday afternoon back.
 
 | Layer | What to put here |
 |---|---|
 | **System Prompt** | Role: technical program manager. Tone: clear for customers, dry for engineers. Hard rule: always post a draft for human approval before publishing. |
-| **Skills** | `/draft-release-notes` — merged PRs → customer-facing notes. `/publish` — push approved notes to changelog and Linear. `/announce` — post to `#releases` and the company page. |
+| **Skills** | `/draft-release-notes` - merged PRs → customer-facing notes. `/publish` - push approved notes to changelog and Linear. `/announce` - post to `#releases` and the company page. |
 | **Wiki** | Versioning policy. Past release notes (for tone). |
 
 ---
@@ -113,22 +113,22 @@ Every Thursday the PM pulls merged PRs, writes notes, posts to `#releases`, upda
 
 ### Competitor price watcher
 
-A competitor raises their enterprise tier 20%. Sales normally finds out three weeks later from a customer comparing quotes. The agent checks competitor pricing pages every morning, diffs against yesterday's snapshot, and posts only when something changed — side-by-side before/after in `#market-intel`. Pricing becomes a live conversation, not an annual review.
+A competitor raises their enterprise tier 20%. Sales normally finds out three weeks later from a customer comparing quotes. The agent checks competitor pricing pages every morning, diffs against yesterday's snapshot, and posts only when something changed - side-by-side before/after in `#market-intel`. Pricing becomes a live conversation, not an annual review.
 
 | Layer | What to put here |
 |---|---|
-| **System Prompt** | Role: market research analyst. Tone: just the change, no commentary. Hard rule: post only when a diff exists — no "nothing changed today" noise. |
-| **Skills** | `/scrape-pricing` — fetch each competitor's pricing page. `/diff-vs-yesterday` — compare against the stored snapshot. `/alert-pm` — post side-by-side when changed. |
-| **Wiki** | List of competitor URLs. Pricing taxonomy — tiers and features to compare. |
+| **System Prompt** | Role: market research analyst. Tone: just the change, no commentary. Hard rule: post only when a diff exists - no "nothing changed today" noise. |
+| **Skills** | `/scrape-pricing` - fetch each competitor's pricing page. `/diff-vs-yesterday` - compare against the stored snapshot. `/alert-pm` - post side-by-side when changed. |
+| **Wiki** | List of competitor URLs. Pricing taxonomy - tiers and features to compare. |
 
 ### Content publisher
 
-A writer finishes a draft in Notion. It sits for days — someone has to copy-paste into WordPress, fix formatting, add SEO fields, schedule, announce. The agent picks up drafts tagged *ready-to-publish*, runs a polish pass in your brand voice, suggests an SEO title, pushes to the blog CMS, and prepares the announcement for `#launches`. Writers ship on their own schedule instead of waiting on marketing ops.
+A writer finishes a draft in Notion. It sits for days - someone has to copy-paste into WordPress, fix formatting, add SEO fields, schedule, announce. The agent picks up drafts tagged *ready-to-publish*, runs a polish pass in your brand voice, suggests an SEO title, pushes to the blog CMS, and prepares the announcement for `#launches`. Writers ship on their own schedule instead of waiting on marketing ops.
 
 | Layer | What to put here |
 |---|---|
 | **System Prompt** | Role: content marketer for `<brand>`. Tone: match the voice guide exactly. Hard rule: never publish without an approved checkbox on the Notion doc. |
-| **Skills** | `/polish-draft` — light edit pass, tone-matched. `/suggest-title` — SEO-aware headline and meta description. `/publish` — push to CMS, post announcement. |
+| **Skills** | `/polish-draft` - light edit pass, tone-matched. `/suggest-title` - SEO-aware headline and meta description. `/publish` - push to CMS, post announcement. |
 | **Wiki** | Brand voice guide. SEO conventions. Past posts (for style). |
 
 ---
@@ -137,13 +137,13 @@ A writer finishes a draft in Notion. It sits for days — someone has to copy-pa
 
 ### Daily AI news
 
-Someone on the team spends an hour every morning scanning Twitter, newsletters, and blogs — then either forgets to share or shares too much and everyone tunes out. The agent does the scan. Every weekday at 8:30am it reads the source list, ranks items by what your team cares about, and posts the top five with a one-line *why this matters for us*. Debates reference the same papers.
+Someone on the team spends an hour every morning scanning Twitter, newsletters, and blogs - then either forgets to share or shares too much and everyone tunes out. The agent does the scan. Every weekday at 8:30am it reads the source list, ranks items by what your team cares about, and posts the top five with a one-line *why this matters for us*. Debates reference the same papers.
 
 | Layer | What to put here |
 |---|---|
-| **System Prompt** | Role: research analyst. Tone: terse — one line of "why this matters" per item. Hard rule: exactly five items, never more. |
-| **Skills** | `/morning-digest` — fetch, rank, post the top five. `/deep-dive` — expand on one item when asked. `/add-source` — append a new feed to the source list. |
-| **Wiki** | Topic taxonomy — what counts as "worth our attention." |
+| **System Prompt** | Role: research analyst. Tone: terse - one line of "why this matters" per item. Hard rule: exactly five items, never more. |
+| **Skills** | `/morning-digest` - fetch, rank, post the top five. `/deep-dive` - expand on one item when asked. `/add-source` - append a new feed to the source list. |
+| **Wiki** | Topic taxonomy - what counts as "worth our attention." |
 
 ---
 
@@ -151,22 +151,22 @@ Someone on the team spends an hour every morning scanning Twitter, newsletters, 
 
 ### Birthday bot
 
-At 10 people someone remembers birthdays. At 50 they don't. The agent reads a one-line-per-teammate file and posts a warm wish in `#general` when today matches. That's the whole agent — no integrations, no skills, one file. Tiny ritual, outsized effect on culture. Ideal first agent because it proves the whole pattern in thirty minutes.
+At 10 people someone remembers birthdays. At 50 they don't. The agent reads a one-line-per-teammate file and posts a warm wish in `#general` when today matches. That's the whole agent - no integrations, no skills, one file. Tiny ritual, outsized effect on culture. Ideal first agent because it proves the whole pattern in thirty minutes.
 
 | Layer | What to put here |
 |---|---|
 | **System Prompt** | Role: culture bot. Tone: warm, one line. Hard rule: do nothing when no birthday matches today. |
-| **Skills** | None — the job is small enough to live entirely in the system prompt. |
-| **Wiki** | One page, `birthdays.md` — name and date per teammate. |
+| **Skills** | None - the job is small enough to live entirely in the system prompt. |
+| **Wiki** | One page, `birthdays.md` - name and date per teammate. |
 
 ### Onboarding buddy
 
-A new hire joins, gets linked to a 200-page handbook, reads 10% of it, asks the same questions every Monday for a month. Every previous hire asked them too. The agent lives in `#new-hires` and answers from the handbook wiki. When it doesn't know, it names the human who does. The gaps in the handbook become visible — *"this is the third ask about expense policy and the handbook doesn't cover it."*
+A new hire joins, gets linked to a 200-page handbook, reads 10% of it, asks the same questions every Monday for a month. Every previous hire asked them too. The agent lives in `#new-hires` and answers from the handbook wiki. When it doesn't know, it names the human who does. The gaps in the handbook become visible - *"this is the third ask about expense policy and the handbook doesn't cover it."*
 
 | Layer | What to put here |
 |---|---|
-| **System Prompt** | Role: people ops assistant. Tone: warm but direct, cite the handbook section. Hard rule: when unsure, name a human — don't guess. |
-| **Skills** | `/handbook` — answer a question from the wiki. `/request-access` — kick off Drive / Notion access grants. `/first-week-checklist` — post the onboarding plan. |
+| **System Prompt** | Role: people ops assistant. Tone: warm but direct, cite the handbook section. Hard rule: when unsure, name a human - don't guess. |
+| **Skills** | `/handbook` - answer a question from the wiki. `/request-access` - kick off Drive / Notion access grants. `/first-week-checklist` - post the onboarding plan. |
 | **Wiki** | Full employee handbook. Org chart. Tools list. |
 
 ---
@@ -177,7 +177,7 @@ One agent saves someone an hour a week. That's nice.
 
 Ten agents, each owning a piece of the weekly ritual, change how the team operates. The PM no longer writes release notes. The oncall rotation is less punishing. New hires ramp in days instead of weeks. The data team does real analysis instead of ad-hoc queries. Designers and engineers speak the same language because the design system stays coherent.
 
-This is the real shift — not "we added a bot" but "we have a team of specialists that handles the routine so the humans focus on judgment calls."
+This is the real shift - not "we added a bot" but "we have a team of specialists that handles the routine so the humans focus on judgment calls."
 
 A boss agent on top makes it navigable. Users `@` one boss with any question, and the boss decides which specialist to delegate to. The user doesn't need to know the org chart of agents.
 
@@ -186,7 +186,7 @@ A boss agent on top makes it navigable. Users `@` one boss with any question, an
 Don't try to build all eleven at once. The pattern that works:
 
 1. Pick the **agent that removes your most annoying weekly task**. Ship it in an afternoon.
-2. Run it for a week. Iterate with [Coach](/agents/coach) — what did it get wrong? What's missing from its wiki?
+2. Run it for a week. Iterate with [Coach](/agents/coach) - what did it get wrong? What's missing from its wiki?
 3. Once it's load-bearing, pick the next one. A month later you have three agents and the team has stopped asking whether this approach works.
 
 ## Next steps
@@ -199,7 +199,7 @@ Don't try to build all eleven at once. The pattern that works:
     The 26 starter identities.
   </Card>
   <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
-    System prompt vs skills vs memory vs wiki — what goes where.
+    System prompt vs skills vs memory vs wiki - what goes where.
   </Card>
   <Card title="Coach" icon="comments" href="/agents/coach">
     Tune an agent by chat, not by hand-editing files.

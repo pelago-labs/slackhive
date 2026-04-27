@@ -1,6 +1,6 @@
 ---
 title: "OAuth MCPs"
-description: "Connect MCPs that require OAuth — dynamic registration, token paste, and Claude Code CLI import."
+description: "Connect MCPs that require OAuth - dynamic registration, token paste, and Claude Code CLI import."
 ---
 
 Some MCP servers (Figma, Notion on certain plans, Google services) use OAuth instead of static API keys. SlackHive supports three OAuth flows depending on the provider.
@@ -9,13 +9,13 @@ Some MCP servers (Figma, Notion on certain plans, Google services) use OAuth ins
 
 The MCP catalog badges tell you:
 
-- **OAuth** — this MCP uses a one-time browser auth flow
-- **PAT** — this MCP uses a personal access token you paste once
-- **API key** — this MCP uses an API key in env vars
+- **OAuth** - this MCP uses a one-time browser auth flow
+- **PAT** - this MCP uses a personal access token you paste once
+- **API key** - this MCP uses an API key in env vars
 
 If a template shows no OAuth badge, you don't need this page.
 
-## Flow A — Click Connect (dynamic registration)
+## Flow A - Click Connect (dynamic registration)
 
 Works for providers that support **dynamic client registration** (Figma, some others):
 
@@ -23,11 +23,11 @@ Works for providers that support **dynamic client registration** (Figma, some ot
 2. Click **Connect**
 3. SlackHive opens the provider's OAuth consent page
 4. Approve the scopes
-5. The browser redirects back — tokens are stored encrypted
+5. The browser redirects back - tokens are stored encrypted
 
 Nothing else to paste. The MCP shows a green "Connected" badge.
 
-## Flow B — Paste a token
+## Flow B - Paste a token
 
 Works for providers that **don't** support dynamic registration (most enterprise SaaS):
 
@@ -37,29 +37,29 @@ Works for providers that **don't** support dynamic registration (most enterprise
 4. Paste the token into the MCP's auth field
 5. Save
 
-Token refresh isn't automatic here — re-paste when the token expires.
+Token refresh isn't automatic here - re-paste when the token expires.
 
-## Flow C — Import from Claude Code CLI
+## Flow C - Import from Claude Code CLI
 
 If you've already authenticated an MCP through the Claude Code CLI, SlackHive can detect and import it:
 
 1. Open the MCP catalog
-2. Scroll to **Detected from Claude Code CLI** — you'll see a list of CLI-authenticated MCPs
-3. Click **Add** on the one you want — it imports in one click with a **CLI** badge
+2. Scroll to **Detected from Claude Code CLI** - you'll see a list of CLI-authenticated MCPs
+3. Click **Add** on the one you want - it imports in one click with a **CLI** badge
 
 No re-auth, no token paste.
 
 ## Token refresh
 
-- **macOS** — SlackHive reads the Claude Code Keychain and auto-refreshes OAuth tokens when they expire. On 401 errors, it refreshes once and retries.
-- **Linux** — reads from secret-tool (GNOME Keyring) on the same path.
-- **Other setups** — if auto-refresh isn't available, reconnect manually from the catalog.
+- **macOS** - SlackHive reads the Claude Code Keychain and auto-refreshes OAuth tokens when they expire. On 401 errors, it refreshes once and retries.
+- **Linux** - reads from secret-tool (GNOME Keyring) on the same path.
+- **Other setups** - if auto-refresh isn't available, reconnect manually from the catalog.
 
 ## When Connect fails
 
-- **"Dynamic registration rejected"** — the provider doesn't support it. Switch to Flow B (token paste).
-- **"Invalid scopes"** — re-generate the token with the exact scopes the hint shows.
-- **"Redirect URI mismatch"** — check that `http://localhost:3001` is allowed in the provider's app settings.
-- **"Token expired"** — reconnect from the catalog, or re-paste a fresh token.
+- **"Dynamic registration rejected"** - the provider doesn't support it. Switch to Flow B (token paste).
+- **"Invalid scopes"** - re-generate the token with the exact scopes the hint shows.
+- **"Redirect URI mismatch"** - check that `http://localhost:3001` is allowed in the provider's app settings.
+- **"Token expired"** - reconnect from the catalog, or re-paste a fresh token.
 
 See [MCP servers](/configuration/mcp-servers) for the full catalog behavior.

@@ -1,11 +1,11 @@
 ---
 title: "Creating Agents"
-description: "Create an agent with the 5-step wizard — name, persona, Slack, tools, review."
+description: "Create an agent with the 5-step wizard - name, persona, Slack, tools, review."
 ---
 
 Click **New Agent** in the sidebar to open the creation wizard. If your Slack credentials are ready, you'll be done in about 5 minutes.
 
-Before you start, skim [Concepts — What Goes Where](/agents/concepts) if you haven't. It explains the four layers of an agent's brain (system prompt, skills, memory, wiki) and helps you pick the right home for each piece of content later.
+Before you start, skim [Concepts - What Goes Where](/agents/concepts) if you haven't. It explains the four layers of an agent's brain (system prompt, skills, memory, wiki) and helps you pick the right home for each piece of content later.
 
 ## Step 1: Name & Description
 
@@ -16,11 +16,11 @@ Before you start, skim [Concepts — What Goes Where](/agents/concepts) if you h
 | **Model** | `claude-sonnet-4-6` is a good default. Opus for complex reasoning. Haiku for high-volume quick tasks. |
 | **Boss toggle** | Turn on if this agent orchestrates others (see [Boss Agents](/agents/boss-agents)) |
 
-For specialist agents, a **Reports To** field appears — pick which boss(es) this agent answers to. A specialist can report to multiple bosses.
+For specialist agents, a **Reports To** field appears - pick which boss(es) this agent answers to. A specialist can report to multiple bosses.
 
 ## Step 2: Pick a Persona
 
-Browse the **Persona Library** — 26 research-backed starter identities across engineering, data, product, ops, marketing, and support.
+Browse the **Persona Library** - 26 research-backed starter identities across engineering, data, product, ops, marketing, and support.
 
 Picking a persona seeds the agent's:
 
@@ -28,7 +28,7 @@ Picking a persona seeds the agent's:
 - Starter skills (reusable procedures like `/weekly-report`)
 - Recommended MCPs (the tools typical for this role)
 
-If nothing fits, pick **Blank** — you'll build the agent from scratch.
+If nothing fits, pick **Blank** - you'll build the agent from scratch.
 
 See [Personas](/agents/personas) for the full library and how seeding works.
 
@@ -38,7 +38,7 @@ See [Personas](/agents/personas) for the full library and how seeding works.
 
 ## Step 3: Create a Slack App
 
-Each agent needs its own Slack app. SlackHive generates a manifest — you paste it into Slack, install, and come back with three tokens.
+Each agent needs its own Slack app. SlackHive generates a manifest - you paste it into Slack, install, and come back with three tokens.
 
 1. Click **Generate Manifest** in the wizard
 2. Open [api.slack.com/apps](https://api.slack.com/apps) in a new tab
@@ -58,13 +58,13 @@ Paste the three values from your Slack app:
 | **App Token** | Basic Information → App-Level Tokens → Generate Token (add `connections:write`) | `xapp-...` |
 | **Signing Secret** | Basic Information → App Credentials → Signing Secret → Show | 32-char hex |
 
-Click **Verify Connection**. SlackHive pings Slack to confirm the tokens work. Credentials are stored encrypted in the **Platform Integrations** table — a per-agent credential store, separate from the agent record itself. One agent can later hold credentials for multiple platforms (Slack today; Discord, Telegram, etc. as adapters are added). See [Platform Integrations](/operations/troubleshooting#slack-bot-token-is-invalid-or-revoked) for managing credentials after save.
+Click **Verify Connection**. SlackHive pings Slack to confirm the tokens work. Credentials are stored encrypted in the **Platform Integrations** table - a per-agent credential store, separate from the agent record itself. One agent can later hold credentials for multiple platforms (Slack today; Discord, Telegram, etc. as adapters are added). See [Platform Integrations](/operations/troubleshooting#slack-bot-token-is-invalid-or-revoked) for managing credentials after save.
 
 ## Step 5: Tools & Review
 
 Assign MCP servers from the catalog to give the agent real tools (query a database, read files, create Jira tickets). You can also skip this and add them later from the Tools tab.
 
-Review the summary, then click **Create Agent**. The runner picks up the agent within a few seconds — the dashboard status flips to **Active**.
+Review the summary, then click **Create Agent**. The runner picks up the agent within a few seconds - the dashboard status flips to **Active**.
 
 ## After creation
 
@@ -85,13 +85,13 @@ Open the agent to find five tabs:
 | **Overview** | Name, description, model, persona, Slack credentials, channel restrictions, verbose toggle (see below) |
 | **Instructions** | System Prompt, Skills, Memory (three sub-tabs) |
 | **Tools** | MCP servers plus Internet Access and Shell Access toggles |
-| **Knowledge** | Per-agent wiki — ingest repos/files/URLs |
+| **Knowledge** | Per-agent wiki - ingest repos/files/URLs |
 | **Test** | Sandboxed conversation pane with real MCPs |
 | **History** | Auto-snapshots with GitHub-style file diffs and restore |
 
-Changes hot-reload within seconds — no restart needed.
+Changes hot-reload within seconds - no restart needed.
 
-## Instructions tab — three sub-tabs
+## Instructions tab - three sub-tabs
 
 | Sub-tab | What lives here | Links |
 |---|---|---|
@@ -107,8 +107,8 @@ Changes hot-reload within seconds — no restart needed.
 
 The Tools tab has two sections:
 
-- **MCP servers** — assignment grid for servers in the catalog
-- **Capabilities** — toggles for **Internet Access** (web search + fetch) and **Shell Access** (terminal commands, dangerous commands auto-blocked)
+- **MCP servers** - assignment grid for servers in the catalog
+- **Capabilities** - toggles for **Internet Access** (web search + fetch) and **Shell Access** (terminal commands, dangerous commands auto-blocked)
 
 `Read` and `Write` are always on (the memory system needs `Write`). See [Tools](/agents/tools).
 
@@ -118,10 +118,10 @@ A per-agent switch on the **Overview** tab controls how chatty the agent is whil
 
 | Setting | Behavior |
 |---|---|
-| **Verbose on** (default) | Each assistant text block posts to Slack as it streams. Users see step-by-step progress — great for long tool chains. |
+| **Verbose on** (default) | Each assistant text block posts to Slack as it streams. Users see step-by-step progress - great for long tool chains. |
 | **Verbose off** | Intermediate blocks are buffered silently. Only the final answer posts. Cleaner for short-answer agents (e.g. `@status-bot`). |
 
-Tool progress always shows as emoji reactions on the user's message regardless of this toggle — verbose only controls intermediate *text* messages.
+Tool progress always shows as emoji reactions on the user's message regardless of this toggle - verbose only controls intermediate *text* messages.
 
 ## Channel restrictions
 
@@ -138,14 +138,14 @@ If the agent is invited to a non-allowed channel, it posts a notice and leaves.
 Every save to the system prompt, skills, tools, permissions, or wiki:
 
 - Hot-reloads the agent within a couple seconds
-- Creates a snapshot (see [Version History](/features/history)) — skipped if nothing actually changed
+- Creates a snapshot (see [Version History](/features/history)) - skipped if nothing actually changed
 - Channel restriction changes appear in the diff
 
 ## Next steps
 
 <CardGroup cols={2}>
   <Card title="Coach" icon="comments" href="/agents/coach">
-    Tune the system prompt and skills via chat — no hand-editing.
+    Tune the system prompt and skills via chat - no hand-editing.
   </Card>
   <Card title="Knowledge Base" icon="book" href="/agents/knowledge-base">
     Ingest a repo, file, or URL into the agent's wiki.

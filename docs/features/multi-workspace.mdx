@@ -1,11 +1,11 @@
 ---
 title: "Multi-Workspace"
-description: "Connect agents across multiple Slack workspaces — all managed from a single SlackHive instance."
+description: "Connect agents across multiple Slack workspaces - all managed from a single SlackHive instance."
 ---
 
 ## One platform, many workspaces
 
-SlackHive lets you deploy agents into multiple Slack workspaces from a single installation. Each agent carries its own Slack credentials, so agents in different workspaces run completely independently — while you manage everything from one dashboard.
+SlackHive lets you deploy agents into multiple Slack workspaces from a single installation. Each agent carries its own Slack credentials, so agents in different workspaces run completely independently - while you manage everything from one dashboard.
 
 Common setups:
 
@@ -22,9 +22,9 @@ Common setups:
 
 Each agent stores its own Slack credentials:
 
-- `slack_bot_token` — the bot's OAuth token (`xoxb-...`)
-- `slack_app_token` — for Socket Mode (`xapp-...`)
-- `slack_signing_secret` — to verify incoming events
+- `slack_bot_token` - the bot's OAuth token (`xoxb-...`)
+- `slack_app_token` - for Socket Mode (`xapp-...`)
+- `slack_signing_secret` - to verify incoming events
 
 When the runner starts, it creates a separate Slack Bolt connection for each agent using that agent's credentials. Agents in different workspaces don't share connections or interfere with each other.
 
@@ -36,15 +36,15 @@ Each workspace needs its own Slack app. For each workspace:
 
 <Steps>
   <Step title="Create a Slack app for that workspace">
-    During agent creation, the onboarding wizard generates a manifest. Install that manifest into the target workspace — **not** your main workspace.
+    During agent creation, the onboarding wizard generates a manifest. Install that manifest into the target workspace - **not** your main workspace.
 
     → See [Slack App Setup](/configuration/slack-app) for the full manifest install steps.
   </Step>
   <Step title="Collect the credentials">
     From the installed app, copy:
-    - **Bot Token** (`xoxb-...`) — from OAuth & Permissions
-    - **App Token** (`xapp-...`) — from Basic Information → App-Level Tokens
-    - **Signing Secret** — from Basic Information
+    - **Bot Token** (`xoxb-...`) - from OAuth & Permissions
+    - **App Token** (`xapp-...`) - from Basic Information → App-Level Tokens
+    - **Signing Secret** - from Basic Information
 
     These are workspace-specific. An app installed in workspace A cannot connect to workspace B.
   </Step>
@@ -59,7 +59,7 @@ Repeat for each workspace. You can have any number of agents per workspace.
 
 ## User management across workspaces
 
-Users and roles in SlackHive are platform-wide — there's no per-workspace access control.
+Users and roles in SlackHive are platform-wide - there's no per-workspace access control.
 
 | What's shared | What's isolated |
 |---------------|-----------------|
@@ -74,7 +74,7 @@ An admin can see and manage agents in all workspaces from the same dashboard. Us
 
 ## Boss agents across workspaces
 
-A Boss and all its specialists **must be in the same Slack workspace**. Boss delegates by @mentioning specialists in the same thread — this only works when they share a workspace. If you need Boss orchestration in multiple workspaces, create a separate Boss and specialist set for each workspace.
+A Boss and all its specialists **must be in the same Slack workspace**. Boss delegates by @mentioning specialists in the same thread - this only works when they share a workspace. If you need Boss orchestration in multiple workspaces, create a separate Boss and specialist set for each workspace.
 
 ---
 

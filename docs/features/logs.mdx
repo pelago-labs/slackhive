@@ -96,15 +96,15 @@ Check for:
 ### MCP tools not working
 
 Check for:
-- `[error] MCP proxy start failed` — the server binary is not found or not executable
-- `[warn] MCP envRef not found` — the referenced env var key doesn't exist in the encrypted store
-- `[warn] Memory dir watcher error` — filesystem permission issues
+- `[error] MCP proxy start failed` - the server binary is not found or not executable
+- `[warn] MCP envRef not found` - the referenced env var key doesn't exist in the encrypted store
+- `[warn] Memory dir watcher error` - filesystem permission issues
 
 ### Memory not persisting
 
 Check for:
-- `[warn] Could not parse memory file` — the agent wrote a memory file with invalid frontmatter
-- Absence of `[info] Memory synced to DB` lines — the watcher may not have detected the file
+- `[warn] Could not parse memory file` - the agent wrote a memory file with invalid frontmatter
+- Absence of `[info] Memory synced to DB` lines - the watcher may not have detected the file
 
 ### Stale session errors
 
@@ -130,7 +130,7 @@ This tails `~/.slackhive/logs/runner.log` live. Ctrl-C to stop. To print without
 tail -n 100 ~/.slackhive/logs/runner.log
 ```
 
-To filter to a single agent, each log line is JSON — pipe through `grep`:
+To filter to a single agent, each log line is JSON - pipe through `grep`:
 
 ```bash
 slackhive logs | grep '"agent":"data-bot"'

@@ -1,23 +1,23 @@
 ---
 title: "Quick Start"
-description: "From zero to your first AI agent responding in Slack — in under 10 minutes."
+description: "From zero to your first AI agent responding in Slack - in under 10 minutes."
 ---
 
 This guide takes you from a fresh machine to a working SlackHive setup with a live agent in your Slack workspace.
 
 <Note>
   **Before you begin, you'll need:**
-  - **Node.js 20 or later** — `node --version` to check
+  - **Node.js 20 or later** - `node --version` to check
   - **[Claude Code](https://claude.ai/code)** installed (the agents run on top of it)
   - A **Slack workspace** where you can install apps (admin, or permission to install apps)
   - One of:
-    - An [Anthropic API key](https://console.anthropic.com) — pay per token, best for teams
-    - A Claude Pro or Max subscription — already signed in via `claude login`
+    - An [Anthropic API key](https://console.anthropic.com) - pay per token, best for teams
+    - A Claude Pro or Max subscription - already signed in via `claude login`
 </Note>
 
 ## Install SlackHive
 
-The `slackhive` CLI handles everything — checks your environment, clones the repo, walks you through configuration, and starts the services.
+The `slackhive` CLI handles everything - checks your environment, clones the repo, walks you through configuration, and starts the services.
 
 <Steps>
   <Step title="Install the CLI">
@@ -72,14 +72,14 @@ Click **New Agent** in the sidebar. This opens a 5-step wizard.
 
 <Steps>
   <Step title="Name & Description">
-    - **Name** — shown in Slack (e.g. "Data Analyst" or "Ava")
-    - **Description** — what this agent does, in one sentence. Boss uses this to know who to delegate to.
-    - **Model** — `claude-sonnet-4-6` is a good default
+    - **Name** - shown in Slack (e.g. "Data Analyst" or "Ava")
+    - **Description** - what this agent does, in one sentence. Boss uses this to know who to delegate to.
+    - **Model** - `claude-sonnet-4-6` is a good default
 
     Leave the **Boss** toggle off for now.
   </Step>
   <Step title="Pick a Persona">
-    Browse the **Persona Library** — 26 research-backed starters (Data Analyst, Backend Engineer, Product Manager, Technical Writer, and more). Pick one that fits.
+    Browse the **Persona Library** - 26 research-backed starters (Data Analyst, Backend Engineer, Product Manager, Technical Writer, and more). Pick one that fits.
 
     The persona seeds the agent's system prompt, skills, and recommended MCPs. You can customize everything later with [Coach](/agents/coach). If none fit, pick **Blank**.
   </Step>
@@ -97,18 +97,18 @@ Click **New Agent** in the sidebar. This opens a 5-step wizard.
   <Step title="Enter Credentials">
     You need three values from your Slack app:
 
-    **Bot Token** — OAuth & Permissions → **Bot User OAuth Token** (starts with `xoxb-`)
+    **Bot Token** - OAuth & Permissions → **Bot User OAuth Token** (starts with `xoxb-`)
 
-    **App Token** — Basic Information → App-Level Tokens → **Generate Token and Scopes** → add `connections:write` → copy (starts with `xapp-`)
+    **App Token** - Basic Information → App-Level Tokens → **Generate Token and Scopes** → add `connections:write` → copy (starts with `xapp-`)
 
-    **Signing Secret** — Basic Information → App Credentials → Signing Secret → **Show** → copy
+    **Signing Secret** - Basic Information → App Credentials → Signing Secret → **Show** → copy
 
     Paste all three and click **Verify Connection**. See [Slack app setup](/configuration/slack-app) if verification fails.
   </Step>
   <Step title="Tools & Review">
     Assign any **MCP servers** you've added to the catalog. You can skip this and add them later.
 
-    Review the summary and click **Create Agent**. The runner picks up the new agent within a few seconds — status flips to **Active** on the dashboard.
+    Review the summary and click **Create Agent**. The runner picks up the new agent within a few seconds - status flips to **Active** on the dashboard.
   </Step>
 </Steps>
 
@@ -130,10 +130,10 @@ Click **New Agent** in the sidebar. This opens a 5-step wizard.
 </Steps>
 
 <Tip>
-  You can also DM the bot directly — open a new DM in Slack, find the agent by name, start chatting.
+  You can also DM the bot directly - open a new DM in Slack, find the agent by name, start chatting.
 </Tip>
 
-Before posting in a live channel, try [Test Mode](/agents/testing) — it's a sandboxed conversation pane with real MCPs.
+Before posting in a live channel, try [Test Mode](/agents/testing) - it's a sandboxed conversation pane with real MCPs.
 
 ## What's next
 
@@ -148,6 +148,6 @@ Before posting in a live channel, try [Test Mode](/agents/testing) — it's a sa
     Set up an orchestrator that routes to the right specialist.
   </Card>
   <Card title="Connect MCP Servers" icon="plug" href="/configuration/mcp-servers">
-    Give your agent real tools — query databases, read files, call APIs.
+    Give your agent real tools - query databases, read files, call APIs.
   </Card>
 </CardGroup>

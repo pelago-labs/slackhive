@@ -7,8 +7,8 @@ The `slackhive` CLI installs, configures, and runs SlackHive on your machine. It
 
 ## Prerequisites
 
-- **Node.js 20 or later** — `node --version` to check
-- **Claude Code** installed — [claude.ai/code](https://claude.ai/code) (for OAuth path) or an Anthropic API key (for key path)
+- **Node.js 20 or later** - `node --version` to check
+- **Claude Code** installed - [claude.ai/code](https://claude.ai/code) (for OAuth path) or an Anthropic API key (for key path)
 - A **Slack workspace** where you can install apps
 - **Git** (for the initial clone)
 
@@ -29,7 +29,7 @@ npm install -g slackhive
 ```
 
 <Accordion title="Hit EACCES: permission denied?">
-If you installed Node from nodejs.org on macOS/Linux, `/usr/local/lib/node_modules` is root-owned and `npm install -g` fails without sudo. Point npm at a user-owned prefix — one-time setup:
+If you installed Node from nodejs.org on macOS/Linux, `/usr/local/lib/node_modules` is root-owned and `npm install -g` fails without sudo. Point npm at a user-owned prefix - one-time setup:
 
 ```bash
 mkdir -p ~/.npm-global
@@ -39,7 +39,7 @@ source ~/.zshrc
 npm install -g slackhive
 ```
 
-Installing Node via [nvm](https://github.com/nvm-sh/nvm) or Homebrew (`brew install node`) avoids this entirely — both install Node in a user-writable location. Or skip global install with `npx slackhive init` (prefix every command with `npx`).
+Installing Node via [nvm](https://github.com/nvm-sh/nvm) or Homebrew (`brew install node`) avoids this entirely - both install Node in a user-writable location. Or skip global install with `npx slackhive init` (prefix every command with `npx`).
 </Accordion>
 
 ## Run the setup wizard
@@ -66,7 +66,7 @@ Once you confirm, the CLI:
 
 First run takes 2–3 minutes while everything builds.
 
-## OAuth pickup — macOS vs Linux
+## OAuth pickup - macOS vs Linux
 
 If you chose the OAuth (Pro/Max subscription) path, the CLI pulls your Claude Code credentials from the system credential store. The source differs by platform:
 
@@ -74,18 +74,18 @@ If you chose the OAuth (Pro/Max subscription) path, the CLI pulls your Claude Co
 |---|---|---|
 | **macOS** | Keychain (`security find-generic-password -s "Claude Code-credentials"`) | `~/.claude/.credentials.json` |
 | **Linux (GNOME)** | `secret-tool lookup service "Claude Code-credentials"` | `~/.claude/.credentials.json` |
-| **Linux (headless)** | — | `~/.claude/.credentials.json` |
+| **Linux (headless)** | - | `~/.claude/.credentials.json` |
 
 ### macOS notes
 
-- You must have run `claude login` at least once — credentials land in Keychain automatically
+- You must have run `claude login` at least once - credentials land in Keychain automatically
 - SlackHive re-syncs from Keychain when the cached token expires. No manual action needed most of the time
 - To install from scratch: `brew install anthropic-ai/claude/claude-code` or [download the app](https://claude.ai/code)
 
 ### Linux notes
 
 - GNOME Keyring users: run `claude login`, `secret-tool` stores it, the CLI picks it up
-- Headless servers (no keyring daemon): run `claude login` anyway — it writes `~/.claude/.credentials.json` as a plain file the CLI reads
+- Headless servers (no keyring daemon): run `claude login` anyway - it writes `~/.claude/.credentials.json` as a plain file the CLI reads
 - If `claude login` fails with "keyring unavailable", set `DBUS_SESSION_BUS_ADDRESS` or install a lightweight keyring (`gnome-keyring-daemon --start`). Last resort: copy `~/.claude/.credentials.json` from another machine where login worked
 
 <Note>
@@ -110,8 +110,8 @@ Log in with the admin credentials you set. You're ready to create your first age
 
 | Path | What it holds |
 |---|---|
-| `~/.slackhive/data.db` | SQLite database — agents, memories, skills, history |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace — CLAUDE.md, sessions, wiki |
+| `~/.slackhive/data.db` | SQLite database - agents, memories, skills, history |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace - CLAUDE.md, sessions, wiki |
 | `~/.slackhive/logs/runner.log` | Runner log (also streamed live in the UI) |
 | `~/.slackhive/runner.lock` | Single-runner lock file |
 

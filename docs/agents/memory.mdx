@@ -3,9 +3,9 @@ title: "Memory"
 description: "Persistent facts the agent learns from conversations, always visible on every turn."
 ---
 
-Memory is one of the four layers of an agent's brain — see [Concepts](/agents/concepts) for how it fits with the system prompt, skills, and wiki.
+Memory is one of the four layers of an agent's brain - see [Concepts](/agents/concepts) for how it fits with the system prompt, skills, and wiki.
 
-Every memory is **inlined into the system prompt on every turn**. There is no retrieval step, no command to trigger — the agent always sees what it has learned.
+Every memory is **inlined into the system prompt on every turn**. There is no retrieval step, no command to trigger - the agent always sees what it has learned.
 
 ## Where memory lives in the UI
 
@@ -17,7 +17,7 @@ Open any agent → **Instructions** tab → **Memory** sub-tab.
 
 ## How memories get saved
 
-When something in a conversation is worth keeping across sessions, the agent asks the user first — *"Should I remember that you prefer BigQuery over Redshift?"* — and only writes the memory after you confirm.
+When something in a conversation is worth keeping across sessions, the agent asks the user first - *"Should I remember that you prefer BigQuery over Redshift?"* - and only writes the memory after you confirm.
 
 Ask-before-saving keeps memory clean and prevents noise.
 
@@ -55,8 +55,8 @@ Total inlined memory has a cap (`MAX_INLINED_MEMORY_BYTES` in the runner). If an
 
 ## Updating and deleting
 
-- **Update** — the agent overwrites the file with the same `name`. The DB uses `(agent_id, name)` as the unique key, so there are no duplicates.
-- **Delete** — click × on the memory card. Removed from the database and not reloaded on next start.
+- **Update** - the agent overwrites the file with the same `name`. The DB uses `(agent_id, name)` as the unique key, so there are no duplicates.
+- **Delete** - click × on the memory card. Removed from the database and not reloaded on next start.
 
 Memories persist until you delete them. There is no TTL.
 

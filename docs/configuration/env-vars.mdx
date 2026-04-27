@@ -3,7 +3,7 @@ title: "Environment Variables"
 description: "Reference for every SlackHive configuration variable in .env."
 ---
 
-SlackHive stores configuration in a `.env` file in the install directory. `slackhive init` generates this file with safe defaults — you rarely need to edit it by hand.
+SlackHive stores configuration in a `.env` file in the install directory. `slackhive init` generates this file with safe defaults - you rarely need to edit it by hand.
 
 <Warning>
   `.env` contains encryption keys and the admin password. Never commit it. It's already in `.gitignore` but double-check before pushing.
@@ -51,7 +51,7 @@ See [OAuth MCPs](/configuration/mcp-oauth) for how this flows through to MCP con
 
 ## Dashboard Authentication
 
-`slackhive init` sets these from the prompts — you don't typically need to touch them:
+`slackhive init` sets these from the prompts - you don't typically need to touch them:
 
 | Variable | Purpose |
 |---|---|
@@ -67,7 +67,7 @@ openssl rand -hex 32
 ```
 
 <Warning>
-  Do not rotate `ENV_SECRET_KEY` after initial setup without a plan. All stored secrets become unreadable — every MCP server referencing `${env:NAME}` will fail until you re-enter each secret in **Settings → Env Vars**.
+  Do not rotate `ENV_SECRET_KEY` after initial setup without a plan. All stored secrets become unreadable - every MCP server referencing `${env:NAME}` will fail until you re-enter each secret in **Settings → Env Vars**.
 </Warning>
 
 ## Platform
@@ -87,17 +87,17 @@ Everything is on disk under `~/.slackhive/`:
 
 | Path | Contents |
 |---|---|
-| `~/.slackhive/data.db` | SQLite database — agents, memories, skills, history, settings |
+| `~/.slackhive/data.db` | SQLite database - agents, memories, skills, history, settings |
 | `~/.slackhive/agents/<slug>/` | Per-agent workspace (CLAUDE.md, knowledge/wiki, sessions, memory) |
 | `~/.slackhive/logs/runner.log` | Runner log stream |
-| `~/.slackhive/runner.lock` | Singleton runner lock — JSON with `pid`, `startedAt`, `mode` |
+| `~/.slackhive/runner.lock` | Singleton runner lock - JSON with `pid`, `startedAt`, `mode` |
 | `~/.slackhive/slackhive.pid` | Web server PID file |
 
 Back up `~/.slackhive/` to preserve your full install.
 
 ## The `.slackhive-native` marker
 
-The install directory contains a `.slackhive-native` file. It tells the CLI this is a CLI-managed install — `slackhive` commands will target it from any directory.
+The install directory contains a `.slackhive-native` file. It tells the CLI this is a CLI-managed install - `slackhive` commands will target it from any directory.
 
 ## Complete .env.example
 
