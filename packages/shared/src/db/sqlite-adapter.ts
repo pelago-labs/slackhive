@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   config      TEXT NOT NULL,
   description TEXT,
   enabled     INTEGER NOT NULL DEFAULT 1,
+  created_by  TEXT NOT NULL DEFAULT 'admin',
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -517,6 +518,11 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   }
   if (!agentCols.includes('last_heartbeat')) {
     db.exec('ALTER TABLE agents ADD COLUMN last_heartbeat TEXT');
+  }
+
+  const mcpCols = (db.pragma('table_info(mcp_servers)') as { name: string }[]).map(c => c.name);
+  if (!mcpCols.includes('created_by')) {
+    db.exec(`ALTER TABLE mcp_servers ADD COLUMN created_by TEXT NOT NULL DEFAULT 'admin'`);
   }
 
   const activityCols = (db.pragma('table_info(activities)') as { name: string }[]).map(c => c.name);

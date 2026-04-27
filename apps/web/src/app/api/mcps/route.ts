@@ -15,6 +15,7 @@ import { apiError } from '@/lib/api-error';
 import { getAllMcpServers, createMcpServer } from '@/lib/db';
 import type { UpsertMcpServerRequest } from '@slackhive/shared';
 import { guardAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
 import { maskMcpServer } from '@/lib/mcp-mask';
 
 export const dynamic = 'force-dynamic';
@@ -63,7 +64,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const server = await createMcpServer(body);
+    const session = getSessionFromRequest(request);
+    const server = await createMcpServer(body, session?.username ?? 'admin');
     return NextResponse.json(server, { status: 201 });
   } catch (err) {
     if ((err as Error).message?.includes('unique')) {

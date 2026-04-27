@@ -59,6 +59,7 @@ function rowToMcpServer(row: Record<string, unknown>): McpServer {
     config: row.config as McpServer['config'],
     description: row.description as string | undefined,
     enabled: row.enabled !== false && row.enabled !== 0,
+    createdBy: (row.created_by as string | undefined) ?? 'admin',
     createdAt: row.created_at as Date,
   };
 }

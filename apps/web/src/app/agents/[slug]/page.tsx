@@ -59,7 +59,7 @@ const STATUS_COLOR = {
  */
 export default function AgentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const { role, canManageUsers } = useAuth();
+  const { role, canManageUsers, username } = useAuth();
   // Arriving from the new-agent wizard (?coach=open) lands on Overview as
   // usual, but arms the Coach to auto-open the first time the user opens the
   // Instructions tab. We don't pop the panel on Overview — users deserve to
@@ -338,7 +338,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       <div style={{ padding: '28px 36px' }}>
         {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
-        {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
         {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
@@ -1334,7 +1334,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
 
 // ─── MCPs ─────────────────────────────────────────────────────────────────────
 
-function ToolsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function ToolsTab({ agentId, canEdit, canManageMcps, currentUsername }: { agentId: string; canEdit: boolean; canManageMcps: boolean; currentUsername: string }) {
   return (
     <div className="fade-up">
       {/* Section 1: Connected Apps (MCPs) */}
@@ -1342,7 +1342,7 @@ function ToolsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
           Connected Apps
         </div>
-        <McpsSection agentId={agentId} canEdit={canEdit} />
+        <McpsSection agentId={agentId} canEdit={canEdit} canManageMcps={canManageMcps} currentUsername={currentUsername} />
       </div>
 
       {/* Section 2: Capabilities */}
@@ -1356,7 +1356,7 @@ function ToolsTab({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   );
 }
 
-function McpsSection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { agentId: string; canEdit: boolean; canManageMcps: boolean; currentUsername: string }) {
   const [all, setAll]         = useState<McpServer[]>([]);
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [saving, setSaving]   = useState(false);
@@ -1395,40 +1395,49 @@ function McpsSection({ agentId, canEdit }: { agentId: string; canEdit: boolean }
             No MCP servers yet.{' '}
             <Link href="/settings/mcps" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Add some →</Link>
           </div>
-        ) : all.map((mcp, i) => (
-          <label
-            key={mcp.id}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '13px 16px', cursor: mcp.enabled ? 'pointer' : 'not-allowed',
-              borderBottom: i < all.length - 1 ? '1px solid var(--border)' : 'none',
-              background: 'transparent', transition: 'background 0.12s',
-              opacity: mcp.enabled ? 1 : 0.45,
-            }}
-            onMouseEnter={e => { if (mcp.enabled) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-          >
-            <input
-              type="checkbox"
-              checked={assigned.has(mcp.id)}
-              onChange={() => toggle(mcp.id)}
-              disabled={!mcp.enabled || !canEdit}
-              style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0 }}
-            />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{mcp.name}</span>
-                <span style={{
-                  fontSize: 10.5, fontFamily: 'var(--font-mono)',
-                  color: 'var(--muted)', background: 'var(--border)',
-                  padding: '1px 6px', borderRadius: 4,
-                }}>{mcp.type}</span>
-                {!mcp.enabled && <span style={{ fontSize: 11, color: 'var(--subtle)' }}>disabled</span>}
+        ) : all.map((mcp, i) => {
+          const canAssign = canManageMcps || mcp.createdBy === currentUsername;
+          const isDisabled = !mcp.enabled || !canEdit || !canAssign;
+          return (
+            <label
+              key={mcp.id}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 12,
+                padding: '13px 16px', cursor: isDisabled ? 'not-allowed' : 'pointer',
+                borderBottom: i < all.length - 1 ? '1px solid var(--border)' : 'none',
+                background: 'transparent', transition: 'background 0.12s',
+                opacity: mcp.enabled ? 1 : 0.45,
+              }}
+              onMouseEnter={e => { if (!isDisabled) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            >
+              <input
+                type="checkbox"
+                checked={assigned.has(mcp.id)}
+                onChange={() => toggle(mcp.id)}
+                disabled={isDisabled}
+                style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0, marginTop: 2 }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{mcp.name}</span>
+                  <span style={{
+                    fontSize: 10.5, fontFamily: 'var(--font-mono)',
+                    color: 'var(--muted)', background: 'var(--border)',
+                    padding: '1px 6px', borderRadius: 4,
+                  }}>{mcp.type}</span>
+                  {!mcp.enabled && <span style={{ fontSize: 11, color: 'var(--subtle)' }}>disabled</span>}
+                </div>
+                {mcp.description && <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{mcp.description}</p>}
+                {!canAssign && (
+                  <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+                    Only the MCP owner or an admin can assign this
+                  </p>
+                )}
               </div>
-              {mcp.description && <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{mcp.description}</p>}
-            </div>
-          </label>
-        ))}
+            </label>
+          );
+        })}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Assignments</PrimaryBtn>}

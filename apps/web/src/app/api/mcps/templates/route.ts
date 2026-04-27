@@ -19,6 +19,8 @@ import {
 } from '@slackhive/shared';
 import type { McpCategory } from '@slackhive/shared';
 import { createMcpServer, setEnvVar } from '@/lib/db';
+import { guardAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +56,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
  * }
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   const body = await req.json();
   const { templateId, envValues } = body as {
     templateId: string;
@@ -148,13 +152,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Create the MCP server in the catalog
+  const session = getSessionFromRequest(req);
   const server = await createMcpServer({
     name: template.id,
     type,
     config: config as any,
     description: template.description,
     enabled: true,
-  });
+  }, session?.username ?? 'admin');
 
   return NextResponse.json(server, { status: 201 });
 }

@@ -18,6 +18,7 @@ export default function EnvVarsPage() {
   const { canEdit } = useAuth();
   const [vars, setVars]         = useState<EnvVarRow[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState('');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm]         = useState({ key: '', value: '', description: '' });
   const [editKey, setEditKey]   = useState<string | null>(null);
@@ -174,6 +175,22 @@ export default function EnvVarsPage() {
         </div>
       )}
 
+      {/* Search */}
+      {vars.length > 0 && (
+        <input
+          type="text"
+          placeholder="Search env vars…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{
+            width: '100%', boxSizing: 'border-box', marginBottom: 12,
+            padding: '8px 12px', fontSize: 13, borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--surface-2)',
+            color: 'var(--text)', outline: 'none', fontFamily: 'var(--font-sans)',
+          }}
+        />
+      )}
+
       {/* List */}
       {loading ? (
         <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
@@ -196,10 +213,10 @@ export default function EnvVarsPage() {
         </div>
       ) : (
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-          {vars.map((v, i) => (
+          {vars.filter(v => !search || v.key.toLowerCase().includes(search.toLowerCase()) || (v.description ?? '').toLowerCase().includes(search.toLowerCase())).map((v, i, arr) => (
             <div key={v.key} style={{
               display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px',
-              borderBottom: i < vars.length - 1 ? '1px solid var(--border)' : 'none',
+              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
               transition: 'background 0.12s',
             }}
               onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}

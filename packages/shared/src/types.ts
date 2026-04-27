@@ -201,6 +201,8 @@ export interface McpServer {
   description?: string;
   /** Whether this server is available for agents to use. */
   enabled: boolean;
+  /** Username of the user who added this MCP to the catalog. */
+  createdBy: string;
   createdAt: Date;
 }
 

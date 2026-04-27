@@ -175,6 +175,7 @@ function rowToMcpServer(row: Record<string, unknown>): McpServer {
     config: row.config as McpServer['config'],
     description: row.description as string | undefined,
     enabled: row.enabled as boolean,
+    createdBy: (row.created_by as string | undefined) ?? 'admin',
     createdAt: row.created_at as Date,
   };
 }
@@ -511,12 +512,12 @@ export async function getAgentMcpServers(agentId: string): Promise<McpServer[]> 
  * @param {UpsertMcpServerRequest} req - MCP server data.
  * @returns {Promise<McpServer>} The created MCP server.
  */
-export async function createMcpServer(req: UpsertMcpServerRequest): Promise<McpServer> {
+export async function createMcpServer(req: UpsertMcpServerRequest, createdBy = 'admin'): Promise<McpServer> {
   const id = randomUUID();
   const r = await (await db()).query(
-    `INSERT INTO mcp_servers (id, name, type, config, description, enabled)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [id, req.name, req.type, JSON.stringify(req.config), req.description ?? null, req.enabled ?? true]
+    `INSERT INTO mcp_servers (id, name, type, config, description, enabled, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [id, req.name, req.type, JSON.stringify(req.config), req.description ?? null, req.enabled ?? true, createdBy]
   );
   return rowToMcpServer(r.rows[0]);
 }

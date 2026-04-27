@@ -77,6 +77,7 @@ const DEFAULT_JSON_TEMPLATE = `{
 export default function McpSettingsPage() {
   const { canEdit } = useAuth();
   const [servers, setServers]       = useState<McpServer[]>([]);
+  const [serverSearch, setServerSearch] = useState('');
   const [loading, setLoading]       = useState(true);
   const [form, setForm]             = useState<McpFormState>(DEFAULT_FORM);
   const [saving, setSaving]         = useState(false);
@@ -560,6 +561,20 @@ export default function McpSettingsPage() {
       </div>
 
       {/* Server list */}
+      {servers.length > 0 && (
+        <input
+          type="text"
+          placeholder="Search MCP servers…"
+          value={serverSearch}
+          onChange={e => setServerSearch(e.target.value)}
+          style={{
+            width: '100%', boxSizing: 'border-box', marginBottom: 12,
+            padding: '8px 12px', fontSize: 13, borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--input-bg)',
+            color: 'var(--text)', outline: 'none',
+          }}
+        />
+      )}
       {loading ? (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
@@ -592,10 +607,10 @@ export default function McpSettingsPage() {
         </div>
       ) : (
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-          {servers.map((server, i) => (
+          {servers.filter(s => !serverSearch || s.name.toLowerCase().includes(serverSearch.toLowerCase()) || (s.description ?? '').toLowerCase().includes(serverSearch.toLowerCase())).map((server, i, arr) => (
             <ServerRow
               key={server.id} server={server}
-              isLast={i === servers.length - 1}
+              isLast={i === arr.length - 1}
               onEdit={() => handleEdit(server)}
               onDelete={() => handleDelete(server.id)}
               onToggle={() => handleToggle(server)}
@@ -1472,6 +1487,9 @@ function ServerRow({
             margin: '2px 0 0', fontSize: 11.5, color: 'var(--subtle)',
             fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{preview}</p>
+          <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+            Added by <span style={{ fontWeight: 500 }}>{server.createdBy}</span>
+          </p>
         </div>
 
         {/* Actions */}

@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { getAgentById, getAgentSkills, getAgentPermissions, getAgentMcpServers, setAgentMcps, publishAgentEvent, createSnapshot } from '@/lib/db';
+import { getAgentById, getAgentSkills, getAgentPermissions, getAgentMcpServers, setAgentMcps, publishAgentEvent, createSnapshot, getMcpServerById } from '@/lib/db';
 import { guardAgentWrite } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { skillToSnapshotSkill } from '@/lib/compile';
@@ -46,21 +46,55 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<N
 export async function PUT(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const denied = await guardAgentWrite(req, id);
-    if (denied) return denied;
+    const session = getSessionFromRequest(req);
+    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
+    // Must have write access to the agent itself
+    const agentDenied = await guardAgentWrite(req, id);
+    if (agentDenied) return agentDenied;
+
     const { mcpIds } = (await req.json()) as { mcpIds: string[] };
+    const normalizedIds: string[] = mcpIds ?? [];
+
+    // Admin/superadmin can assign any MCP. Others can only assign MCPs they own.
+    // Check both additions (new ids) and removals (ids being dropped) against ownership.
+    const isAdmin = session.role === 'admin' || session.role === 'superadmin';
+    if (!isAdmin) {
+      // All ids in the new set must be owned by the caller
+      if (normalizedIds.length) {
+        const mcps = await Promise.all(normalizedIds.map(mid => getMcpServerById(mid)));
+        const unauthorized = mcps.find(m => m && m.createdBy !== session.username);
+        if (unauthorized) {
+          return NextResponse.json(
+            { error: `Only the MCP owner or an admin can assign "${unauthorized.name}"` },
+            { status: 403 }
+          );
+        }
+      }
+      // Ids being removed must also be owned by the caller (can't remove others' MCPs)
+      const currentMcpsForCheck = await getAgentMcpServers(id);
+      const currentIdSet = new Set(normalizedIds);
+      const removed = currentMcpsForCheck.filter(m => !currentIdSet.has(m.id));
+      const unauthorizedRemoval = removed.find(m => m.createdBy !== session.username);
+      if (unauthorizedRemoval) {
+        return NextResponse.json(
+          { error: `Only the MCP owner or an admin can remove "${unauthorizedRemoval.name}"` },
+          { status: 403 }
+        );
+      }
+    }
 
     // Snapshot before mutation — only if MCP assignments actually changed
     const [agent, currentSkills, perms, currentMcps] = await Promise.all([
       getAgentById(id),
       getAgentSkills(id),
       getAgentPermissions(id),
+      // Non-admins already fetched this above; re-fetch is cheap and keeps the code simple
       getAgentMcpServers(id),
     ]);
     const oldMcpIds = JSON.stringify([...currentMcps.map(m => m.id)].sort());
-    const newMcpIds = JSON.stringify([...(mcpIds ?? [])].sort());
+    const newMcpIds = JSON.stringify([...normalizedIds].sort());
     if (oldMcpIds !== newMcpIds) {
-      const session = getSessionFromRequest(req);
       await createSnapshot(
         id, 'mcps', session?.username ?? 'system', null,
         currentSkills.map(skillToSnapshotSkill),
@@ -71,7 +105,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
       ).catch(() => {});
     }
 
-    await setAgentMcps(id, mcpIds ?? []);
+    await setAgentMcps(id, normalizedIds);
     await publishAgentEvent({ type: 'reload', agentId: id });
     return NextResponse.json({ ok: true });
   } catch (err) {
