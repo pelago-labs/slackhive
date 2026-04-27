@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { getAllEnvVars, setEnvVar } from '@/lib/db';
+import { getAllEnvVars, setEnvVar, getEnvVarCreatedBy } from '@/lib/db';
 import { guardAdmin, guardUserAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -56,6 +56,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
     const session = getSessionFromRequest(request);
+    const isAdmin = session?.role === 'admin' || session?.role === 'superadmin';
+    if (!isAdmin) {
+      const existing = await getEnvVarCreatedBy(key);
+      if (existing !== null) {
+        return NextResponse.json({ error: 'An env var with this key already exists' }, { status: 409 });
+      }
+    }
     await setEnvVar(key, value, description, session?.username ?? 'admin');
     return NextResponse.json({ key }, { status: 201 });
   } catch (err) {

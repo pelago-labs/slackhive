@@ -100,6 +100,8 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const [actionMsg, setActionMsg] = useState('');
 
   useEffect(() => {
+    setCanEdit(false);
+    setViewOnly(false);
     fetch('/api/agents')
       .then(r => r.json())
       .then((agents: Agent[]) => {
@@ -124,7 +126,9 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               const canRead = data.canRead ?? false;
               const writable = canRead && (data.canWrite ?? false);
               setCanEdit(writable);
-              setViewOnly(canRead && !writable);
+              const readOnly = canRead && !writable;
+              setViewOnly(readOnly);
+              if (readOnly) setTab(t => (t === 'logs' || t === 'history') ? 'overview' : t);
               if (writable) {
                 // Editors with write access can also see tokens
                 fetch(`/api/agents/${found.id}`)
