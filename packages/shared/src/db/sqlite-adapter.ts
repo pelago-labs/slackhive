@@ -324,8 +324,9 @@ CREATE TABLE IF NOT EXISTS job_runs (
 );
 
 CREATE TABLE IF NOT EXISTS agent_access (
-  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-  user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  agent_id  TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  can_write INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (agent_id, user_id)
 );
 
@@ -349,6 +350,7 @@ CREATE TABLE IF NOT EXISTS env_vars (
   key         TEXT PRIMARY KEY,
   value       TEXT NOT NULL,
   description TEXT,
+  created_by  TEXT NOT NULL DEFAULT 'admin',
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -520,9 +522,19 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
     db.exec('ALTER TABLE agents ADD COLUMN last_heartbeat TEXT');
   }
 
+  const accessCols = (db.pragma('table_info(agent_access)') as { name: string }[]).map(c => c.name);
+  if (!accessCols.includes('can_write')) {
+    db.exec('ALTER TABLE agent_access ADD COLUMN can_write INTEGER NOT NULL DEFAULT 1');
+  }
+
   const mcpCols = (db.pragma('table_info(mcp_servers)') as { name: string }[]).map(c => c.name);
   if (!mcpCols.includes('created_by')) {
     db.exec(`ALTER TABLE mcp_servers ADD COLUMN created_by TEXT NOT NULL DEFAULT 'admin'`);
+  }
+
+  const envVarCols = (db.pragma('table_info(env_vars)') as { name: string }[]).map(c => c.name);
+  if (!envVarCols.includes('created_by')) {
+    db.exec(`ALTER TABLE env_vars ADD COLUMN created_by TEXT NOT NULL DEFAULT 'admin'`);
   }
 
   const activityCols = (db.pragma('table_info(activities)') as { name: string }[]).map(c => c.name);

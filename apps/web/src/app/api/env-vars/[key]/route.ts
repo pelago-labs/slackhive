@@ -9,8 +9,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { setEnvVar, updateEnvVarDescription, deleteEnvVar } from '@/lib/db';
-import { guardAdmin } from '@/lib/api-guard';
+import { setEnvVar, updateEnvVarDescription, deleteEnvVar, getEnvVarCreatedBy } from '@/lib/db';
+import { guardUserAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,13 +28,21 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ): Promise<NextResponse> {
-  const denied = guardAdmin(request);
+  const denied = guardUserAdmin(request);
   if (denied) return denied;
   try {
     const { key } = await params;
+    const session = getSessionFromRequest(request);
+    const isAdmin = session?.role === 'admin' || session?.role === 'superadmin';
+    if (!isAdmin) {
+      const owner = await getEnvVarCreatedBy(key);
+      if (owner !== session?.username) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
     const body = (await request.json()) as { value?: string; description?: string };
     if (body.value !== undefined) {
-      await setEnvVar(key, body.value, body.description);
+      await setEnvVar(key, body.value, body.description, session?.username ?? 'admin');
     } else if (body.description !== undefined) {
       await updateEnvVarDescription(key, body.description);
     } else {
@@ -47,7 +56,7 @@ export async function PUT(
 
 /**
  * DELETE /api/env-vars/[key]
- * Removes an env var from the store.
+ * Removes an env var. Admin can delete any; editors can only delete their own.
  *
  * @param {NextRequest} request - Incoming request.
  * @param {{ params: { key: string } }} context - Route params.
@@ -57,10 +66,18 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ): Promise<NextResponse> {
-  const denied = guardAdmin(request);
+  const denied = guardUserAdmin(request);
   if (denied) return denied;
   try {
     const { key } = await params;
+    const session = getSessionFromRequest(request);
+    const isAdmin = session?.role === 'admin' || session?.role === 'superadmin';
+    if (!isAdmin) {
+      const owner = await getEnvVarCreatedBy(key);
+      if (owner !== session?.username) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
     await deleteEnvVar(key);
     return NextResponse.json({ ok: true });
   } catch (err) {
