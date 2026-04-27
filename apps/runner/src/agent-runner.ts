@@ -1492,7 +1492,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
       logger.error('Ingest failed', { agentId, sourceId, requestId, error: msg });
       await setResult(`knowledge-build:${requestId}`, JSON.stringify({
         status: 'error',
-        error: msg.includes('AUTH_NEEDS_LOGIN') ? 'Run `claude login` in your terminal.' : `Ingest failed: ${msg.slice(0, 200)}`,
+        error: msg.includes('AUTH_NEEDS_LOGIN') ? 'Run `claude login` in your terminal.' : msg === 'Source not found' ? 'Source was deleted before the build could complete.' : `Ingest failed: ${msg.slice(0, 200)}`,
       }));
     }
   }
@@ -1567,6 +1567,18 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
 
       for (let i = 0; i < pendingSources.length; i++) {
         const src = pendingSources[i];
+
+        // Check source still exists before starting — abort if it was deleted mid-build
+        const stillExists = await getDb().query('SELECT id FROM knowledge_sources WHERE id = $1', [src.id]);
+        if (stillExists.rows.length === 0) {
+          logger.info('Source deleted during build — stopping', { source: src.name, agentId });
+          await setResult(`knowledge-build:${requestId}`, JSON.stringify({
+            status: 'error',
+            error: `Source "${src.name}" was deleted while the wiki was building.`,
+          }));
+          return;
+        }
+
         await setResult(`knowledge-build:${requestId}`, JSON.stringify({
           status: 'building', startedAt: Date.now(),
           step: `${isFullRebuild ? 'Rebuilding' : 'Ingesting'} ${src.name} (${i + 1}/${pendingSources.length})...`,

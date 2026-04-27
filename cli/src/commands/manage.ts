@@ -346,12 +346,28 @@ function nativeUpdate(dir: string): void {
     stopSpinner.succeed('Stopped');
   }
 
+  // Detect whether the project dir is a git repo
+  const isGitRepo = existsSync(join(dir, '.git'));
+
+  if (!isGitRepo) {
+    console.log(chalk.yellow('  This installation was not set up via git.'));
+    console.log(chalk.gray('  To update, run: ') + chalk.white('npm update -g slackhive'));
+    return;
+  }
+
   const pullSpinner = ora('Pulling latest changes...').start();
   try {
-    execSync('git pull', { cwd: dir, stdio: 'ignore' });
-    pullSpinner.succeed('Code updated');
-  } catch {
+    const output = execSync('git pull 2>&1', { cwd: dir, encoding: 'utf-8' });
+    if (output.includes('Already up to date')) {
+      pullSpinner.succeed('Already up to date');
+    } else {
+      pullSpinner.succeed('Code updated');
+    }
+  } catch (err) {
+    const msg = (err as { stdout?: string; stderr?: string }).stdout ?? (err as { stderr?: string }).stderr ?? '';
     pullSpinner.fail('Failed to pull');
+    if (msg) console.log(chalk.gray('  ' + msg.trim().split('\n')[0]));
+    console.log(chalk.gray('  Tip: if you have local changes, run ') + chalk.white('git stash') + chalk.gray(' first, then retry.'));
     return;
   }
 
