@@ -230,6 +230,7 @@ export default function EnvVarsPage() {
               </span>
               <span style={{ fontSize: 11, color: 'var(--subtle)', flexShrink: 0 }}>
                 Added by <span style={{ fontWeight: 500 }}>{v.createdBy}</span>
+                <span style={{ marginLeft: 6 }}>· {new Date(v.updatedAt).toLocaleDateString()}</span>
               </span>
               {canModify(v) && <button onClick={() => startEdit(v)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', padding: '3px 8px', borderRadius: 5 }}>Edit</button>}
               {canModify(v) && <button onClick={() => remove(v.key)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', padding: '3px 8px', borderRadius: 5 }}>Delete</button>}

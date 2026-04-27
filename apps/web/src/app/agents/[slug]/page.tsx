@@ -66,6 +66,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   // see their new agent before we shove a chat in their face.
   // useSearchParams is hydration-safe (returns the same value on server + client).
   const coachArmedFromWizard = useSearchParams().get('coach') === 'open';
+  const router = useRouter();
   const [coachOpen, setCoachOpen] = useState(false);
   const [pendingCoachOpen, setPendingCoachOpen] = useState(coachArmedFromWizard);
   const [agent, setAgent] = useState<Agent | null>(null);
@@ -124,9 +125,10 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
             .then(r => r.json())
             .then(data => {
               const canRead = data.canRead ?? false;
-              const writable = canRead && (data.canWrite ?? false);
+              if (!canRead) { router.push('/agents'); return; }
+              const writable = data.canWrite ?? false;
               setCanEdit(writable);
-              const readOnly = canRead && !writable;
+              const readOnly = !writable;
               setViewOnly(readOnly);
               if (readOnly) setTab(t => (t === 'logs' || t === 'history') ? 'overview' : t);
               if (writable) {
