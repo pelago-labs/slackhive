@@ -897,6 +897,18 @@ export class AgentRunner {
     const { execSync } = await import('child_process');
     const tmpDir = path.join('/tmp', `slackhive-repo-${src.id}`);
 
+    // Hard cap on total content fed to Claude (~500k chars ≈ ~125k tokens, well under limit).
+    // Sections are added highest-priority first; once budget is exhausted we stop.
+    const TOTAL_BUDGET = 500_000;
+    let budgetUsed = 0;
+    const budgetSection = (title: string, content: string): string => {
+      if (!content.trim() || budgetUsed >= TOTAL_BUDGET) return '';
+      const remaining = TOTAL_BUDGET - budgetUsed;
+      const truncated = content.length > remaining ? content.slice(0, remaining) + '\n…[truncated — budget exhausted]' : content;
+      budgetUsed += truncated.length;
+      return `\n## ${title}\n${truncated}`;
+    };
+
     // Helper: safe read file
     const read = (p: string, max = 0) => {
       try { const c = fs.readFileSync(p, 'utf-8'); return max ? c.slice(0, max) : c; } catch { return ''; }
@@ -917,7 +929,7 @@ export class AgentRunner {
       } catch { return []; }
     };
     const rel = (p: string) => p.replace(tmpDir + '/', '');
-    const section = (title: string, content: string) => content.trim() ? `\n## ${title}\n${content}` : '';
+
     const fileBlock = (relPath: string, content: string) => `\n### ${relPath}\n\`\`\`\n${content}\n\`\`\`\n`;
 
     try {
@@ -936,7 +948,9 @@ export class AgentRunner {
       execSync(`git clone --depth 1 --branch "${branch}" "${cloneUrl}" "${tmpDir}"`, { stdio: 'ignore', timeout: 120000 });
 
       const sections: string[] = [];
-      sections.push(`# Repository: ${src.name}\nBranch: ${branch} | URL: ${src.repo_url}`);
+      const header = `# Repository: ${src.name}\nBranch: ${branch} | URL: ${src.repo_url}`;
+      budgetUsed += header.length;
+      sections.push(header);
 
       // ─── 1. Documentation ──────────────────────────────────────────
       let readme = '';
@@ -944,14 +958,14 @@ export class AgentRunner {
         const c = read(path.join(tmpDir, f));
         if (c) { readme = c; break; }
       }
-      sections.push(section('README', readme));
+      sections.push(budgetSection('README', readme));
 
       let docs = '';
       for (const f of ['CONTRIBUTING.md', 'ARCHITECTURE.md', 'docs/ARCHITECTURE.md', 'docs/api.md', 'API.md', 'CLAUDE.md', 'AGENTS.md', 'docs/design.md', 'DESIGN.md']) {
-        const c = read(path.join(tmpDir, f), 8000);
+        const c = read(path.join(tmpDir, f), 6000);
         if (c) docs += fileBlock(f, c);
       }
-      sections.push(section('Documentation', docs));
+      sections.push(budgetSection('Documentation', docs));
 
       // ─── 2. Directory tree (full picture first) ────────────────────
       let tree = '';
@@ -966,7 +980,7 @@ export class AgentRunner {
           { encoding: 'utf-8', timeout: 10000 }
         ).replace(new RegExp(tmpDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.');
       } catch { /* ok */ }
-      sections.push(section('Directory Structure', '```\n' + tree + '\n```'));
+      sections.push(budgetSection('Directory Structure', '```\n' + tree + '\n```'));
 
       // ─── 3. Code structure map (classes, functions, exports) ───────
       // Extract structural outline from ALL source files — gives Claude
@@ -1033,7 +1047,7 @@ export class AgentRunner {
           codeMap += `${relPath}\n${lines.join('\n')}\n`;
         }
       }
-      sections.push(section('Code Structure Map', '```\n' + codeMap + '\n```'));
+      sections.push(budgetSection('Code Structure Map', '```\n' + codeMap + '\n```'));
 
       // ─── 4. Dependencies & libraries ───────────────────────────────
       let deps = '';
@@ -1057,7 +1071,7 @@ export class AgentRunner {
         if (f === path.join(tmpDir, 'package.json')) continue;
         deps += fileBlock(rel(f), read(f, 3000));
       }
-      sections.push(section('Dependencies & Libraries', deps));
+      sections.push(budgetSection('Dependencies & Libraries', deps));
 
       // ─── 4. Database schemas & migrations ──────────────────────────
       let dbSection = '';
@@ -1077,7 +1091,7 @@ export class AgentRunner {
       for (const f of schemaFiles) {
         dbSection += fileBlock(rel(f), read(f, 6000));
       }
-      sections.push(section('Database Schemas & Migrations', dbSection));
+      sections.push(budgetSection('Database Schemas & Migrations', dbSection));
 
       // ─── 5. API definitions ────────────────────────────────────────
       let apiSection = '';
@@ -1091,7 +1105,7 @@ export class AgentRunner {
       for (const f of apiFiles) {
         apiSection += fileBlock(rel(f), read(f, 8000));
       }
-      sections.push(section('API Definitions', apiSection));
+      sections.push(budgetSection('API Definitions', apiSection));
 
       // ─── 6. Configuration & environment ────────────────────────────
       let configSection = '';
@@ -1107,7 +1121,7 @@ export class AgentRunner {
         const c = read(path.join(tmpDir, f), 4000);
         if (c) configSection += fileBlock(f, c);
       }
-      sections.push(section('Configuration & Environment', configSection));
+      sections.push(budgetSection('Configuration & Environment', configSection));
 
       // ─── 7. Entry points & main files ──────────────────────────────
       let entrySection = '';
@@ -1128,7 +1142,7 @@ export class AgentRunner {
           entrySection += fileBlock(r, read(f, 5000));
         }
       }
-      sections.push(section('Entry Points', entrySection));
+      sections.push(budgetSection('Entry Points', entrySection));
 
       // ─── 8. Types, models & interfaces ─────────────────────────────
       let typesSection = '';
@@ -1144,7 +1158,7 @@ export class AgentRunner {
       for (const f of typeFiles.filter(f => !f.includes('node_modules')).slice(0, 20)) {
         typesSection += fileBlock(rel(f), read(f, 6000));
       }
-      sections.push(section('Types, Models & Interfaces', typesSection));
+      sections.push(budgetSection('Types, Models & Interfaces', typesSection));
 
       // ─── 9. Routes, handlers & controllers ─────────────────────────
       let routesSection = '';
@@ -1157,7 +1171,7 @@ export class AgentRunner {
       for (const f of routeFiles.filter(f => !f.includes('node_modules') && !f.includes('.test.')).slice(0, 20)) {
         routesSection += fileBlock(rel(f), read(f, 5000));
       }
-      sections.push(section('Routes, Handlers & Controllers', routesSection));
+      sections.push(budgetSection('Routes, Handlers & Controllers', routesSection));
 
       // ─── 10. Services, business logic ──────────────────────────────
       let servicesSection = '';
@@ -1171,7 +1185,7 @@ export class AgentRunner {
       for (const f of serviceFiles.filter(f => !f.includes('node_modules') && !f.includes('.test.') && !f.includes('.spec.')).slice(0, 25)) {
         servicesSection += fileBlock(rel(f), read(f, 5000));
       }
-      sections.push(section('Services & Business Logic', servicesSection));
+      sections.push(budgetSection('Services & Business Logic', servicesSection));
 
       // ─── 11. Remaining source files ────────────────────────────────
       // Files not yet captured by any category above
@@ -1187,17 +1201,19 @@ export class AgentRunner {
       for (const f of remaining.slice(0, 40)) {
         otherFiles += fileBlock(rel(f), read(f, 3000));
       }
-      sections.push(section(`Other Source Files (${remaining.length} total, showing ${Math.min(40, remaining.length)})`, otherFiles));
+      sections.push(budgetSection(`Other Source Files (${remaining.length} total, showing ${Math.min(40, remaining.length)})`, otherFiles));
 
       // ─── 12. Test files (sample for patterns) ─────────────────────
       let testSection = '';
       const testFiles = findFiles('\\( -name "*.test.*" -o -name "*.spec.*" -o -name "test_*" -o -name "*_test.go" -o -name "*_test.py" \\)', 6, 20);
       for (const f of testFiles.slice(0, 5)) {
-        testSection += fileBlock(rel(f), read(f, 3000));
+        testSection += fileBlock(rel(f), read(f, 2000));
       }
-      sections.push(section('Test Files (sample)', testSection));
+      sections.push(budgetSection('Test Files (sample)', testSection));
 
-      return sections.filter(s => s.trim()).join('\n');
+      const result = sections.filter(s => s.trim()).join('\n');
+      logger.info('Repo content read', { source: src.name as string, chars: budgetUsed, capped: budgetUsed >= TOTAL_BUDGET });
+      return result;
 
     } finally {
       try { (await import('child_process')).execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
