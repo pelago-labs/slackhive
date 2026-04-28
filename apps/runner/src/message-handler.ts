@@ -11,6 +11,7 @@
  */
 
 import type { PlatformAdapter, IncomingMessage, FileAttachment } from '@slackhive/shared';
+import { extractSlackPermalinkUrls } from './adapters/slack-adapter';
 import type { Agent, Restriction, Platform } from '@slackhive/shared';
 import {
   upsertTask,
@@ -261,8 +262,9 @@ export class MessageHandler {
     text: string,
   ): Promise<{ activityId: string } | null> {
     if (!activityDashboardEnabled()) return null;
-    const platform = (msg.platform || this.adapter.platform || 'slack') as Platform;
-    if (platform === 'test') return null;
+    const rawPlatform = msg.platform || this.adapter.platform || 'slack';
+    if (rawPlatform === 'test') return null;
+    const platform = rawPlatform as Platform;
     const threadTs = msg.threadId ?? msg.id;
     // Boss → specialist delegation comes in with the boss's bot_id set on
     // the raw event. Fall back to 'user' when no adapter signal is present.
@@ -395,12 +397,31 @@ export class MessageHandler {
       }
     }
 
-    // Download files via adapter
+    // Resolve Slack permalink URLs embedded in the message text (up to 3).
+    // Slack encodes links as <https://…|label> or <https://…> in mrkdwn.
+    const linkedChunks: string[] = [];
+    const resolvedFiles: FileAttachment[] = [];
+    if (this.adapter.resolveLinkedMessage) {
+      const urls = extractSlackPermalinkUrls(userText);
+      for (const url of urls) {
+        try {
+          const linked = await this.adapter.resolveLinkedMessage(url);
+          if (!linked) continue;
+          if (linked.text) linkedChunks.push(`[Linked message: ${url}]\n${linked.text}`);
+          resolvedFiles.push(...linked.files);
+        } catch (err) {
+          this.log.warn('Failed to resolve linked message', { url, error: err });
+        }
+      }
+    }
+
+    // Download files via adapter — direct attachments + any from linked messages
+    const allFiles = [...(files ?? []), ...resolvedFiles];
     const textChunks: string[] = [];
     const binaryBlocks: ContentBlockParam[] = [];
 
-    if (files && files.length > 0) {
-      for (const file of files) {
+    if (allFiles.length > 0) {
+      for (const file of allFiles) {
         if (!file.url) continue;
         const kind = this.getFileKind(file);
         if (kind === 'unsupported') continue;
@@ -432,7 +453,8 @@ export class MessageHandler {
       }
     }
 
-    const textPrompt = `${senderHeader}${threadContext}${textChunks.length > 0 ? textChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
+    const allTextChunks = [...linkedChunks, ...textChunks];
+    const textPrompt = `${senderHeader}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
 
     if (binaryBlocks.length > 0) {
       const blocks: ContentBlockParam[] = [];

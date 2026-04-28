@@ -132,6 +132,12 @@ export interface PlatformAdapter {
    * Returns the file content as a Buffer.
    */
   downloadFile(url: string): Promise<Buffer>;
+
+  /**
+   * Resolve a linked message URL (e.g. a Slack permalink) into its text and
+   * any attached files. Optional — platforms that don't support this return null.
+   */
+  resolveLinkedMessage?(url: string): Promise<{ text: string; files: FileAttachment[] } | null>;
 }
 
 // =============================================================================

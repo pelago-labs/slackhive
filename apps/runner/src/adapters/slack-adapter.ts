@@ -476,6 +476,62 @@ Good:
     return 'unsupported';
   }
 
+  // ─── Link resolution ──────────────────────────────────────────────
+
+  /**
+   * Resolve a Slack permalink into the referenced message's text and files.
+   *
+   * - Thread reply links (`?thread_ts=...`) are fetched via conversations.replies
+   *   so the exact reply is returned, not just the thread parent.
+   * - Sender name reuses getUserDisplayName (no extra users.info call).
+   * - Channel name is omitted to avoid a conversations.info round-trip; the
+   *   channel ID from the URL gives enough context.
+   */
+  async resolveLinkedMessage(url: string): Promise<{ text: string; files: FileAttachment[] } | null> {
+    const parsed = parseSlackPermalink(url);
+    if (!parsed) return null;
+    const { channelId, ts, threadTs } = parsed;
+    try {
+      let msg: any | undefined;
+      if (threadTs) {
+        // Thread reply — fetch via conversations.replies and find the exact message
+        const result = await this.app.client.conversations.replies({
+          channel: channelId,
+          ts: threadTs,
+          latest: ts,
+          oldest: ts,
+          inclusive: true,
+          limit: 10,
+        });
+        msg = (result.messages as any[])?.find((m: any) => m.ts === ts);
+      } else {
+        const result = await this.app.client.conversations.history({
+          channel: channelId,
+          latest: ts,
+          oldest: ts,
+          inclusive: true,
+          limit: 1,
+        });
+        msg = result.messages?.[0];
+      }
+      if (!msg) return null;
+
+      // Reuse existing getUserDisplayName — avoids an extra users.info round-trip.
+      let senderName = msg.user ?? msg.bot_id ?? 'unknown';
+      if (msg.user) {
+        try { senderName = await this.getUserDisplayName(msg.user); } catch { /* fall back to ID */ }
+      }
+
+      const rawText = msg.text ?? '';
+      const text = `from ${senderName} in <#${channelId}>:\n${rawText}`;
+      const files = this.mapFiles(msg.files) ?? [];
+      return { text, files };
+    } catch (err) {
+      this.log.warn('resolveLinkedMessage failed', { url, error: (err as Error).message });
+      return null;
+    }
+  }
+
   // ─── Private helpers ───────────────────────────────────────────────
 
   private mapFiles(files?: any[]): FileAttachment[] | undefined {
@@ -504,6 +560,42 @@ Good:
     }
     return { files, text: textParts.join('\n') };
   }
+}
+
+// =============================================================================
+// Slack permalink parser (exported for tests)
+// =============================================================================
+
+/**
+ * Parse a Slack message permalink into its channel ID and API timestamp.
+ * Slack encodes `1234567890.123456` as `p1234567890123456` in URLs.
+ * Returns null if the URL is not a recognisable Slack archive link.
+ */
+export function parseSlackPermalink(url: string): { channelId: string; ts: string; threadTs?: string } | null {
+  const match = /\/archives\/([A-Za-z0-9]+)\/p(\d+)/.exec(url);
+  if (!match) return null;
+  const channelId = match[1];
+  const raw = match[2];
+  const ts = raw.length > 6 ? `${raw.slice(0, -6)}.${raw.slice(-6)}` : raw;
+  // Thread reply links include ?thread_ts=<parent_ts> — parse it so we can
+  // fetch the exact reply via conversations.replies instead of the parent.
+  const threadTsParam = new URL(url, 'https://slack.com').searchParams.get('thread_ts') ?? undefined;
+  return { channelId, ts, threadTs: threadTsParam };
+}
+
+/**
+ * Extract up to `limit` Slack permalink URLs from mrkdwn text.
+ * Handles both angle-bracket form `<https://…|label>` and bare URLs.
+ */
+export function extractSlackPermalinkUrls(text: string, limit = 3): string[] {
+  const urlRe = /<(https:\/\/[^|>]+slack\.com\/archives\/[^|>]+)(?:\|[^>]*)?>|https?:\/\/\S+slack\.com\/archives\/\S+/g;
+  const urls: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = urlRe.exec(text)) !== null && urls.length < limit) {
+    const url = m[1] ?? m[0];
+    if (!urls.includes(url)) urls.push(url);
+  }
+  return urls;
 }
 
 // =============================================================================
