@@ -240,12 +240,30 @@ export class AgentRunner {
       logger.warn('Failed to sweep stale activities', { error: (err as Error).message });
     }
     await this.startInternalServer();
+    await this.restoreSpoofDate();
     await this.loadAllAgents();
     await this.jobScheduler.start();
     this.startHeartbeat();
     this.registerShutdownHandlers();
 
     logger.info('AgentRunner started', { agents: this.runningAgents.size, runnerId: this.runnerId });
+  }
+
+  /** Restores spoof date from the settings table so it survives runner restarts. */
+  private async restoreSpoofDate(): Promise<void> {
+    try {
+      const { getDb } = await import('@slackhive/shared');
+      const r = await getDb().query("SELECT value FROM settings WHERE key = 'spoof_date'");
+      if (r.rows.length && r.rows[0].value) {
+        const d = new Date(r.rows[0].value as string);
+        if (!isNaN(d.getTime())) {
+          setSpoofDate(d);
+          logger.info('Spoof date restored', { date: d.toISOString() });
+        }
+      }
+    } catch {
+      // settings table may not exist yet — safe to ignore
+    }
   }
 
   /**
