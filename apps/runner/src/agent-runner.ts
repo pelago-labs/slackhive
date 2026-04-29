@@ -798,6 +798,25 @@ export class AgentRunner {
         return;
       }
 
+      // Job run-now — POST { jobId } triggers a job immediately.
+      if (req.method === 'POST' && req.url === '/job-run') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { jobId } = JSON.parse(body) as { jobId: string };
+            if (!jobId) { res.writeHead(400); res.end(JSON.stringify({ error: 'jobId required' })); return; }
+            await this.jobScheduler.runJobById(jobId);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+          } catch (err) {
+            logger.error('Job run-now failed', { error: (err as Error).message });
+            res.writeHead(500); res.end(JSON.stringify({ error: (err as Error).message }));
+          }
+        });
+        return;
+      }
+
       // Spoof-date — GET returns current spoof, PUT sets it, DELETE clears it.
       if (req.url === '/spoof-date') {
         if (req.method === 'GET') {

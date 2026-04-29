@@ -416,6 +416,24 @@ export async function cleanupStaleSessions(agentId: string, maxAgeMs: number): P
 // Scheduled Jobs
 // =============================================================================
 
+export async function getJobById(id: string): Promise<ScheduledJob | null> {
+  const r = await getDb().query('SELECT * FROM scheduled_jobs WHERE id = $1', [id]);
+  if (!r.rows.length) return null;
+  const row = r.rows[0];
+  return {
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    name: row.name as string,
+    prompt: row.prompt as string,
+    cronSchedule: row.cron_schedule as string,
+    targetType: row.target_type as 'channel' | 'dm',
+    targetId: row.target_id as string,
+    enabled: row.enabled !== false && row.enabled !== 0,
+    createdAt: row.created_at as Date,
+    updatedAt: row.updated_at as Date,
+  };
+}
+
 export async function getAllEnabledJobs(): Promise<ScheduledJob[]> {
   const r = await getDb().query('SELECT * FROM scheduled_jobs WHERE enabled = true');
   return r.rows.map(row => ({

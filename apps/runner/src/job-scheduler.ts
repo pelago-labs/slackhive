@@ -13,7 +13,7 @@
 import cron from 'node-cron';
 import type { ScheduledJob, PlatformAdapter } from '@slackhive/shared';
 import { now as clockNow } from '@slackhive/shared';
-import { getAllEnabledJobs, insertJobRun, updateJobRun } from './db';
+import { getAllEnabledJobs, getJobById, insertJobRun, updateJobRun } from './db';
 import type { ClaudeHandler } from './claude-handler';
 import { logger } from './logger';
 
@@ -95,6 +95,16 @@ export class JobScheduler {
     });
     this.tasks.set(job.id, task);
     logger.info('Job scheduled', { jobId: job.id, name: job.name, cron: job.cronSchedule });
+  }
+
+  /**
+   * Manually triggers a job by ID — used by the web UI "Run Now" action.
+   * Fires immediately regardless of the cron schedule.
+   */
+  async runJobById(jobId: string): Promise<void> {
+    const job = await getJobById(jobId);
+    if (!job) throw new Error(`Job ${jobId} not found`);
+    await this.executeJob(job);
   }
 
   /**

@@ -121,6 +121,24 @@ export default function JobsPage() {
     load();
   };
 
+  const [runningNow, setRunningNow] = useState<Set<string>>(new Set());
+
+  const runNow = async (job: Job) => {
+    setRunningNow(prev => new Set(prev).add(job.id));
+    try {
+      await fetch(`/api/jobs/${job.id}/run`, { method: 'POST' });
+      // Refresh runs list if expanded
+      if (expandedRuns.has(job.id)) {
+        const r = await fetch(`/api/jobs/${job.id}/runs`);
+        const data = await r.json();
+        setRuns(prev => ({ ...prev, [job.id]: data }));
+      }
+      load();
+    } finally {
+      setRunningNow(prev => { const s = new Set(prev); s.delete(job.id); return s; });
+    }
+  };
+
   const openEdit = (job: Job) => { setEditingJob(job); setShowForm(true); };
   const openCreate = () => { setEditingJob(null); setShowForm(true); };
 
@@ -237,6 +255,28 @@ export default function JobsPage() {
 
                 {/* Actions */}
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  {/* Run Now */}
+                  {canEdit && (
+                    <button
+                      onClick={() => runNow(job)}
+                      disabled={runningNow.has(job.id)}
+                      title="Run now"
+                      style={{
+                        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                        width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: runningNow.has(job.id) ? 'not-allowed' : 'pointer',
+                        color: runningNow.has(job.id) ? 'var(--subtle)' : '#2563eb',
+                        opacity: runningNow.has(job.id) ? 0.5 : 1,
+                        transition: 'color 0.12s',
+                      }}
+                    >
+                      {runningNow.has(job.id) ? (
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 3"/></svg>
+                      ) : (
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>
+                      )}
+                    </button>
+                  )}
                   {/* History toggle */}
                   <button onClick={() => toggleRuns(job.id)} title="Run history" style={{
                     background: 'none', border: '1px solid var(--border)', borderRadius: 6,
