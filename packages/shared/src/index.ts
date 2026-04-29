@@ -8,7 +8,7 @@
 export * from './types';
 export type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment,
-  MessagePayload, PlatformCredentials, SlackCredentials,
+  MessagePayload, PlatformCredentials, SlackCredentials, WhatsAppCredentials,
 } from './platform';
 export { initDb, getDb, closeDb, setDb } from './db/adapter';
 export type { DbAdapter, DbResult, DbRow } from './db/adapter';

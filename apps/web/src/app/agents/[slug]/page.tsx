@@ -348,10 +348,15 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
     slackBotToken:      agent.slackBotToken,
     slackAppToken:      agent.slackAppToken,
     slackSigningSecret: agent.slackSigningSecret,
+    whatsappPhoneNumberId:      agent.whatsappPhoneNumberId ?? '',
+    whatsappAccessToken:        agent.whatsappAccessToken ?? '',
+    whatsappWebhookVerifyToken: agent.whatsappWebhookVerifyToken ?? '',
     isBoss:             agent.isBoss,
     verbose:            agent.verbose ?? true,
     reportsTo:          agent.reportsTo ?? [] as string[],
   });
+
+  const activeplatform = agent.whatsappPhoneNumberId ? 'whatsapp' : 'slack';
   const [saving, setSaving]             = useState(false);
   const [msg, setMsg]                   = useState('');
   const [manifest, setManifest]         = useState('');
@@ -391,7 +396,15 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
             isBoss: form.isBoss,
             verbose: form.verbose,
             reportsTo: form.reportsTo,
-            ...(form.slackBotToken && {
+            ...(activeplatform === 'whatsapp' && form.whatsappPhoneNumberId && {
+              platform: 'whatsapp',
+              platformCredentials: {
+                phoneNumberId: form.whatsappPhoneNumberId,
+                accessToken: form.whatsappAccessToken,
+                webhookVerifyToken: form.whatsappWebhookVerifyToken,
+              },
+            }),
+            ...(activeplatform === 'slack' && form.slackBotToken && {
               platformCredentials: {
                 botToken: form.slackBotToken,
                 appToken: form.slackAppToken,
@@ -562,50 +575,77 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
         })()}
       </Section>
 
-      <Section title="Slack Credentials">
-        <Field label="Bot Token" value={form.slackBotToken ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
-          hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
-        <Field label="App-Level Token" value={form.slackAppToken ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
-          hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
-        <Field label="Signing Secret" value={form.slackSigningSecret ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
-          hint="Basic Information → App Credentials → Signing Secret" />
-        {slackInfo && (
-          <div style={{
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: 7, padding: '10px 14px', fontSize: 12,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+      {activeplatform === 'slack' && (
+        <Section title="Slack Credentials">
+          <Field label="Bot Token" value={form.slackBotToken ?? ''}
+            onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
+            hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
+          <Field label="App-Level Token" value={form.slackAppToken ?? ''}
+            onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
+            hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
+          <Field label="Signing Secret" value={form.slackSigningSecret ?? ''}
+            onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
+            hint="Basic Information → App Credentials → Signing Secret" />
+          {slackInfo && (
+            <div style={{
+              background: '#f0fdf4', border: '1px solid #bbf7d0',
+              borderRadius: 7, padding: '10px 14px', fontSize: 12,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+                <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to Slack</span>
+                <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>{slackInfo.teamName}</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
+                <span style={{ color: '#6b7280' }}>Display name</span>
+                <span style={{ color: '#166534', fontWeight: 500 }}>{slackInfo.displayName}</span>
+                <span style={{ color: '#6b7280' }}>@handle</span>
+                <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span>
+                {agent.slackBotUserId && <>
+                  <span style={{ color: '#6b7280' }}>Bot User ID</span>
+                  <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>{agent.slackBotUserId}</span>
+                </>}
+              </div>
+            </div>
+          )}
+          {!slackInfo && agent.slackBotUserId && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: '#f0fdf4', border: '1px solid #bbf7d0',
+              borderRadius: 7, padding: '8px 12px', fontSize: 12,
+            }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-              <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to Slack</span>
-              <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>{slackInfo.teamName}</span>
+              <span style={{ color: '#15803d' }}>Connected ·</span>
+              <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>Bot User ID: {agent.slackBotUserId}</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
-              <span style={{ color: '#6b7280' }}>Display name</span>
-              <span style={{ color: '#166534', fontWeight: 500 }}>{slackInfo.displayName}</span>
-              <span style={{ color: '#6b7280' }}>@handle</span>
-              <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span>
-              {agent.slackBotUserId && <>
-                <span style={{ color: '#6b7280' }}>Bot User ID</span>
-                <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>{agent.slackBotUserId}</span>
-              </>}
+          )}
+        </Section>
+      )}
+
+      {activeplatform === 'whatsapp' && (
+        <Section title="WhatsApp Credentials">
+          <Field label="Phone Number ID" value={form.whatsappPhoneNumberId}
+            onChange={v => setForm(f => ({ ...f, whatsappPhoneNumberId: v }))} readOnly={!canEdit}
+            hint="developers.facebook.com → your app → WhatsApp → Getting Started → Phone number ID" />
+          <Field label="Access Token" value={form.whatsappAccessToken}
+            onChange={v => setForm(f => ({ ...f, whatsappAccessToken: v }))} type="password" readOnly={!canEdit}
+            hint="Meta Business Settings → System Users → Generate Token with whatsapp_business_messaging permission" />
+          <Field label="Webhook Verify Token" value={form.whatsappWebhookVerifyToken}
+            onChange={v => setForm(f => ({ ...f, whatsappWebhookVerifyToken: v }))} type="password" readOnly={!canEdit}
+            hint="The secret string you entered in Meta → WhatsApp → Configuration → Webhooks" />
+          {agent.whatsappPhoneNumberId && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: '#f0fdf4', border: '1px solid #bbf7d0',
+              borderRadius: 7, padding: '8px 12px', fontSize: 12,
+            }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+              <span style={{ color: '#15803d' }}>WhatsApp configured ·</span>
+              <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>{agent.whatsappPhoneNumberId}</span>
             </div>
-          </div>
-        )}
-        {!slackInfo && agent.slackBotUserId && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: 7, padding: '8px 12px', fontSize: 12,
-          }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-            <span style={{ color: '#15803d' }}>Connected ·</span>
-            <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>Bot User ID: {agent.slackBotUserId}</span>
-          </div>
-        )}
-      </Section>
+          )}
+        </Section>
+      )}
 
       <Section title="Allowed Channels">
         <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
@@ -633,7 +673,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
-        <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
+        {activeplatform === 'slack' && <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>}
         {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
       </div>
 

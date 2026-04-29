@@ -139,23 +139,28 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
   if (!agent) return null;
   const d = await db();
   const r = await d.query(
-    'SELECT credentials, bot_user_id FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
-    [agent.id, 'slack']
+    `SELECT platform, credentials, bot_user_id FROM platform_integrations
+     WHERE agent_id = $1 AND platform IN ('slack', 'whatsapp') AND enabled = 1`,
+    [agent.id]
   );
-  if (r.rows.length > 0) {
-    const raw = r.rows[0].credentials as string;
-    const key = getEncryptionKey();
+  const key = getEncryptionKey();
+  for (const row of r.rows) {
     let creds: Record<string, string> | null = null;
     try {
-      creds = JSON.parse(decrypt(raw, key));
+      creds = JSON.parse(decrypt(row.credentials as string, key));
     } catch (err) {
       console.error(`[db] failed to decrypt platform credentials for agent ${agent.id}:`, (err as Error).message);
     }
-    if (creds) {
+    if (!creds) continue;
+    if (row.platform === 'slack') {
       agent.slackBotToken = creds.botToken;
       agent.slackAppToken = creds.appToken;
       agent.slackSigningSecret = creds.signingSecret;
-      agent.slackBotUserId = r.rows[0].bot_user_id as string | undefined;
+      agent.slackBotUserId = row.bot_user_id as string | undefined;
+    } else if (row.platform === 'whatsapp') {
+      agent.whatsappPhoneNumberId = creds.phoneNumberId;
+      agent.whatsappAccessToken = creds.accessToken;
+      agent.whatsappWebhookVerifyToken = creds.webhookVerifyToken;
     }
   }
   return agent;
@@ -231,27 +236,37 @@ export async function getAllAgents(): Promise<Agent[]> {
   const agents = r.rows.map(rowToAgent);
 
   // Bulk load platform credentials for all agents
-  const pi = await d.query('SELECT agent_id, credentials, bot_user_id FROM platform_integrations WHERE platform = $1 AND enabled = 1', ['slack']);
-  const credsByAgent = new Map<string, { credentials: string; botUserId?: string }>();
+  const pi = await d.query(
+    `SELECT agent_id, platform, credentials, bot_user_id FROM platform_integrations
+     WHERE platform IN ('slack', 'whatsapp') AND enabled = 1`,
+  );
+  const credsByAgent = new Map<string, Array<{ platform: string; credentials: string; botUserId?: string }>>();
   for (const row of pi.rows) {
-    credsByAgent.set(row.agent_id as string, { credentials: row.credentials as string, botUserId: row.bot_user_id as string | undefined });
+    const agentId = row.agent_id as string;
+    if (!credsByAgent.has(agentId)) credsByAgent.set(agentId, []);
+    credsByAgent.get(agentId)!.push({ platform: row.platform as string, credentials: row.credentials as string, botUserId: row.bot_user_id as string | undefined });
   }
 
   const key = getEncryptionKey();
   for (const agent of agents) {
-    const entry = credsByAgent.get(agent.id);
-    if (entry) {
+    const entries = credsByAgent.get(agent.id) ?? [];
+    for (const entry of entries) {
       let creds: Record<string, string> | null = null;
       try {
         creds = JSON.parse(decrypt(entry.credentials, key));
       } catch (err) {
         console.error(`[db] failed to decrypt platform credentials for agent ${agent.id}:`, (err as Error).message);
       }
-      if (creds) {
+      if (!creds) continue;
+      if (entry.platform === 'slack') {
         agent.slackBotToken = creds.botToken;
         agent.slackAppToken = creds.appToken;
         agent.slackSigningSecret = creds.signingSecret;
         agent.slackBotUserId = entry.botUserId;
+      } else if (entry.platform === 'whatsapp') {
+        agent.whatsappPhoneNumberId = creds.phoneNumberId;
+        agent.whatsappAccessToken = creds.accessToken;
+        agent.whatsappWebhookVerifyToken = creds.webhookVerifyToken;
       }
     }
   }
@@ -370,24 +385,24 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
   if (req.platformCredentials) {
     const { encrypt } = await import('@slackhive/shared');
     const d = await db();
+    const platform = req.platform ?? 'slack';
     const encrypted = encrypt(JSON.stringify(req.platformCredentials), getEncryptionKey());
 
-    // Check if integration row exists
     const existing = await d.query(
-      `SELECT id FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
-      [id]
+      `SELECT id FROM platform_integrations WHERE agent_id = $1 AND platform = $2`,
+      [id, platform]
     );
 
     if (existing.rows.length > 0) {
       await d.query(
-        `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = 'slack'`,
-        [encrypted, id]
+        `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = $3`,
+        [encrypted, id, platform]
       );
     } else {
       await d.query(
         `INSERT INTO platform_integrations (id, agent_id, platform, credentials)
          VALUES ($1, $2, $3, $4)`,
-        [randomUUID(), id, 'slack', encrypted]
+        [randomUUID(), id, platform, encrypted]
       );
     }
   }

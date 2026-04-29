@@ -26,6 +26,7 @@ import { randomUUID } from 'crypto';
 import type { Agent, PlatformAdapter, ThreadMessage } from '@slackhive/shared';
 import { type AgentEvent, getEventBus, type EventBus } from '@slackhive/shared';
 import { SlackAdapter } from './adapters/slack-adapter';
+import { WhatsAppAdapter } from './adapters/whatsapp-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
 import { JobScheduler } from './job-scheduler';
@@ -384,21 +385,30 @@ export class AgentRunner {
       getAllEnvVarValues(),
     ]);
 
-    // Load platform integration from DB (needed for formatting rules in CLAUDE.md)
+    // Load platform integration from DB — try each supported platform in order
     const { updateAgentSlackUserId } = await import('./db');
-    const integration = await getPlatformIntegration(agent.id, 'slack');
-    if (!integration) {
+    const [slackIntegration, whatsappIntegration] = await Promise.all([
+      getPlatformIntegration(agent.id, 'slack'),
+      getPlatformIntegration(agent.id, 'whatsapp'),
+    ]);
+
+    let adapter: PlatformAdapter;
+    if (slackIntegration) {
+      adapter = new SlackAdapter(
+        { platform: 'slack', botToken: slackIntegration.credentials.botToken, appToken: slackIntegration.credentials.appToken, signingSecret: slackIntegration.credentials.signingSecret },
+        agent.slug,
+      );
+    } else if (whatsappIntegration) {
+      adapter = new WhatsAppAdapter(
+        { platform: 'whatsapp', phoneNumberId: whatsappIntegration.credentials.phoneNumberId, accessToken: whatsappIntegration.credentials.accessToken, webhookVerifyToken: whatsappIntegration.credentials.webhookVerifyToken },
+        agent.slug,
+      );
+    } else {
       logger.warn('No platform integration found — agent cannot start', { agent: agent.slug });
       // 'stopped', not 'error' — this is a not-yet-configured state, not a runtime failure.
-      await updateAgentStatus(agent.id, 'stopped', 'Slack is not configured for this agent.', this.runnerId);
+      await updateAgentStatus(agent.id, 'stopped', 'No platform (Slack or WhatsApp) is configured for this agent.', this.runnerId);
       return;
     }
-
-    // Create platform adapter
-    const adapter = new SlackAdapter(
-      { platform: 'slack', botToken: integration.credentials.botToken, appToken: integration.credentials.appToken, signingSecret: integration.credentials.signingSecret },
-      agent.slug,
-    );
 
     // Compile CLAUDE.md with platform-specific formatting rules.
     // compileClaudeMd inlines all learned memories directly into the system
@@ -420,11 +430,13 @@ export class AgentRunner {
     // Start the platform connection
     await adapter.start();
 
-    // Store bot user ID discovered during start
-    const botUserId = adapter.getBotUserId();
-    if (botUserId && botUserId !== integration.botUserId) {
-      await updateAgentSlackUserId(agent.id, botUserId);
-      agent.slackBotUserId = botUserId;
+    // Store Slack bot user ID discovered during start (Slack-only)
+    if (adapter.platform === 'slack' && slackIntegration) {
+      const botUserId = adapter.getBotUserId();
+      if (botUserId && botUserId !== slackIntegration.botUserId) {
+        await updateAgentSlackUserId(agent.id, botUserId);
+        agent.slackBotUserId = botUserId;
+      }
     }
 
     this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, memoryWatcher });
@@ -714,6 +726,37 @@ export class AgentRunner {
             } else {
               res.end();
             }
+          }
+        });
+        return;
+      }
+
+      // WhatsApp webhook — forwarded from apps/web /api/webhooks/whatsapp.
+      // Routes each entry to the correct WhatsAppAdapter by phoneNumberId.
+      if (req.method === 'POST' && req.url === '/whatsapp') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { entry } = JSON.parse(body) as { entry: any };
+            const phoneNumberId: string | undefined =
+              entry?.changes?.[0]?.value?.metadata?.phone_number_id;
+
+            if (phoneNumberId) {
+              for (const ra of this.runningAgents.values()) {
+                if (ra.adapter.platform === 'whatsapp' && ra.adapter.getBotUserId() === phoneNumberId) {
+                  await (ra.adapter as WhatsAppAdapter).handleWebhook(entry);
+                  break;
+                }
+              }
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+          } catch (err) {
+            logger.error('WhatsApp webhook error', { error: (err as Error).message });
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: (err as Error).message }));
           }
         });
         return;

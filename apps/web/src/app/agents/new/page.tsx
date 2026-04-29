@@ -29,7 +29,9 @@ interface WizardState {
   name: string; slug: string; description: string; persona: string;
   model: string; isBoss: boolean;
   reportsToIds: string[];
+  platform: 'slack' | 'whatsapp';
   slackBotToken: string; slackAppToken: string; slackSigningSecret: string;
+  whatsappPhoneNumberId: string; whatsappAccessToken: string; whatsappWebhookVerifyToken: string;
   mcpServerIds: string[];
   selectedPersona: PersonaTemplate | null;
   importPayload: AgentExportPayload | null;
@@ -39,7 +41,9 @@ const INITIAL: WizardState = {
   name: '', slug: '', description: '', persona: '',
   model: 'claude-opus-4-6', isBoss: false,
   reportsToIds: [],
+  platform: 'slack',
   slackBotToken: '', slackAppToken: '', slackSigningSecret: '',
+  whatsappPhoneNumberId: '', whatsappAccessToken: '', whatsappWebhookVerifyToken: '',
   mcpServerIds: [], selectedPersona: null, importPayload: null,
 };
 
@@ -85,9 +89,10 @@ export default function NewAgentWizard() {
 
   // Boss agents skip Persona + Tools steps (their CLAUDE.md is auto-generated)
   const totalSteps = state.isBoss ? 4 : 6;
+  const platformSetupLabel = state.platform === 'whatsapp' ? 'WhatsApp Setup' : 'Slack App';
   const stepLabels = state.isBoss
-    ? ['Name & Role', 'Slack App', 'Credentials', 'Review']
-    : ['Name & Role', 'Persona', 'Slack App', 'Credentials', 'Tools', 'Review'];
+    ? ['Name & Role', platformSetupLabel, 'Credentials', 'Review']
+    : ['Name & Role', 'Persona', platformSetupLabel, 'Credentials', 'Tools', 'Review'];
 
   const next = () => setStep(s => Math.min(s + 1, totalSteps - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
@@ -101,7 +106,12 @@ export default function NewAgentWizard() {
     if (!state.isBoss && step === 1) {
       if (!state.selectedPersona && !state.description.trim()) return false;
     }
-    if (step === credStep) return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
+    if (step === credStep) {
+      if (state.platform === 'whatsapp') {
+        return !!(state.whatsappPhoneNumberId && state.whatsappAccessToken && state.whatsappWebhookVerifyToken);
+      }
+      return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
+    }
     return true;
   };
 
@@ -120,12 +130,10 @@ export default function NewAgentWizard() {
           reportsTo: state.isBoss ? [] : state.reportsToIds,
           skillTemplate: 'blank',
           mcpServerIds: state.mcpServerIds,
-          platform: 'slack',
-          platformCredentials: {
-            botToken: state.slackBotToken,
-            appToken: state.slackAppToken,
-            signingSecret: state.slackSigningSecret,
-          },
+          platform: state.platform,
+          platformCredentials: state.platform === 'whatsapp'
+            ? { phoneNumberId: state.whatsappPhoneNumberId, accessToken: state.whatsappAccessToken, webhookVerifyToken: state.whatsappWebhookVerifyToken }
+            : { botToken: state.slackBotToken, appToken: state.slackAppToken, signingSecret: state.slackSigningSecret },
         }),
       });
       const data = await r.json();
@@ -248,13 +256,13 @@ export default function NewAgentWizard() {
             {step === 0 && <Step1Identity state={state} update={update} bosses={bosses} />}
             {/* Specialist steps */}
             {!state.isBoss && step === 1 && <Step2Persona state={state} update={update} />}
-            {!state.isBoss && step === 2 && <Step2SlackApp state={state} />}
-            {!state.isBoss && step === 3 && <Step3Tokens state={state} update={update} />}
+            {!state.isBoss && step === 2 && (state.platform === 'whatsapp' ? <Step2WhatsAppSetup /> : <Step2SlackApp state={state} />)}
+            {!state.isBoss && step === 3 && (state.platform === 'whatsapp' ? <Step3WhatsAppTokens state={state} update={update} /> : <Step3Tokens state={state} update={update} />)}
             {!state.isBoss && step === 4 && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
             {!state.isBoss && step === 5 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
             {/* Boss steps */}
-            {state.isBoss && step === 1 && <Step2SlackApp state={state} />}
-            {state.isBoss && step === 2 && <Step3Tokens state={state} update={update} />}
+            {state.isBoss && step === 1 && (state.platform === 'whatsapp' ? <Step2WhatsAppSetup /> : <Step2SlackApp state={state} />)}
+            {state.isBoss && step === 2 && (state.platform === 'whatsapp' ? <Step3WhatsAppTokens state={state} update={update} /> : <Step3Tokens state={state} update={update} />)}
             {state.isBoss && step === 3 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
           </div>
 
@@ -297,7 +305,9 @@ export default function NewAgentWizard() {
             ) : (
               <button
                 onClick={submit}
-                disabled={submitting || !state.slackBotToken || !state.slackAppToken || !state.slackSigningSecret}
+                disabled={submitting || (state.platform === 'whatsapp'
+                  ? !state.whatsappPhoneNumberId || !state.whatsappAccessToken || !state.whatsappWebhookVerifyToken
+                  : !state.slackBotToken || !state.slackAppToken || !state.slackSigningSecret)}
                 style={{
                   background: submitting ? 'var(--border)' : '#16a34a',
                   color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
@@ -431,6 +441,34 @@ function Step1Identity({ state, update, bosses }: {
           )}
         </div>
       )}
+
+      {/* Platform selector */}
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 8 }}>
+          Platform
+        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {([
+            { value: 'slack',    label: 'Slack',    sub: 'Socket Mode — no public URL needed' },
+            { value: 'whatsapp', label: 'WhatsApp', sub: 'Cloud API — requires public webhook URL' },
+          ] as { value: 'slack' | 'whatsapp'; label: string; sub: string }[]).map(p => (
+            <label key={p.value} style={{
+              display: 'flex', flexDirection: 'column', gap: 2,
+              padding: '10px 12px', border: `1px solid ${state.platform === p.value ? 'var(--accent)' : 'var(--border)'}`,
+              borderRadius: 8, cursor: 'pointer',
+              background: state.platform === p.value ? 'rgba(59,130,246,0.08)' : 'transparent',
+              transition: 'border-color 0.15s, background 0.15s',
+            }}>
+              <input type="radio" name="platform" value={p.value} checked={state.platform === p.value}
+                onChange={() => update({ platform: p.value })} style={{ display: 'none' }} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: state.platform === p.value ? 'var(--accent)' : 'var(--text)' }}>
+                {p.label}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{p.sub}</span>
+            </label>
+          ))}
+        </div>
+      </div>
 
       {/* Import config */}
     </div>
@@ -696,6 +734,96 @@ function Step3Tokens({ state, update }: { state: WizardState; update: (p: Partia
           placeholder="abc123def..."
           value={state.slackSigningSecret}
           onChange={v => update({ slackSigningSecret: v })}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 2: WhatsApp Setup ───────────────────────────────────────────────────
+
+function Step2WhatsAppSetup() {
+  return (
+    <div>
+      <StepHeader step={2} title="Set up WhatsApp" desc="Create a WhatsApp Business app on Meta and configure the webhook." />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginBottom: 20 }}>
+        {([
+          {
+            n: 1,
+            title: 'Create a Meta Developer app',
+            body: <>Go to <strong>developers.facebook.com</strong> → My Apps → Create App → Business. Add the <strong>WhatsApp</strong> product.</>,
+          },
+          {
+            n: 2,
+            title: 'Get your Phone Number ID',
+            body: <>In WhatsApp → Getting Started, note the <strong>Phone number ID</strong> shown (e.g. <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>123456789012345</code>).</>,
+          },
+          {
+            n: 3,
+            title: 'Generate a Permanent Access Token',
+            body: <>Go to System Users in Meta Business Settings, create a System User, assign it to the app, then generate a token with <strong>whatsapp_business_messaging</strong> permission.</>,
+          },
+          {
+            n: 4,
+            title: 'Configure the webhook',
+            body: <>In WhatsApp → Configuration → Webhooks, set the callback URL to your deployment URL + <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>/api/webhooks/whatsapp</code> and enter the Verify Token you will create in the next step. Subscribe to the <strong>messages</strong> field.</>,
+          },
+        ] as { n: number; title: string; body: React.ReactNode }[]).map(({ n, title, body }, i, arr) => (
+          <div key={n} style={{ display: 'flex', gap: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 32, flexShrink: 0 }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--accent)', color: 'var(--accent-fg)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700, zIndex: 1,
+              }}>{n}</div>
+              {i < arr.length - 1 && (
+                <div style={{ width: 2, flex: 1, background: 'var(--border)', minHeight: 20, marginTop: 4 }} />
+              )}
+            </div>
+            <div style={{ paddingLeft: 14, paddingBottom: i < arr.length - 1 ? 20 : 0, paddingTop: 3 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>{title}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.65 }}>{body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 3: WhatsApp Tokens ──────────────────────────────────────────────────
+
+function Step3WhatsAppTokens({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
+  return (
+    <div>
+      <StepHeader step={3} title="Add your WhatsApp credentials" desc="Three values from your Meta Developer dashboard." />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <TokenCard
+          label="Phone Number ID"
+          prefix=""
+          path={['WhatsApp', 'Getting Started', 'Phone number ID']}
+          placeholder="123456789012345"
+          value={state.whatsappPhoneNumberId}
+          onChange={v => update({ whatsappPhoneNumberId: v })}
+        />
+        <TokenCard
+          label="Access Token"
+          prefix=""
+          path={['Meta Business Settings', 'System Users', 'Generate Token']}
+          note={<>Create a System User with <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'rgba(59,130,246,0.08)', color: 'var(--accent)', padding: '1px 6px', borderRadius: 4 }}>whatsapp_business_messaging</code> permission.</>}
+          placeholder="EAAxxxxx..."
+          value={state.whatsappAccessToken}
+          onChange={v => update({ whatsappAccessToken: v })}
+        />
+        <TokenCard
+          label="Webhook Verify Token"
+          prefix=""
+          path={['WhatsApp', 'Configuration', 'Webhooks']}
+          note="Any secret string you choose. Enter the same value in the Meta webhook configuration."
+          placeholder="my-secret-verify-token"
+          value={state.whatsappWebhookVerifyToken}
+          onChange={v => update({ whatsappWebhookVerifyToken: v })}
         />
       </div>
     </div>

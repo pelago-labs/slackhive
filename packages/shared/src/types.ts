@@ -114,6 +114,12 @@ export interface Agent {
    * True when an active slack platform_integrations row exists for this agent.
    */
   hasSlackCreds?: boolean;
+  /** WhatsApp Cloud API credentials — populated from platform_integrations at query time. */
+  whatsappPhoneNumberId?: string;
+  whatsappAccessToken?: string;
+  whatsappWebhookVerifyToken?: string;
+  /** True when an active whatsapp platform_integrations row exists for this agent. */
+  hasWhatsappCreds?: boolean;
   /**
    * The Claude model to use for this agent.
    * @default "claude-opus-4-6"
@@ -619,6 +625,8 @@ export interface UpdateAgentRequest {
   name?: string;
   persona?: string;
   description?: string;
+  /** Platform to update credentials for. Defaults to 'slack' if omitted. */
+  platform?: string;
   /** Update platform credentials. */
   platformCredentials?: Record<string, string>;
   model?: string;

@@ -248,3 +248,11 @@ export interface TelegramCredentials extends PlatformCredentials {
   platform: 'telegram';
   botToken: string;
 }
+
+/** WhatsApp Cloud API credentials. */
+export interface WhatsAppCredentials extends PlatformCredentials {
+  platform: 'whatsapp';
+  phoneNumberId: string;     // Meta phone number ID
+  accessToken: string;       // Meta permanent access token
+  webhookVerifyToken: string; // Secret for Meta webhook verification
+}
