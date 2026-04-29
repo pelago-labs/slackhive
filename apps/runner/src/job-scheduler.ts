@@ -133,12 +133,14 @@ export class JobScheduler {
       // Fresh session key per run (no resume)
       const sessionKey = `job-${job.id}-${Date.now()}`;
 
-      // Prepend current date so the agent always knows "when" this job is running,
-      // even if the CLAUDE.md system prompt was compiled before a spoof date was set.
+      // Prepend run context so the agent always knows when and who this job is for.
       const currentDate = clockNow().toLocaleDateString('en-SG', {
         timeZone: 'Asia/Singapore', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
       });
-      const promptWithDate = `Today's date: ${currentDate}\n\n${job.prompt}`;
+      const targetLabel = job.targetType === 'dm'
+        ? `mobile number / KF number: ${job.targetId}`
+        : `channel: ${job.targetId}`;
+      const promptWithDate = `Today's date: ${currentDate}\nRecipient ${targetLabel}\n\n${job.prompt}`;
 
       // Stream query to agent
       let output = '';
