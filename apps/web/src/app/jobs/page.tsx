@@ -176,13 +176,19 @@ export default function JobsPage() {
               {/* Job row */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
                 {/* Status indicator */}
-                <div style={{
+                <div title={
+                  !job.enabled ? 'Paused'
+                  : job.lastRun?.status === 'error' ? 'Last run errored'
+                  : job.lastRun?.status === 'success' ? 'Last run succeeded'
+                  : job.lastRun?.status === 'running' ? 'Running now'
+                  : 'Scheduled — waiting for first run'
+                } style={{
                   width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
                   background: !job.enabled ? 'var(--border-2)'
                     : job.lastRun?.status === 'error' ? '#dc2626'
                     : job.lastRun?.status === 'success' ? '#059669'
                     : job.lastRun?.status === 'running' ? '#2563eb'
-                    : 'var(--border-2)',
+                    : '#d97706',
                 }} />
 
                 {/* Info */}
