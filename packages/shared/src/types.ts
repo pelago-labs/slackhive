@@ -623,6 +623,10 @@ export interface UpdateAgentRequest {
   platform?: string;
   /** Update platform credentials. */
   platformCredentials?: Record<string, string>;
+  /** Secondary platform to update credentials for (e.g. 'whatsapp' alongside 'slack'). */
+  additionalPlatform?: string;
+  /** Credentials for the secondary platform. */
+  additionalPlatformCredentials?: Record<string, string>;
   model?: string;
   isBoss?: boolean;
   reportsTo?: string[];

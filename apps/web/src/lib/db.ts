@@ -362,6 +362,27 @@ export async function updateAgentEnabled(id: string, enabled: boolean): Promise<
   );
 }
 
+async function upsertPlatformCredentials(agentId: string, platform: string, credentials: Record<string, string>): Promise<void> {
+  const { encrypt } = await import('@slackhive/shared');
+  const d = await db();
+  const encrypted = encrypt(JSON.stringify(credentials), getEncryptionKey());
+  const existing = await d.query(
+    `SELECT id FROM platform_integrations WHERE agent_id = $1 AND platform = $2`,
+    [agentId, platform]
+  );
+  if (existing.rows.length > 0) {
+    await d.query(
+      `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = $3`,
+      [encrypted, agentId, platform]
+    );
+  } else {
+    await d.query(
+      `INSERT INTO platform_integrations (id, agent_id, platform, credentials) VALUES ($1, $2, $3, $4)`,
+      [randomUUID(), agentId, platform, encrypted]
+    );
+  }
+}
+
 /**
  * Updates mutable fields on an agent record.
  *
@@ -382,30 +403,11 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
   if (req.reportsTo !== undefined) { fields.push(`reports_to = $${idx++}`); values.push(req.reportsTo); }
   if (req.verbose !== undefined) { fields.push(`verbose = $${idx++}`); values.push(req.verbose); }
 
-  // Upsert platform credentials if provided
   if (req.platformCredentials) {
-    const { encrypt } = await import('@slackhive/shared');
-    const d = await db();
-    const platform = req.platform ?? 'slack';
-    const encrypted = encrypt(JSON.stringify(req.platformCredentials), getEncryptionKey());
-
-    const existing = await d.query(
-      `SELECT id FROM platform_integrations WHERE agent_id = $1 AND platform = $2`,
-      [id, platform]
-    );
-
-    if (existing.rows.length > 0) {
-      await d.query(
-        `UPDATE platform_integrations SET credentials = $1 WHERE agent_id = $2 AND platform = $3`,
-        [encrypted, id, platform]
-      );
-    } else {
-      await d.query(
-        `INSERT INTO platform_integrations (id, agent_id, platform, credentials)
-         VALUES ($1, $2, $3, $4)`,
-        [randomUUID(), id, platform, encrypted]
-      );
-    }
+    await upsertPlatformCredentials(id, req.platform ?? 'slack', req.platformCredentials);
+  }
+  if (req.additionalPlatformCredentials && req.additionalPlatform) {
+    await upsertPlatformCredentials(id, req.additionalPlatform, req.additionalPlatformCredentials);
   }
 
   if (fields.length === 0) return getAgentById(id);
