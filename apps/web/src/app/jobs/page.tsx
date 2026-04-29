@@ -70,7 +70,7 @@ function cronToHuman(cron: string): string {
  *
  * @returns {JSX.Element}
  */
-interface AgentOption { id: string; name: string; slug: string; isBoss: boolean; }
+interface AgentOption { id: string; name: string; slug: string; isBoss: boolean; hasWhatsappCreds?: boolean; }
 
 export default function JobsPage() {
   const { canEdit } = useAuth();
@@ -376,6 +376,9 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
   const [cronSchedule, setCronSchedule] = useState(job?.cronSchedule ?? '0 8 * * *');
   const [targetType, setTargetType] = useState<'channel' | 'dm'>(job?.targetType ?? 'channel');
   const [targetId, setTargetId] = useState(job?.targetId ?? '');
+
+  const selectedAgent = agents.find(a => a.id === agentId);
+  const isWhatsApp = !!selectedAgent?.hasWhatsappCreds;
   const [enabled, setEnabled] = useState(job?.enabled ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -429,7 +432,11 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
         {/* Agent */}
         <div>
           <label style={labelStyle}>Agent</label>
-          <select value={agentId} onChange={e => setAgentId(e.target.value)} style={inputStyle}>
+          <select value={agentId} onChange={e => {
+            const a = agents.find(x => x.id === e.target.value);
+            setAgentId(e.target.value);
+            if (a?.hasWhatsappCreds) setTargetType('dm');
+          }} style={inputStyle}>
             {agents.length === 0 && <option value="">No agents available</option>}
             {agents.map(a => (
               <option key={a.id} value={a.id}>{a.name}{a.isBoss ? ' (Boss)' : ''}</option>
@@ -483,26 +490,39 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
         {/* Target */}
         <div>
           <label style={labelStyle}>Deliver to</label>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            {(['channel', 'dm'] as const).map(t => (
-              <label key={t} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                border: targetType === t ? '1px solid var(--accent)' : '1px solid var(--border)',
-                borderRadius: 7, cursor: 'pointer', fontSize: 13,
-                background: targetType === t ? 'var(--surface-2)' : '#fff',
-                color: targetType === t ? 'var(--text)' : 'var(--muted)',
-              }}>
-                <input type="radio" name="targetType" checked={targetType === t} onChange={() => setTargetType(t)} style={{ display: 'none' }} />
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  {t === 'channel' ? <Hash size={13} /> : <MessageSquare size={13} />}
-                  {t === 'channel' ? 'Channel' : 'DM'}
-                </span>
-              </label>
-            ))}
-          </div>
-          <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)}
-            placeholder={targetType === 'channel' ? 'Channel ID (e.g. C0ANTCQ918U)' : 'User ID (e.g. U095GQAM6PL)'}
-            style={inputStyle} />
+          {isWhatsApp ? (
+            <>
+              <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)}
+                placeholder="Phone number (e.g. 6591234567)"
+                style={inputStyle} />
+              <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)', marginTop: 4 }}>
+                WhatsApp phone number to send the job output to (no + prefix, digits only).
+              </p>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                {(['channel', 'dm'] as const).map(t => (
+                  <label key={t} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                    border: targetType === t ? '1px solid var(--accent)' : '1px solid var(--border)',
+                    borderRadius: 7, cursor: 'pointer', fontSize: 13,
+                    background: targetType === t ? 'var(--surface-2)' : '#fff',
+                    color: targetType === t ? 'var(--text)' : 'var(--muted)',
+                  }}>
+                    <input type="radio" name="targetType" checked={targetType === t} onChange={() => setTargetType(t)} style={{ display: 'none' }} />
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      {t === 'channel' ? <Hash size={13} /> : <MessageSquare size={13} />}
+                      {t === 'channel' ? 'Channel' : 'DM'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)}
+                placeholder={targetType === 'channel' ? 'Channel ID (e.g. C0ANTCQ918U)' : 'User ID (e.g. U095GQAM6PL)'}
+                style={inputStyle} />
+            </>
+          )}
         </div>
 
         {/* Enabled */}

@@ -21,6 +21,7 @@ import * as crypto from 'crypto';
 import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 import type { Agent, McpServer, McpServerConfig, McpServerType, McpStdioConfig, Permission } from '@slackhive/shared';
+import { now as clockNow } from '@slackhive/shared';
 import {
   getSession,
   upsertSession,
@@ -264,6 +265,7 @@ export class ClaudeHandler {
     }
 
     const sessionWorkDir = this.getSessionWorkDir(sessionKey);
+    this.refreshDateInSessionClaudeMd(sessionWorkDir);
     const options = this.buildSdkOptions(sessionWorkDir, claudeSessionId, abortController);
 
     this.log.debug('Streaming query', {
@@ -456,6 +458,22 @@ export class ClaudeHandler {
    * @param {AbortController} [abortController] - Optional abort controller injected into SDK options.
    * @returns {Record<string, unknown>} Options object for `query({ prompt, options })`.
    */
+  /** Updates the `> **Current date:**` header in a session's CLAUDE.md before each query. */
+  private refreshDateInSessionClaudeMd(sessionDir: string): void {
+    const claudeMdPath = path.join(sessionDir, 'CLAUDE.md');
+    if (!fs.existsSync(claudeMdPath)) return;
+    const content = fs.readFileSync(claudeMdPath, 'utf8');
+    const dateStr = clockNow().toLocaleDateString('en-SG', {
+      timeZone: 'Asia/Singapore',
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+    const updated = content.replace(
+      /^> \*\*Current date:\*\* .+$/m,
+      `> **Current date:** ${dateStr}`,
+    );
+    if (updated !== content) fs.writeFileSync(claudeMdPath, updated, 'utf8');
+  }
+
   private buildSdkOptions(
     sessionWorkDir: string,
     claudeSessionId: string | undefined,
