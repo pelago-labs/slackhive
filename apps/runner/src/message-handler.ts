@@ -106,7 +106,8 @@ export class MessageHandler {
     let statusMsgId: string | undefined;
 
     // Build prompt with sender header + thread context + files
-    const prompt = await this.buildPrompt(userId, channelId, threadId, text, files);
+    const platform = msg.platform || this.adapter.platform || 'unknown';
+    const prompt = await this.buildPrompt(userId, channelId, threadId, text, files, platform);
 
     // Activity dashboard recorder — no-ops when ACTIVITY_DASHBOARD is off.
     // A Slack thread == one task; each agent's reply in the thread is a new
@@ -354,6 +355,7 @@ export class MessageHandler {
     threadId: string | undefined,
     userText: string,
     files?: FileAttachment[],
+    platform?: string,
   ): Promise<string | ContentBlockParam[]> {
     // Resolve sender display name for the header. Failure is non-fatal — the
     // userId alone is still enough for user-keyed memory rules to match.
@@ -361,7 +363,8 @@ export class MessageHandler {
     try {
       senderName = await this.adapter.getUserDisplayName(userId);
     } catch { /* fall back to userId */ }
-    const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}]\n\n`;
+    const platformTag = platform ? ` · platform ${platform}` : '';
+    const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}${platformTag}]\n\n`;
 
     // Fetch thread context via adapter
     let threadContext = '';
