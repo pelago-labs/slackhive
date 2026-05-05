@@ -627,10 +627,10 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const legacyCount = (db.prepare('SELECT COUNT(*) as n FROM knowledge_sources').get() as { n: number }).n;
   if (!hasMigrated && legacyCount > 0) {
     const legacyAgents = db.prepare(`
-      SELECT DISTINCT ks.agent_id, a.name as agent_name
+      SELECT DISTINCT ks.agent_id, a.name as agent_name, a.slug as agent_slug
       FROM knowledge_sources ks
       JOIN agents a ON a.id = ks.agent_id
-    `).all() as { agent_id: string; agent_name: string }[];
+    `).all() as { agent_id: string; agent_name: string; agent_slug: string }[];
 
     const insertFolder = db.prepare(`
       INSERT OR IGNORE INTO wiki_folders (id, name, description, created_by)
@@ -644,11 +644,15 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
       INSERT OR IGNORE INTO agent_wiki_folders (agent_id, folder_id) VALUES (?, ?)
     `);
 
+    // Collect slug→folderId mapping so we can copy built wiki files after the transaction
+    const diskMigrations: { slug: string; folderId: string }[] = [];
+
     const migrate = db.transaction(() => {
-      for (const { agent_id, agent_name } of legacyAgents) {
+      for (const { agent_id, agent_name, agent_slug } of legacyAgents) {
         const folderId = randomUUID();
         insertFolder.run(folderId, `${agent_name} Knowledge`, `Auto-migrated from ${agent_name}`);
         insertLink.run(agent_id, folderId);
+        diskMigrations.push({ slug: agent_slug, folderId });
 
         const sources = db.prepare('SELECT * FROM knowledge_sources WHERE agent_id = ?').all(agent_id) as Record<string, unknown>[];
         for (const s of sources) {
@@ -664,6 +668,24 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
       }
     });
     migrate();
+
+    // Copy built wiki pages from old per-agent disk location to new platform location
+    // Old: ~/.slackhive/agents/{slug}/knowledge/wiki/
+    // New: ~/.slackhive/knowledge/{folder-id}/wiki/
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '/tmp';
+    const slackhiveDir = path.join(home, '.slackhive');
+    for (const { slug, folderId } of diskMigrations) {
+      const oldWikiDir = path.join(slackhiveDir, 'agents', slug, 'knowledge', 'wiki');
+      const newWikiDir = path.join(slackhiveDir, 'knowledge', folderId, 'wiki');
+      if (fs.existsSync(oldWikiDir)) {
+        try {
+          fs.mkdirSync(path.dirname(newWikiDir), { recursive: true });
+          fs.cpSync(oldWikiDir, newWikiDir, { recursive: true });
+        } catch {
+          // Non-fatal — wiki can be rebuilt
+        }
+      }
+    }
   }
 
   // Install a custom function to generate UUIDs
