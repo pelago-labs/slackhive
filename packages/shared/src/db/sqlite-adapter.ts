@@ -669,7 +669,8 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
     });
     migrate();
 
-    // Copy built wiki pages from old per-agent disk location to new platform location
+    // Copy built wiki pages from old per-agent disk location to new platform location.
+    // Runs for each folder whose new wiki dir doesn't exist yet (safe to re-run).
     // Old: ~/.slackhive/agents/{slug}/knowledge/wiki/
     // New: ~/.slackhive/knowledge/{folder-id}/wiki/
     const home = process.env.HOME ?? process.env.USERPROFILE ?? '/tmp';
@@ -677,12 +678,38 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
     for (const { slug, folderId } of diskMigrations) {
       const oldWikiDir = path.join(slackhiveDir, 'agents', slug, 'knowledge', 'wiki');
       const newWikiDir = path.join(slackhiveDir, 'knowledge', folderId, 'wiki');
-      if (fs.existsSync(oldWikiDir)) {
+      if (fs.existsSync(oldWikiDir) && !fs.existsSync(newWikiDir)) {
         try {
           fs.mkdirSync(path.dirname(newWikiDir), { recursive: true });
           fs.cpSync(oldWikiDir, newWikiDir, { recursive: true });
         } catch {
           // Non-fatal — wiki can be rebuilt
+        }
+      }
+    }
+  }
+
+  // Also run disk migration for any already-migrated folders that are missing their wiki dir.
+  // This handles the case where the DB migration ran before disk migration was implemented.
+  {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '/tmp';
+    const slackhiveDir = path.join(home, '.slackhive');
+    const agentFolderLinks = db.prepare(`
+      SELECT wf.id as folder_id, a.slug
+      FROM wiki_folders wf
+      JOIN agent_wiki_folders awf ON awf.folder_id = wf.id
+      JOIN agents a ON a.id = awf.agent_id
+    `).all() as { folder_id: string; slug: string }[];
+
+    for (const { folder_id, slug } of agentFolderLinks) {
+      const oldWikiDir = path.join(slackhiveDir, 'agents', slug, 'knowledge', 'wiki');
+      const newWikiDir = path.join(slackhiveDir, 'knowledge', folder_id, 'wiki');
+      if (fs.existsSync(oldWikiDir) && !fs.existsSync(newWikiDir)) {
+        try {
+          fs.mkdirSync(path.dirname(newWikiDir), { recursive: true });
+          fs.cpSync(oldWikiDir, newWikiDir, { recursive: true });
+        } catch {
+          // Non-fatal
         }
       }
     }
