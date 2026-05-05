@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { ChevronDown, ChevronRight, FileText, BookOpen, Download } from 'lucide-react';
 
 interface WikiFolder {
   id: string;
@@ -29,6 +30,86 @@ interface WikiSource {
 
 interface WikiPage { path: string; title: string; size: number; }
 
+// ─── Wiki Tree ────────────────────────────────────────────────────────────────
+type TreeNode = { name: string; path?: string; title?: string; size?: number; children: TreeNode[] };
+
+function buildTree(articles: WikiPage[]): TreeNode[] {
+  const root: TreeNode = { name: '', children: [] };
+  for (const article of articles) {
+    const parts = article.path.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isFile = i === parts.length - 1;
+      let child = node.children.find(c => c.name === part);
+      if (!child) {
+        child = isFile
+          ? { name: part, path: article.path, title: article.title, size: article.size, children: [] }
+          : { name: part, children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    }
+  }
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      const aIsFolder = a.children.length > 0 && !a.path;
+      const bIsFolder = b.children.length > 0 && !b.path;
+      if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const n of nodes) sortNodes(n.children);
+  };
+  sortNodes(root.children);
+  return root.children;
+}
+
+const FOLDER_LABELS: Record<string, string> = { concepts: 'Concepts', entities: 'Entities', flows: 'Flows', modules: 'Modules' };
+
+function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; depth: number; onSelect: (path: string) => void; selected: string | null }) {
+  const [open, setOpen] = useState(true);
+  const isFolder = !node.path && node.children.length > 0;
+  const label = isFolder ? (FOLDER_LABELS[node.name] || node.name) : (node.title || node.name.replace('.md', ''));
+  const isActive = node.path === selected;
+
+  if (isFolder) {
+    return (
+      <div>
+        <div onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: `6px 6px 2px ${6 + depth * 12}px`, fontSize: 10.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', letterSpacing: '0.02em' }}>
+          {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          {label}/
+        </div>
+        {open && node.children.map(child => (
+          <WikiTreeNode key={child.path || child.name} node={child} depth={depth + 1} onSelect={onSelect} selected={selected} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={() => node.path && onSelect(node.path)}
+      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: `4px 8px 4px ${8 + depth * 12}px`, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-mono)', background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent', color: isActive ? 'var(--accent)' : 'var(--muted)', transition: 'background 0.12s, color 0.12s', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
+      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+    >
+      <FileText size={12} style={{ flexShrink: 0 }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name.replace('.md', '')}</span>
+    </div>
+  );
+}
+
+function WikiTree({ articles, onSelect, selected }: { articles: WikiPage[]; onSelect: (path: string) => void; selected: string | null }) {
+  const tree = buildTree(articles);
+  return (
+    <div style={{ padding: '6px', flex: 1, overflow: 'auto' }}>
+      {tree.map(node => (
+        <WikiTreeNode key={node.path || node.name} node={node} depth={0} onSelect={onSelect} selected={selected} />
+      ))}
+    </div>
+  );
+}
+
 const STATUS_COLOR: Record<string, string> = {
   compiled: '#059669', building: '#d97706', pending: '#a3a3a3', error: '#dc2626',
 };
@@ -46,7 +127,9 @@ export default function KnowledgePage() {
   const [sourcesLoading, setSourcesLoading]   = useState(false);
   const [wikiPages, setWikiPages]             = useState<WikiPage[]>([]);
   const [wikiLoading, setWikiLoading]         = useState(false);
-  const [wikiArticle, setWikiArticle]         = useState<{ path: string; content: string } | null>(null);
+  const [selectedArticle, setSelectedArticle] = useState<string | null>(null);
+  const [articleContent, setArticleContent]   = useState('');
+  const [loadingArticle, setLoadingArticle]   = useState(false);
   const [showNewFolder, setShowNewFolder]     = useState(false);
   const [showSourceModal, setShowSourceModal] = useState(false);
   const [editingSource, setEditingSource]     = useState<WikiSource | null>(null);
@@ -57,6 +140,7 @@ export default function KnowledgePage() {
   const [saving, setSaving]                   = useState(false);
   const [buildStatus, setBuildStatus]         = useState<Record<string, string>>({});
   const [envVarKeys, setEnvVarKeys]           = useState<string[]>([]);
+  const [downloading, setDownloading]         = useState(false);
 
   const isAdmin = role === 'admin' || role === 'superadmin';
   const isOwnerOrAdmin = (f: WikiFolder) => isAdmin || (canEdit && f.createdBy === username);
@@ -72,23 +156,29 @@ export default function KnowledgePage() {
   }, [username, role]);
 
   function openFolder(f: WikiFolder) {
-    setSelected(f); setWikiArticle(null); setDetailTab('sources');
+    setSelected(f); setSelectedArticle(null); setDetailTab('sources');
     setSourcesLoading(true); setSources([]);
     fetch(`/api/wiki-folders/${f.id}/sources`).then(r => r.json()).then(setSources).finally(() => setSourcesLoading(false));
   }
 
   function switchTab(tab: 'sources' | 'wiki') {
-    setDetailTab(tab); setWikiArticle(null);
+    setDetailTab(tab); setSelectedArticle(null);
     if (tab === 'wiki' && selected) {
       setWikiLoading(true); setWikiPages([]);
       fetch(`/api/wiki-folders/${selected.id}/wiki`).then(r => r.json()).then(d => setWikiPages(d.pages ?? [])).finally(() => setWikiLoading(false));
     }
   }
 
-  async function loadWikiArticle(page: WikiPage) {
+  async function viewArticle(articlePath: string) {
     if (!selected) return;
-    const r = await fetch(`/api/wiki-folders/${selected.id}/wiki?path=${encodeURIComponent(page.path)}`);
-    setWikiArticle({ path: page.path, content: (await r.json()).content ?? '' });
+    setSelectedArticle(articlePath);
+    setLoadingArticle(true);
+    try {
+      const r = await fetch(`/api/wiki-folders/${selected.id}/wiki?path=${encodeURIComponent(articlePath)}`);
+      const data = await r.json();
+      setArticleContent(data.content ?? '');
+    } catch { setArticleContent('Failed to load article.'); }
+    finally { setLoadingArticle(false); }
   }
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -193,7 +283,9 @@ export default function KnowledgePage() {
             <div style={{ color: 'var(--muted)', fontSize: 14 }}>Loading…</div>
           ) : folders.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16, textAlign: 'center' }}>
-              <div style={{ width: 60, height: 60, borderRadius: 16, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>📚</div>
+              <div style={{ width: 60, height: 60, borderRadius: 16, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
+              </div>
               <div>
                 <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>No knowledge folders yet</p>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{canEdit ? 'Create a folder to start building shared wikis for your agents.' : 'No knowledge folders have been created yet.'}</p>
@@ -212,7 +304,9 @@ export default function KnowledgePage() {
                   onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-sm)'; el.style.transform = 'translateY(0)'; el.style.borderColor = 'var(--border)'; }}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>📁</div>
+                    <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <BookOpen size={16} style={{ color: 'var(--muted)' }} />
+                    </div>
                   </div>
                   <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text)', marginBottom: 4, letterSpacing: '-0.01em' }}>{f.name}</div>
                   <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, minHeight: 36, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
@@ -332,26 +426,49 @@ export default function KnowledgePage() {
             <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
               No wiki pages built yet.{canManageSelected && ' Add sources then click Build Wiki.'}
             </div>
-          ) : wikiArticle ? (
-            <div>
-              <button onClick={() => setWikiArticle(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: '0 0 16px', display: 'block' }}>← All pages</button>
-              <pre style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '20px', fontSize: 12.5, lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text)', fontFamily: 'var(--font-mono)', margin: 0 }}>{wikiArticle.content}</pre>
-            </div>
           ) : (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase', marginBottom: 14 }}>{wikiPages.length} page{wikiPages.length !== 1 ? 's' : ''}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {wikiPages.map(p => (
-                  <button key={p.path} onClick={() => loadWikiArticle(p)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '13px 16px', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: 'var(--shadow-sm)' }}>
-                    <div>
-                      <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>{p.title}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)' }}>{p.path}</div>
-                    </div>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, marginLeft: 12 }}>{Math.round(p.size / 1024 * 10) / 10} KB</span>
-                  </button>
-                ))}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                <BookOpen size={14} style={{ color: 'var(--muted)' }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Wiki</span>
+                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>{wikiPages.length} articles</span>
               </div>
-            </>
+              <div style={{ display: 'flex', gap: 14, height: 480 }}>
+                {/* Sidebar — file tree */}
+                <div style={{ width: 220, flexShrink: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Articles</span>
+                    <span style={{ fontSize: 10, color: 'var(--subtle)' }}>{wikiPages.length}</span>
+                  </div>
+                  <WikiTree articles={wikiPages} onSelect={viewArticle} selected={selectedArticle} />
+                </div>
+
+                {/* Main — article content */}
+                <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  {selectedArticle ? (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+                        <FileText size={13} style={{ color: 'var(--muted)' }} />
+                        <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>{selectedArticle}</span>
+                      </div>
+                      <div style={{ flex: 1, padding: '16px 18px', overflow: 'auto' }}>
+                        {loadingArticle ? (
+                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</div>
+                        ) : (
+                          <pre style={{ margin: 0, fontSize: 12.5, lineHeight: 1.7, color: 'var(--text)', fontFamily: 'var(--font-sans)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{articleContent}</pre>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
+                      <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
+                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Select an article to view</p>
+                      <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>Browse the folder tree on the left</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           )
         )}
       </div>
@@ -391,7 +508,7 @@ export default function KnowledgePage() {
               <label style={labelStyle}>Content</label>
               <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
                 <button type="button" onClick={() => fileInputRef.current?.click()} disabled={fileUploading} style={{ background: 'var(--surface-3)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer', color: 'var(--text)', flexShrink: 0 }}>
-                  {fileUploading ? 'Reading…' : '📎 Upload file'}
+                  {fileUploading ? 'Reading…' : 'Upload file'}
                 </button>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                   {sourceForm.content ? `${sourceForm.content.length.toLocaleString()} chars` : 'or paste below'}
