@@ -56,6 +56,16 @@ export default function KnowledgePage() {
   const [sourceForm, setSourceForm]         = useState({ type: 'url', name: '', url: '', repoUrl: '', branch: 'main', patEnvRef: '', content: '' });
   const [saving, setSaving]                 = useState(false);
   const [buildStatus, setBuildStatus]       = useState<Record<string, string>>({});
+  const [envVarKeys, setEnvVarKeys]         = useState<string[]>([]);
+
+  // Fetch accessible env var keys (filtered by ownership client-side)
+  useEffect(() => {
+    fetch('/api/env-vars').then(r => r.json()).then((rows: { key: string; createdBy: string }[]) => {
+      const isAdmin = role === 'admin' || role === 'superadmin';
+      const accessible = isAdmin ? rows : rows.filter(r => r.createdBy === username);
+      setEnvVarKeys(accessible.map(r => r.key));
+    }).catch(() => {});
+  }, [username, role]);
 
   const isOwnerOrAdmin = (f: WikiFolder) =>
     (role === 'admin' || role === 'superadmin') || (canEdit && f.createdBy === username);
@@ -449,7 +459,11 @@ export default function KnowledgePage() {
               <label style={labelStyle}>Branch</label>
               <input style={inputStyle} value={sourceForm.branch} onChange={e => setSourceForm(p => ({ ...p, branch: e.target.value }))} placeholder="main" />
               <label style={labelStyle}>PAT env var (for private repos, optional)</label>
-              <input style={inputStyle} value={sourceForm.patEnvRef} onChange={e => setSourceForm(p => ({ ...p, patEnvRef: e.target.value }))} placeholder="GITHUB_PAT" />
+              <select style={inputStyle} value={sourceForm.patEnvRef} onChange={e => setSourceForm(p => ({ ...p, patEnvRef: e.target.value }))}>
+                <option value="">— None (public repo) —</option>
+                {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
+                {envVarKeys.length === 0 && <option disabled>No accessible env vars</option>}
+              </select>
             </>
           )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
