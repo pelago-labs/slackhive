@@ -1854,7 +1854,7 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {allFolders.map(f => (
             <div key={f.id} style={{
-              background: '#fff', border: `1px solid ${f.assigned ? 'var(--accent-border, rgba(99,102,241,0.35))' : 'var(--border)'}`,
+              background: 'var(--surface)', border: `1px solid ${f.assigned ? 'var(--accent-border, rgba(99,102,241,0.35))' : 'var(--border)'}`,
               borderRadius: 10, padding: '14px 16px',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               transition: 'border-color 0.15s',
