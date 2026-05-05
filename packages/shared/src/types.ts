@@ -737,6 +737,55 @@ export interface KnowledgeSource {
 }
 
 // =============================================================================
+// Wiki Folders (platform-level knowledge library)
+// =============================================================================
+
+export interface WikiFolder {
+  id: string;
+  name: string;
+  description?: string;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface WikiSource {
+  id: string;
+  folderId: string;
+  type: KnowledgeSourceType;
+  name: string;
+  url?: string;
+  repoUrl?: string;
+  branch?: string;
+  patEnvRef?: string;
+  content?: string;
+  status: KnowledgeSourceStatus;
+  wordCount: number;
+  lastSynced?: string;
+  createdAt: Date;
+}
+
+export interface CreateWikiFolderRequest {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateWikiFolderRequest {
+  name?: string;
+  description?: string;
+}
+
+export interface CreateWikiSourceRequest {
+  type: KnowledgeSourceType;
+  name: string;
+  url?: string;
+  repoUrl?: string;
+  branch?: string;
+  patEnvRef?: string;
+  content?: string;
+}
+
+// =============================================================================
 // Scheduled Jobs
 // =============================================================================
 

@@ -1795,622 +1795,97 @@ function WikiTree({ articles, onSelect, selected }: { articles: WikiArticle[]; o
   );
 }
 
-// ─── Knowledge ──────────────────────────────────────────────────────────────
+// ─── Knowledge (Wiki Folder Assignment) ─────────────────────────────────────
 
-function KnowledgeTab({ agentId, agentSlug, canEdit }: { agentId: string; agentSlug: string; canEdit: boolean }) {
-  const [sources, setSources] = useState<any[]>([]);
-  const [showAdd, setShowAdd] = useState(false);
-  const [addType, setAddType] = useState<'url' | 'file' | 'repo'>('url');
-  const [addName, setAddName] = useState('');
-  const [addUrl, setAddUrl] = useState('');
-  const [addBranch, setAddBranch] = useState('main');
-  const [addPat, setAddPat] = useState('');
-  const [addContent, setAddContent] = useState('');
-  const [addFile, setAddFile] = useState<File | null>(null);
-  const [syncing, setSyncing] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [envVarKeys, setEnvVarKeys] = useState<string[]>([]);
-  const [editingSource, setEditingSource] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState('');
-  // When editing a repo/url source, we reuse the Add form prefilled with the source's fields
-  const [editingMetaId, setEditingMetaId] = useState<string | null>(null);
-  const [building, setBuilding] = useState(false);
-  const [buildStep, setBuildStep] = useState('');
-  const [buildResult, setBuildResult] = useState<any>(null);
-  const [buildError, setBuildError] = useState('');
-  const [wikiData, setWikiData] = useState<{ articles: { path: string; title: string; size: number }[]; totalWords: number; lastBuilt: string | null } | null>(null);
-  const [selectedArticle, setSelectedArticle] = useState<string | null>(null);
-  const [articleContent, setArticleContent] = useState('');
-  const [loadingArticle, setLoadingArticle] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [uploadError, setUploadError] = useState('');
-  const wikiUploadRef = useRef<HTMLInputElement>(null);
+interface WikiFolder { id: string; name: string; description?: string; createdBy: string; createdAt: string; updatedAt: string; }
+interface WikiSource  { id: string; status: string; wordCount: number; type: string; }
 
-  const loadSources = () => {
-    fetch(`/api/agents/${agentId}/knowledge`).then(r => r.json()).then(setSources).catch(() => {});
-  };
-  const loadWiki = () => {
-    fetch(`/api/agents/${agentId}/knowledge/wiki`).then(r => r.json()).then(data => {
-      if (data.articles?.length > 0) setWikiData(data);
-      else setWikiData(null);
-    }).catch(() => {});
-  };
-  const load = () => { loadSources(); loadWiki(); };
+function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string; canEdit: boolean }) {
+  const [allFolders, setAllFolders]   = useState<(WikiFolder & { assigned: boolean })[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState(false);
 
-  // Poll for an active build by requestId
-  const pollBuild = async (reqId: string) => {
-    setBuilding(true); setBuildError(''); setBuildStep('');
-    for (let i = 0; i < 120; i++) {
-      await new Promise(res => setTimeout(res, 2000));
-      try {
-        const poll = await fetch(`/api/agents/${agentId}/knowledge/build?requestId=${reqId}`);
-        const data = await poll.json();
-        if (data.step) setBuildStep(data.step);
-        if (data.status === 'done') { setBuildResult(data); setBuilding(false); setBuildStep(''); load(); return; }
-        if (data.status === 'error') { setBuildError(data.error); setBuilding(false); setBuildStep(''); return; }
-      } catch { /* retry */ }
-    }
-    setBuildError('Build timed out.');
-    setBuilding(false); setBuildStep('');
+  const load = () => {
+    setLoading(true);
+    Promise.all([
+      fetch('/api/wiki-folders').then(r => r.json()) as Promise<WikiFolder[]>,
+      fetch(`/api/agents/${agentId}/wiki-folders`).then(r => r.json()) as Promise<WikiFolder[]>,
+    ]).then(([all, assigned]) => {
+      const assignedIds = new Set(assigned.map((f: WikiFolder) => f.id));
+      setAllFolders(all.map(f => ({ ...f, assigned: assignedIds.has(f.id) })));
+    }).finally(() => setLoading(false));
   };
 
-  useEffect(() => {
-    load();
-    // Check if there's an active build in progress
-    fetch(`/api/agents/${agentId}/knowledge/build`).then(r => r.json()).then(data => {
-      if (data.status === 'pending' || data.status === 'building') {
-        pollBuild(data.requestId);
-      } else if (data.status === 'done') {
-        setBuildResult(data);
-      }
-    }).catch(() => {});
-  }, [agentId]);
+  useEffect(() => { load(); }, [agentId]);
 
-  const viewArticle = async (articlePath: string) => {
-    setSelectedArticle(articlePath);
-    setLoadingArticle(true);
-    try {
-      const r = await fetch(`/api/agents/${agentId}/knowledge/wiki?path=${encodeURIComponent(articlePath)}`);
-      const data = await r.json();
-      setArticleContent(data.content ?? '');
-    } catch { setArticleContent('Failed to load article.'); }
-    finally { setLoadingArticle(false); }
-  };
-
-  const addSource = async () => {
+  async function toggle(folderId: string, currentlyAssigned: boolean) {
     setSaving(true);
-    setUploadError('');
-    try {
-      let res: Response;
-      // File sources with a picked File: multipart upload so the server can
-      // extract PDF/text content rather than trusting browser-side readAsText.
-      if (!editingMetaId && addType === 'file' && addFile) {
-        const fd = new FormData();
-        fd.append('name', addName);
-        fd.append('file', addFile);
-        res = await fetch(`/api/agents/${agentId}/knowledge`, { method: 'POST', body: fd });
-      } else {
-        const body: any = { name: addName };
-        if (addType === 'url') body.url = addUrl;
-        if (addType === 'file') body.content = addContent;
-        if (addType === 'repo') {
-          body.repoUrl = addUrl;
-          body.branch = addBranch;
-          body.patEnvRef = addPat || null;
-        }
-        if (editingMetaId) {
-          res = await fetch(`/api/agents/${agentId}/knowledge/${editingMetaId}`, {
-            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-          });
-        } else {
-          body.type = addType;
-          res = await fetch(`/api/agents/${agentId}/knowledge`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-          });
-        }
-      }
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        setUploadError(d.error ?? `Add failed (HTTP ${res.status})`);
-        setSaving(false);
-        return;
-      }
-    } catch (err) {
-      setUploadError(`Add failed — ${(err as Error).message}`);
-      setSaving(false);
-      return;
-    }
-    setSaving(false);
-    setShowAdd(false);
-    setEditingMetaId(null);
-    setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat(''); setAddFile(null);
-    load();
-  };
-
-  const startEditMeta = (src: any) => {
-    setEditingMetaId(src.id);
-    setAddType(src.type);
-    setAddName(src.name ?? '');
-    setAddUrl(src.type === 'repo' ? (src.repoUrl ?? '') : (src.url ?? ''));
-    setAddContent(src.content ?? '');
-    setAddBranch(src.branch ?? 'main');
-    setAddPat(src.patEnvRef ?? '');
-    setAddFile(null);
-    setShowAdd(true);
-    // Populate the PAT dropdown — otherwise the "Auth" field has no env vars to choose from.
-    fetch('/api/env-vars').then(r => r.json()).then((vars: any[]) => setEnvVarKeys(vars.map(v => v.key))).catch(() => {});
-  };
-
-  const deleteSource = async (id: string) => {
-    await fetch(`/api/agents/${agentId}/knowledge/${id}`, { method: 'DELETE' });
-    load();
-  };
-
-  const startEditSource = (src: any) => {
-    setEditingSource(src.id);
-    setEditContent(src.content || '');
-  };
-
-  const saveEditSource = async () => {
-    if (!editingSource) return;
-    await fetch(`/api/agents/${agentId}/knowledge/${editingSource}`, {
-      method: 'PATCH',
+    const updated = allFolders.map(f => f.id === folderId ? { ...f, assigned: !currentlyAssigned } : f);
+    setAllFolders(updated);
+    const newIds = updated.filter(f => f.assigned).map(f => f.id);
+    await fetch(`/api/agents/${agentId}/wiki-folders`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: editContent }),
+      body: JSON.stringify({ folderIds: newIds }),
     });
-    setEditingSource(null);
-    setEditContent('');
-    load();
-  };
-
-  const buildWiki = async () => {
-    if (building || syncing) { setBuildError('A build is already running.'); return; }
-    setBuildResult(null); setBuildError('');
-    try {
-      const r = await fetch(`/api/agents/${agentId}/knowledge/build`, { method: 'POST' });
-      const { requestId } = await r.json();
-      await pollBuild(requestId);
-    } catch (err) { setBuildError((err as Error).message); setBuilding(false); }
-  };
-
-  const syncSource = async (sourceId: string) => {
-    if (building || syncing) { setBuildError('A build is already running.'); return; }
-    setSyncing(sourceId); setBuildResult(null); setBuildError('');
-    try {
-      const r = await fetch(`/api/agents/${agentId}/knowledge/build`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceId }),
-      });
-      const { requestId } = await r.json();
-      await pollBuild(requestId);
-    } catch (err) { setBuildError((err as Error).message); }
-    finally { setSyncing(null); }
-  };
-
-  const TypeIcon = ({ type }: { type: string }) => {
-    const style = { color: 'var(--muted)', flexShrink: 0 } as const;
-    if (type === 'url') return <Link2 size={16} style={style} />;
-    if (type === 'repo') return <GitBranch size={16} style={style} />;
-    return <FileText size={16} style={style} />;
-  };
+    setSaving(false);
+  }
 
   return (
-    <div className="fade-up">
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-            Add documents, URLs, or repos — Claude compiles them into a wiki your agent references.
-            {' '}<a href="https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 12 }}>Inspired by Karpathy's LLM Wiki</a>
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {canEdit && sources.length > 0 && (
-            <button onClick={buildWiki} disabled={building} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              background: building ? 'var(--surface-2)' : 'var(--surface)',
-              border: '1px solid var(--border)', borderRadius: 7,
-              padding: '6px 14px', fontSize: 12, fontWeight: 500,
-              cursor: building ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
-              color: building ? 'var(--muted)' : 'var(--text)',
-            }}>
-              {building ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Building...</> : <><Wand2 size={13} /> Build Wiki</>}
-            </button>
-          )}
-          {canEdit && (
-            <button onClick={() => { setShowAdd(true); fetch('/api/env-vars').then(r => r.json()).then(vars => setEnvVarKeys(vars.map((v: any) => v.key))).catch(() => {}); }} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              background: 'var(--accent)', color: 'var(--accent-fg)',
-              border: 'none', borderRadius: 7, padding: '6px 14px',
-              fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>+ Add Source</button>
-          )}
-        </div>
+    <div style={{ maxWidth: 700 }}>
+      <div style={{ marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Wiki Folders</h3>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Assign shared knowledge folders to this agent. The agent reads these wikis at compile time.
+          Manage folder contents in the <a href="/knowledge" style={{ color: 'var(--accent)' }}>Knowledge Library</a>.
+        </p>
       </div>
 
-      {/* Upload error */}
-      {uploadError && (
-        <div style={{ background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--red)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {uploadError}
-          <button onClick={() => setUploadError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red)', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
-        </div>
-      )}
-
-      {/* Build progress */}
-      {building && buildStep && (
+      {loading ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+      ) : allFolders.length === 0 ? (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', marginBottom: 14,
-          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+          border: '1px dashed var(--border)', borderRadius: 10, padding: '32px',
+          textAlign: 'center', color: 'var(--muted)', fontSize: 13,
         }}>
-          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--accent)', flexShrink: 0 }} />
-          <span style={{ fontSize: 12.5, color: 'var(--text)' }}>{buildStep}</span>
-        </div>
-      )}
-
-      {/* Build result */}
-      {buildError && (
-        <div style={{ background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--red)' }}>
-          {buildError}
-        </div>
-      )}
-      {buildResult && (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px', marginBottom: 14 }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Wiki built: </span>
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{buildResult.articles} articles · {buildResult.words?.toLocaleString()} words</span>
-          {buildResult.summary && <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '4px 0 0' }}>{buildResult.summary}</p>}
-        </div>
-      )}
-
-      {/* Add / Edit source form */}
-      {showAdd && (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', marginBottom: 16 }}>
-          {editingMetaId && (
-            <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginBottom: 10, fontWeight: 500, letterSpacing: 0.3, textTransform: 'uppercase' }}>
-              Editing source
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            {(['url', 'file', 'repo'] as const).map(t => (
-              <button key={t} onClick={() => !editingMetaId && setAddType(t)} disabled={!!editingMetaId && addType !== t} style={{
-                padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500,
-                background: addType === t ? 'var(--accent)' : 'var(--surface-2)',
-                color: addType === t ? 'var(--accent-fg)' : 'var(--muted)',
-                border: `1px solid ${addType === t ? 'var(--accent)' : 'var(--border)'}`,
-                cursor: editingMetaId ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
-                opacity: editingMetaId && addType !== t ? 0.4 : 1,
-              }}><TypeIcon type={t} /> {t === 'url' ? 'URL' : t === 'file' ? 'File' : 'Git Repo'}</button>
-            ))}
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <input value={addName} onChange={e => setAddName(e.target.value)} placeholder="Source name"
-              style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-sans)' }} />
-
-            {addType === 'url' && (
-              <input value={addUrl} onChange={e => setAddUrl(e.target.value)} placeholder="https://docs.example.com/api"
-                style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
-            )}
-
-            {addType === 'file' && (
-              <>
-                <div style={{
-                  border: `2px dashed ${addFile ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 8, padding: '20px 16px',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                  cursor: 'pointer', background: addFile ? 'var(--surface)' : 'var(--surface-2)',
-                  transition: 'border-color 0.15s, background 0.15s',
-                }} onClick={() => document.getElementById('knowledge-file-input')?.click()}
-                   onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                   onDragLeave={e => { e.currentTarget.style.borderColor = addFile ? 'var(--accent)' : 'var(--border)'; }}
-                   onDrop={e => {
-                     e.preventDefault();
-                     e.currentTarget.style.borderColor = 'var(--accent)';
-                     const file = e.dataTransfer.files[0];
-                     if (file) {
-                       setAddFile(file);
-                       setAddContent('');
-                       if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
-                     }
-                   }}>
-                  {addFile ? (
-                    <FileText size={20} style={{ color: 'var(--accent)' }} />
-                  ) : (
-                    <Upload size={20} style={{ color: 'var(--muted)' }} />
-                  )}
-                  <p style={{ margin: 0, fontSize: 12, fontWeight: addFile ? 600 : 400, color: addFile ? 'var(--text)' : 'var(--muted)' }}>
-                    {addFile ? addFile.name : 'Click to upload or drag and drop'}
-                  </p>
-                  <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>
-                    {addFile ? `${(addFile.size / 1024).toFixed(1)} KB — ready to upload. Click to replace.` : '.txt, .md, .csv, .json, .yaml, .xml, .html, .rst, .pdf'}
-                  </p>
-                  <input id="knowledge-file-input" type="file" accept=".txt,.md,.csv,.json,.pdf,.rst,.yaml,.yml,.xml,.html"
-                    style={{ display: 'none' }} onChange={e => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setAddFile(file);
-                        setAddContent('');
-                        if (!addName) setAddName(file.name.replace(/\.[^.]+$/, ''));
-                      }
-                    }} />
-                </div>
-                {addFile && (
-                  <div style={{ fontSize: 11, color: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                    <button onClick={() => setAddFile(null)} style={{
-                      background: 'none', border: 'none', color: 'var(--red)', fontSize: 11,
-                      cursor: 'pointer', fontFamily: 'var(--font-sans)', opacity: 0.7,
-                    }}>Clear</button>
-                  </div>
-                )}
-                <textarea value={addContent} onChange={e => { setAddContent(e.target.value); if (e.target.value) setAddFile(null); }} placeholder="Or paste content here..."
-                  rows={addContent ? 8 : 4} style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.5 }} />
-              </>
-            )}
-
-            {addType === 'repo' && (
-              <>
-                <input value={addUrl} onChange={e => setAddUrl(e.target.value)} placeholder="https://github.com/org/repo"
-                  style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
-                <input value={addBranch} onChange={e => setAddBranch(e.target.value)} placeholder="Branch (default: main)"
-                  style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }} />
-                <select value={addPat} onChange={e => setAddPat(e.target.value)}
-                  style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 12, color: addPat ? 'var(--text)' : 'var(--subtle)', fontFamily: 'var(--font-sans)' }}>
-                  <option value="">No auth (public repo)</option>
-                  {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
-                  {envVarKeys.length === 0 && <option disabled>No env vars — add in Settings</option>}
-                </select>
-              </>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button onClick={addSource} disabled={saving || !addName || (addType === 'file' && !editingMetaId && !addFile && !addContent.trim())} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 7,
-              padding: '7px 16px', fontSize: 12, fontWeight: 500, cursor: saving ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
-              opacity: saving ? 0.8 : 1,
-            }}>
-              {saving && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
-              {saving
-                ? (editingMetaId ? 'Saving...' : (addType === 'file' && addFile ? 'Uploading & extracting...' : 'Adding...'))
-                : (editingMetaId ? 'Save Changes' : 'Add Source')}
-            </button>
-            <button onClick={() => {
-              setShowAdd(false);
-              setEditingMetaId(null);
-              setAddName(''); setAddUrl(''); setAddContent(''); setAddBranch('main'); setAddPat(''); setAddFile(null);
-            }} style={{
-              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
-              padding: '7px 16px', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: 'var(--text)',
-            }}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {/* Sources list */}
-      {sources.length === 0 && !showAdd ? (
-        <div style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 10, padding: '40px 20px', textAlign: 'center',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Brain size={28} style={{ color: 'var(--border-2)' }} /></div>
-          <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>No knowledge sources yet</p>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--subtle)' }}>Add URLs, files, or git repos to build a knowledge wiki.</p>
+          No wiki folders exist yet. <a href="/knowledge" style={{ color: 'var(--accent)' }}>Create one in the Knowledge Library.</a>
         </div>
       ) : (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-          {sources.map((src, i) => (
-            <React.Fragment key={src.id}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
-              borderBottom: i < sources.length - 1 ? '1px solid var(--border)' : 'none',
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {allFolders.map(f => (
+            <div key={f.id} style={{
+              background: '#fff', border: `1px solid ${f.assigned ? 'var(--accent-border, rgba(99,102,241,0.35))' : 'var(--border)'}`,
+              borderRadius: 10, padding: '14px 16px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              transition: 'border-color 0.15s',
             }}>
-              <TypeIcon type={src.type} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{src.name}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {src.type} · {src.url || src.repoUrl || `${src.wordCount} words`}
-                  {src.branch && src.type === 'repo' && ` · ${src.branch}`}
-                </div>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>{f.name}</div>
+                {f.description && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{f.description}</div>}
+                <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 3 }}>Created by {f.createdBy}</div>
               </div>
-              {(syncing === src.id || (building && buildStep.toLowerCase().includes(src.name.toLowerCase()))) ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--accent)' }}>
-                  <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> {syncing === src.id ? 'syncing' : 'building'}
-                </span>
+              {canEdit ? (
+                <button
+                  onClick={() => toggle(f.id, f.assigned)}
+                  disabled={saving}
+                  style={{
+                    padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+                    cursor: saving ? 'default' : 'pointer', border: 'none',
+                    background: f.assigned ? 'var(--accent)' : 'var(--surface-2)',
+                    color: f.assigned ? '#fff' : 'var(--text)',
+                    opacity: saving ? 0.6 : 1, transition: 'background 0.15s, color 0.15s',
+                    flexShrink: 0,
+                  }}
+                >
+                  {f.assigned ? 'Assigned' : 'Assign'}
+                </button>
               ) : (
-                <span style={{
-                  fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-                  background: src.status === 'compiled' ? 'rgba(16,185,129,0.1)' : src.status === 'error' ? 'var(--red-soft-bg)' : 'var(--surface-2)',
-                  color: src.status === 'compiled' ? 'var(--green)' : src.status === 'error' ? 'var(--red)' : 'var(--subtle)',
-                }}>{src.status}</span>
-              )}
-              {canEdit && (
-                <button onClick={() => src.type === 'file' ? startEditSource(src) : startEditMeta(src)} style={{
-                  background: 'none', border: 'none', fontSize: 12, cursor: 'pointer',
-                  fontFamily: 'var(--font-sans)', opacity: 0.6, color: 'var(--text)',
-                }}>Edit</button>
-              )}
-              {canEdit && src.status === 'compiled' && (
-                <button onClick={() => syncSource(src.id)} disabled={!!syncing || building} style={{
-                  background: 'none', border: 'none', fontSize: 12, cursor: 'pointer',
-                  fontFamily: 'var(--font-sans)', opacity: syncing === src.id ? 1 : 0.6,
-                  color: syncing === src.id ? 'var(--accent)' : 'var(--text)',
-                }}>{syncing === src.id ? 'Syncing...' : 'Sync'}</button>
-              )}
-              {canEdit && (
-                <button onClick={() => deleteSource(src.id)} style={{
-                  background: 'none', border: 'none', color: 'var(--red)', fontSize: 12,
-                  cursor: 'pointer', opacity: 0.6, fontFamily: 'var(--font-sans)',
-                }}>Delete</button>
+                <span style={{ fontSize: 12, color: f.assigned ? '#059669' : 'var(--subtle)', fontWeight: 500 }}>
+                  {f.assigned ? 'Assigned' : 'Not assigned'}
+                </span>
               )}
             </div>
-            {editingSource === src.id && (
-              <div style={{ padding: '12px 16px', borderBottom: i < sources.length - 1 ? '1px solid var(--border)' : 'none', background: 'var(--surface-2)' }}>
-                <textarea value={editContent} onChange={e => setEditContent(e.target.value)}
-                  rows={10} style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.5 }} />
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{editContent.split(/\s+/).length.toLocaleString()} words</span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => setEditingSource(null)} style={{
-                      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6,
-                      padding: '5px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', color: 'var(--text)',
-                    }}>Cancel</button>
-                    <button onClick={saveEditSource} style={{
-                      background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 6,
-                      padding: '5px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                    }}>Save</button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </React.Fragment>
           ))}
-        </div>
-      )}
-
-      {/* Wiki — two-panel file browser */}
-      {wikiData && wikiData.articles.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <BookOpen size={14} style={{ color: 'var(--muted)' }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Wiki</span>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
-                {wikiData.articles.length} articles · {wikiData.totalWords.toLocaleString()} words
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {wikiData.lastBuilt && (
-                <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
-                  Built {new Date(wikiData.lastBuilt).toLocaleDateString()} {new Date(wikiData.lastBuilt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
-              {canEdit && <button
-                onClick={async () => {
-                  setDownloading(true);
-                  try {
-                    const r = await fetch(`/api/agents/${agentId}/knowledge/download`);
-                    if (!r.ok) { const d = await r.json(); setUploadError(d.error ?? 'Download failed'); return; }
-                    const blob = await r.blob();
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url; a.download = `${agentSlug}-wiki.tar.gz`; a.click();
-                    URL.revokeObjectURL(url);
-                  } catch { setUploadError('Download failed — check your connection'); }
-                  finally { setDownloading(false); }
-                }}
-                disabled={downloading}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
-                  padding: '5px 12px', fontSize: 12, fontWeight: 500,
-                  cursor: downloading ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
-                  color: downloading ? 'var(--muted)' : 'var(--text)',
-                }}
-              >
-                {downloading ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Downloading...</> : <><Download size={13} /> Download</>}
-              </button>}
-              {canEdit && (
-                <>
-                  <button
-                    onClick={() => wikiUploadRef.current?.click()}
-                    disabled={uploading}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 5,
-                      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7,
-                      padding: '5px 12px', fontSize: 12, fontWeight: 500,
-                      cursor: uploading ? 'wait' : 'pointer', fontFamily: 'var(--font-sans)',
-                      color: uploading ? 'var(--muted)' : 'var(--text)',
-                    }}
-                  >
-                    {uploading ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Uploading...</> : <><Upload size={13} /> Restore</>}
-                  </button>
-                  <input
-                    ref={wikiUploadRef}
-                    type="file"
-                    accept=".tar.gz,.tgz"
-                    style={{ display: 'none' }}
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      e.target.value = '';
-                      setUploadError('');
-                      if (!file.name.endsWith('.tar.gz') && !file.name.endsWith('.tgz')) {
-                        setUploadError('File must be a .tar.gz archive');
-                        return;
-                      }
-                      setUploading(true);
-                      try {
-                        const fd = new FormData();
-                        fd.append('file', file);
-                        const r = await fetch(`/api/agents/${agentId}/knowledge/upload`, { method: 'POST', body: fd });
-                        if (r.ok) { loadWiki(); }
-                        else { const d = await r.json(); setUploadError(d.error ?? 'Upload failed'); }
-                      } catch { setUploadError('Upload failed — check your connection'); }
-                      finally { setUploading(false); }
-                    }}
-                  />
-                </>
-              )}
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 14, height: 480 }}>
-            {/* Sidebar — file tree */}
-            <div style={{
-              width: 220, flexShrink: 0,
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 10, overflow: 'auto', display: 'flex', flexDirection: 'column',
-            }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '10px 12px', borderBottom: '1px solid var(--border)',
-              }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Articles
-                </span>
-                <span style={{ fontSize: 10, color: 'var(--subtle)' }}>{wikiData.articles.length}</span>
-              </div>
-              <WikiTree articles={wikiData.articles} onSelect={viewArticle} selected={selectedArticle} />
-            </div>
-
-            {/* Main — article content */}
-            <div style={{
-              flex: 1, background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            }}>
-              {selectedArticle ? (
-                <>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
-                    borderBottom: '1px solid var(--border)', flexShrink: 0,
-                  }}>
-                    <FileText size={13} style={{ color: 'var(--muted)' }} />
-                    <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>{selectedArticle}</span>
-                  </div>
-                  <div style={{ flex: 1, padding: '16px 18px', overflow: 'auto' }}>
-                    {loadingArticle ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12 }}>
-                        <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Loading...
-                      </div>
-                    ) : (
-                      <pre style={{
-                        margin: 0, fontSize: 12.5, lineHeight: 1.7, color: 'var(--text)',
-                        fontFamily: 'var(--font-sans)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                      }}>{articleContent}</pre>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-                  <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
-                  <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Select an article to view</p>
-                  <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>Browse the folder tree on the left</p>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       )}
     </div>
