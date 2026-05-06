@@ -31,6 +31,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = await req.json().catch(() => ({}));
     const scratch = body.scratch === true;
 
+    // Reject if a build is already in progress for this folder
+    const latestRequestId = await getSetting(`wiki-build-latest:${id}`);
+    if (latestRequestId) {
+      const latestRaw = await getSetting(`wiki-build:${latestRequestId}`);
+      if (latestRaw) {
+        const latest = JSON.parse(latestRaw);
+        if (latest.status === 'building' || latest.status === 'pending') {
+          return NextResponse.json({ error: 'A build is already in progress for this folder.' }, { status: 409 });
+        }
+      }
+    }
+
     const requestId = randomUUID();
     const startedAt = new Date().toISOString();
     await setSetting(`wiki-build:${requestId}`, JSON.stringify({ status: 'pending', folderId: id, startedAt }));

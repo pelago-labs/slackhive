@@ -30,6 +30,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const source = await getWikiSource(sourceId);
     if (!source) return NextResponse.json({ error: 'Source not found' }, { status: 404 });
 
+    // Reject if a build is already in progress for this folder
+    const latestFolderReqId = await getSetting(`wiki-build-latest:${id}`);
+    if (latestFolderReqId) {
+      const latestRaw = await getSetting(`wiki-build:${latestFolderReqId}`);
+      if (latestRaw) {
+        const latest = JSON.parse(latestRaw);
+        if (latest.status === 'building' || latest.status === 'pending') {
+          return NextResponse.json({ error: 'A build is already in progress for this folder.' }, { status: 409 });
+        }
+      }
+    }
+
     const requestId = randomUUID();
     const startedAt = new Date().toISOString();
     await setSetting(`wiki-build:${requestId}`, JSON.stringify({ status: 'pending', folderId: id, sourceId, startedAt }));

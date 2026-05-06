@@ -240,6 +240,11 @@ export default function KnowledgePage() {
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      alert('File is too large. Maximum size is 2 MB.');
+      e.target.value = '';
+      return;
+    }
     setFileUploading(true);
     const text = await file.text().catch(() => '');
     setSourceForm(p => ({ ...p, type: 'file', name: p.name || file.name.replace(/\.[^.]+$/, ''), content: text }));

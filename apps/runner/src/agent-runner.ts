@@ -1478,8 +1478,8 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
     const createdPaths = (parsed.created ?? []).map((a: any) => a.path);
     const updatedPaths = (parsed.updated ?? []).map((a: any) => a.path);
     manifest[srcName] = {
-      created: [...(manifest[srcName]?.created ?? []), ...createdPaths].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
-      updated: [...(manifest[srcName]?.updated ?? []), ...updatedPaths].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+      created: [...new Set([...(manifest[srcName]?.created ?? []), ...createdPaths])],
+      updated: [...new Set([...(manifest[srcName]?.updated ?? []), ...updatedPaths])],
     };
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 
@@ -1661,20 +1661,24 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
     const sanitizeError = (msg: string) =>
       msg.replace(/https?:\/\/[^@\s]+@/g, 'https://**REDACTED**@');
 
-    // Issue 4: file-based lock to prevent concurrent builds on the same folder
+    // Atomic lock — 'wx' flag fails if file already exists, preventing TOCTOU race
     fs.mkdirSync(wikiDir, { recursive: true });
     const lockPath = path.join(wikiDir, '.build.lock');
-    if (fs.existsSync(lockPath)) {
+    try {
+      fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }), { flag: 'wx' });
+    } catch {
       let lockInfo: Record<string, unknown> = {};
-      try { lockInfo = JSON.parse(fs.readFileSync(lockPath, 'utf-8')); } catch { /* ok */ }
+      try { lockInfo = JSON.parse(fs.readFileSync(lockPath, 'utf-8')); } catch { /* lock file may be gone already */ }
       logger.warn('Wiki build already in progress, skipping', { folderId, lockInfo });
       await writeProgress({ status: 'error', folderId, error: 'Build already in progress — try again shortly.' });
       return;
     }
-    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }));
 
     try {
       await writeProgress({ status: 'building', folderId, step: 'Starting...' });
+
+      // Hoist single getDb import used throughout this function
+      const { getDb } = await import('@slackhive/shared');
 
       if (scratch) {
         await writeProgress({ status: 'building', folderId, step: 'Clearing wiki for rebuild...' });
@@ -1683,7 +1687,6 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         // Re-write lock after rmSync removed the directory
         fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }));
         // Only reset compiled/error/stale sources to pending — this is the one explicit user-triggered reset
-        const { getDb } = await import('@slackhive/shared');
         await getDb().query(
           "UPDATE wiki_sources SET status = 'pending' WHERE folder_id = $1 AND status IN ('compiled', 'error', 'stale')",
           [folderId],
@@ -1691,9 +1694,8 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
       }
 
       // Query sources with status directly
-      const { getDb } = await import('@slackhive/shared');
       let pendingSources: Array<{ id: string; name: string; type: string; content: string | null; url: string | null; repoUrl: string | null; branch: string; patEnvRef: string | null; status: string }>;
-      if (singleSourceId) {
+      if (singleSourceId != null) {
         const r = await getDb().query(
           'SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE id = $1',
           [singleSourceId],
@@ -1891,7 +1893,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               fs.writeFileSync(p, article.content, 'utf-8');
               totalPages++;
               // Issue 8: count words from created articles
-              totalWords += article.content.split(/\s+/).length;
+              totalWords += article.content.split(/\s+/).filter(Boolean).length;
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
             for (const article of (parsed.updated ?? [])) {
@@ -1901,7 +1903,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               fs.mkdirSync(path.dirname(p), { recursive: true });
               fs.writeFileSync(p, article.content, 'utf-8');
               // Issue 8: also count words from updated articles (fixes undercount on re-sync)
-              totalWords += article.content.split(/\s+/).length;
+              totalWords += article.content.split(/\s+/).filter(Boolean).length;
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
             if (parsed.overview && chunkIdx === 0) fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
@@ -1916,8 +1918,8 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             const updatedPaths = (parsed.updated ?? []).map((a: any) =>
               a.path.startsWith(`${sourceSlug}/`) ? a.path : `${sourceSlug}/${a.path}`);
             manifest[src.name] = {
-              created: [...(manifest[src.name]?.created ?? []), ...createdPaths].filter((v: string, idx: number, a: string[]) => a.indexOf(v) === idx),
-              updated: [...(manifest[src.name]?.updated ?? []), ...updatedPaths].filter((v: string, idx: number, a: string[]) => a.indexOf(v) === idx),
+              created: [...new Set([...(manifest[src.name]?.created ?? []), ...createdPaths])],
+              updated: [...new Set([...(manifest[src.name]?.updated ?? []), ...updatedPaths])],
             };
             fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
           } // end chunk loop
