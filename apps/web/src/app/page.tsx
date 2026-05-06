@@ -616,7 +616,7 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
   const inProgressMap = useContext(InProgressContext);
   const inProgress = inProgressMap[agent.id] ?? 0;
   const tags = agent.tags ?? [];
-  const visibleTags = tags.slice(0, 2);
+  const visibleTags = tags.slice(0, 1);
   const overflowTags = tags.length - visibleTags.length;
   const modelShort = agent.model.replace('claude-', '').split('-20')[0];
   const palette = avatarPalette(agent.name);
@@ -770,24 +770,30 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
         </p>
       )}
 
-      {/* Tags row + model badge — single line */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minHeight: 18 }}>
-        {visibleTags.map(tag => (
-          <span key={tag} style={{
-            fontSize: 10, fontWeight: 500, padding: '2px 6px', borderRadius: 4,
-            background: 'var(--surface-2)', color: 'var(--muted)',
-            border: '1px solid var(--border)',
-            whiteSpace: 'nowrap',
-          }}>{tag}</span>
-        ))}
-        {overflowTags > 0 && (
-          <span style={{ fontSize: 10, color: 'var(--subtle)' }}>+{overflowTags}</span>
-        )}
+      {/* Tags row + model badge — single line, model never overflows the card */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minHeight: 18, minWidth: 0 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          flex: '0 1 auto', minWidth: 0, overflow: 'hidden',
+        }}>
+          {visibleTags.map(tag => (
+            <span key={tag} style={{
+              fontSize: 10, fontWeight: 500, padding: '2px 6px', borderRadius: 4,
+              background: 'var(--surface-2)', color: 'var(--muted)',
+              border: '1px solid var(--border)',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              maxWidth: 110,
+            }}>{tag}</span>
+          ))}
+          {overflowTags > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0 }}>+{overflowTags}</span>
+          )}
+        </div>
         <span style={{
           marginLeft: 'auto',
           fontSize: 10, color: 'var(--subtle)',
           fontFamily: 'var(--font-mono)',
-          whiteSpace: 'nowrap',
+          whiteSpace: 'nowrap', flexShrink: 0,
           display: 'inline-flex', alignItems: 'center', gap: 4,
         }}>
           {modelShort}
