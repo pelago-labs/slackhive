@@ -1,72 +1,100 @@
 ---
 title: "Creating Agents"
-description: "Create an agent with the 5-step wizard - name, persona, Slack, tools, review."
+description: "Create an agent with the 6-step wizard — name, persona, Slack app, credentials, tools, review."
 ---
 
-Click **New Agent** in the sidebar to open the creation wizard. If your Slack credentials are ready, you'll be done in about 5 minutes.
+Click **New Agent** in the sidebar to open the creation wizard. Six steps, ~5 minutes if your Slack credentials are already in hand.
 
-Before you start, skim [Concepts - What Goes Where](/agents/concepts) if you haven't. It explains the four layers of an agent's brain (system prompt, skills, memory, wiki) and helps you pick the right home for each piece of content later.
+Before you start, skim [Concepts — What Goes Where](/agents/concepts). It explains the four layers of an agent's brain (system prompt, skills, memory, wiki) so you pick the right home for each piece of content later.
 
-<img src="/images/instructions-tab.png" alt="Agent instructions tab with system prompt and skills" style={{borderRadius: "12px", marginBottom: "24px"}} />
+## Step 1: Name & Role
 
-## Step 1: Name & Description
+<img src="/images/new-agent-01-name-and-role.png" alt="Wizard step 1 — name your agent, pick a model, optionally mark as Boss" style={{borderRadius: "12px", marginBottom: "24px"}} />
+
+The agent's identity card. Name is what teammates @mention in Slack; the model card you pick decides the cost/quality tradeoff for every reply.
 
 | Field | What it is |
 |---|---|
-| **Name** | Display name, shown in Slack and the dashboard (e.g. "Data Analyst") |
-| **Description** | One line describing what the agent does. Boss agents read this to decide who to delegate to. |
-| **Model** | `claude-sonnet-4-6` is a good default. Opus for complex reasoning. Haiku for high-volume quick tasks. |
-| **Boss toggle** | Turn on if this agent orchestrates others (see [Boss Agents](/agents/boss-agents)) |
+| **Agent Name** | Display name shown in Slack and the dashboard (e.g. "Nelson", "Data Analyst") |
+| **Model** | Choose between `Opus 4.6` (most capable, slowest), `Sonnet 4.6` (balanced — recommended default), or `Haiku 4.5` (fastest, cheapest, best for high-volume narrow tasks) |
+| **This agent is a Boss** | Toggle on if this agent orchestrates others. Boss agents auto-generate their CLAUDE.md from the team registry — see [Boss Agents](/agents/boss-agents) |
+| **Reports To** | Only shown for specialists (Boss off). Pick one or more boss agents this specialist answers to — multi-select is supported |
+| **Tags** *(optional)* | Free-form labels (e.g. `Product`, `Data`, `Engineering`) used by the dashboard's filter chips and by Boss for routing |
 
-For specialist agents, a **Reports To** field appears - pick which boss(es) this agent answers to. A specialist can report to multiple bosses.
+<Tip>
+  Start with **Sonnet 4.6**. Move to Opus only if the agent needs deep multi-step reasoning; move to Haiku only if you've measured Sonnet to be unnecessarily slow for the workload.
+</Tip>
 
-## Step 2: Pick a Persona
+## Step 2: Persona
 
-Browse the **Persona Library** - 26 research-backed starter identities across engineering, data, product, ops, marketing, and support.
+<img src="/images/new-agent-02-persona.png" alt="Wizard step 2 — choose a research-backed persona or start blank" style={{borderRadius: "12px", marginBottom: "24px"}} />
+
+Pre-built starting points across **Engineering**, **Data**, **Product**, **Business**, and **Generic** categories. Use the search box to find one fast, or click **Blank** to start from scratch.
 
 Picking a persona seeds the agent's:
 
 - System prompt base (role, tone, hard rules)
-- Starter skills (reusable procedures like `/weekly-report`)
-- Recommended MCPs (the tools typical for this role)
+- Starter skills (the per-card "5 skills" badge tells you how many)
+- Recommended MCPs for that role
 
-If nothing fits, pick **Blank** - you'll build the agent from scratch.
-
-See [Personas](/agents/personas) for the full library and how seeding works.
+The selected card shows a green check; you can change your mind by clicking another card before continuing. See [Personas](/agents/personas) for the full library and how seeding works.
 
 <Note>
-  **Boss agents skip persona selection.** Their system prompt is auto-generated from the team registry and cannot be hand-edited.
+  **Boss agents skip this step.** Their system prompt is auto-generated from the team registry and cannot be hand-edited.
 </Note>
 
 ## Step 3: Create a Slack App
 
-Each agent needs its own Slack app. SlackHive generates a manifest - you paste it into Slack, install, and come back with three tokens.
+<img src="/images/new-agent-03-slack-app.png" alt="Wizard step 3 — pre-built Slack manifest with copy button and three numbered substeps" style={{borderRadius: "12px", marginBottom: "24px"}} />
 
-1. Click **Generate Manifest** in the wizard
-2. Open [api.slack.com/apps](https://api.slack.com/apps) in a new tab
-3. Click **Create New App** → **From an app manifest**
-4. Select your workspace, paste the JSON, click **Create**
-5. Click **Install to Workspace** → **Allow**
+Each agent needs its own Slack app. SlackHive generates a complete manifest (named `{agent-slug}-manifest.json`) so you don't have to hand-author scopes, event subscriptions, or socket-mode config.
 
-See [Slack app setup](/configuration/slack-app) for screenshots and troubleshooting.
+The on-screen flow is:
 
-## Step 4: Enter Credentials
+1. **Open [api.slack.com/apps](https://api.slack.com/apps)** — click **Create New App** → **From an app manifest**, select your workspace
+2. **Paste the manifest** — switch to the **JSON** tab in Slack's dialog, paste, click **Next** → **Create**
+3. **Install to workspace** — sidebar **Install App** → **Install to Workspace** → **Allow**. The Bot Token only appears after this install step.
 
-Paste the three values from your Slack app:
+Click **Copy manifest** in the wizard to grab the JSON, then paste it into Slack. See [Slack app setup](/configuration/slack-app) for screenshots of the Slack admin side and common troubleshooting.
 
-| Credential | Where to find it | Looks like |
+## Step 4: Credentials
+
+<img src="/images/new-agent-04-credentials.png" alt="Wizard step 4 — paste Bot Token, App Token, Signing Secret with inline 'where to find it' guide" style={{borderRadius: "12px", marginBottom: "24px"}} />
+
+Three values from your fresh Slack app. Each field has a **Show guide** link that expands an inline screenshot of the exact Slack admin screen — no need to context-switch back and forth.
+
+| Credential | Slack location | Format |
 |---|---|---|
 | **Bot Token** | OAuth & Permissions → Bot User OAuth Token | `xoxb-...` |
-| **App Token** | Basic Information → App-Level Tokens → Generate Token (add `connections:write`) | `xapp-...` |
-| **Signing Secret** | Basic Information → App Credentials → Signing Secret → Show | 32-char hex |
+| **App-Level Token** | Basic Information → App-Level Tokens → **Generate Token and Scopes**, add `connections:write` scope | `xapp-...` |
+| **Signing Secret** | Basic Information → App Credentials → Signing Secret → **Show** | 32-char hex |
 
-Click **Verify Connection**. SlackHive pings Slack to confirm the tokens work. Credentials are stored encrypted in the **Platform Integrations** table - a per-agent credential store, separate from the agent record itself. One agent can later hold credentials for multiple platforms (Slack today; Discord, Telegram, etc. as adapters are added). See [Platform Integrations](/operations/troubleshooting#slack-bot-token-is-invalid-or-revoked) for managing credentials after save.
+The **Continue** button stays disabled until all three fields are populated. Credentials are encrypted at rest in the **platform integrations** table — separate from the agent row itself. One agent can later hold creds for additional platforms (Discord, Telegram) as adapters land. See [Platform integrations](/operations/troubleshooting#slack-bot-token-is-invalid-or-revoked) for rotating tokens after save.
 
-## Step 5: Tools & Review
+## Step 5: Tools
 
-Assign MCP servers from the catalog to give the agent real tools (query a database, read files, create Jira tickets). You can also skip this and add them later from the Tools tab.
+<img src="/images/new-agent-05-tools.png" alt="Wizard step 5 — pick MCP servers from the catalog with checkboxes and per-server descriptions" style={{borderRadius: "12px", marginBottom: "24px"}} />
 
-Review the summary, then click **Create Agent**. The runner picks up the agent within a few seconds - the dashboard status flips to **Active**.
+Pick the MCP servers this agent should be able to call — Notion, Jira, GitHub, Datadog, your custom internal MCPs, anything in the catalog. Each row shows a one-line description and a transport badge (`stdio`, `sse`, `http`).
+
+You can:
+
+- **Skip this step entirely** — assign MCPs later from the agent's **Tools** tab. Nothing breaks.
+- **Tick what you need** — assignments are saved with the agent on **Create Agent**.
+
+<Note>
+  Capability toggles like **Internet Access** and **Shell Access** live on the post-creation **Tools** tab, not in this wizard. You manage those alongside MCPs after the agent is up. See [Tools](/agents/tools) and [MCP servers](/configuration/mcp-servers).
+</Note>
+
+## Step 6: Review
+
+<img src="/images/new-agent-06-review.png" alt="Wizard step 6 — final review summary with masked tokens and Create Agent button" style={{borderRadius: "12px", marginBottom: "24px"}} />
+
+A read-only summary of everything you entered: name, model, role, reports-to, description, masked tokens, MCPs, and the seeded skill template. The green callout sets the right expectation:
+
+> Once created, the runner picks up the agent automatically and connects to Slack. Manage skills, MCPs, and channel permissions from the agent detail page.
+
+Click **Create Agent** to launch. The dashboard status flips to **Running** within a couple of seconds — that's the runner spawning the Claude session and opening the Slack socket connection.
 
 ## After creation
 
