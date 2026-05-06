@@ -46,6 +46,7 @@ function makeAgent(overrides: Partial<Agent>): Agent {
     createdBy: 'system',
     createdAt: new Date(),
     updatedAt: new Date(),
+    tags: [],
     ...overrides,
   };
 }
