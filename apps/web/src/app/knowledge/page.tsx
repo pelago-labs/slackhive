@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '@/lib/auth-context';
-import { ChevronDown, ChevronRight, FileText, BookOpen, Download } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, BookOpen, Download, Globe, GitBranch, Pencil, Trash2, RefreshCw } from 'lucide-react';
 
 interface WikiFolder {
   id: string;
@@ -131,6 +131,23 @@ function WikiTree({ articles, onSelect, selected }: { articles: WikiPage[]; onSe
 const STATUS_COLOR: Record<string, string> = {
   compiled: '#059669', stale: '#d97706', building: '#2563eb', pending: '#a3a3a3', error: '#dc2626',
 };
+
+const SOURCE_TYPE_ICON: Record<string, React.ReactNode> = {
+  url:  <Globe size={13} />,
+  file: <FileText size={13} />,
+  repo: <GitBranch size={13} />,
+};
+
+const timeAgo = (iso: string): string => {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+};
+
 const EMPTY_SOURCE_FORM = { type: 'url', name: '', url: '', repoUrl: '', branch: 'main', patEnvRef: '', content: '' };
 
 export default function KnowledgePage() {
@@ -247,7 +264,8 @@ export default function KnowledgePage() {
   }
 
   async function deleteFolder(id: string) {
-    if (!confirm('Delete this folder and all its sources? This cannot be undone.')) return;
+    const folder = folders.find(f => f.id === id);
+    if (!confirm(`Delete "${folder?.name ?? 'this folder'}"?\n\nThis will permanently delete the folder and all its sources. This cannot be undone.`)) return;
     await fetch(`/api/wiki-folders/${id}`, { method: 'DELETE' });
     setFolders(prev => prev.filter(f => f.id !== id));
     if (selected?.id === id) setSelected(null);
@@ -435,8 +453,17 @@ export default function KnowledgePage() {
           </div>
           {canManageSelected && (
             <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
-              <button onClick={() => { setFolderForm({ name: selected.name, description: selected.description ?? '' }); setEditingFolder(selected); }} disabled={folderIsBuilding} style={{ ...outlineBtnStyle, opacity: folderIsBuilding ? 0.5 : 1 }}>Edit</button>
-              {/* Build Wiki button with dropdown */}
+              {/* Edit icon */}
+              <button
+                title="Edit folder"
+                onClick={() => { setFolderForm({ name: selected.name, description: selected.description ?? '' }); setEditingFolder(selected); }}
+                disabled={folderIsBuilding}
+                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 7, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', opacity: folderIsBuilding ? 0.4 : 1, color: 'var(--muted)', flexShrink: 0 }}
+              >
+                <Pencil size={14} />
+              </button>
+
+              {/* Build Wiki split button */}
               <div style={{ position: 'relative' }}>
                 <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden' }}>
                   <button
@@ -465,7 +492,16 @@ export default function KnowledgePage() {
                   </div>
                 )}
               </div>
-              <button onClick={() => deleteFolder(selected.id)} disabled={folderIsBuilding} style={{ ...outlineBtnStyle, opacity: folderIsBuilding ? 0.5 : 1 }}>Delete</button>
+
+              {/* Delete icon */}
+              <button
+                title="Delete folder"
+                onClick={() => deleteFolder(selected.id)}
+                disabled={folderIsBuilding}
+                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 7, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', opacity: folderIsBuilding ? 0.4 : 1, color: 'var(--red)', flexShrink: 0 }}
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
           )}
         </div>
@@ -503,38 +539,74 @@ export default function KnowledgePage() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {sources.map(s => (
-                  <div key={s.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', background: 'var(--surface-2)', color: 'var(--muted)', padding: '2px 7px', borderRadius: 4 }}>{s.type}</span>
-                        <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text)' }}>{s.name}</span>
-                        <span style={{ fontSize: 11.5, color: STATUS_COLOR[s.status] ?? '#a3a3a3', fontWeight: 500 }}>{s.status}</span>
+                {sources.map(s => {
+                  const isSyncing = syncStatus[s.id] === 'building' || s.status === 'building';
+                  const disabled = folderIsBuilding;
+                  const iconBtn = (color = 'var(--muted)'): React.CSSProperties => ({
+                    width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
+                    cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1,
+                    color, flexShrink: 0,
+                  });
+                  return (
+                    <div key={s.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
+                      {/* Left: info */}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        {/* Row 1: type icon + name */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                          <span style={{ color: 'var(--muted)', flexShrink: 0, display: 'flex' }}>{SOURCE_TYPE_ICON[s.type]}</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                        </div>
+                        {/* Row 2: url/path */}
+                        <div style={{ fontSize: 11.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
+                          {s.url || s.repoUrl || (s.content ? `${s.content.slice(0, 80)}…` : '—')}
+                        </div>
+                        {/* Row 3: status dot + word count + last synced */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLOR[s.status] ?? '#a3a3a3', flexShrink: 0, display: 'inline-block' }} />
+                            <span style={{ fontSize: 11.5, color: STATUS_COLOR[s.status] ?? '#a3a3a3', fontWeight: 500 }}>{s.status}</span>
+                          </span>
+                          {s.wordCount > 0 && (
+                            <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{s.wordCount.toLocaleString()} words</span>
+                          )}
+                          {s.lastSynced && (
+                            <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>synced {timeAgo(s.lastSynced)}</span>
+                          )}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
-                        {s.url || s.repoUrl || (s.content ? `${s.content.slice(0, 90)}…` : '—')}
-                      </div>
-                      {s.wordCount > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{s.wordCount.toLocaleString()} words</div>}
-                    </div>
-                    {canManageSelected && (
-                      <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
-                        {syncStatus[s.id] === 'building' || s.status === 'building' ? (
-                          <span style={{ fontSize: 12, color: STATUS_COLOR.building }}>Syncing…</span>
-                        ) : (
+                      {/* Right: icon actions */}
+                      {canManageSelected && (
+                        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
                           <button
-                            onClick={() => syncSource(s.id)}
-                            disabled={folderIsBuilding}
-                            style={{ ...outlineBtnStyle, fontSize: 12, padding: '4px 10px', opacity: folderIsBuilding ? 0.5 : 1 }}
+                            title={isSyncing ? 'Syncing…' : 'Sync source'}
+                            onClick={() => !isSyncing && !disabled && syncSource(s.id)}
+                            disabled={disabled}
+                            style={iconBtn(isSyncing ? STATUS_COLOR.building : 'var(--muted)')}
                           >
-                            Sync
+                            <RefreshCw size={13} style={isSyncing ? { animation: 'spin 1s linear infinite' } : undefined} />
                           </button>
-                        )}
-                        <button onClick={() => openEditSource(s)} disabled={folderIsBuilding} style={{ ...outlineBtnStyle, fontSize: 12, padding: '4px 10px', opacity: folderIsBuilding ? 0.5 : 1 }}>Edit</button>
-                        <button onClick={() => deleteSource(s.id, s.name)} disabled={folderIsBuilding} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', padding: '0 2px', lineHeight: 1, opacity: folderIsBuilding ? 0.4 : 1 }}>×</button>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                          <button
+                            title="Edit source"
+                            onClick={() => openEditSource(s)}
+                            disabled={disabled}
+                            style={iconBtn()}
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            title="Delete source"
+                            onClick={() => deleteSource(s.id, s.name)}
+                            disabled={disabled}
+                            style={iconBtn('var(--red)')}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </>
