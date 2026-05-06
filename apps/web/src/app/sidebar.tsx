@@ -226,6 +226,14 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         {/* Fixed bottom nav — always visible */}
         <div style={{ padding: '4px 12px 8px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
 
+          <NavItem href="/knowledge" active={pathname.startsWith('/knowledge')} collapsed={collapsed} icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 3h10v10H3z" stroke="none"/>
+              <path d="M3 2.5A1.5 1.5 0 014.5 1h7A1.5 1.5 0 0113 2.5v11l-4.5-2.25L4 13.5V2.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+              <path d="M5.5 5h5M5.5 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+          }>Knowledge</NavItem>
+
           <NavItem href="/settings/mcps" active={pathname === '/settings/mcps'} collapsed={collapsed} icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <rect x="2" y="2" width="12" height="12" rx="3" stroke="currentColor" strokeWidth="1.3"/>

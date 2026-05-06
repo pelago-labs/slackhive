@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
 import { getAllMcpServers, createMcpServer } from '@/lib/db';
 import type { UpsertMcpServerRequest } from '@slackhive/shared';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAdmin, guardAuth } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { maskMcpServer } from '@/lib/mcp-mask';
 
@@ -26,7 +26,9 @@ export const dynamic = 'force-dynamic';
  *
  * @returns {Promise<NextResponse>} JSON array of McpServer objects.
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const denied = guardAuth(request);
+  if (denied) return denied;
   try {
     const servers = await getAllMcpServers();
     return NextResponse.json(servers.map(maskMcpServer));

@@ -482,6 +482,81 @@ export async function getAllEnvVarValues(): Promise<Record<string, string>> {
 // Async result helper (namespaced settings row)
 // =============================================================================
 
+// =============================================================================
+// Wiki Folders
+// =============================================================================
+
+export interface WikiFolderRef {
+  id: string;
+  name: string;
+  slug: string; // URL-safe name slug for workdir subdir
+}
+
+export interface WikiSourceRow {
+  id: string;
+  folderId: string;
+  type: string;
+  name: string;
+  content: string | null;
+  url: string | null;
+  repoUrl: string | null;
+  branch: string;
+  patEnvRef: string | null;
+}
+
+/** Returns wiki folders assigned to an agent, with a stable slug derived from name. */
+export async function getAgentWikiFolders(agentId: string): Promise<WikiFolderRef[]> {
+  const r = await getDb().query(
+    `SELECT wf.id, wf.name
+     FROM wiki_folders wf
+     JOIN agent_wiki_folders awf ON awf.folder_id = wf.id
+     WHERE awf.agent_id = $1
+     ORDER BY wf.name ASC`,
+    [agentId],
+  );
+  return r.rows.map(row => ({
+    id: row.id as string,
+    name: row.name as string,
+    slug: (row.name as string).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+  }));
+}
+
+/** Returns all sources for a wiki folder. */
+export async function getWikiFolderSources(folderId: string): Promise<WikiSourceRow[]> {
+  const r = await getDb().query(
+    `SELECT id, folder_id, type, name, content, url, repo_url, branch, pat_env_ref
+     FROM wiki_sources WHERE folder_id = $1`,
+    [folderId],
+  );
+  return r.rows.map(row => ({
+    id: row.id as string,
+    folderId: row.folder_id as string,
+    type: row.type as string,
+    name: row.name as string,
+    content: row.content as string | null,
+    url: row.url as string | null,
+    repoUrl: row.repo_url as string | null,
+    branch: (row.branch as string | null) ?? 'main',
+    patEnvRef: row.pat_env_ref as string | null,
+  }));
+}
+
+/** Update the status (and optionally wordCount/lastSynced) of a wiki source. */
+export async function updateWikiSourceStatus(
+  sourceId: string,
+  status: string,
+  wordCount?: number,
+  lastSynced?: string,
+): Promise<void> {
+  const sets: string[] = ['status = $1'];
+  const vals: unknown[] = [status];
+  let i = 2;
+  if (wordCount !== undefined) { sets.push(`word_count = $${i++}`); vals.push(wordCount); }
+  if (lastSynced !== undefined) { sets.push(`last_synced = $${i++}`); vals.push(lastSynced); }
+  vals.push(sourceId);
+  await getDb().query(`UPDATE wiki_sources SET ${sets.join(', ')} WHERE id = $${i}`, vals);
+}
+
 /** Write a result to the settings table with the exact key (no prefix). */
 export async function setResult(key: string, value: string): Promise<void> {
   await getDb().query(

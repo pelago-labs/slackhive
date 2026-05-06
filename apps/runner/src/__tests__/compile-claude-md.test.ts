@@ -35,10 +35,10 @@ describe('compile-claude-md source content', () => {
     expect(src).not.toContain("commands, 'recall.md'");
   });
 
-  it('ships a /wiki skill when the wiki dir exists (ungated on contents)', () => {
+  it('ships a /wiki skill when any assigned wiki folder has content', () => {
     expect(src).toContain('WIKI_SKILL');
-    // The ungated write — no `readdirSync(wikiDir).length > 0` guard on the main path.
-    expect(src).toMatch(/if \(fs\.existsSync\(wikiDir\)\) \{\s*\n\s*fs\.writeFileSync\(path\.join\(commandsDir, 'wiki\.md'\)/);
+    // Wiki skill is written when hasWiki is true (any assigned folder has content).
+    expect(src).toMatch(/if \(hasWiki\) \{\s*\n\s*fs\.writeFileSync\(path\.join\(commandsDir, 'wiki\.md'\)/);
   });
 
   it('inlines the wiki index into CLAUDE.md', () => {

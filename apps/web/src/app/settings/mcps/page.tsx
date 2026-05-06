@@ -75,7 +75,7 @@ const DEFAULT_JSON_TEMPLATE = `{
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function McpSettingsPage() {
-  const { canEdit } = useAuth();
+  const { canEdit, username, role } = useAuth();
   const [servers, setServers]       = useState<McpServer[]>([]);
   const [serverSearch, setServerSearch] = useState('');
   const [loading, setLoading]       = useState(true);
@@ -619,6 +619,7 @@ export default function McpSettingsPage() {
               onDismissTest={() => setTestResults(prev => { const n = { ...prev }; delete n[server.id]; return n; })}
               testResult={testResults[server.id]}
               canEdit={canEdit}
+              canMutate={canEdit && (role === 'admin' || role === 'superadmin' || server.createdBy === username)}
             />
           ))}
         </div>
@@ -1418,13 +1419,14 @@ function HeaderEntriesEditor({
 // ─── Server row ───────────────────────────────────────────────────────────────
 
 function ServerRow({
-  server, isLast, onEdit, onDelete, onToggle, onTest, onDismissTest, testResult, canEdit,
+  server, isLast, onEdit, onDelete, onToggle, onTest, onDismissTest, testResult, canEdit, canMutate,
 }: {
   server: McpServer; isLast: boolean;
   onEdit: () => void; onDelete: () => void; onToggle: () => void; onTest: () => void;
   onDismissTest: () => void;
   testResult?: { ok: boolean; message?: string; error?: string; tools?: string[] } | 'testing';
   canEdit: boolean;
+  canMutate: boolean;
 }) {
   // Match against template for logo
   const tpl = MCP_TEMPLATES.find(t => t.id === server.name || t.name.toLowerCase() === server.name.toLowerCase());
@@ -1502,11 +1504,11 @@ function ServerRow({
           <ActionBtn onClick={onTest} color="var(--muted)" disabled={false}>
             {testResult === 'testing' ? 'Testing…' : 'Test'}
           </ActionBtn>
-          <ActionBtn onClick={onToggle} color="var(--muted)" disabled={!canEdit}>
+          <ActionBtn onClick={onToggle} color="var(--muted)" disabled={!canMutate}>
             {server.enabled ? 'Disable' : 'Enable'}
           </ActionBtn>
-          {canEdit && <ActionBtn onClick={onEdit} color="var(--accent)">Edit</ActionBtn>}
-          {canEdit && <ActionBtn onClick={onDelete} color="#ef4444">Delete</ActionBtn>}
+          {canEdit && <ActionBtn onClick={onEdit} color="var(--accent)" disabled={!canMutate}>Edit</ActionBtn>}
+          {canEdit && <ActionBtn onClick={onDelete} color="#ef4444" disabled={!canMutate}>Delete</ActionBtn>}
         </div>
       </div>
 

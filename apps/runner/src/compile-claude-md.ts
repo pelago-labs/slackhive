@@ -27,11 +27,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Agent, Memory, Skill } from '@slackhive/shared';
 import { getDb } from '@slackhive/shared';
-import { getAgentSkills, getAgentMemories } from './db';
+import { getAgentSkills, getAgentMemories, getAgentWikiFolders } from './db';
 import { logger } from './logger';
 
 /** Soft cap on inlined memory bytes in CLAUDE.md. Anything above this is truncated with a log. */
 const MAX_INLINED_MEMORY_BYTES = 32 * 1024;
+
+/** Platform knowledge directory — built wikis stored here per folder. */
+const KNOWLEDGE_DIR = path.join(
+  process.env.HOME ?? process.env.USERPROFILE ?? '/tmp',
+  '.slackhive',
+  'knowledge',
+);
 
 /** Base directory for ephemeral agent workspaces. */
 const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? (
@@ -99,20 +106,18 @@ function shortHash(s: string): string {
 export async function writeFileSourcesToDisk(workDir: string, agentId: string): Promise<void> {
   const sourcesDir = path.join(workDir, 'knowledge', 'sources');
   try {
+    // Read file-type sources from all wiki folders assigned to this agent
     const r = await getDb().query(
-      `SELECT name, content FROM knowledge_sources
-       WHERE agent_id = $1 AND type = 'file' AND content IS NOT NULL AND content != ''
-       ORDER BY name ASC`,
+      `SELECT ws.name, ws.content FROM wiki_sources ws
+       JOIN agent_wiki_folders awf ON awf.folder_id = ws.folder_id
+       WHERE awf.agent_id = $1 AND ws.type = 'file' AND ws.content IS NOT NULL AND ws.content != ''
+       ORDER BY ws.name ASC`,
       [agentId],
     );
     // Wipe first so deleted sources don't linger.
     fs.rmSync(sourcesDir, { recursive: true, force: true });
     if (r.rows.length === 0) return;
     fs.mkdirSync(sourcesDir, { recursive: true });
-    // Track already-used filenames this pass. If the sanitized slug collides,
-    // suffix with a short hash of the original name so both sources persist.
-    // Two rows can't share `name` (DB unique (agent_id, name)), so hashing the
-    // original name is a stable, collision-free disambiguator.
     const used = new Set<string>();
     for (const row of r.rows) {
       const originalName = row.name as string;
@@ -210,10 +215,19 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
 
   fs.mkdirSync(workDir, { recursive: true });
 
-  const [skills, memories] = await Promise.all([
+  const [skills, memories, assignedFolders] = await Promise.all([
     getAgentSkills(agent.id),
     getAgentMemories(agent.id),
+    getAgentWikiFolders(agent.id),
   ]);
+
+  // Build slug→name map from DB so the wiki index renders human-readable folder titles
+  // instead of reconstructing them by title-casing the directory slug.
+  const folderSlugToName = new Map<string, string>();
+  for (const folder of assignedFolders) {
+    const folderSlug = folder.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || folder.id.slice(0, 8);
+    folderSlugToName.set(folderSlug, folder.name);
+  }
 
   // Identity is rendered from agent.name/persona/description in buildClaudeMd — never a skill row.
   logger.info('Compiling agent workspace', {
@@ -225,7 +239,7 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
   // -------------------------------------------------------------------------
   // 1. Write CLAUDE.md (identity + inlined memories + knowledge base index)
   // -------------------------------------------------------------------------
-  const claudeMdContent = buildClaudeMd(agent, memories, skills, overrideClaudeMd, formattingRules);
+  const claudeMdContent = buildClaudeMd(agent, memories, skills, overrideClaudeMd, formattingRules, folderSlugToName);
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
   logger.debug('CLAUDE.md written', {
@@ -247,9 +261,22 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
 
   // Built-in wiki skill — injected whenever the knowledge wiki dir exists.
   // We do NOT gate on non-empty contents: the wiki may be populated mid-session
-  // (compile runs every startup), and the /wiki command is cheap to have present.
-  const wikiDir = path.join(workDir, 'knowledge', 'wiki');
-  if (fs.existsSync(wikiDir)) {
+  // Copy built wiki pages from platform knowledge dir into agent workspace.
+  // Each assigned folder gets its own subdir: knowledge/wiki/{folder-slug}/
+  const agentWikiDir = path.join(workDir, 'knowledge', 'wiki');
+  fs.rmSync(agentWikiDir, { recursive: true, force: true });
+  let hasWiki = false;
+  for (const [folderSlug, folderName] of folderSlugToName) {
+    const folder = assignedFolders.find(f => f.name === folderName)!;
+    const folderWikiSrc = path.join(KNOWLEDGE_DIR, folder.id, 'wiki');
+    if (fs.existsSync(folderWikiSrc)) {
+      const dest = path.join(agentWikiDir, folderSlug);
+      fs.mkdirSync(dest, { recursive: true });
+      fs.cpSync(folderWikiSrc, dest, { recursive: true });
+      hasWiki = true;
+    }
+  }
+  if (hasWiki) {
     fs.writeFileSync(path.join(commandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
   }
 
@@ -287,9 +314,8 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
       for (const existing of fs.readdirSync(sessionCommandsDir)) {
         fs.rmSync(path.join(sessionCommandsDir, existing), { force: true });
       }
-      // Wiki skill — propagate to sessions if wiki dir exists
-      const sessionWikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
-      if (fs.existsSync(sessionWikiDir)) {
+      // Wiki skill — propagate to sessions if any built wiki exists
+      if (hasWiki) {
         fs.writeFileSync(path.join(sessionCommandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
       }
       for (const skill of skills) {
@@ -387,46 +413,62 @@ function buildInlinedMemoriesSection(memories: Memory[]): string | null {
  * Parses `knowledge/wiki/index.md` to extract article path + one-line summary.
  * Returns null if the index doesn't exist or contains no usable links.
  */
-function buildWikiIndexSection(workDir: string): string | null {
+function buildWikiIndexSection(workDir: string, folderSlugToName?: Map<string, string>): string | null {
   const wikiDir = path.join(workDir, 'knowledge', 'wiki');
   if (!fs.existsSync(wikiDir)) return null;
 
-  let wikiFiles: string[] = [];
+  // Each subfolder is a wiki folder slug. Collect articles per folder.
+  const folderSections: string[] = [];
+  let totalFiles = 0;
+
+  let entries: string[];
   try {
-    wikiFiles = (fs.readdirSync(wikiDir, { recursive: true }) as string[])
-      .filter(f => f.endsWith('.md') && f !== 'index.md' && f !== 'log.md');
+    entries = fs.readdirSync(wikiDir);
   } catch {
     return null;
   }
-  if (wikiFiles.length === 0) return null;
 
-  // Parse index.md if present — extract `- [title](path.md) — summary` style lines.
-  const indexPath = path.join(wikiDir, 'index.md');
-  let inlinedIndex: string | null = null;
-  if (fs.existsSync(indexPath)) {
+  for (const entry of entries) {
+    const folderPath = path.join(wikiDir, entry);
+    if (!fs.statSync(folderPath).isDirectory()) continue;
+
+    let wikiFiles: string[] = [];
     try {
-      const raw = fs.readFileSync(indexPath, 'utf-8');
-      // Keep only bulleted lines that reference a .md article — these are the
-      // "article entry" lines in the Karpathy wiki pattern. Headings + prose
-      // are skipped.
-      const articleLines = raw
-        .split('\n')
-        .filter(line => /^\s*[-*]\s+/.test(line) && /\.md\)/.test(line))
-        .map(line => line.trim());
-      if (articleLines.length > 0) {
-        inlinedIndex = articleLines.join('\n');
-      }
-    } catch { /* fall through to file listing */ }
+      wikiFiles = (fs.readdirSync(folderPath, { recursive: true }) as string[])
+        .filter(f => f.endsWith('.md') && f !== 'index.md' && f !== 'log.md');
+    } catch { continue; }
+    if (wikiFiles.length === 0) continue;
+
+    totalFiles += wikiFiles.length;
+
+    // Parse index.md for this folder if available
+    const indexPath = path.join(folderPath, 'index.md');
+    let inlinedIndex: string | null = null;
+    if (fs.existsSync(indexPath)) {
+      try {
+        const raw = fs.readFileSync(indexPath, 'utf-8');
+        const articleLines = raw
+          .split('\n')
+          .filter(line => /^\s*[-*]\s+/.test(line) && /\.md\)/.test(line))
+          .map(line => line.trim());
+        if (articleLines.length > 0) inlinedIndex = articleLines.join('\n');
+      } catch { /* fall through */ }
+    }
+    if (!inlinedIndex) {
+      inlinedIndex = wikiFiles.map(f => `- \`knowledge/wiki/${entry}/${f}\``).join('\n');
+    }
+
+    // Use the DB folder name when available; fall back to title-casing the slug for legacy state.
+    const folderTitle = folderSlugToName?.get(entry)
+      ?? entry.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    folderSections.push(`## ${folderTitle}\n${inlinedIndex}`);
   }
 
-  // Fallback: just list filenames if index.md is missing/unusable.
-  if (!inlinedIndex) {
-    inlinedIndex = wikiFiles.map(f => `- \`${f}\``).join('\n');
-  }
+  if (totalFiles === 0) return null;
 
   return `# Knowledge Base
 
-You have ${wikiFiles.length} wiki articles in \`knowledge/wiki/\`. Consult them
+You have ${totalFiles} wiki article${totalFiles !== 1 ? 's' : ''} across ${folderSections.length} folder${folderSections.length !== 1 ? 's' : ''} in \`knowledge/wiki/\`. Consult them
 BEFORE answering questions that might be covered — do NOT say "let me check the
 knowledge base" and then refuse. If a question touches anything in the catalog
 below, actually read the relevant article(s).
@@ -436,8 +478,7 @@ below, actually read the relevant article(s).
 - Use \`Read\` on a specific article when you know the path.
 - \`/wiki <topic>\` is still available for a guided multi-read flow.
 
-## Available articles
-${inlinedIndex}
+${folderSections.join('\n\n')}
 
 ## Verify before recommending
 Wiki articles are compiled snapshots. When an article references concrete code
@@ -487,6 +528,7 @@ function buildClaudeMd(
   skills: Skill[],
   overrideClaudeMd?: string,
   formattingRules?: string,
+  folderSlugToName?: Map<string, string>,
 ): string {
   const sections: string[] = [];
 
@@ -513,7 +555,7 @@ function buildClaudeMd(
   // 5. Knowledge base index — inlined so the model knows what exists without
   //    a Read round-trip. See buildWikiIndexSection.
   const workDir = getAgentWorkDir(agent.slug);
-  const wikiSection = buildWikiIndexSection(workDir);
+  const wikiSection = buildWikiIndexSection(workDir, folderSlugToName);
   if (wikiSection) sections.push(wikiSection);
 
   // 6. Skills index — compact list of available slash commands so the agent

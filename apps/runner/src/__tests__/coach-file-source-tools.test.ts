@@ -18,48 +18,36 @@ const src = fs.readFileSync(
 );
 
 describe('coach file-source tools', () => {
-  it('registers list_file_sources / read_file_source / propose_file_source_change in the toolbox', () => {
+  it('registers list_file_sources and read_file_source as read-only tools (no propose)', () => {
     expect(src).toContain("'list_file_sources'");
     expect(src).toContain("'read_file_source'");
-    expect(src).toContain("'propose_file_source_change'");
-    // And wires them into the returned toolbox array.
-    expect(src).toMatch(/return \[[^\]]*listFileSources[^\]]*readFileSource[^\]]*proposeFileSourceChange[^\]]*\]/s);
+    // Wiki sources are shared across agents — coach must not mutate them.
+    // propose_file_source_change must NOT be in the toolbox.
+    expect(src).toMatch(/return \[[^\]]*listFileSources[^\]]*readFileSource[^\]]*\]/s);
+    expect(src).not.toMatch(/return \[[^\]]*proposeFileSourceChange[^\]]*\]/s);
   });
 
-  it('whitelists the new MCP tool names for the SDK allowlist', () => {
+  it('whitelists read-only wiki tool names for the SDK allowlist', () => {
     expect(src).toContain("'mcp__coach__list_file_sources'");
     expect(src).toContain("'mcp__coach__read_file_source'");
-    expect(src).toContain("'mcp__coach__propose_file_source_change'");
+    expect(src).not.toContain("'mcp__coach__propose_file_source_change'");
   });
 
   it('list_file_sources queries only file-type rows for this agent', () => {
-    // Filtering on type='file' and agent_id is the security boundary — coach
-    // must not leak url/repo rows (meta-only, different semantics).
-    expect(src).toMatch(/FROM knowledge_sources[\s\S]*?WHERE agent_id = \$1 AND type = 'file'/);
+    // Security boundary: coach must not leak url/repo rows. Sources are now
+    // accessed via wiki_sources joined through agent_wiki_folders.
+    expect(src).toMatch(/FROM wiki_sources[\s\S]*?JOIN agent_wiki_folders[\s\S]*?WHERE awf\.agent_id = \$1 AND ws\.type = 'file'/);
   });
 
   it('read_file_source scopes the lookup to this agent + file type', () => {
-    expect(src).toMatch(/WHERE id = \$1 AND agent_id = \$2 AND type = 'file'/);
+    expect(src).toMatch(/WHERE ws\.id = \$1 AND awf\.agent_id = \$2 AND ws\.type = 'file'/);
   });
 
-  it('enforces a 1 MB content cap on propose_file_source_change', () => {
-    expect(src).toContain('MAX_FILE_SOURCE_BYTES = 1_048_576');
-    expect(src).toMatch(/Buffer\.byteLength\(content, 'utf8'\) > MAX_FILE_SOURCE_BYTES/);
-  });
-
-  it('propose_file_source_change rejects colliding names on create', () => {
-    // Unique (agent_id, name) index would throw at apply time. We surface it
-    // up-front so the coach retries with action=update instead.
-    expect(src).toMatch(/SELECT id FROM knowledge_sources WHERE agent_id = \$1 AND name = \$2/);
-    expect(src).toContain('use action=update with sourceId=');
-  });
-
-  it('propose_file_source_change always queues — never auto-applies', () => {
-    // File-source proposals are destructive and must show the diff before
-    // anything lands. Unlike claude-md/skill, there is no autoApply shortcut.
-    const block = src.match(/const proposeFileSourceChange = defTool\([\s\S]*?\);/);
-    expect(block).not.toBeNull();
-    expect(block![0]).not.toContain('ctx.autoApply');
+  it('propose_file_source_change is not in the coach toolbox', () => {
+    // Wiki sources are owned by folder owners and shared across agents.
+    // The coach must never be able to mutate them — read-only access only.
+    expect(src).not.toContain("'propose_file_source_change'");
+    expect(src).not.toContain('proposeFileSourceChange');
   });
 });
 
@@ -80,8 +68,9 @@ describe('coach tools — wiki-extract retired', () => {
     expect(src).not.toContain('propose_wiki_extract');
   });
 
-  it('system prompt routes domain knowledge through file sources', () => {
-    expect(src).toContain('propose_file_source_change');
+  it('system prompt routes domain knowledge through wiki file sources', () => {
+    // Coach reads wiki sources but cannot propose changes — wiki is owner-managed.
+    expect(src).toContain('list_file_sources');
     expect(src).toContain('knowledge/sources/');
   });
 });

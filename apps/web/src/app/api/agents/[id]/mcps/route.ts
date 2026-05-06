@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
 import { getAgentById, getAgentSkills, getAgentPermissions, getAgentMcpServers, setAgentMcps, publishAgentEvent, createSnapshot, getMcpServerById } from '@/lib/db';
-import { guardAgentWrite } from '@/lib/api-guard';
+import { guardAgentWrite, guardAuth } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { skillToSnapshotSkill } from '@/lib/compile';
 
@@ -25,7 +25,9 @@ type RouteParams = { params: Promise<{ id: string }> };
  * @param {RouteParams} ctx
  * @returns {Promise<NextResponse>} JSON array of assigned McpServer objects.
  */
-export async function GET(_req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+export async function GET(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const denied = guardAuth(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const mcps = await getAgentMcpServers(id);
@@ -56,42 +58,34 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
     const { mcpIds } = (await req.json()) as { mcpIds: string[] };
     const normalizedIds: string[] = mcpIds ?? [];
 
-    // Admin/superadmin can assign any MCP. Others can only assign MCPs they own.
-    // Check both additions (new ids) and removals (ids being dropped) against ownership.
+    // Editors can only add/remove MCPs they own; admins/superadmins bypass.
+    // Only check MCPs being changed (added or removed), not already-assigned ones.
     const isAdmin = session.role === 'admin' || session.role === 'superadmin';
+    const existingMcps = await getAgentMcpServers(id);
     if (!isAdmin) {
-      // All ids in the new set must be owned by the caller
-      if (normalizedIds.length) {
-        const mcps = await Promise.all(normalizedIds.map(mid => getMcpServerById(mid)));
-        const unauthorized = mcps.find(m => m && m.createdBy !== session.username);
-        if (unauthorized) {
-          return NextResponse.json(
-            { error: `Only the MCP owner or an admin can assign "${unauthorized.name}"` },
-            { status: 403 }
-          );
-        }
-      }
-      // Ids being removed must also be owned by the caller (can't remove others' MCPs)
-      const currentMcpsForCheck = await getAgentMcpServers(id);
-      const currentIdSet = new Set(normalizedIds);
-      const removed = currentMcpsForCheck.filter(m => !currentIdSet.has(m.id));
-      const unauthorizedRemoval = removed.find(m => m.createdBy !== session.username);
-      if (unauthorizedRemoval) {
+      const currentIds = new Set(existingMcps.map(m => m.id));
+      const newIdSet = new Set(normalizedIds);
+      const changedIds = [
+        ...normalizedIds.filter(mid => !currentIds.has(mid)),  // newly added
+        ...[...currentIds].filter(mid => !newIdSet.has(mid)),  // removed
+      ];
+      const changedMcps = await Promise.all(changedIds.map(mid => getMcpServerById(mid)));
+      const unauthorized = changedMcps.find(m => m && m.createdBy !== session.username);
+      if (unauthorized) {
         return NextResponse.json(
-          { error: `Only the MCP owner or an admin can remove "${unauthorizedRemoval.name}"` },
-          { status: 403 }
+          { error: `Only the MCP owner or an admin can assign "${unauthorized.name}"` },
+          { status: 403 },
         );
       }
     }
 
     // Snapshot before mutation — only if MCP assignments actually changed
-    const [agent, currentSkills, perms, currentMcps] = await Promise.all([
+    const [agent, currentSkills, perms] = await Promise.all([
       getAgentById(id),
       getAgentSkills(id),
       getAgentPermissions(id),
-      // Non-admins already fetched this above; re-fetch is cheap and keeps the code simple
-      getAgentMcpServers(id),
     ]);
+    const currentMcps = existingMcps;
     const oldMcpIds = JSON.stringify([...currentMcps.map(m => m.id)].sort());
     const newMcpIds = JSON.stringify([...normalizedIds].sort());
     if (oldMcpIds !== newMcpIds) {

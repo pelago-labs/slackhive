@@ -13,7 +13,7 @@
  * @module web/app/agents/[slug]/coach-panel
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Send, Loader2, RotateCcw, Wand2, ChevronDown, ChevronRight, Check, FileText, History, ArrowLeft, BookOpen, Paperclip } from 'lucide-react';
+import { X, Send, Loader2, RotateCcw, Wand2, ChevronDown, ChevronRight, Check, FileText, History, ArrowLeft, BookOpen, Paperclip, Download } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { CoachMessage, CoachProposal, Skill, Memory, KnowledgeSource } from '@slackhive/shared';
@@ -127,23 +127,42 @@ const MD_COMPONENTS: Components = {
       </code>
     );
   },
-  pre: ({ children }) => (
-    <pre
-      style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 6,
-        padding: 10,
-        margin: '4px 0 6px',
-        fontSize: 12,
-        lineHeight: 1.5,
-        overflow: 'auto',
-        whiteSpace: 'pre',
-      }}
-    >
-      {children}
-    </pre>
-  ),
+  pre: ({ children }) => {
+    const extractText = (node: React.ReactNode): string => {
+      if (typeof node === 'string') return node;
+      if (Array.isArray(node)) return node.map(extractText).join('');
+      if (node && typeof node === 'object' && 'props' in (node as any)) return extractText((node as any).props?.children);
+      return '';
+    };
+    const getLang = (node: React.ReactNode): string => {
+      if (node && typeof node === 'object' && 'props' in (node as any))
+        return ((node as any).props?.className ?? '').replace('language-', '');
+      return '';
+    };
+    const text = extractText(children);
+    const lang = getLang(children);
+    // Only show Download for wiki content — markdown/plain large blocks, not code snippets
+    const isWikiContent = (lang === 'markdown' || lang === 'md' || lang === '') && text.length > 300;
+    const download = () => {
+      const blob = new Blob([text], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'wiki-content.md'; a.click();
+      URL.revokeObjectURL(url);
+    };
+    return (
+      <div style={{ position: 'relative', margin: '4px 0 6px' }}>
+        <pre style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: 10, margin: 0, fontSize: 12, lineHeight: 1.5, overflow: 'auto', whiteSpace: 'pre' }}>
+          {children}
+        </pre>
+        {isWikiContent && (
+          <button onClick={download} title="Download as .md file" style={{ position: 'absolute', top: 6, right: 6, display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, padding: '3px 8px', fontSize: 11, cursor: 'pointer', color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>
+            <Download size={11} /> Download
+          </button>
+        )}
+      </div>
+    );
+  },
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
       {children}
@@ -460,20 +479,15 @@ export function CoachPanel({
         method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: proposal.content,
       });
     } else if (proposal.kind === 'file-source') {
-      // Apply just lands the DB change; the wiki re-sync is NOT auto-triggered
-      // — the user runs it from the Knowledge tab's Sync/Build button, where
-      // they can watch progress on the tool that owns the ingest.
+      // Sources now live in wiki_folders — look up which folder owns this source.
+      if (!proposal.sourceId) { setError('file-source proposal missing sourceId'); return; }
+      const srcMeta = await fetch(`/api/wiki-sources/${proposal.sourceId}`).then(r => r.json()).catch(() => null);
+      if (!srcMeta?.folderId) { setError('Could not locate source folder — it may have been deleted.'); return; }
+      const folderId = srcMeta.folderId;
       if (proposal.action === 'delete') {
-        if (!proposal.sourceId) { setError('file-source proposal missing id'); return; }
-        res = await fetch(`/api/agents/${agentId}/knowledge/${proposal.sourceId}`, { method: 'DELETE' });
-      } else if (proposal.action === 'create') {
-        res = await fetch(`/api/agents/${agentId}/knowledge`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'file', name: proposal.name, content: proposal.content ?? '' }),
-        });
+        res = await fetch(`/api/wiki-folders/${folderId}/sources/${proposal.sourceId}`, { method: 'DELETE' });
       } else {
-        if (!proposal.sourceId) { setError('file-source proposal missing id'); return; }
-        res = await fetch(`/api/agents/${agentId}/knowledge/${proposal.sourceId}`, {
+        res = await fetch(`/api/wiki-folders/${folderId}/sources/${proposal.sourceId}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: proposal.name, content: proposal.content ?? '' }),
         });

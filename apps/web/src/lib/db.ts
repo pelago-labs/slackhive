@@ -29,6 +29,11 @@ import type {
   SnapshotSkill,
   SnapshotTrigger,
   Restriction,
+  WikiFolder,
+  WikiSource,
+  CreateWikiFolderRequest,
+  UpdateWikiFolderRequest,
+  CreateWikiSourceRequest,
 } from '@slackhive/shared';
 import { getDb, initDb, encrypt, decrypt, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 import { getEncryptionKey } from './secrets';
@@ -1519,4 +1524,148 @@ export async function updateEnvVarDescription(key: string, description: string):
  */
 export async function deleteEnvVar(key: string): Promise<void> {
   await (await db()).query('DELETE FROM env_vars WHERE key = $1', [key]);
+}
+
+// =============================================================================
+// Wiki Folders
+// =============================================================================
+
+function rowToWikiFolder(row: Record<string, unknown>): WikiFolder {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    description: row.description as string | undefined,
+    createdBy: (row.created_by ?? row.createdBy) as string,
+    createdAt: new Date((row.created_at ?? row.createdAt) as string),
+    updatedAt: new Date((row.updated_at ?? row.updatedAt) as string),
+  };
+}
+
+function rowToWikiSource(row: Record<string, unknown>): WikiSource {
+  return {
+    id: row.id as string,
+    folderId: (row.folder_id ?? row.folderId) as string,
+    type: row.type as WikiSource['type'],
+    name: row.name as string,
+    url: row.url as string | undefined,
+    repoUrl: (row.repo_url ?? row.repoUrl) as string | undefined,
+    branch: row.branch as string | undefined,
+    patEnvRef: (row.pat_env_ref ?? row.patEnvRef) as string | undefined,
+    content: row.content as string | undefined,
+    status: row.status as WikiSource['status'],
+    wordCount: (row.word_count ?? row.wordCount ?? 0) as number,
+    lastSynced: (row.last_synced ?? row.lastSynced) as string | undefined,
+    createdAt: new Date((row.created_at ?? row.createdAt) as string),
+  };
+}
+
+export async function getAllWikiFolders(): Promise<WikiFolder[]> {
+  const r = await (await db()).query('SELECT * FROM wiki_folders ORDER BY name ASC', []);
+  return r.rows.map(rowToWikiFolder);
+}
+
+export async function getWikiFolder(id: string): Promise<WikiFolder | null> {
+  const r = await (await db()).query('SELECT * FROM wiki_folders WHERE id = $1', [id]);
+  return r.rows[0] ? rowToWikiFolder(r.rows[0]) : null;
+}
+
+export async function createWikiFolder(req: CreateWikiFolderRequest, createdBy = 'admin'): Promise<WikiFolder> {
+  const id = randomUUID();
+  await (await db()).query(
+    'INSERT INTO wiki_folders (id, name, description, created_by) VALUES ($1, $2, $3, $4)',
+    [id, req.name, req.description ?? null, createdBy],
+  );
+  return (await getWikiFolder(id))!;
+}
+
+export async function updateWikiFolder(id: string, req: UpdateWikiFolderRequest): Promise<WikiFolder | null> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 1;
+  if (req.name !== undefined) { sets.push(`name = $${i++}`); vals.push(req.name); }
+  if (req.description !== undefined) { sets.push(`description = $${i++}`); vals.push(req.description); }
+  if (!sets.length) return getWikiFolder(id);
+  sets.push(`updated_at = datetime('now')`);
+  vals.push(id);
+  await (await db()).query(`UPDATE wiki_folders SET ${sets.join(', ')} WHERE id = $${i}`, vals);
+  return getWikiFolder(id);
+}
+
+export async function deleteWikiFolder(id: string): Promise<void> {
+  await (await db()).query('DELETE FROM wiki_folders WHERE id = $1', [id]);
+}
+
+export async function getWikiSourceFolder(sourceId: string): Promise<string | null> {
+  const r = await (await db()).query('SELECT folder_id FROM wiki_sources WHERE id = $1', [sourceId]);
+  return r.rows[0] ? (r.rows[0].folder_id as string) : null;
+}
+
+export async function getWikiSources(folderId: string): Promise<WikiSource[]> {
+  const r = await (await db()).query('SELECT * FROM wiki_sources WHERE folder_id = $1 ORDER BY name ASC', [folderId]);
+  return r.rows.map(rowToWikiSource);
+}
+
+export async function getWikiSource(id: string): Promise<WikiSource | null> {
+  const r = await (await db()).query('SELECT * FROM wiki_sources WHERE id = $1', [id]);
+  return r.rows[0] ? rowToWikiSource(r.rows[0]) : null;
+}
+
+export async function createWikiSource(folderId: string, req: CreateWikiSourceRequest): Promise<WikiSource> {
+  const id = randomUUID();
+  await (await db()).query(
+    `INSERT INTO wiki_sources (id, folder_id, type, name, content, url, repo_url, branch, pat_env_ref)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [id, folderId, req.type, req.name, req.content ?? null, req.url ?? null, req.repoUrl ?? null, req.branch ?? 'main', req.patEnvRef ?? null],
+  );
+  const r = await (await db()).query('SELECT * FROM wiki_sources WHERE id = $1', [id]);
+  return rowToWikiSource(r.rows[0]);
+}
+
+export async function updateWikiSource(id: string, patch: Partial<CreateWikiSourceRequest & { status: string; wordCount: number; lastSynced: string }>): Promise<WikiSource | null> {
+  const map: Record<string, string> = { repoUrl: 'repo_url', patEnvRef: 'pat_env_ref', wordCount: 'word_count', lastSynced: 'last_synced' };
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 1;
+  for (const [k, v] of Object.entries(patch)) {
+    const col = map[k] ?? k;
+    sets.push(`${col} = $${i++}`);
+    vals.push(v);
+  }
+  if (!sets.length) {
+    const r2 = await (await db()).query('SELECT * FROM wiki_sources WHERE id = $1', [id]);
+    return r2.rows[0] ? rowToWikiSource(r2.rows[0]) : null;
+  }
+  vals.push(id);
+  await (await db()).query(`UPDATE wiki_sources SET ${sets.join(', ')} WHERE id = $${i}`, vals);
+  const r = await (await db()).query('SELECT * FROM wiki_sources WHERE id = $1', [id]);
+  return r.rows[0] ? rowToWikiSource(r.rows[0]) : null;
+}
+
+export async function deleteWikiSource(id: string): Promise<void> {
+  await (await db()).query('DELETE FROM wiki_sources WHERE id = $1', [id]);
+}
+
+export async function getAgentWikiFolders(agentId: string): Promise<WikiFolder[]> {
+  const r = await (await db()).query(
+    `SELECT wf.* FROM wiki_folders wf
+     JOIN agent_wiki_folders awf ON awf.folder_id = wf.id
+     WHERE awf.agent_id = $1
+     ORDER BY wf.name ASC`,
+    [agentId],
+  );
+  return r.rows.map(rowToWikiFolder);
+}
+
+export async function assignWikiFolder(agentId: string, folderId: string): Promise<void> {
+  await (await db()).query(
+    'INSERT OR IGNORE INTO agent_wiki_folders (agent_id, folder_id) VALUES ($1, $2)',
+    [agentId, folderId],
+  );
+}
+
+export async function unassignWikiFolder(agentId: string, folderId: string): Promise<void> {
+  await (await db()).query(
+    'DELETE FROM agent_wiki_folders WHERE agent_id = $1 AND folder_id = $2',
+    [agentId, folderId],
+  );
 }

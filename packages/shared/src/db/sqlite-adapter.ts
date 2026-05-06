@@ -436,10 +436,45 @@ CREATE TABLE IF NOT EXISTS knowledge_sources (
   pat_env_ref TEXT,
   sync_cron   TEXT,
   content     TEXT,
-  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'building', 'compiled', 'error')),
+  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'building', 'compiled', 'stale', 'error')),
   word_count  INTEGER DEFAULT 0,
   last_synced TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Wiki Folders (platform-level knowledge library) ─────────────────────────
+
+CREATE TABLE IF NOT EXISTS wiki_folders (
+  id          TEXT PRIMARY KEY,
+  name        TEXT UNIQUE NOT NULL,
+  description TEXT,
+  created_by  TEXT NOT NULL DEFAULT 'system',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS wiki_sources (
+  id          TEXT PRIMARY KEY,
+  folder_id   TEXT NOT NULL REFERENCES wiki_folders(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL CHECK (type IN ('url', 'file', 'repo')),
+  name        TEXT NOT NULL,
+  content     TEXT,
+  url         TEXT,
+  repo_url    TEXT,
+  branch      TEXT DEFAULT 'main',
+  pat_env_ref TEXT,
+  status      TEXT NOT NULL DEFAULT 'pending'
+                   CHECK (status IN ('pending', 'building', 'compiled', 'stale', 'error')),
+  word_count  INTEGER DEFAULT 0,
+  last_synced TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (folder_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS agent_wiki_folders (
+  agent_id  TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  folder_id TEXT NOT NULL REFERENCES wiki_folders(id) ON DELETE CASCADE,
+  PRIMARY KEY (agent_id, folder_id)
 );
 
 -- Indexes
@@ -586,6 +621,100 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
     db.exec('ALTER TABLE activities ADD COLUMN cache_creation_tokens INTEGER');
   }
 
+  // Migrate legacy knowledge_sources → wiki_folders / wiki_sources / agent_wiki_folders
+  // Runs once: only if knowledge_sources has rows but agent_wiki_folders is empty
+  const hasMigrated = (db.prepare('SELECT COUNT(*) as n FROM agent_wiki_folders').get() as { n: number }).n > 0;
+  const legacyCount = (db.prepare('SELECT COUNT(*) as n FROM knowledge_sources').get() as { n: number }).n;
+  if (!hasMigrated && legacyCount > 0) {
+    const legacyAgents = db.prepare(`
+      SELECT DISTINCT ks.agent_id, a.name as agent_name, a.slug as agent_slug
+      FROM knowledge_sources ks
+      JOIN agents a ON a.id = ks.agent_id
+    `).all() as { agent_id: string; agent_name: string; agent_slug: string }[];
+
+    const insertFolder = db.prepare(`
+      INSERT OR IGNORE INTO wiki_folders (id, name, description, created_by)
+      VALUES (?, ?, ?, 'system')
+    `);
+    const insertSource = db.prepare(`
+      INSERT OR IGNORE INTO wiki_sources (id, folder_id, type, name, content, url, repo_url, branch, pat_env_ref, status, word_count, last_synced, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertLink = db.prepare(`
+      INSERT OR IGNORE INTO agent_wiki_folders (agent_id, folder_id) VALUES (?, ?)
+    `);
+
+    // Collect slug→folderId mapping so we can copy built wiki files after the transaction
+    const diskMigrations: { slug: string; folderId: string }[] = [];
+
+    const migrate = db.transaction(() => {
+      for (const { agent_id, agent_name, agent_slug } of legacyAgents) {
+        const folderId = randomUUID();
+        insertFolder.run(folderId, `${agent_name} Knowledge`, `Auto-migrated from ${agent_name}`);
+        insertLink.run(agent_id, folderId);
+        diskMigrations.push({ slug: agent_slug, folderId });
+
+        const sources = db.prepare('SELECT * FROM knowledge_sources WHERE agent_id = ?').all(agent_id) as Record<string, unknown>[];
+        for (const s of sources) {
+          insertSource.run(
+            randomUUID(), folderId,
+            s.type, s.name, s.content ?? null,
+            s.url ?? null, s.repo_url ?? null,
+            s.branch ?? 'main', s.pat_env_ref ?? null,
+            s.status, s.word_count ?? 0, s.last_synced ?? null,
+            s.created_at,
+          );
+        }
+      }
+    });
+    migrate();
+
+    // Copy built wiki pages from old per-agent disk location to new platform location.
+    // Runs for each folder whose new wiki dir doesn't exist yet (safe to re-run).
+    // Old: ~/.slackhive/agents/{slug}/knowledge/wiki/
+    // New: ~/.slackhive/knowledge/{folder-id}/wiki/
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '/tmp';
+    const slackhiveDir = path.join(home, '.slackhive');
+    for (const { slug, folderId } of diskMigrations) {
+      const oldWikiDir = path.join(slackhiveDir, 'agents', slug, 'knowledge', 'wiki');
+      const newWikiDir = path.join(slackhiveDir, 'knowledge', folderId, 'wiki');
+      if (fs.existsSync(oldWikiDir) && !fs.existsSync(newWikiDir)) {
+        try {
+          fs.mkdirSync(path.dirname(newWikiDir), { recursive: true });
+          fs.cpSync(oldWikiDir, newWikiDir, { recursive: true });
+        } catch {
+          // Non-fatal — wiki can be rebuilt
+        }
+      }
+    }
+  }
+
+  // Also run disk migration for any already-migrated folders that are missing their wiki dir.
+  // This handles the case where the DB migration ran before disk migration was implemented.
+  {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '/tmp';
+    const slackhiveDir = path.join(home, '.slackhive');
+    const agentFolderLinks = db.prepare(`
+      SELECT wf.id as folder_id, a.slug
+      FROM wiki_folders wf
+      JOIN agent_wiki_folders awf ON awf.folder_id = wf.id
+      JOIN agents a ON a.id = awf.agent_id
+    `).all() as { folder_id: string; slug: string }[];
+
+    for (const { folder_id, slug } of agentFolderLinks) {
+      const oldWikiDir = path.join(slackhiveDir, 'agents', slug, 'knowledge', 'wiki');
+      const newWikiDir = path.join(slackhiveDir, 'knowledge', folder_id, 'wiki');
+      if (fs.existsSync(oldWikiDir) && !fs.existsSync(newWikiDir)) {
+        try {
+          fs.mkdirSync(path.dirname(newWikiDir), { recursive: true });
+          fs.cpSync(oldWikiDir, newWikiDir, { recursive: true });
+        } catch {
+          // Non-fatal
+        }
+      }
+    }
+  }
+
   // Install a custom function to generate UUIDs
   // This lets DEFAULT gen_random_uuid()-style behavior work via triggers
   db.function('gen_random_uuid', () => randomUUID());
@@ -596,6 +725,7 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
     'agents', 'mcp_servers', 'skills', 'permissions', 'memories',
     'sessions', 'users', 'scheduled_jobs', 'job_runs', 'agent_snapshots',
     'agent_restrictions', 'tasks', 'activities', 'tool_calls',
+    'wiki_folders', 'wiki_sources',
   ];
 
   for (const table of tablesWithUuid) {

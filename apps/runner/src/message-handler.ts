@@ -162,9 +162,16 @@ export class MessageHandler {
             if (statusMsgId && toolStatus) {
               await this.adapter.updateMessage(channelId, statusMsgId, toolStatus).catch(() => {});
             }
+            // In verbose mode, also post reasoning text that arrives alongside tool_use blocks
+            if (textContent && this.agent.verbose) {
+              if (!textContent.includes('authentication_error') && !textContent.includes('Failed to authenticate')) {
+                sentMessages.push(textContent);
+                await this.postFormattedMessage(channelId, threadId, textContent);
+              }
+            }
           } else if (textContent) {
             if (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate')) continue;
-            if (this.agent.verbose !== false) {
+            if (this.agent.verbose) {
               sentMessages.push(textContent);
               await this.postFormattedMessage(channelId, threadId, textContent);
             }
