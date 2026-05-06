@@ -183,6 +183,7 @@ Every agent is a full **Claude Code** agent - with tools, memory, identity, and 
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type - feedback, user, project, reference. |
 | 📡 **Activity Dashboard** | Live kanban of every task your agents are working on - Active, Completed, Errors - with drill-down to every tool call. A superadmin-only **Usage** tab breaks down token consumption per agent and ranks power users by tasks started. Admins see everything; editors see only agents they own or are granted access to; viewers are blocked. |
 | 🌐 **Multi-Workspace** | Connect multiple Slack workspaces to a single SlackHive instance. Each workspace gets its own agents and configurations. |
+| 📚 **Knowledge Library** | Platform-level catalog of Karpathy-style wiki folders. Owners ingest a repo / file / URL into a folder; assign one folder to many agents. The agent's `/wiki` skill auto-enables when at least one assigned folder has built content. |
 
 ---
 
