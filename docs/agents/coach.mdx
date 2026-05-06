@@ -40,7 +40,7 @@ The agent gave this response but it's too long. Make it punchier.
 
 Supported types: **PDF, Markdown, text, CSV, JSON, YAML, XML, HTML** — up to 20 KB of extracted text per message.
 
-The file is **session-only** — it's not stored. If Coach decides the content should be a permanent knowledge source, it will propose adding it to the Knowledge Base for you to apply.
+The file is **session-only** — it's not stored. If you want the content available to the agent permanently, add it as a wiki source in the [Knowledge Library](/agents/knowledge-base).
 
 <Tip>
   Attaching a PDF style guide and asking "does this agent match our tone?" is a fast way to audit and tighten instructions in one pass.
@@ -50,7 +50,7 @@ The file is **session-only** — it's not stored. If Coach decides the content s
 
 Coach's changes arrive as **proposal cards** - one per distinct change. Each card shows:
 
-- **What will change** (system prompt, a skill, a memory, or a knowledge file)
+- **What will change** (system prompt, a skill, or a memory)
 - **A diff preview** (green = added, red = removed)
 - **Apply** and **Reject** buttons
 
@@ -63,19 +63,14 @@ You can apply some cards and reject others. Nothing changes until you click Appl
 | System prompt | Rewrites the agent's instructions |
 | Skill | Adds, edits, or removes a skill (slash command) |
 | Memory | Adds, rewrites, or removes a saved fact/rule |
-| Knowledge file | Adds, edits, or removes a file in the Knowledge Base |
 
 Every applied change is **snapshotted automatically**, so you can restore via **History** if something goes wrong.
 
-## Knowledge files
+## Wiki access (read-only)
 
-You can ask Coach to add, edit, or remove files in the agent's knowledge - e.g. "add this API spec", "rename that source and add a header", "drop the old runbook". The card shows a before/after preview on edits and the full content on adds, so you can see exactly what's landing before approving.
+Coach can **read** the agent's assigned wiki folders for context — `list_file_sources` shows what file content is available across the agent's folders, and `read_file_source` returns the verbatim text of one source. This lets Coach audit claude.md or skills against actual reference material.
 
-Coach only manages **uploaded files**. Git repo and URL sources stay in the Knowledge tab - those are pulled from their remotes.
-
-<Note>
-  After you apply a knowledge-file change, open the **Knowledge** tab and click **Sync** on the affected file so the agent's wiki reflects it.
-</Note>
+Coach **cannot** add, edit, or delete wiki sources. Wiki content is shared across many agents and belongs to the folder owner — edits go through the [Knowledge Library](/agents/knowledge-base) so the owner stays in control.
 
 ## Looking things up
 

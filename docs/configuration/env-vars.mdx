@@ -88,7 +88,8 @@ Everything is on disk under `~/.slackhive/`:
 | Path | Contents |
 |---|---|
 | `~/.slackhive/data.db` | SQLite database - agents, memories, skills, history, settings |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace (CLAUDE.md, knowledge/wiki, sessions, memory) |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace (CLAUDE.md, sessions, copies of assigned wiki folders) |
+| `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wiki for one Knowledge Library folder (source of truth; copied to assigned agents) |
 | `~/.slackhive/logs/runner.log` | Runner log stream |
 | `~/.slackhive/runner.lock` | Singleton runner lock - JSON with `pid`, `startedAt`, `mode` |
 | `~/.slackhive/slackhive.pid` | Web server PID file |
