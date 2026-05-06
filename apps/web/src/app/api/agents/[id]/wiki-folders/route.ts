@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
 import { getAgentWikiFolders, getAllWikiFolders, getWikiFolder, assignWikiFolder, unassignWikiFolder } from '@/lib/db';
-import { guardAgentWrite } from '@/lib/api-guard';
+import { guardAgentWrite, guardAuth } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-export async function GET(_req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+export async function GET(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
+  const deny = guardAuth(req);
+  if (deny) return deny;
   try {
     const { id } = await params;
     const folders = await getAgentWikiFolders(id);

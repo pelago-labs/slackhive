@@ -303,7 +303,7 @@ export class AgentRunner {
       if (fs.existsSync(knowledgeDir)) {
         for (const entry of fs.readdirSync(knowledgeDir, { withFileTypes: true })) {
           if (!entry.isDirectory()) continue;
-          const lockFile = path.join(knowledgeDir, entry.name, 'wiki', '.build.lock');
+          const lockFile = path.join(knowledgeDir, entry.name, '.build.lock');
           if (fs.existsSync(lockFile)) {
             try { fs.unlinkSync(lockFile); } catch { /* ok */ }
             logger.info('Removed stale wiki build lock', { folder: entry.name });
@@ -1661,9 +1661,10 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
     const sanitizeError = (msg: string) =>
       msg.replace(/https?:\/\/[^@\s]+@/g, 'https://**REDACTED**@');
 
-    // Atomic lock — 'wx' flag fails if file already exists, preventing TOCTOU race
+    // Lock lives one level above wikiDir so scratch rmSync(wikiDir) doesn't destroy it
+    const folderDir = path.join(os.homedir(), '.slackhive', 'knowledge', folderId);
     fs.mkdirSync(wikiDir, { recursive: true });
-    const lockPath = path.join(wikiDir, '.build.lock');
+    const lockPath = path.join(folderDir, '.build.lock');
     try {
       fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }), { flag: 'wx' });
     } catch {
@@ -1684,8 +1685,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         await writeProgress({ status: 'building', folderId, step: 'Clearing wiki for rebuild...' });
         try { fs.rmSync(wikiDir, { recursive: true, force: true }); } catch { /* ok */ }
         fs.mkdirSync(wikiDir, { recursive: true });
-        // Re-write lock after rmSync removed the directory ('w' not 'wx' — file is guaranteed gone)
-        fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }), { flag: 'w' });
+        // Lock is at folderDir level (above wikiDir) so rmSync above doesn't touch it
         // Only reset compiled/error/stale sources to pending — this is the one explicit user-triggered reset
         await getDb().query(
           "UPDATE wiki_sources SET status = 'pending' WHERE folder_id = $1 AND status IN ('compiled', 'error', 'stale')",
@@ -1892,9 +1892,9 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             }
 
             for (const article of (parsed.created ?? [])) {
-              // Issue 2: enforce slug prefix defensively on write
               const articlePath = article.path.startsWith(`${sourceSlug}/`) ? article.path : `${sourceSlug}/${article.path}`;
-              const p = path.join(wikiDir, articlePath);
+              const p = path.resolve(wikiDir, articlePath);
+              if (!p.startsWith(wikiDir + path.sep)) { logger.warn('[wiki] Skipping article path outside wikiDir', { path: articlePath }); continue; }
               fs.mkdirSync(path.dirname(p), { recursive: true });
               fs.writeFileSync(p, article.content, 'utf-8');
               totalPages++;
@@ -1904,9 +1904,9 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
             for (const article of (parsed.updated ?? [])) {
-              // Issue 2: enforce slug prefix defensively on write
               const articlePath = article.path.startsWith(`${sourceSlug}/`) ? article.path : `${sourceSlug}/${article.path}`;
-              const p = path.join(wikiDir, articlePath);
+              const p = path.resolve(wikiDir, articlePath);
+              if (!p.startsWith(wikiDir + path.sep)) { logger.warn('[wiki] Skipping article path outside wikiDir', { path: articlePath }); continue; }
               fs.mkdirSync(path.dirname(p), { recursive: true });
               fs.writeFileSync(p, article.content, 'utf-8');
               const wc = article.content.split(/\s+/).filter(Boolean).length;

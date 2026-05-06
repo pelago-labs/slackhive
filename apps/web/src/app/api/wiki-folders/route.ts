@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
 import { getAllWikiFolders, createWikiFolder } from '@/lib/db';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAdmin, guardAuth } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const deny = guardAuth(req);
+  if (deny) return deny;
   try {
     const folders = await getAllWikiFolders();
     return NextResponse.json(folders);

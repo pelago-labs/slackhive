@@ -153,6 +153,12 @@ const EMPTY_SOURCE_FORM = { type: 'url', name: '', url: '', repoUrl: '', branch:
 export default function KnowledgePage() {
   const { canEdit, username, role } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollAbortRef = useRef(false);
+
+  useEffect(() => {
+    pollAbortRef.current = false;
+    return () => { pollAbortRef.current = true; };
+  }, []);
 
   const [folders, setFolders]                 = useState<WikiFolder[]>([]);
   const [loading, setLoading]                 = useState(true);
@@ -203,7 +209,9 @@ export default function KnowledgePage() {
         setBuildStatus(prev => ({ ...prev, [f.id]: 'building' }));
         setBuildProgress(prev => ({ ...prev, [f.id]: p }));
         const resumePoll = async () => {
+          if (pollAbortRef.current) return;
           const latest: BuildProgress = await fetch(`/api/wiki-folders/${f.id}/build`).then(r => r.json()).catch(() => null);
+          if (pollAbortRef.current) return;
           if (!latest || latest.status === 'done' || latest.status === 'error' || latest.status === 'idle') {
             setBuildStatus(prev => ({ ...prev, [f.id]: latest?.status === 'error' ? 'error' : '' }));
             setBuildProgress(prev => ({ ...prev, [f.id]: latest ?? {} }));
@@ -245,8 +253,20 @@ export default function KnowledgePage() {
       e.target.value = '';
       return;
     }
+    // Reject known binary formats — browsers may report empty type for code files (.ts, .py, etc)
+    const BINARY_TYPES = /^application\/(pdf|zip|octet-stream|msword|vnd\.|x-executable)/;
+    if (file.type && BINARY_TYPES.test(file.type)) {
+      alert(`Binary files are not supported. Please upload a plain text or Markdown file.`);
+      e.target.value = '';
+      return;
+    }
     setFileUploading(true);
     const text = await file.text().catch(() => '');
+    if (!text.trim()) {
+      alert('The file appears to be empty or could not be read as text.');
+      setFileUploading(false); e.target.value = '';
+      return;
+    }
     setSourceForm(p => ({ ...p, type: 'file', name: p.name || file.name.replace(/\.[^.]+$/, ''), content: text }));
     setFileUploading(false); e.target.value = '';
   }
@@ -319,7 +339,9 @@ export default function KnowledgePage() {
     const { requestId } = await r.json();
     // Poll indefinitely until done or error
     const poll = async () => {
+      if (pollAbortRef.current) return;
       const p: BuildProgress = await fetch(`/api/wiki-folders/${folderId}/build?requestId=${requestId}`).then(x => x.json()).catch(() => null);
+      if (pollAbortRef.current) return;
       if (!p || p.status === 'done' || p.status === 'error' || p.status === 'idle') {
         setBuildStatus(prev => ({ ...prev, [folderId]: p?.status === 'error' ? 'error' : '' }));
         setBuildProgress(prev => ({ ...prev, [folderId]: p ?? {} }));
@@ -340,7 +362,9 @@ export default function KnowledgePage() {
     if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error ?? 'Sync failed'); setSyncStatus(prev => ({ ...prev, [sourceId]: '' })); return; }
     const { requestId } = await r.json();
     const poll = async () => {
+      if (pollAbortRef.current) return;
       const p = await fetch(`/api/wiki-folders/${folderId}/sources/${sourceId}/sync?requestId=${requestId}`).then(x => x.json()).catch(() => null);
+      if (pollAbortRef.current) return;
       if (!p || p.status === 'done' || p.status === 'error' || p.status === 'idle') {
         setSyncStatus(prev => ({ ...prev, [sourceId]: '' }));
         fetch(`/api/wiki-folders/${folderId}/sources`).then(x => x.json()).then(setSources).catch(() => {});

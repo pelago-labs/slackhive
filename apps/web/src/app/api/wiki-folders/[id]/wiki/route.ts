@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
+import { guardAuth } from '@/lib/api-guard';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -9,6 +10,8 @@ export const dynamic = 'force-dynamic';
 const KNOWLEDGE_DIR = path.join(os.homedir(), '.slackhive', 'knowledge');
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {
+  const deny = guardAuth(req);
+  if (deny) return deny;
   try {
     const { id } = await params;
     const { searchParams } = new URL(req.url);

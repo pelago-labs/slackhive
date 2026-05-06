@@ -1824,11 +1824,17 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
     const updated = allFolders.map(f => f.id === folderId ? { ...f, assigned: !currentlyAssigned } : f);
     setAllFolders(updated);
     const newIds = updated.filter(f => f.assigned).map(f => f.id);
-    await fetch(`/api/agents/${agentId}/wiki-folders`, {
+    const r = await fetch(`/api/agents/${agentId}/wiki-folders`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderIds: newIds }),
     });
+    if (!r.ok) {
+      // Roll back optimistic update
+      setAllFolders(allFolders);
+      const err = await r.json().catch(() => ({}));
+      alert(err.error ?? 'Failed to update wiki folder assignment');
+    }
     setSaving(false);
   }
 
