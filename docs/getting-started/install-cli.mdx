@@ -111,7 +111,8 @@ Log in with the admin credentials you set. You're ready to create your first age
 | Path | What it holds |
 |---|---|
 | `~/.slackhive/data.db` | SQLite database - agents, memories, skills, history |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace - CLAUDE.md, sessions, wiki |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace - CLAUDE.md, sessions, copies of assigned wiki folders |
+| `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wikis for the Knowledge Library (source of truth) |
 | `~/.slackhive/logs/runner.log` | Runner log (also streamed live in the UI) |
 | `~/.slackhive/runner.lock` | Single-runner lock file |
 

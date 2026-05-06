@@ -1,153 +1,111 @@
 ---
-title: "Knowledge Base"
-description: "Ingest repos, files, and URLs into a Karpathy-style LLM wiki the agent reads on demand."
+title: "Knowledge Library"
+description: "A platform-level catalog of shared wiki folders. Owners ingest repos, files, and URLs into Karpathy-style LLM wikis; agents are assigned the folders they need."
 ---
 
-Each agent has its own **Knowledge Base** - a structured wiki of domain content the agent can read at runtime. Ingest a Git repo, upload files, or paste URLs, and SlackHive generates a Karpathy-style LLM wiki the agent consults via the `/wiki` skill.
+The **Knowledge Library** is a workspace-wide catalog of wiki folders that any agent can be assigned. A folder is owned by the person who created it; that owner ingests sources (repos, files, URLs), builds the wiki, and decides which agents get it. The same folder can power one agent or twenty — no duplication, no per-agent rebuilds.
 
-<img src="/images/wiki-tab.png" alt="Knowledge base wiki tab with sources and compiled articles" style={{borderRadius: "12px", marginBottom: "24px"}} />
+<img src="/images/knowledge-library.png" alt="Knowledge Library showing three shared wiki folders with their owners" style={{borderRadius: "12px", marginBottom: "24px"}} />
 
 ## Why Karpathy-style?
 
-[Andrej Karpathy's observation](https://x.com/karpathy/status/1979644538185752935): LLMs read best when content is pre-organized as a wiki - overview, concepts, flows, modules - rather than dumped as raw files. A human codebase has hidden structure; a wiki makes it explicit.
+[Andrej Karpathy's observation](https://x.com/karpathy/status/1979644538185752935): LLMs read best when content is pre-organized as a wiki — overview, concepts, flows, modules — rather than dumped as raw files. A human codebase has hidden structure; a wiki makes it explicit.
 
-SlackHive's ingest pipeline does exactly that. Instead of stuffing 200 source files into the agent's context, it builds:
+SlackHive's ingest pipeline does exactly that. Instead of stuffing 200 source files into the agent's context, each folder builds:
 
-- A short `overview.md` - "what is this, in one page"
-- An `index.md` - table of contents with every page
-- `concepts/` - the domain ideas (accounts, bookings, payouts)
-- `entities/` - the concrete objects (User, Invoice, Session)
-- `flows/` - how things connect (checkout flow, refund flow)
-- `modules/` - one page per code module (for repo sources)
+- An `overview.md` — what this is, in one page
+- An `index.md` — table of contents with every page
+- `concepts/` — domain ideas (accounts, bookings, payouts)
+- `entities/` — the concrete objects (User, Invoice, Session)
+- `flows/` — how things connect (checkout flow, refund flow)
+- `modules/` — one page per code module (for repo sources)
 
 The agent reads `index.md` first, then pulls only the pages it needs. Context stays small, answers stay grounded.
 
-## Open the Knowledge tab
+## Roles
 
-1. Go to the agent's detail page
-2. Click **Knowledge** in the tab bar
-3. You'll see the source list (empty on a new agent) and the built wiki
+| Role | What they can do with wiki folders |
+|---|---|
+| **Anyone authenticated** | Read every folder and built wiki page |
+| **Editor** | Create new folders. Edit / build / delete folders **they created**. Assign their own folders to agents they own |
+| **Admin / Superadmin** | Edit, build, delete, or assign any folder regardless of owner |
 
-## Add a knowledge source
+A folder's `createdBy` is the source of truth for ownership — folder names are not unique across the workspace. Agents are assigned folders by the agent's editor; that editor must own the folder (or be an admin) for the assignment to land.
 
-Click **Add source** and pick one of three types:
+## Create a folder and add sources
+
+1. Open the **Knowledge Library** from the sidebar
+2. Click **+ New Folder**, give it a name, save
+3. Inside the folder, click **+ Add Source** and pick a type:
 
 | Source | Use when | Example |
 |---|---|---|
 | **Git repo** | You want the agent to understand a codebase | `github.com/pelago-labs/slackhive` |
 | **URL** | The content lives on a public or internal webpage | `docs.internal.co/runbooks/checkout` |
-| **File upload** | You have a document on disk you want the agent to quote or search verbatim | Internal spec PDF, a runbook, a schedule |
+| **File upload** | You have plain-text content to quote verbatim | Markdown spec, runbook, schedule |
 
-Paste the input, give it a name, and save. The source lands as "pending ingest" - click **Ingest** to build the wiki.
-
-File uploads support **PDF, Markdown, text, CSV, JSON, YAML, XML, HTML** - up to 1 MB each.
+Plain-text uploads only — `.md`, `.txt`, `.csv`, `.json`, `.yaml`, code files. PDFs and binaries are rejected at upload time. Max 2 MB per file.
 
 <Note>
-  Git repos use the agent's own credentials if needed. For private repos on GitHub, add a personal access token via **Settings → Env Vars** as `GITHUB_TOKEN`.
+  Private repos use a personal access token. Add the token via **Settings → Env Vars** (e.g. `GITHUB_TOKEN`), then reference it from the source's "PAT Env Ref" dropdown. You can only reference env vars **you** created — if you need a teammate's PAT, ask them to create the source.
 </Note>
 
-## Pick an ingest mode
+## Build the wiki
 
-When you trigger ingest, pick how deep to go:
+Click **Build Wiki** on the folder header. The build:
 
-| Mode | What happens | When to use |
-|---|---|---|
-| **Full** | Re-ingest everything from scratch - overwrites the wiki | First time, or after a major upstream rewrite |
-| **Incremental** | Only re-ingest files that changed since the last run (checked via `manifest.json`) | Routine re-syncs of an active repo |
-| **Karpathy wiki** | Deep structural analysis - module graph, concept extraction, flow diagrams (repos only) | Large or unfamiliar codebases; run once, then Incremental |
+- Compiles all sources in the folder to `~/.slackhive/knowledge/<folderId>/wiki/`
+- Marks each source `compiled` once finished; failed sources show `error` with the message
+- Uses an atomic file lock so two simultaneous builds for the same folder don't collide
 
-**Recommended flow for a large repo:**
+For routine updates on a single source — say a repo that just got new commits — use **Sync** on that source row instead of rebuilding the whole folder. Sync runs the same pipeline scoped to one source.
 
-1. Add the source
-2. Run **Karpathy wiki** once - takes 5–20 min depending on size
-3. Run **Incremental** on a schedule after that - seconds per sync
+A source is automatically marked `stale` when its `repoUrl`, `branch`, `patEnvRef`, content, or URL changes. Stale sources are picked up by the next folder build.
 
-## When to sync
+<img src="/images/engineering-knowledge-wiki-diversity.png" alt="A built wiki folder with the article tree on the left and concepts/diversity.md open on the right" style={{borderRadius: "12px", marginBottom: "24px"}} />
 
-The wiki does not auto-sync. You trigger it when the underlying source has changed.
+## Assign folders to an agent
 
-| Source type | Sync cadence |
-|---|---|
-| Active codebase | Weekly or after major PRs - whenever the agent would otherwise give outdated answers |
-| Public docs | Monthly, or when the doc is versioned |
-| Internal runbooks | After every edit - the author hits **Ingest** before sharing |
-| Uploaded files | When you upload a new version |
+Open the agent and switch to the **Wiki** tab. You'll see every folder in the library with an **Assign** button.
 
-<Tip>
-  If users ask a question and the agent quotes stale code or wrong API shapes, that's the signal to re-sync.
-</Tip>
+<img src="/images/argus-wiki-folders.png" alt="Agent's Wiki tab showing assignable wiki folders from the Knowledge Library" style={{borderRadius: "12px", marginBottom: "24px"}} />
 
-## View the wiki
+When you assign a folder:
 
-After ingest, the Knowledge tab shows the full tree. Click any page to preview it inline:
+- The folder's compiled wiki is copied into the agent's workspace at `knowledge/wiki/{folder-slug}/`
+- The agent's `CLAUDE.md` gets a `# Knowledge Base` section listing every assigned folder and its articles
+- The `/wiki` slash skill is auto-enabled when at least one assigned folder has built content
 
-```
-overview.md         high-level summary - what this repo/source is
-index.md            full table of contents - every page with a 1-line blurb
-concepts/           domain concepts (auth model, pricing tiers, …)
-entities/           key data objects (User, Invoice, Session)
-flows/              how things connect (checkout, refund, onboarding)
-modules/            one page per code module (repo sources only)
-log.md              ingest history - when, mode, files touched
-manifest.json       file hashes + timestamps (powers Incremental)
-```
+Reload the agent (or wait for the auto-reload) and it can immediately consult the wiki. To unassign, click **Unassign** in the same place — the folder stays in the library, only this agent loses access.
 
-On-disk the files live at `~/.slackhive/agents/<slug>/knowledge/wiki/`. You can edit or add pages by hand - the agent reads whatever is on disk.
+## How the agent uses it
 
-## The agent reads it automatically
+When a user asks a question:
 
-The `/wiki` skill is auto-enabled whenever the Knowledge tab is non-empty. When a user asks a question:
-
-1. Agent calls `/wiki`
-2. Skill reads `index.md`
-3. Agent picks the relevant pages and reads them
+1. Agent runs `/wiki` (built-in skill)
+2. The skill reads the `# Knowledge Base` index in `CLAUDE.md`
+3. Agent picks the relevant folder and article(s), Reads them
 4. Agent answers, grounded in the wiki
 
 No configuration needed. It just works.
 
-## Edit or remove sources
+## Coach access
 
-- **Edit** - click a source to change its name, URL, or replacement upload
-- **Re-ingest** - click **Ingest** again, pick a mode, confirm
-- **Remove** - click × on a source card. Removes the source and its ingested wiki pages. Other sources' pages stay.
+Coach can **read** wiki sources for context — `list_file_sources` tells it what file content is available across the agent's assigned folders, and `read_file_source` returns one source's verbatim text. This is useful when Coach is auditing claude.md or skills against actual reference material.
 
-Duplicate sources are auto-prevented - adding the same repo URL twice is a no-op.
+Coach **cannot** add, edit, or delete wiki sources. Wiki content belongs to the folder owner and is shared across many agents — edits go through the Knowledge Library UI so the owner stays in the loop.
 
-## Managing files from Coach
+## Backup and restore
 
-Instead of opening this tab, you can ask **Coach** to add, edit, or remove a file - e.g. "add this API spec", "rename that source and add a header", "drop the old runbook". Coach proposes the change as a card with a before/after preview; you click **Apply** to save it.
-
-After you apply a Coach change, come back here and click **Sync** on the affected source so the wiki reflects it.
-
-See [Coach](/agents/coach) for the full flow.
-
-## Download or restore the whole wiki
-
-The Knowledge tab has two buttons for moving the full wiki around as a tarball.
-
-| Button | What it does |
-|---|---|
-| **Download** | Streams `{agent-slug}-wiki.tar.gz` - every page, manifest, and log in the knowledge tree |
-| **Restore** | Upload a `.tar.gz` or `.tgz` to repopulate the wiki offline |
-
-Use cases:
-
-- **Backup before a full re-ingest** - snapshot the current wiki in case the new run is worse
-- **Clone to another agent** - download from agent A, restore into agent B
-- **Offline editing** - extract the tarball, edit pages by hand, repack and restore
-- **Disaster recovery** - keep periodic downloads alongside your DB backups
-
-<Note>
-  Restore **overwrites** the agent's current wiki. The existing tree is replaced by whatever is in the archive. Back up first if unsure.
-</Note>
+Each folder's compiled wiki lives at `~/.slackhive/knowledge/<folderId>/wiki/` on the host. Snapshot that directory alongside your `data.db` for disaster recovery; folder ownership and assignments are restored from the database.
 
 ## Next steps
 
 <CardGroup cols={2}>
   <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
-    How wiki fits with system prompt, skills, and memory.
+    How the Knowledge Library fits with system prompt, skills, and memory.
   </Card>
   <Card title="Coach" icon="comments" href="/agents/coach">
-    Extract wiki pages from conversations.
+    The interactive panel that tunes claude.md, skills, and memory.
   </Card>
 </CardGroup>

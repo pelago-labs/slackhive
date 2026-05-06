@@ -12,7 +12,7 @@ A SlackHive agent's brain has four layers. Each layer has a different purpose, a
 | **System Prompt** | The agent's identity - role, tone, rules | Instructions → System Prompt | Forever, until you edit it |
 | **Skills** | Reusable procedures - how to do specific tasks | Instructions → Skills | Forever, until you edit them |
 | **Memory** | Facts the agent learned from conversations | Instructions → Memory | Forever, until you delete them |
-| **Wiki** | Reference material the agent looks up on demand | Knowledge tab | Forever, ingested from sources |
+| **Wiki** | Shared reference material the agent looks up on demand | Knowledge Library → Wiki tab | Lives in shared folders, agent is assigned what it needs |
 
 ## 1. System Prompt - who the agent is
 
@@ -73,7 +73,7 @@ Memory grows organically. Every conversation is a chance for the agent to learn.
 
 ## 4. Wiki - what the agent can look up
 
-The agent's Knowledge Base. Ingest a repo, file, or URL and SlackHive builds a Karpathy-style wiki (`overview.md`, `concepts/`, `flows/`, `modules/`) that the agent reads on demand via the `/wiki` skill.
+Wiki folders live in a shared, platform-level **Knowledge Library**. Anyone on the team can create a folder, ingest a repo / file / URL into it, and SlackHive builds a Karpathy-style wiki (`overview.md`, `concepts/`, `flows/`, `modules/`). The agent is assigned the folders it needs and reads them on demand via the `/wiki` skill.
 
 **Put here:**
 
@@ -167,7 +167,7 @@ Memories and the system prompt are always in context; skills and wiki pages load
   <Card title="Memory" icon="brain" href="/agents/memory">
     How agents save and manage memories.
   </Card>
-  <Card title="Knowledge Base" icon="book" href="/agents/knowledge-base">
-    Ingest repos, files, and URLs into the wiki.
+  <Card title="Knowledge Library" icon="book" href="/agents/knowledge-base">
+    Shared wiki folders. Owners ingest repos / files / URLs; agents are assigned the folders they need.
   </Card>
 </CardGroup>

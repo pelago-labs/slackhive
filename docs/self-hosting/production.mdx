@@ -176,7 +176,8 @@ The online backup is atomic and safe while SlackHive is running.
 | Path | Contents |
 |---|---|
 | `~/.slackhive/data.db` | All agents, memories, skills, history, MCP catalog, users, settings |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace - CLAUDE.md, knowledge/wiki, sessions |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace - CLAUDE.md, sessions, copies of assigned wiki folders |
+| `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wikis for the Knowledge Library (source of truth) |
 | `~/.slackhive/.env` | Encryption keys, admin password, Claude auth |
 
 <Warning>

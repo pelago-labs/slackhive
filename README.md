@@ -21,7 +21,7 @@
 
 <br />
 
-<img src="https://raw.githubusercontent.com/pelago-labs/slackhive/main/docs/images/dashboard.png" alt="SlackHive dashboard" style="border-radius: 12px;" />
+<img src="https://raw.githubusercontent.com/pelago-labs/slackhive/main/docs/images/slack-ai-agent-team-dashboard.png" alt="SlackHive dashboard" style="border-radius: 12px;" />
 
 </div>
 
@@ -31,7 +31,7 @@
 
 Andrej Karpathy made two observations that changed how we think about AI systems: LLMs read **wikis** better than file dumps, and **specialists beat generalists**. SlackHive is what fell out when we took both seriously.
 
-One agent per role. Each with its own Karpathy-style wiki, its own tools, its own memory. A Boss agent that delegates instead of cramming everything into one context window. And all of it living in the workspace your team already uses - Slack.
+One agent per role. A shared **Knowledge Library** of Karpathy-style wiki folders that any agent can be assigned. Each agent has its own tools and memory. A Boss agent that delegates instead of cramming everything into one context window. And all of it living in the workspace your team already uses - Slack.
 
 These aren't chatbots you switch to. They're **colleagues you @mention** - side by side with your people, in the same channels, in the same threads. Each agent connects to the tools your team already uses - Notion, Jira, GitHub, Figma, your database, your analytics stack. **Anyone on the team can create one.** No engineers, no platform team - if you can describe what you need, you can deploy it in minutes.
 
@@ -183,6 +183,7 @@ Every agent is a full **Claude Code** agent - with tools, memory, identity, and 
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type - feedback, user, project, reference. |
 | 📡 **Activity Dashboard** | Live kanban of every task your agents are working on - Active, Completed, Errors - with drill-down to every tool call. A superadmin-only **Usage** tab breaks down token consumption per agent and ranks power users by tasks started. Admins see everything; editors see only agents they own or are granted access to; viewers are blocked. |
 | 🌐 **Multi-Workspace** | Connect multiple Slack workspaces to a single SlackHive instance. Each workspace gets its own agents and configurations. |
+| 📚 **Knowledge Library** | Platform-level catalog of Karpathy-style wiki folders. Owners ingest a repo / file / URL into a folder; assign one folder to many agents. The agent's `/wiki` skill auto-enables when at least one assigned folder has built content. |
 
 ---
 

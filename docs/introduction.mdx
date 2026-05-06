@@ -5,7 +5,7 @@ description: "SlackHive turns your Slack workspace into a team of AI agents - sp
 
 ## Build your AI-first company on Slack
 
-<img src="/images/dashboard.png" alt="SlackHive dashboard showing the AI agent team" style={{borderRadius: '12px', margin: '24px 0'}} />
+<img src="/images/slack-ai-agent-team-dashboard.png" alt="SlackHive dashboard showing the AI agent team" style={{borderRadius: '12px', margin: '24px 0'}} />
 
 It's Tuesday morning. Revenue is down 8% and the standup is in 20 minutes.
 
@@ -36,7 +36,7 @@ This is what that team's Slack looks like **after one month with SlackHive** —
 
 ## The idea behind it
 
-Andrej Karpathy made two observations that shaped how we built it: LLMs read **wikis** better than file dumps, and **specialists beat generalists**. So every agent gets its own Karpathy-style wiki, its own tools, its own memory - and a Boss agent that delegates to the right specialist instead of cramming everything into one context window.
+Andrej Karpathy made two observations that shaped how we built it: LLMs read **wikis** better than file dumps, and **specialists beat generalists**. So we built a shared **Knowledge Library** of Karpathy-style wiki folders that any agent can be assigned, gave each agent its own tools and memory, and added a Boss agent that delegates to the right specialist instead of cramming everything into one context window.
 
 These aren't chatbots you switch to. They're **colleagues you @mention** - in the same channels, the same threads, with the same @mention pattern your team already uses for each other. Each one connects to the tools your team already uses - Notion, Jira, GitHub, Figma, your database, your analytics stack.
 
@@ -80,7 +80,7 @@ Every specialist receives the **full Slack thread** as context. Nothing is lost 
     The agent wakes up, reads the thread for context, uses its tools, and replies directly in the thread.
   </Step>
   <Step title="It learns and improves">
-    After each conversation, the agent writes structured memory and can build a per-agent Knowledge Base from your repos, files, and URLs. The longer it works with your team, the sharper it gets.
+    After each conversation, the agent writes structured memory. Anyone on the team can also publish wiki folders to the platform-level **Knowledge Library** (built from repos, files, or URLs) and assign them to agents that need that context. The longer your team works with SlackHive, the sharper everything gets.
   </Step>
 </Steps>
 
@@ -98,8 +98,8 @@ Every specialist receives the **full Slack thread** as context. Nothing is lost 
   <Card title="Boss Orchestration" icon="sitemap" href="/agents/boss-agents">
     A Boss agent receives high-level requests and delegates to specialists via Slack thread @mentions. Specialists report back, and Boss consolidates results.
   </Card>
-  <Card title="Knowledge Base" icon="book" href="/agents/knowledge-base">
-    Ingest repos, files, and URLs into a per-agent wiki the agent reads on demand - Karpathy-style LLM wiki with overview, concepts, flows, and modules.
+  <Card title="Knowledge Library" icon="book" href="/agents/knowledge-base">
+    A shared, platform-level catalog of wiki folders. Owners ingest repos, files, and URLs into Karpathy-style LLM wikis; assign one folder to many agents.
   </Card>
   <Card title="Persistent Memory" icon="brain" href="/agents/memory">
     Agents write structured memories during every session. Memories compound - the longer an agent works with your team, the sharper it gets.
@@ -161,7 +161,7 @@ Every SlackHive agent has four places content can live. Getting the mental model
 | **System Prompt** | Who the agent is - role, tone, hard rules. Loads every turn. |
 | **Skills** | Reusable procedures invoked as slash commands. Loads on demand. |
 | **Memory** | Facts the agent learned from conversations. Recalled when relevant. |
-| **Wiki** | Reference material (codebases, docs, URLs) the agent reads on demand. |
+| **Wiki** | Shared reference material from the platform Knowledge Library — folders the agent is assigned (codebases, docs, URLs). |
 
 See [Concepts - What Goes Where](/agents/concepts) for the decision matrix - it's the best first read after this page.
 
@@ -177,7 +177,7 @@ See [Concepts - What Goes Where](/agents/concepts) for the decision matrix - it'
     The one-command install path.
   </Card>
   <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
-    What goes where - system prompt vs skills vs memory vs wiki.
+    What goes where — system prompt vs skills vs memory vs Knowledge Library.
   </Card>
   <Card title="Create an Agent" icon="robot" href="/agents/creating-agents">
     Walk through the 5-step agent wizard.
