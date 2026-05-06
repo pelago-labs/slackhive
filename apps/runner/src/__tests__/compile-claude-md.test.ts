@@ -30,6 +30,16 @@ describe('compile-claude-md source content', () => {
     expect(src).toContain('memory/{type}_{name}.md');
   });
 
+  it('memory-writing guidance enforces conciseness and redirects verbose content', () => {
+    // The 1-3 sentence rule prevents agents from dumping full reference docs into memory.
+    expect(src).toContain('1–3 sentences');
+    // Explicit "Memory ≠ documentation" header makes the boundary obvious.
+    expect(src).toContain('Memory ≠ documentation');
+    // Tables/configs and multi-step procedures must be redirected, not stored as memory.
+    expect(src).toMatch(/Tables.*wiki folder/);
+    expect(src).toMatch(/procedures.*skill/);
+  });
+
   it('no longer emits the /recall skill', () => {
     expect(src).not.toContain('RECALL_SKILL');
     expect(src).not.toContain("commands, 'recall.md'");
