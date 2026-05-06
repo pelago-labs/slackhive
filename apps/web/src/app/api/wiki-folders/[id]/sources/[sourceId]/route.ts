@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { updateWikiSource, deleteWikiSource, getWikiSource, getWikiFolder } from '@/lib/db';
+import { updateWikiSource, deleteWikiSource, getWikiSource, getWikiFolder, getEnvVarCreatedBy } from '@/lib/db';
 import { guardAuth } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -24,8 +24,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!isAdmin && folder?.createdBy !== session.username) {
       return NextResponse.json({ error: 'Only the folder owner or an admin can edit sources' }, { status: 403 });
     }
-    // Mark stale when file/url content changes and source is already compiled
-    if (existing.type !== 'repo' && existing.status === 'compiled' && (body.content !== undefined || body.url !== undefined)) {
+    if (!isAdmin && body.patEnvRef) {
+      const owner = await getEnvVarCreatedBy(body.patEnvRef);
+      if (owner !== session.username) {
+        return NextResponse.json({ error: 'You can only reference env vars you own' }, { status: 403 });
+      }
+    }
+    // Mark stale when any field that affects the compiled output changes
+    if (existing.status === 'compiled' && (
+      body.content !== undefined || body.url !== undefined ||
+      body.repoUrl !== undefined || body.branch !== undefined || body.patEnvRef !== undefined
+    )) {
       body.status = 'stale';
     }
     const source = await updateWikiSource(sourceId, body);

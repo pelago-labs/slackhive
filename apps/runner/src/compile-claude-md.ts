@@ -215,10 +215,19 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
 
   fs.mkdirSync(workDir, { recursive: true });
 
-  const [skills, memories] = await Promise.all([
+  const [skills, memories, assignedFolders] = await Promise.all([
     getAgentSkills(agent.id),
     getAgentMemories(agent.id),
+    getAgentWikiFolders(agent.id),
   ]);
+
+  // Build slug→name map from DB so the wiki index renders human-readable folder titles
+  // instead of reconstructing them by title-casing the directory slug.
+  const folderSlugToName = new Map<string, string>();
+  for (const folder of assignedFolders) {
+    const folderSlug = folder.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || folder.id.slice(0, 8);
+    folderSlugToName.set(folderSlug, folder.name);
+  }
 
   // Identity is rendered from agent.name/persona/description in buildClaudeMd — never a skill row.
   logger.info('Compiling agent workspace', {
@@ -230,7 +239,7 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
   // -------------------------------------------------------------------------
   // 1. Write CLAUDE.md (identity + inlined memories + knowledge base index)
   // -------------------------------------------------------------------------
-  const claudeMdContent = buildClaudeMd(agent, memories, skills, overrideClaudeMd, formattingRules);
+  const claudeMdContent = buildClaudeMd(agent, memories, skills, overrideClaudeMd, formattingRules, folderSlugToName);
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
   logger.debug('CLAUDE.md written', {
@@ -256,12 +265,12 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
   // Each assigned folder gets its own subdir: knowledge/wiki/{folder-slug}/
   const agentWikiDir = path.join(workDir, 'knowledge', 'wiki');
   fs.rmSync(agentWikiDir, { recursive: true, force: true });
-  const assignedFolders = await getAgentWikiFolders(agent.id);
   let hasWiki = false;
-  for (const folder of assignedFolders) {
+  for (const [folderSlug, folderName] of folderSlugToName) {
+    const folder = assignedFolders.find(f => f.name === folderName)!;
     const folderWikiSrc = path.join(KNOWLEDGE_DIR, folder.id, 'wiki');
     if (fs.existsSync(folderWikiSrc)) {
-      const dest = path.join(agentWikiDir, folder.slug);
+      const dest = path.join(agentWikiDir, folderSlug);
       fs.mkdirSync(dest, { recursive: true });
       fs.cpSync(folderWikiSrc, dest, { recursive: true });
       hasWiki = true;
@@ -404,7 +413,7 @@ function buildInlinedMemoriesSection(memories: Memory[]): string | null {
  * Parses `knowledge/wiki/index.md` to extract article path + one-line summary.
  * Returns null if the index doesn't exist or contains no usable links.
  */
-function buildWikiIndexSection(workDir: string): string | null {
+function buildWikiIndexSection(workDir: string, folderSlugToName?: Map<string, string>): string | null {
   const wikiDir = path.join(workDir, 'knowledge', 'wiki');
   if (!fs.existsSync(wikiDir)) return null;
 
@@ -449,8 +458,9 @@ function buildWikiIndexSection(workDir: string): string | null {
       inlinedIndex = wikiFiles.map(f => `- \`knowledge/wiki/${entry}/${f}\``).join('\n');
     }
 
-    // Convert folder slug back to a readable title
-    const folderTitle = entry.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    // Use the DB folder name when available; fall back to title-casing the slug for legacy state.
+    const folderTitle = folderSlugToName?.get(entry)
+      ?? entry.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     folderSections.push(`## ${folderTitle}\n${inlinedIndex}`);
   }
 
@@ -518,6 +528,7 @@ function buildClaudeMd(
   skills: Skill[],
   overrideClaudeMd?: string,
   formattingRules?: string,
+  folderSlugToName?: Map<string, string>,
 ): string {
   const sections: string[] = [];
 
@@ -544,7 +555,7 @@ function buildClaudeMd(
   // 5. Knowledge base index — inlined so the model knows what exists without
   //    a Read round-trip. See buildWikiIndexSection.
   const workDir = getAgentWorkDir(agent.slug);
-  const wikiSection = buildWikiIndexSection(workDir);
+  const wikiSection = buildWikiIndexSection(workDir, folderSlugToName);
   if (wikiSection) sections.push(wikiSection);
 
   // 6. Skills index — compact list of available slash commands so the agent

@@ -8,6 +8,8 @@ import { randomUUID } from 'crypto';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string; sourceId: string }> }): Promise<NextResponse> {
+  const deny = guardAuth(req);
+  if (deny) return deny;
   try {
     const { sourceId } = await params;
     const { searchParams } = new URL(req.url);
@@ -30,6 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!folder) return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
     const source = await getWikiSource(sourceId);
     if (!source) return NextResponse.json({ error: 'Source not found' }, { status: 404 });
+    if (source.folderId !== id) return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     const session = getSessionFromRequest(req)!;
     const isAdmin = session.role === 'admin' || session.role === 'superadmin';
     if (!isAdmin && folder.createdBy !== session.username) {

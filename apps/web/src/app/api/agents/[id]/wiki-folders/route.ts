@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { getAgentWikiFolders, getAllWikiFolders, getWikiFolder, assignWikiFolder, unassignWikiFolder } from '@/lib/db';
+import { getAgentWikiFolders, getWikiFolder, assignWikiFolder, unassignWikiFolder } from '@/lib/db';
 import { guardAgentWrite, guardAuth } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -76,14 +76,3 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
   }
 }
 
-/** GET all wiki folders with assignment status for this agent */
-export async function OPTIONS(_req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
-  try {
-    const { id: agentId } = await params;
-    const [all, assigned] = await Promise.all([getAllWikiFolders(), getAgentWikiFolders(agentId)]);
-    const assignedIds = new Set(assigned.map(f => f.id));
-    return NextResponse.json(all.map(f => ({ ...f, assigned: assignedIds.has(f.id) })));
-  } catch (err) {
-    return apiError('agents/[id]/wiki-folders', err);
-  }
-}

@@ -8,6 +8,8 @@ import { randomUUID } from 'crypto';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {
+  const deny = guardAuth(req);
+  if (deny) return deny;
   try {
     const { id } = await params;
     const { searchParams } = new URL(req.url);

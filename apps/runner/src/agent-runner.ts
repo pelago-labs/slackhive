@@ -1697,8 +1697,8 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
       let pendingSources: Array<{ id: string; name: string; type: string; content: string | null; url: string | null; repoUrl: string | null; branch: string; patEnvRef: string | null; status: string }>;
       if (singleSourceId != null) {
         const r = await getDb().query(
-          'SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE id = $1',
-          [singleSourceId],
+          'SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE id = $1 AND folder_id = $2',
+          [singleSourceId, folderId],
         );
         pendingSources = r.rows.map((row: any) => ({
           id: row.id, name: row.name, type: row.type, content: row.content ?? null,

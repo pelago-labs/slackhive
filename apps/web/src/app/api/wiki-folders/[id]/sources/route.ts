@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { getWikiFolder, getWikiSources, createWikiSource } from '@/lib/db';
+import { getWikiFolder, getWikiSources, createWikiSource, getEnvVarCreatedBy } from '@/lib/db';
 import { guardAuth } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -35,6 +35,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
     if (body.content && Buffer.byteLength(body.content, 'utf-8') > MAX_CONTENT_BYTES) {
       return NextResponse.json({ error: 'File content exceeds 2 MB limit' }, { status: 413 });
+    }
+    if (!isAdmin && body.patEnvRef) {
+      const owner = await getEnvVarCreatedBy(body.patEnvRef);
+      if (owner !== session.username) {
+        return NextResponse.json({ error: 'You can only reference env vars you own' }, { status: 403 });
+      }
     }
     const source = await createWikiSource(id, {
       type: body.type,
