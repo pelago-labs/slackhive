@@ -589,6 +589,41 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
     db.exec('ALTER TABLE platform_integrations ADD COLUMN bot_image_url TEXT');
   }
 
+  // Rebuild wiki_sources if its status CHECK constraint pre-dates 'stale'.
+  // SQLite CHECK constraints can't be altered — need full table rebuild.
+  // Symptom on stale schemas: PATCH that marks a compiled source 'stale'
+  // silently fails with SQLITE_CONSTRAINT_CHECK and the user's edit is lost.
+  const wikiSourcesSchema = (db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='wiki_sources'"
+  ).get() as { sql: string } | undefined)?.sql ?? '';
+  if (wikiSourcesSchema && !wikiSourcesSchema.includes("'stale'")) {
+    db.exec(`
+      CREATE TABLE wiki_sources_new (
+        id          TEXT PRIMARY KEY,
+        folder_id   TEXT NOT NULL REFERENCES wiki_folders(id) ON DELETE CASCADE,
+        type        TEXT NOT NULL CHECK (type IN ('url', 'file', 'repo')),
+        name        TEXT NOT NULL,
+        content     TEXT,
+        url         TEXT,
+        repo_url    TEXT,
+        branch      TEXT DEFAULT 'main',
+        pat_env_ref TEXT,
+        status      TEXT NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending', 'building', 'compiled', 'stale', 'error')),
+        word_count  INTEGER DEFAULT 0,
+        last_synced TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (folder_id, name)
+      );
+      INSERT INTO wiki_sources_new
+        SELECT id, folder_id, type, name, content, url, repo_url, branch,
+               pat_env_ref, status, word_count, last_synced, created_at
+          FROM wiki_sources;
+      DROP TABLE wiki_sources;
+      ALTER TABLE wiki_sources_new RENAME TO wiki_sources;
+    `);
+  }
+
   const accessCols = (db.pragma('table_info(agent_access)') as { name: string }[]).map(c => c.name);
   if (!accessCols.includes('can_write')) {
     db.exec('ALTER TABLE agent_access ADD COLUMN can_write INTEGER NOT NULL DEFAULT 1');

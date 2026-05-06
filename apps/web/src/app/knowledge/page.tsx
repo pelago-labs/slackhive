@@ -312,10 +312,22 @@ export default function KnowledgePage() {
     if (sourceForm.type === 'repo') { body.repoUrl = sourceForm.repoUrl; body.branch = sourceForm.branch; if (sourceForm.patEnvRef) body.patEnvRef = sourceForm.patEnvRef; }
 
     if (editingSource) {
-      const updated = await fetch(`/api/wiki-folders/${selected.id}/sources/${editingSource.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+      const r = await fetch(`/api/wiki-folders/${selected.id}/sources/${editingSource.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const updated = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(`Save failed: ${updated.error ?? `HTTP ${r.status}`}`);
+        setSaving(false);
+        return;
+      }
       setSources(prev => prev.map(s => s.id === updated.id ? updated : s));
     } else {
-      const source = await fetch(`/api/wiki-folders/${selected.id}/sources`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+      const r = await fetch(`/api/wiki-folders/${selected.id}/sources`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const source = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(`Add failed: ${source.error ?? `HTTP ${r.status}`}`);
+        setSaving(false);
+        return;
+      }
       setSources(prev => [...prev, source]);
     }
     setShowSourceModal(false); setEditingSource(null); setSaving(false);
