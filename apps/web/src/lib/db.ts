@@ -1595,9 +1595,19 @@ export async function deleteWikiFolder(id: string): Promise<void> {
   await (await db()).query('DELETE FROM wiki_folders WHERE id = $1', [id]);
 }
 
+export async function getWikiSourceFolder(sourceId: string): Promise<string | null> {
+  const r = await (await db()).query('SELECT folder_id FROM wiki_sources WHERE id = $1', [sourceId]);
+  return r.rows[0] ? (r.rows[0].folder_id as string) : null;
+}
+
 export async function getWikiSources(folderId: string): Promise<WikiSource[]> {
   const r = await (await db()).query('SELECT * FROM wiki_sources WHERE folder_id = $1 ORDER BY name ASC', [folderId]);
   return r.rows.map(rowToWikiSource);
+}
+
+export async function getWikiSource(id: string): Promise<WikiSource | null> {
+  const r = await (await db()).query('SELECT * FROM wiki_sources WHERE id = $1', [id]);
+  return r.rows[0] ? rowToWikiSource(r.rows[0]) : null;
 }
 
 export async function createWikiSource(folderId: string, req: CreateWikiSourceRequest): Promise<WikiSource> {

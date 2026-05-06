@@ -695,7 +695,7 @@ export type SkillTemplate = 'blank' | 'data-analyst' | 'writer' | 'developer';
 export type KnowledgeSourceType = 'url' | 'file' | 'repo';
 
 /** Status of a knowledge source. */
-export type KnowledgeSourceStatus = 'pending' | 'building' | 'compiled' | 'error';
+export type KnowledgeSourceStatus = 'pending' | 'building' | 'compiled' | 'stale' | 'error';
 
 /**
  * A knowledge source that feeds into the agent's wiki.

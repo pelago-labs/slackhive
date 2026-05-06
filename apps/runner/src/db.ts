@@ -541,6 +541,22 @@ export async function getWikiFolderSources(folderId: string): Promise<WikiSource
   }));
 }
 
+/** Update the status (and optionally wordCount/lastSynced) of a wiki source. */
+export async function updateWikiSourceStatus(
+  sourceId: string,
+  status: string,
+  wordCount?: number,
+  lastSynced?: string,
+): Promise<void> {
+  const sets: string[] = ['status = $1'];
+  const vals: unknown[] = [status];
+  let i = 2;
+  if (wordCount !== undefined) { sets.push(`word_count = $${i++}`); vals.push(wordCount); }
+  if (lastSynced !== undefined) { sets.push(`last_synced = $${i++}`); vals.push(lastSynced); }
+  vals.push(sourceId);
+  await getDb().query(`UPDATE wiki_sources SET ${sets.join(', ')} WHERE id = $${i}`, vals);
+}
+
 /** Write a result to the settings table with the exact key (no prefix). */
 export async function setResult(key: string, value: string): Promise<void> {
   await getDb().query(

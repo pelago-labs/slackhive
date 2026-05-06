@@ -11,6 +11,16 @@ import { NextResponse } from 'next/server';
 import { getSessionFromRequest, type Role } from './auth';
 import { userCanWriteAgent } from './db';
 
+/**
+ * Returns 401 if the user is not logged in, null otherwise.
+ * No role restriction — any authenticated user passes.
+ */
+export function guardAuth(req: Request): NextResponse | null {
+  const session = getSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  return null;
+}
+
 const ROLE_LEVEL: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, superadmin: 3 };
 
 /**

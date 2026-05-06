@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '@/lib/auth-context';
 import { ChevronDown, ChevronRight, FileText, BookOpen, Download } from 'lucide-react';
 
@@ -23,12 +24,29 @@ interface WikiSource {
   branch?: string;
   patEnvRef?: string;
   content?: string;
-  status: 'pending' | 'building' | 'compiled' | 'error';
+  status: 'pending' | 'building' | 'compiled' | 'stale' | 'error';
   wordCount: number;
   lastSynced?: string;
 }
 
 interface WikiPage { path: string; title: string; size: number; }
+
+interface BuildProgress {
+  status: string;
+  step?: string;
+  buildStartedAt?: string;
+  sourceName?: string;
+  sourceIdx?: number;
+  sourcesTotal?: number;
+  chunkIdx?: number;
+  chunksTotal?: number;
+  chunkStartedAt?: string;
+  articlesWritten?: number;
+  pages?: number;
+  words?: number;
+  error?: string;
+  message?: string;
+}
 
 // ─── Wiki Tree ────────────────────────────────────────────────────────────────
 type TreeNode = { name: string; path?: string; title?: string; size?: number; children: TreeNode[] };
@@ -111,7 +129,7 @@ function WikiTree({ articles, onSelect, selected }: { articles: WikiPage[]; onSe
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  compiled: '#059669', building: '#d97706', pending: '#a3a3a3', error: '#dc2626',
+  compiled: '#059669', stale: '#d97706', building: '#2563eb', pending: '#a3a3a3', error: '#dc2626',
 };
 const EMPTY_SOURCE_FORM = { type: 'url', name: '', url: '', repoUrl: '', branch: 'main', patEnvRef: '', content: '' };
 
@@ -137,10 +155,13 @@ export default function KnowledgePage() {
   const [folderForm, setFolderForm]           = useState({ name: '', description: '' });
   const [sourceForm, setSourceForm]           = useState({ ...EMPTY_SOURCE_FORM });
   const [fileUploading, setFileUploading]     = useState(false);
-  const [saving, setSaving]                   = useState(false);
-  const [buildStatus, setBuildStatus]         = useState<Record<string, string>>({});
-  const [envVarKeys, setEnvVarKeys]           = useState<string[]>([]);
-  const [downloading, setDownloading]         = useState(false);
+  const [saving, setSaving]                       = useState(false);
+  const [buildStatus, setBuildStatus]             = useState<Record<string, string>>({});
+  const [buildProgress, setBuildProgress]         = useState<Record<string, BuildProgress>>({});
+  const [showBuildDropdown, setShowBuildDropdown] = useState(false);
+  const [syncStatus, setSyncStatus]               = useState<Record<string, string>>({});
+  const [envVarKeys, setEnvVarKeys]               = useState<string[]>([]);
+  const [downloading, setDownloading]             = useState(false);
 
   const isAdmin = role === 'admin' || role === 'superadmin';
   const isOwnerOrAdmin = (f: WikiFolder) => isAdmin || (canEdit && f.createdBy === username);
@@ -159,6 +180,25 @@ export default function KnowledgePage() {
     setSelected(f); setSelectedArticle(null); setDetailTab('sources');
     setSourcesLoading(true); setSources([]);
     fetch(`/api/wiki-folders/${f.id}/sources`).then(r => r.json()).then(setSources).finally(() => setSourcesLoading(false));
+    // Resume progress polling if a build is already in progress
+    fetch(`/api/wiki-folders/${f.id}/build`).then(r => r.json()).then((p: BuildProgress) => {
+      if (p?.status === 'building') {
+        setBuildStatus(prev => ({ ...prev, [f.id]: 'building' }));
+        setBuildProgress(prev => ({ ...prev, [f.id]: p }));
+        const resumePoll = async () => {
+          const latest: BuildProgress = await fetch(`/api/wiki-folders/${f.id}/build`).then(r => r.json()).catch(() => null);
+          if (!latest || latest.status === 'done' || latest.status === 'error' || latest.status === 'idle') {
+            setBuildStatus(prev => ({ ...prev, [f.id]: latest?.status === 'error' ? 'error' : '' }));
+            setBuildProgress(prev => ({ ...prev, [f.id]: latest ?? {} }));
+            fetch(`/api/wiki-folders/${f.id}/sources`).then(r => r.json()).then(setSources).catch(() => {});
+            return;
+          }
+          setBuildProgress(prev => ({ ...prev, [f.id]: latest }));
+          setTimeout(resumePoll, 3000);
+        };
+        setTimeout(resumePoll, 3000);
+      }
+    }).catch(() => {});
   }
 
   function switchTab(tab: 'sources' | 'wiki') {
@@ -244,15 +284,53 @@ export default function KnowledgePage() {
     setSources(prev => prev.filter(s => s.id !== id));
   }
 
-  async function buildFolder() {
+  async function buildFolder(scratch = false) {
     if (!selected) return;
-    setBuildStatus(prev => ({ ...prev, [selected.id]: 'building' }));
-    const r = await fetch(`/api/wiki-folders/${selected.id}/build`, { method: 'POST' });
-    if (!r.ok) { const e = await r.json(); alert(e.error ?? 'Build failed'); }
-    setBuildStatus(prev => ({ ...prev, [selected!.id]: '' }));
+    setShowBuildDropdown(false);
+    const folderId = selected.id;
+    setBuildStatus(prev => ({ ...prev, [folderId]: 'building' }));
+    setBuildProgress(prev => ({ ...prev, [folderId]: { status: 'building', step: scratch ? 'Clearing wiki…' : 'Starting…' } }));
+    const r = await fetch(`/api/wiki-folders/${folderId}/build`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scratch }) });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error ?? 'Build failed'); setBuildStatus(prev => ({ ...prev, [folderId]: '' })); return; }
+    const { requestId } = await r.json();
+    // Poll indefinitely until done or error
+    const poll = async () => {
+      const p: BuildProgress = await fetch(`/api/wiki-folders/${folderId}/build?requestId=${requestId}`).then(x => x.json()).catch(() => null);
+      if (!p || p.status === 'done' || p.status === 'error' || p.status === 'idle') {
+        setBuildStatus(prev => ({ ...prev, [folderId]: p?.status === 'error' ? 'error' : '' }));
+        setBuildProgress(prev => ({ ...prev, [folderId]: p ?? {} }));
+        fetch(`/api/wiki-folders/${folderId}/sources`).then(x => x.json()).then(setSources).catch(() => {});
+        return;
+      }
+      setBuildProgress(prev => ({ ...prev, [folderId]: p }));
+      setTimeout(poll, 3000);
+    };
+    setTimeout(poll, 2000);
+  }
+
+  async function syncSource(sourceId: string) {
+    if (!selected) return;
+    const folderId = selected.id;
+    setSyncStatus(prev => ({ ...prev, [sourceId]: 'building' }));
+    const r = await fetch(`/api/wiki-folders/${folderId}/sources/${sourceId}/sync`, { method: 'POST' });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error ?? 'Sync failed'); setSyncStatus(prev => ({ ...prev, [sourceId]: '' })); return; }
+    const { requestId } = await r.json();
+    const poll = async () => {
+      const p = await fetch(`/api/wiki-folders/${folderId}/sources/${sourceId}/sync?requestId=${requestId}`).then(x => x.json()).catch(() => null);
+      if (!p || p.status === 'done' || p.status === 'error' || p.status === 'idle') {
+        setSyncStatus(prev => ({ ...prev, [sourceId]: '' }));
+        fetch(`/api/wiki-folders/${folderId}/sources`).then(x => x.json()).then(setSources).catch(() => {});
+        return;
+      }
+      setTimeout(poll, 3000);
+    };
+    setTimeout(poll, 2000);
   }
 
   const canManageSelected = selected ? isOwnerOrAdmin(selected) : false;
+
+  const anySourceBuilding = sources.some(s => s.status === 'building') || syncStatus && Object.values(syncStatus).some(v => v === 'building');
+  const folderIsBuilding = buildStatus[selected?.id ?? ''] === 'building' || anySourceBuilding;
 
   // ── Folder list view ──────────────────────────────────────────────────────
   if (!selected) {
@@ -356,11 +434,37 @@ export default function KnowledgePage() {
           </div>
           {canManageSelected && (
             <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
-              <button onClick={() => { setFolderForm({ name: selected.name, description: selected.description ?? '' }); setEditingFolder(selected); }} style={outlineBtnStyle}>Edit</button>
-              <button onClick={buildFolder} disabled={buildStatus[selected.id] === 'building'} style={{ ...primaryBtnStyle, opacity: buildStatus[selected.id] === 'building' ? 0.6 : 1 }}>
-                {buildStatus[selected.id] === 'building' ? 'Building…' : 'Build Wiki'}
-              </button>
-              <button onClick={() => deleteFolder(selected.id)} style={outlineBtnStyle}>Delete</button>
+              <button onClick={() => { setFolderForm({ name: selected.name, description: selected.description ?? '' }); setEditingFolder(selected); }} disabled={folderIsBuilding} style={{ ...outlineBtnStyle, opacity: folderIsBuilding ? 0.5 : 1 }}>Edit</button>
+              {/* Build Wiki button with dropdown */}
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden' }}>
+                  <button
+                    onClick={() => buildFolder(false)}
+                    disabled={folderIsBuilding}
+                    style={{ ...primaryBtnStyle, borderRadius: 0, borderRight: '1px solid rgba(255,255,255,0.2)', opacity: folderIsBuilding ? 0.6 : 1 }}
+                  >
+                    {folderIsBuilding ? 'Building…' : 'Build Wiki'}
+                  </button>
+                  <button
+                    onClick={() => setShowBuildDropdown(v => !v)}
+                    disabled={folderIsBuilding}
+                    style={{ ...primaryBtnStyle, borderRadius: 0, padding: '9px 10px', opacity: folderIsBuilding ? 0.6 : 1 }}
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                </div>
+                {showBuildDropdown && !folderIsBuilding && (
+                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-md)', zIndex: 100, minWidth: 200, overflow: 'hidden' }}>
+                    <button onClick={() => buildFolder(false)} style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '10px 16px', textAlign: 'left', fontSize: 13, color: 'var(--text)', cursor: 'pointer' }}>
+                      Build pending / stale
+                    </button>
+                    <button onClick={() => buildFolder(true)} style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '10px 16px', textAlign: 'left', fontSize: 13, color: 'var(--red)', cursor: 'pointer' }}>
+                      Rebuild from scratch
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button onClick={() => deleteFolder(selected.id)} disabled={folderIsBuilding} style={{ ...outlineBtnStyle, opacity: folderIsBuilding ? 0.5 : 1 }}>Delete</button>
             </div>
           )}
         </div>
@@ -374,6 +478,11 @@ export default function KnowledgePage() {
           ))}
         </div>
       </div>
+
+      {/* Build progress panel */}
+      {folderIsBuilding && selected && (
+        <BuildProgressPanel progress={buildProgress[selected.id]} />
+      )}
 
       {/* Tab content */}
       <div style={{ padding: '28px 40px' }}>
@@ -407,9 +516,20 @@ export default function KnowledgePage() {
                       {s.wordCount > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{s.wordCount.toLocaleString()} words</div>}
                     </div>
                     {canManageSelected && (
-                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                        <button onClick={() => openEditSource(s)} style={{ ...outlineBtnStyle, fontSize: 12, padding: '4px 10px' }}>Edit</button>
-                        <button onClick={() => deleteSource(s.id)} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                        {syncStatus[s.id] === 'building' || s.status === 'building' ? (
+                          <span style={{ fontSize: 12, color: STATUS_COLOR.building }}>Syncing…</span>
+                        ) : (
+                          <button
+                            onClick={() => syncSource(s.id)}
+                            disabled={folderIsBuilding}
+                            style={{ ...outlineBtnStyle, fontSize: 12, padding: '4px 10px', opacity: folderIsBuilding ? 0.5 : 1 }}
+                          >
+                            Sync
+                          </button>
+                        )}
+                        <button onClick={() => openEditSource(s)} disabled={folderIsBuilding} style={{ ...outlineBtnStyle, fontSize: 12, padding: '4px 10px', opacity: folderIsBuilding ? 0.5 : 1 }}>Edit</button>
+                        <button onClick={() => deleteSource(s.id)} disabled={folderIsBuilding} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', padding: '0 2px', lineHeight: 1, opacity: folderIsBuilding ? 0.4 : 1 }}>×</button>
                       </div>
                     )}
                   </div>
@@ -541,15 +661,114 @@ export default function KnowledgePage() {
   );
 }
 
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+// ─── Build Progress Panel ─────────────────────────────────────────────────────
+
+function BuildProgressPanel({ progress }: { progress?: BuildProgress }) {
+  const [elapsed, setElapsed] = useState('');
+  const [chunkElapsed, setChunkElapsed] = useState('');
+
+  useEffect(() => {
+    const tick = () => {
+      if (progress?.buildStartedAt) {
+        const secs = Math.floor((Date.now() - new Date(progress.buildStartedAt).getTime()) / 1000);
+        setElapsed(secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`);
+      }
+      if (progress?.chunkStartedAt) {
+        const secs = Math.floor((Date.now() - new Date(progress.chunkStartedAt).getTime()) / 1000);
+        setChunkElapsed(secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [progress?.buildStartedAt, progress?.chunkStartedAt]);
+
+  const sourceIdx = progress?.sourceIdx ?? 0;
+  const sourcesTotal = progress?.sourcesTotal ?? 1;
+  const chunkIdx = progress?.chunkIdx ?? 0;
+  const chunksTotal = progress?.chunksTotal ?? 1;
+  const sourcePct = sourcesTotal > 0 ? Math.round(((sourceIdx + (chunksTotal > 1 ? chunkIdx / chunksTotal : 0)) / sourcesTotal) * 100) : 0;
+
+  // ETA: extrapolate from chunk timing if available
+  let eta = '';
+  if (progress?.chunkStartedAt && chunksTotal > 1) {
+    const chunkSecs = (Date.now() - new Date(progress.chunkStartedAt).getTime()) / 1000;
+    const remainingChunks = (chunksTotal - chunkIdx - 1) + (sourcesTotal - sourceIdx - 1) * chunksTotal;
+    if (chunkSecs > 5 && remainingChunks > 0) {
+      const etaSecs = Math.round(chunkSecs * remainingChunks);
+      eta = etaSecs < 60 ? `~${etaSecs}s` : `~${Math.floor(etaSecs / 60)}m`;
+    }
+  }
+
   return (
+    <div style={{
+      margin: '0 40px 0', padding: '14px 18px',
+      background: 'rgba(37,99,235,0.07)', border: '1px solid rgba(37,99,235,0.2)',
+      borderRadius: 10, fontSize: 13,
+    }}>
+      {/* Top row: what's happening */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#2563eb', animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <span style={{ fontWeight: 500, color: 'var(--text)' }}>
+          {progress?.sourceName
+            ? `Building wiki for ${progress.sourceName}`
+            : (progress?.step ?? 'Building…')}
+        </span>
+        {elapsed && <span style={{ marginLeft: 'auto', color: 'var(--subtle)', fontSize: 12 }}>Elapsed: {elapsed}</span>}
+      </div>
+
+      {/* Source progress bar */}
+      {sourcesTotal > 1 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>
+            <span>Source {sourceIdx + 1} of {sourcesTotal}</span>
+            {eta && <span>ETA {eta}</span>}
+          </div>
+          <div style={{ height: 4, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${sourcePct}%`, background: '#2563eb', borderRadius: 4, transition: 'width 0.5s' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Chunk progress */}
+      {chunksTotal > 1 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>
+            <span>Chunk {chunkIdx + 1} of {chunksTotal} {chunkElapsed ? `(${chunkElapsed} on this chunk)` : ''}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+              Each chunk ≈ 100k chars of source code
+            </span>
+          </div>
+          <div style={{ height: 4, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${Math.round(((chunkIdx) / chunksTotal) * 100)}%`, background: 'rgba(37,99,235,0.5)', borderRadius: 4, transition: 'width 0.5s' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Detail step */}
+      {progress?.step && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+          {progress.step}
+          {progress.articlesWritten ? ` · ${progress.articlesWritten} articles written so far` : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 28px 24px', width: 460, maxWidth: '92vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', border: '1px solid var(--border)' }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 20 }}>{title}</div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -565,5 +784,5 @@ function ModalFooter({ onCancel, onSave, saving, saveLabel, disabled }: { onCanc
 const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5, marginTop: 14 };
 const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 10px', fontSize: 13.5, color: 'var(--text)', background: 'var(--surface-2)', outline: 'none' };
 const cancelBtnStyle: React.CSSProperties = { background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer', color: 'var(--text)' };
-const primaryBtnStyle: React.CSSProperties = { background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13.5, fontWeight: 500, cursor: 'pointer' };
+const primaryBtnStyle: React.CSSProperties = { background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13.5, fontWeight: 500, cursor: 'pointer' };
 const outlineBtnStyle: React.CSSProperties = { background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 14px', fontSize: 13, cursor: 'pointer' };

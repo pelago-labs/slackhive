@@ -22,6 +22,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { Agent, PlatformAdapter, ThreadMessage } from '@slackhive/shared';
 import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities } from '@slackhive/shared';
@@ -42,6 +43,7 @@ import {
   heartbeatAgents,
   setResult,
   getPlatformIntegration,
+  updateWikiSourceStatus,
 } from './db';
 import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
@@ -273,7 +275,7 @@ export class AgentRunner {
     try {
       const { getDb } = await import('@slackhive/shared');
       const r = await getDb().query(
-        "SELECT key, value FROM settings WHERE key LIKE 'analyze:%' OR key LIKE 'knowledge-build:%'"
+        "SELECT key, value FROM settings WHERE key LIKE 'analyze:%' OR key LIKE 'knowledge-build:%' OR key LIKE 'wiki-build:%'"
       );
       let cleaned = 0;
       for (const row of r.rows) {
@@ -290,6 +292,11 @@ export class AgentRunner {
         } catch { /* skip invalid rows */ }
       }
       if (cleaned > 0) logger.info('Cleaned up stale in-flight requests', { count: cleaned });
+
+      // Reset interrupted wiki_sources builds back to pending (building → pending only on restart)
+      await getDb().query(
+        "UPDATE wiki_sources SET status = 'pending' WHERE status = 'building'"
+      );
     } catch (err) {
       logger.warn('Failed to clean stale requests', { error: (err as Error).message });
     }
@@ -808,6 +815,16 @@ export class AgentRunner {
               if (raw.type === 'ingest-source') {
                 this.ingestSingleSource(raw.agentId, raw.sourceId, raw.requestId).catch(err =>
                   logger.error('Source ingest failed', { error: err.message })
+                );
+              }
+              if (raw.type === 'build-wiki-folder') {
+                this.buildWikiFolderSources(raw.folderId, raw.requestId, raw.scratch === true).catch(err =>
+                  logger.error('Wiki folder build failed', { error: err.message })
+                );
+              }
+              if (raw.type === 'build-wiki-source') {
+                this.buildWikiFolderSources(raw.folderId, raw.requestId, false, raw.sourceId).catch(err =>
+                  logger.error('Wiki source build failed', { error: err.message })
                 );
               }
               break;
@@ -1610,6 +1627,224 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         status: 'error',
         error: msg.includes('AUTH_NEEDS_LOGIN') ? 'Run `claude login` in your terminal.' : `Build failed: ${msg.slice(0, 200)}`,
       }));
+    }
+  }
+
+  private async buildWikiFolderSources(
+    folderId: string,
+    requestId: string,
+    scratch: boolean,
+    singleSourceId?: string,
+  ): Promise<void> {
+    logger.info('Building wiki folder sources', { folderId, requestId, scratch, singleSourceId });
+    const wikiDir = path.join(os.homedir(), '.slackhive', 'knowledge', folderId, 'wiki');
+
+    const buildStartedAt = new Date().toISOString();
+    const writeProgress = async (data: Record<string, unknown>) => {
+      await setResult(`wiki-build:${requestId}`, JSON.stringify({ buildStartedAt, ...data }));
+    };
+
+    try {
+      await writeProgress({ status: 'building', folderId, step: 'Starting...' });
+
+      if (scratch) {
+        await writeProgress({ status: 'building', folderId, step: 'Clearing wiki for rebuild...' });
+        try { fs.rmSync(wikiDir, { recursive: true, force: true }); } catch { /* ok */ }
+        // Only reset compiled/error/stale sources to pending — this is the one explicit user-triggered reset
+        const { getDb } = await import('@slackhive/shared');
+        await getDb().query(
+          "UPDATE wiki_sources SET status = 'pending' WHERE folder_id = $1 AND status IN ('compiled', 'error', 'stale')",
+          [folderId],
+        );
+      }
+
+      fs.mkdirSync(wikiDir, { recursive: true });
+
+      // Query sources with status directly
+      const { getDb } = await import('@slackhive/shared');
+      let pendingSources: Array<{ id: string; name: string; type: string; content: string | null; url: string | null; repoUrl: string | null; branch: string; patEnvRef: string | null; status: string }>;
+      if (singleSourceId) {
+        const r = await getDb().query(
+          'SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE id = $1',
+          [singleSourceId],
+        );
+        pendingSources = r.rows.map((row: any) => ({
+          id: row.id, name: row.name, type: row.type, content: row.content ?? null,
+          url: row.url ?? null, repoUrl: row.repo_url ?? null, branch: row.branch ?? 'main',
+          patEnvRef: row.pat_env_ref ?? null, status: row.status,
+        }));
+      } else {
+        const r = await getDb().query(
+          "SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE folder_id = $1 AND status IN ('pending', 'stale', 'error') ORDER BY created_at ASC",
+          [folderId],
+        );
+        pendingSources = r.rows.map((row: any) => ({
+          id: row.id, name: row.name, type: row.type, content: row.content ?? null,
+          url: row.url ?? null, repoUrl: row.repo_url ?? null, branch: row.branch ?? 'main',
+          patEnvRef: row.pat_env_ref ?? null, status: row.status,
+        }));
+      }
+
+      if (pendingSources.length === 0) {
+        await writeProgress({ status: 'done', folderId, pages: 0, words: 0, message: 'Nothing to build.' });
+        return;
+      }
+
+      // Read existing wiki
+      const readExistingWiki = (): string => {
+        if (!fs.existsSync(wikiDir)) return '(empty — no wiki yet)';
+        // Only return index.md to keep prompt size small; fall back to listing article paths.
+        const indexPath = path.join(wikiDir, 'index.md');
+        if (fs.existsSync(indexPath)) return fs.readFileSync(indexPath, 'utf-8');
+        const paths: string[] = [];
+        const walk = (dir: string, rel: string) => {
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (e.isDirectory()) { walk(path.join(dir, e.name), rel ? `${rel}/${e.name}` : e.name); continue; }
+            if (!e.name.endsWith('.md') || e.name === 'log.md') continue;
+            paths.push(`${rel ? `${rel}/` : ''}${e.name}`);
+          }
+        };
+        walk(wikiDir, '');
+        return paths.length ? `Existing articles:\n${paths.join('\n')}` : '(empty — no wiki yet)';
+      };
+
+      const manifestPath = path.join(wikiDir, 'manifest.json');
+      let manifest: Record<string, { created: string[]; updated: string[] }> = {};
+      try { if (fs.existsSync(manifestPath)) manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')); } catch { /* ok */ }
+
+      let totalPages = 0;
+      let totalWords = 0;
+
+      for (let i = 0; i < pendingSources.length; i++) {
+        const src = pendingSources[i];
+        await updateWikiSourceStatus(src.id, 'building');
+        await writeProgress({
+          status: 'building', folderId,
+          step: `Processing ${src.name}…`,
+          sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length,
+          articlesWritten: totalPages,
+        });
+
+        try {
+          let content = '';
+          if (src.type === 'file' || src.type === 'url') {
+            content = src.content ?? '';
+            if (!content && src.url) {
+              await writeProgress({ status: 'building', folderId, step: `Fetching ${src.name}…`, sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length, articlesWritten: totalPages });
+              const resp = await fetch(src.url);
+              if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${src.url}`);
+              content = await resp.text();
+              // Save fetched content back to DB
+              await getDb().query('UPDATE wiki_sources SET content = $1 WHERE id = $2', [content, src.id]);
+            }
+            if (!content) throw new Error(`Source "${src.name}" has no content`);
+          } else if (src.type === 'repo') {
+            await writeProgress({ status: 'building', folderId, step: `Cloning ${src.name}…`, sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length, articlesWritten: totalPages });
+            content = await this.readRepoContent({
+              repo_url: src.repoUrl, branch: src.branch, pat_env_ref: src.patEnvRef, name: src.name,
+            } as any);
+          }
+
+          const existingWiki = readExistingWiki();
+          const wikiIsEmpty = existingWiki === '(empty — no wiki yet)';
+          const sourceEverIngested = !!manifest[src.name];
+          const isCode = src.type === 'repo';
+          const targetRange = isCode ? '20-40' : '3-8';
+          const articleTypesList = isCode
+            ? ['- `modules/xxx.md`', '- `concepts/xxx.md`', '- `entities/xxx.md`', '- `flows/xxx.md`'].join('\n')
+            : ['- `concepts/xxx.md`', '- `entities/xxx.md` (optional)'].join('\n');
+          const codebaseWord = isCode ? 'codebase' : 'document';
+          const effectiveMode = wikiIsEmpty ? 'first' : (sourceEverIngested && src.status === 'stale') ? 'sync' : 'new-source';
+          const modeInstruction = effectiveMode === 'first'
+            ? `This is the FIRST source. Create the initial wiki — aim for ${targetRange} articles. Don't pad.`
+            : effectiveMode === 'new-source'
+            ? `This is a NEW source being added to an existing wiki. Create articles for distinct topics — aim for ${targetRange}. Also update existing articles where relevant.`
+            : `This source was previously ingested and is being RE-SYNCED. Update affected articles. Add new articles for new content.`;
+          const now = new Date().toISOString().split('T')[0];
+
+          // Split large content into chunks so each Claude call stays within context limits.
+          const CHUNK_SIZE = 100_000;
+          const chunks: string[] = [];
+          for (let off = 0; off < content.length; off += CHUNK_SIZE) chunks.push(content.slice(off, off + CHUNK_SIZE));
+
+          for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+            const chunkContent = chunks[chunkIdx];
+            const chunkLabel = chunks.length > 1 ? ` (part ${chunkIdx + 1}/${chunks.length})` : '';
+            const chunkModeInstruction = chunkIdx === 0
+              ? modeInstruction
+              : `This is PART ${chunkIdx + 1} of ${chunks.length} of source "${src.name}". Articles from earlier parts are already in the wiki. Add new articles for topics in this part not yet covered. Update existing articles where this part adds relevant info.`;
+            const chunkStartedAt = new Date().toISOString();
+            await writeProgress({
+              status: 'building', folderId,
+              step: `Generating wiki for ${src.name}${chunkLabel}…`,
+              sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length,
+              chunkIdx, chunksTotal: chunks.length, chunkStartedAt,
+              articlesWritten: totalPages,
+            });
+            const currentWiki = readExistingWiki();
+
+          const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\n## Existing wiki\n${currentWiki}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "concepts/x.md", "title": "X", "content": "..." }],\n  ${chunkIdx === 0 && effectiveMode === 'first' ? '"overview": "# Overview\\n...",' : ''}\n  "index": "# Wiki Index\\n...",\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
+
+            let lastProgress = 0;
+            const response = await this.callClaudeWithRetry(prompt, (chars) => {
+              if (chars - lastProgress > 5000) {
+                lastProgress = chars;
+                writeProgress({
+                  status: 'building', folderId,
+                  step: `Claude writing articles for ${src.name}${chunkLabel}… (${Math.round(chars / 1000)}k chars)`,
+                  sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length,
+                  chunkIdx, chunksTotal: chunks.length, chunkStartedAt,
+                  articlesWritten: totalPages,
+                }).catch(() => {});
+              }
+            });
+
+            const parsed = this.parseWikiJson(response);
+            if (!parsed) throw new Error(`Could not parse Claude response for chunk ${chunkIdx + 1}`);
+
+            for (const article of (parsed.created ?? [])) {
+              const p = path.join(wikiDir, article.path);
+              fs.mkdirSync(path.dirname(p), { recursive: true });
+              fs.writeFileSync(p, article.content, 'utf-8');
+              totalPages++;
+              totalWords += article.content.split(/\s+/).length;
+            }
+            for (const article of (parsed.updated ?? [])) {
+              const p = path.join(wikiDir, article.path);
+              fs.mkdirSync(path.dirname(p), { recursive: true });
+              fs.writeFileSync(p, article.content, 'utf-8');
+            }
+            if (parsed.overview) fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
+            if (parsed.index) fs.writeFileSync(path.join(wikiDir, 'index.md'), parsed.index, 'utf-8');
+            if (parsed.logEntry) {
+              const logPath = path.join(wikiDir, 'log.md');
+              const existingLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8') : '# Wiki Log\n';
+              fs.writeFileSync(logPath, existingLog + '\n' + parsed.logEntry + '\n', 'utf-8');
+            }
+            const createdPaths = (parsed.created ?? []).map((a: any) => a.path);
+            const updatedPaths = (parsed.updated ?? []).map((a: any) => a.path);
+            manifest[src.name] = {
+              created: [...(manifest[src.name]?.created ?? []), ...createdPaths].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+              updated: [...(manifest[src.name]?.updated ?? []), ...updatedPaths].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+            };
+            fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+          } // end chunk loop
+
+          await updateWikiSourceStatus(src.id, 'compiled', totalWords, new Date().toISOString());
+          logger.info('Wiki source compiled', { folderId, source: src.name });
+        } catch (err) {
+          const msg = (err as Error).message ?? String(err);
+          logger.error('Wiki source build failed', { folderId, source: src.name, error: msg });
+          await updateWikiSourceStatus(src.id, 'error');
+        }
+      }
+
+      await writeProgress({ status: 'done', folderId, pages: totalPages, words: totalWords });
+      logger.info('Wiki folder build complete', { folderId, pages: totalPages, words: totalWords });
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      logger.error('Wiki folder build error', { folderId, requestId, error: msg });
+      await writeProgress({ status: 'error', folderId, error: msg.slice(0, 200) });
     }
   }
 

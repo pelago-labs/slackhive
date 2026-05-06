@@ -17,10 +17,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { setSetting, publishAgentEvent } from '@/lib/db';
+import { guardAdmin } from '@/lib/api-guard';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   const { mcpUrl, mcpName, templateId } = await req.json();
 
   if (!mcpUrl || !mcpName) {
@@ -56,6 +59,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
  * GET /api/mcps/auth?requestId=xxx — poll for auth result
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
   const requestId = req.nextUrl.searchParams.get('requestId');
   if (!requestId) {
     return NextResponse.json({ error: 'requestId required' }, { status: 400 });

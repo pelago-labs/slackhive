@@ -436,7 +436,7 @@ CREATE TABLE IF NOT EXISTS knowledge_sources (
   pat_env_ref TEXT,
   sync_cron   TEXT,
   content     TEXT,
-  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'building', 'compiled', 'error')),
+  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'building', 'compiled', 'stale', 'error')),
   word_count  INTEGER DEFAULT 0,
   last_synced TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -464,7 +464,7 @@ CREATE TABLE IF NOT EXISTS wiki_sources (
   branch      TEXT DEFAULT 'main',
   pat_env_ref TEXT,
   status      TEXT NOT NULL DEFAULT 'pending'
-                   CHECK (status IN ('pending', 'building', 'compiled', 'error')),
+                   CHECK (status IN ('pending', 'building', 'compiled', 'stale', 'error')),
   word_count  INTEGER DEFAULT 0,
   last_synced TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),

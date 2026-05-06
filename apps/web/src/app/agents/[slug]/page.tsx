@@ -1445,7 +1445,7 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
                   {!mcp.enabled && <span style={{ fontSize: 11, color: 'var(--subtle)' }}>disabled</span>}
                 </div>
                 {mcp.description && <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{mcp.description}</p>}
-                {!canAssign && (
+                {canEdit && !canAssign && (
                   <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
                     Only the MCP owner or an admin can assign this
                   </p>
