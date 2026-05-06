@@ -278,8 +278,9 @@ export default function KnowledgePage() {
     setShowSourceModal(false); setEditingSource(null); setSaving(false);
   }
 
-  async function deleteSource(id: string) {
+  async function deleteSource(id: string, name: string) {
     if (!selected) return;
+    if (!confirm(`Delete source "${name}"? This cannot be undone.`)) return;
     await fetch(`/api/wiki-folders/${selected.id}/sources/${id}`, { method: 'DELETE' });
     setSources(prev => prev.filter(s => s.id !== id));
   }
@@ -529,7 +530,7 @@ export default function KnowledgePage() {
                           </button>
                         )}
                         <button onClick={() => openEditSource(s)} disabled={folderIsBuilding} style={{ ...outlineBtnStyle, fontSize: 12, padding: '4px 10px', opacity: folderIsBuilding ? 0.5 : 1 }}>Edit</button>
-                        <button onClick={() => deleteSource(s.id)} disabled={folderIsBuilding} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', padding: '0 2px', lineHeight: 1, opacity: folderIsBuilding ? 0.4 : 1 }}>×</button>
+                        <button onClick={() => deleteSource(s.id, s.name)} disabled={folderIsBuilding} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', padding: '0 2px', lineHeight: 1, opacity: folderIsBuilding ? 0.4 : 1 }}>×</button>
                       </div>
                     )}
                   </div>

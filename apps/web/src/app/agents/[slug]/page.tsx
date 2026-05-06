@@ -1586,7 +1586,8 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
   const load = () => fetch(`/api/agents/${agentId}/memories`).then(r => r.json()).then(setMemories);
   useEffect(() => { load(); }, [agentId]);
 
-  const remove = async (id: string) => {
+  const remove = async (id: string, name: string) => {
+    if (!confirm(`Delete memory "${name}"? This cannot be undone.`)) return;
     await fetch(`/api/agents/${agentId}/memories/${id}`, { method: 'DELETE' });
     load();
   };
@@ -1665,7 +1666,7 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
                         {new Date(m.updatedAt).toLocaleDateString()}
                       </span>
                       {canEdit && <button
-                        onClick={e => { e.stopPropagation(); remove(m.id); }}
+                        onClick={e => { e.stopPropagation(); remove(m.id, m.name); }}
                         style={{
                           background: 'none', border: 'none', cursor: 'pointer',
                           color: '#ef4444', fontSize: 13, opacity: 0.5, transition: 'opacity 0.12s',
