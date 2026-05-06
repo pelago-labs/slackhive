@@ -10,7 +10,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const deny = guardAuth(req);
   if (deny) return deny;
   try {
-    const { sourceId } = await params;
+    const { id, sourceId } = await params;
     const body = await req.json();
     const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
     if (body.content && Buffer.byteLength(body.content, 'utf-8') > MAX_CONTENT_BYTES) {
@@ -18,6 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     const existing = await getWikiSource(sourceId);
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (existing.folderId !== id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const folder = await getWikiFolder(existing.folderId);
     const session = getSessionFromRequest(req)!;
     const isAdmin = session.role === 'admin' || session.role === 'superadmin';
@@ -49,9 +50,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const deny = guardAuth(req);
   if (deny) return deny;
   try {
-    const { sourceId } = await params;
+    const { id, sourceId } = await params;
     const existing = await getWikiSource(sourceId);
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (existing.folderId !== id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const folder = await getWikiFolder(existing.folderId);
     const session = getSessionFromRequest(req)!;
     const isAdmin = session.role === 'admin' || session.role === 'superadmin';

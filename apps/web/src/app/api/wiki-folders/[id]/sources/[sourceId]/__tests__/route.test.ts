@@ -50,6 +50,22 @@ beforeEach(() => {
   vi.mocked(getEnvVarCreatedBy).mockReset();
 });
 
+describe('PATCH/DELETE /api/wiki-folders/[id]/sources/[sourceId] — URL folder must match source folder', () => {
+  it('PATCH returns 404 when source belongs to a different folder', async () => {
+    vi.mocked(getWikiSource).mockResolvedValue(makeSource({ folderId: 'folder-OTHER' }) as any);
+    const { PATCH } = await loadRoute();
+    const res = await PATCH(makeReq('PATCH', { name: 'x' }, { username: 'alice', role: 'editor' }), { params });
+    expect(res.status).toBe(404);
+  });
+
+  it('DELETE returns 404 when source belongs to a different folder', async () => {
+    vi.mocked(getWikiSource).mockResolvedValue(makeSource({ folderId: 'folder-OTHER' }) as any);
+    const { DELETE } = await loadRoute();
+    const res = await DELETE(makeReq('DELETE', undefined, { username: 'alice', role: 'editor' }), { params });
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('PATCH /api/wiki-folders/[id]/sources/[sourceId] — stale marking on repo field changes', () => {
   it('marks compiled repo source stale when repoUrl changes', async () => {
     vi.mocked(getWikiSource).mockResolvedValue(makeSource({ type: 'repo', status: 'compiled' }) as any);
