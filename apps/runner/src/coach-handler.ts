@@ -512,8 +512,6 @@ function buildToolbox(ctx: ToolContext) {
   // knowledge/sources/<name>.md. Scope is intentionally narrow: file type only.
   // URL and repo sources are pulled from remotes and not coach-editable.
 
-  const MAX_FILE_SOURCE_BYTES = 1_048_576; // 1 MB
-
   const listFileSources = defTool(
     'list_file_sources',
     "List every file-type knowledge source across all wiki folders assigned to this agent, with id, name, folder name, word count, status, and a 200-char preview. URL and repo sources are NOT included.",
@@ -554,49 +552,6 @@ function buildToolbox(ctx: ToolContext) {
       return textResult(`# ${r.rows[0].name}\n\n${content || '(empty)'}`);
     }),
     { annotations: { readOnlyHint: true } }
-  );
-
-  const proposeFileSourceChange = defTool(
-    'propose_file_source_change',
-    'Propose updating or deleting ONE file-type knowledge source in an assigned wiki folder. Does not apply — surfaces an approval card. On Apply the source row is saved; the wiki is NOT auto-rebuilt (the folder owner clicks Build Wiki in the Knowledge Library). For `update`: provide sourceId + content (name optional to rename). For `delete`: provide sourceId only. Creating new sources must be done by the folder owner in the Knowledge Library UI — coach cannot create sources. Content capped at 1 MB.',
-    {
-      action: z.enum(['update', 'delete']),
-      /** Required for update/delete. Get from list_file_sources. */
-      sourceId: z.string().min(1, 'sourceId required'),
-      /** Optional on update (rename). Ignored on delete. */
-      name: z.string().optional(),
-      /** Required for update. Omit for delete. Capped at 1 MB. */
-      content: z.string().optional(),
-      rationale: z.string().min(1),
-    },
-    wrap('propose_file_source_change', async ({ action, sourceId, name, content, rationale }) => {
-      const id = randomUUID();
-
-      if (content && Buffer.byteLength(content, 'utf8') > MAX_FILE_SOURCE_BYTES) {
-        throw new Error(`content exceeds 1 MB cap (${Buffer.byteLength(content, 'utf8')} bytes)`);
-      }
-
-      const r = await getDb().query(
-        `SELECT ws.id, ws.name FROM wiki_sources ws
-         JOIN agent_wiki_folders awf ON awf.folder_id = ws.folder_id
-         WHERE ws.id = $1 AND awf.agent_id = $2 AND ws.type = 'file'`,
-        [sourceId, ctx.agentId],
-      );
-      if (r.rows.length === 0) throw new Error(`file source not found: ${sourceId}`);
-      const existingName = r.rows[0].name as string;
-
-      if (action === 'update' && !content) throw new Error('content is required for update');
-
-      ctx.proposals.push({
-        kind: 'file-source', id, action,
-        sourceId,
-        name: name ?? existingName,
-        content: action === 'delete' ? undefined : content,
-        rationale, status: 'pending',
-      });
-      return textResult(`Proposal queued (id=${id}) for ${action} file source ${existingName}.`);
-    }),
-    { annotations: { readOnlyHint: false, destructiveHint: true } }
   );
 
   return [readClaudeMd, listSkills, readSkill, listMcps, readMemories, proposeClaudeMd, proposeSkill, proposeMemory, listFileSources, readFileSource];
@@ -664,7 +619,6 @@ export async function runCoachTurn(input: CoachTurnInput): Promise<{
     'mcp__coach__propose_claude_md_update',
     'mcp__coach__propose_skill_change',
     'mcp__coach__propose_memory_change',
-    'mcp__coach__propose_file_source_change',
     'WebFetch',
     'WebSearch',
   ];

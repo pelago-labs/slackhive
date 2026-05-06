@@ -22,26 +22,35 @@ import { writeFileSourcesToDisk } from '../compile-claude-md';
 let tmpRoot: string;
 let workDir: string;
 
-async function seedAgent(): Promise<string> {
-  const id = randomUUID();
+async function seedAgent(): Promise<{ agentId: string; folderId: string }> {
+  const agentId = randomUUID();
+  const folderId = randomUUID();
   await getDb().query(
     `INSERT INTO agents (id, slug, name, persona, description, model)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, `slug-${id.slice(0, 8)}`, 'Test Agent', null, null, 'claude-opus-4-7'],
+    [agentId, `slug-${agentId.slice(0, 8)}`, 'Test Agent', null, null, 'claude-opus-4-7'],
   );
-  return id;
+  await getDb().query(
+    `INSERT INTO wiki_folders (id, name, created_by) VALUES ($1, $2, $3)`,
+    [folderId, `folder-${folderId.slice(0, 8)}`, 'system'],
+  );
+  await getDb().query(
+    `INSERT INTO agent_wiki_folders (agent_id, folder_id) VALUES ($1, $2)`,
+    [agentId, folderId],
+  );
+  return { agentId, folderId };
 }
 
-async function insertSource(agentId: string, opts: {
+async function insertSource(folderId: string, opts: {
   type?: 'url' | 'file' | 'repo';
   name: string;
   content?: string | null;
 }): Promise<string> {
   const id = randomUUID();
   await getDb().query(
-    `INSERT INTO knowledge_sources (id, agent_id, type, name, content, status)
+    `INSERT INTO wiki_sources (id, folder_id, type, name, content, status)
      VALUES ($1, $2, $3, $4, $5, 'pending')`,
-    [id, agentId, opts.type ?? 'file', opts.name, opts.content ?? null],
+    [id, folderId, opts.type ?? 'file', opts.name, opts.content ?? null],
   );
   return id;
 }
@@ -61,9 +70,9 @@ afterEach(async () => {
 
 describe('writeFileSourcesToDisk', () => {
   it('materializes one file-source per row to knowledge/sources/<name>.md', async () => {
-    const agentId = await seedAgent();
-    await insertSource(agentId, { name: 'api-spec', content: 'API details here' });
-    await insertSource(agentId, { name: 'glossary', content: 'Term: definition' });
+    const { agentId, folderId } = await seedAgent();
+    await insertSource(folderId, { name: 'api-spec', content: 'API details here' });
+    await insertSource(folderId, { name: 'glossary', content: 'Term: definition' });
 
     await writeFileSourcesToDisk(workDir, agentId);
 
@@ -74,10 +83,10 @@ describe('writeFileSourcesToDisk', () => {
   });
 
   it('skips repo and url sources — only file type is materialized', async () => {
-    const agentId = await seedAgent();
-    await insertSource(agentId, { type: 'url', name: 'url-src', content: 'from a url' });
-    await insertSource(agentId, { type: 'repo', name: 'repo-src', content: null });
-    await insertSource(agentId, { type: 'file', name: 'file-src', content: 'file only' });
+    const { agentId, folderId } = await seedAgent();
+    await insertSource(folderId, { type: 'url', name: 'url-src', content: 'from a url' });
+    await insertSource(folderId, { type: 'repo', name: 'repo-src', content: null });
+    await insertSource(folderId, { type: 'file', name: 'file-src', content: 'file only' });
 
     await writeFileSourcesToDisk(workDir, agentId);
 
@@ -86,14 +95,13 @@ describe('writeFileSourcesToDisk', () => {
   });
 
   it('wipes stale files from a prior run — deletions propagate', async () => {
-    const agentId = await seedAgent();
-    const oldId = await insertSource(agentId, { name: 'old', content: 'old content' });
+    const { agentId, folderId } = await seedAgent();
+    const oldId = await insertSource(folderId, { name: 'old', content: 'old content' });
     await writeFileSourcesToDisk(workDir, agentId);
     expect(fs.existsSync(path.join(workDir, 'knowledge', 'sources', 'old.md'))).toBe(true);
 
-    // Simulate deletion
-    await getDb().query('DELETE FROM knowledge_sources WHERE id = $1', [oldId]);
-    await insertSource(agentId, { name: 'new', content: 'new content' });
+    await getDb().query('DELETE FROM wiki_sources WHERE id = $1', [oldId]);
+    await insertSource(folderId, { name: 'new', content: 'new content' });
     await writeFileSourcesToDisk(workDir, agentId);
 
     const dir = path.join(workDir, 'knowledge', 'sources');
@@ -101,22 +109,22 @@ describe('writeFileSourcesToDisk', () => {
   });
 
   it('removes the sources/ dir entirely when no file sources remain', async () => {
-    const agentId = await seedAgent();
-    const id = await insertSource(agentId, { name: 'only', content: 'stuff' });
+    const { agentId, folderId } = await seedAgent();
+    const id = await insertSource(folderId, { name: 'only', content: 'stuff' });
     await writeFileSourcesToDisk(workDir, agentId);
     expect(fs.existsSync(path.join(workDir, 'knowledge', 'sources', 'only.md'))).toBe(true);
 
-    await getDb().query('DELETE FROM knowledge_sources WHERE id = $1', [id]);
+    await getDb().query('DELETE FROM wiki_sources WHERE id = $1', [id]);
     await writeFileSourcesToDisk(workDir, agentId);
 
     expect(fs.existsSync(path.join(workDir, 'knowledge', 'sources'))).toBe(false);
   });
 
   it('skips rows with empty content — no zero-byte files', async () => {
-    const agentId = await seedAgent();
-    await insertSource(agentId, { name: 'empty', content: '' });
-    await insertSource(agentId, { name: 'null-content', content: null });
-    await insertSource(agentId, { name: 'ok', content: 'real text' });
+    const { agentId, folderId } = await seedAgent();
+    await insertSource(folderId, { name: 'empty', content: '' });
+    await insertSource(folderId, { name: 'null-content', content: null });
+    await insertSource(folderId, { name: 'ok', content: 'real text' });
 
     await writeFileSourcesToDisk(workDir, agentId);
 
@@ -125,46 +133,40 @@ describe('writeFileSourcesToDisk', () => {
   });
 
   it('sanitizes unsafe source names so they cannot escape the sources dir', async () => {
-    const agentId = await seedAgent();
-    await insertSource(agentId, { name: '../../etc/passwd', content: 'no escape' });
-    await insertSource(agentId, { name: 'has spaces & weird?chars', content: 'yes' });
+    const { agentId, folderId } = await seedAgent();
+    await insertSource(folderId, { name: '../../etc/passwd', content: 'no escape' });
+    await insertSource(folderId, { name: 'has spaces & weird?chars', content: 'yes' });
 
     await writeFileSourcesToDisk(workDir, agentId);
 
     const dir = path.join(workDir, 'knowledge', 'sources');
     const files = fs.readdirSync(dir);
-    // No traversal artefacts written outside
     expect(files.every(f => !f.includes('/') && !f.includes('..'))).toBe(true);
     expect(files.length).toBe(2);
-    // The "weird chars" name collapses to a slug
     expect(files.some(f => f.includes('has-spaces'))).toBe(true);
   });
 
   it('disambiguates sanitize-collision filenames — no silent overwrite', async () => {
-    // "my file" and "my-file" both sanitize to "my-file.md". Without the hash
-    // suffix the second write clobbered the first.
-    const agentId = await seedAgent();
-    await insertSource(agentId, { name: 'my file',  content: 'space-version' });
-    await insertSource(agentId, { name: 'my-file',  content: 'dash-version' });
+    const { agentId, folderId } = await seedAgent();
+    await insertSource(folderId, { name: 'my file',  content: 'space-version' });
+    await insertSource(folderId, { name: 'my-file',  content: 'dash-version' });
 
     await writeFileSourcesToDisk(workDir, agentId);
 
     const dir = path.join(workDir, 'knowledge', 'sources');
     const files = fs.readdirSync(dir).sort();
     expect(files.length).toBe(2);
-    // One is the untouched slug, the other gets the hash suffix.
     expect(files).toContain('my-file.md');
     expect(files.some(f => /^my-file-[0-9a-f]{8}\.md$/.test(f))).toBe(true);
-    // Both original contents survive.
     const contents = files.map(f => fs.readFileSync(path.join(dir, f), 'utf8')).sort();
     expect(contents).toEqual(['dash-version', 'space-version']);
   });
 
   it('is isolated per agent — sources from other agents are not written', async () => {
-    const a1 = await seedAgent();
-    const a2 = await seedAgent();
-    await insertSource(a1, { name: 'a1-only', content: 'agent one' });
-    await insertSource(a2, { name: 'a2-only', content: 'agent two' });
+    const { agentId: a1, folderId: f1 } = await seedAgent();
+    const { folderId: f2 } = await seedAgent();
+    await insertSource(f1, { name: 'a1-only', content: 'agent one' });
+    await insertSource(f2, { name: 'a2-only', content: 'agent two' });
 
     await writeFileSourcesToDisk(workDir, a1);
 
