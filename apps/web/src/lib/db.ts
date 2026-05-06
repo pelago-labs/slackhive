@@ -145,7 +145,7 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
   if (!agent) return null;
   const d = await db();
   const r = await d.query(
-    'SELECT credentials, bot_user_id, bot_handle FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
+    'SELECT credentials, bot_user_id, bot_handle, bot_image_url FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
     [agent.id, 'slack']
   );
   if (r.rows.length > 0) {
@@ -163,6 +163,7 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
       agent.slackSigningSecret = creds.signingSecret;
       agent.slackBotUserId = r.rows[0].bot_user_id as string | undefined;
       agent.slackBotHandle = r.rows[0].bot_handle as string | undefined;
+      agent.slackBotImageUrl = r.rows[0].bot_image_url as string | undefined;
     }
   }
   return agent;
@@ -239,10 +240,15 @@ export async function getAllAgents(): Promise<Agent[]> {
   const agents = r.rows.map(rowToAgent);
 
   // Bulk load platform credentials for all agents
-  const pi = await d.query('SELECT agent_id, credentials, bot_user_id, bot_handle FROM platform_integrations WHERE platform = $1 AND enabled = 1', ['slack']);
-  const credsByAgent = new Map<string, { credentials: string; botUserId?: string; botHandle?: string }>();
+  const pi = await d.query('SELECT agent_id, credentials, bot_user_id, bot_handle, bot_image_url FROM platform_integrations WHERE platform = $1 AND enabled = 1', ['slack']);
+  const credsByAgent = new Map<string, { credentials: string; botUserId?: string; botHandle?: string; botImageUrl?: string }>();
   for (const row of pi.rows) {
-    credsByAgent.set(row.agent_id as string, { credentials: row.credentials as string, botUserId: row.bot_user_id as string | undefined, botHandle: row.bot_handle as string | undefined });
+    credsByAgent.set(row.agent_id as string, {
+      credentials: row.credentials as string,
+      botUserId: row.bot_user_id as string | undefined,
+      botHandle: row.bot_handle as string | undefined,
+      botImageUrl: row.bot_image_url as string | undefined,
+    });
   }
 
   const key = getEncryptionKey();
@@ -261,6 +267,7 @@ export async function getAllAgents(): Promise<Agent[]> {
         agent.slackSigningSecret = creds.signingSecret;
         agent.slackBotUserId = entry.botUserId;
         agent.slackBotHandle = entry.botHandle;
+        agent.slackBotImageUrl = entry.botImageUrl;
       }
     }
   }
@@ -362,6 +369,51 @@ export async function updateAgentEnabled(id: string, enabled: boolean): Promise<
  * @param {UpdateAgentRequest} req - Fields to update.
  * @returns {Promise<Agent | null>} The updated agent, or null if not found.
  */
+/**
+ * Calls Slack auth.test to get the bot user ID + handle, then users.info to
+ * get the bot's profile image URL. Returns nulls on any failure — caller
+ * decides whether to overwrite existing values.
+ */
+export async function fetchSlackBotProfile(botToken: string): Promise<{
+  handle: string | null;
+  userId: string | null;
+  imageUrl: string | null;
+}> {
+  try {
+    const authRes = await fetch('https://slack.com/api/auth.test', {
+      headers: { Authorization: `Bearer ${botToken}` },
+    });
+    const auth = await authRes.json() as { ok: boolean; user?: string; user_id?: string };
+    if (!auth.ok) return { handle: null, userId: null, imageUrl: null };
+
+    const handle = auth.user ?? null;
+    const userId = auth.user_id ?? null;
+    let imageUrl: string | null = null;
+
+    if (userId) {
+      try {
+        const infoRes = await fetch(`https://slack.com/api/users.info?user=${encodeURIComponent(userId)}`, {
+          headers: { Authorization: `Bearer ${botToken}` },
+        });
+        const info = await infoRes.json() as {
+          ok: boolean;
+          user?: { profile?: { image_192?: string; image_72?: string; image_512?: string } };
+        };
+        if (info.ok) {
+          imageUrl = info.user?.profile?.image_192
+            ?? info.user?.profile?.image_72
+            ?? info.user?.profile?.image_512
+            ?? null;
+        }
+      } catch { /* image is best-effort */ }
+    }
+
+    return { handle, userId, imageUrl };
+  } catch {
+    return { handle: null, userId: null, imageUrl: null };
+  }
+}
+
 export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<Agent | null> {
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -382,16 +434,13 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
     const d = await db();
     const encrypted = encrypt(JSON.stringify(req.platformCredentials), getEncryptionKey());
 
-    // Fetch bot handle from Slack if bot token provided
+    // Fetch bot handle + profile image from Slack if bot token provided
     let botHandle: string | null = null;
+    let botImageUrl: string | null = null;
     if (req.platformCredentials.botToken) {
-      try {
-        const authRes = await fetch('https://slack.com/api/auth.test', {
-          headers: { Authorization: `Bearer ${req.platformCredentials.botToken}` },
-        });
-        const auth = await authRes.json() as { ok: boolean; user?: string };
-        if (auth.ok && auth.user) botHandle = auth.user;
-      } catch { /* ignore — handle stored as null */ }
+      const profile = await fetchSlackBotProfile(req.platformCredentials.botToken);
+      botHandle = profile.handle ?? null;
+      botImageUrl = profile.imageUrl ?? null;
     }
 
     // Check if integration row exists
@@ -402,14 +451,17 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
 
     if (existing.rows.length > 0) {
       await d.query(
-        `UPDATE platform_integrations SET credentials = $1, bot_handle = COALESCE($3, bot_handle) WHERE agent_id = $2 AND platform = 'slack'`,
-        [encrypted, id, botHandle]
+        `UPDATE platform_integrations SET credentials = $1,
+           bot_handle = COALESCE($3, bot_handle),
+           bot_image_url = COALESCE($4, bot_image_url)
+         WHERE agent_id = $2 AND platform = 'slack'`,
+        [encrypted, id, botHandle, botImageUrl]
       );
     } else {
       await d.query(
-        `INSERT INTO platform_integrations (id, agent_id, platform, credentials, bot_handle)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [randomUUID(), id, 'slack', encrypted, botHandle]
+        `INSERT INTO platform_integrations (id, agent_id, platform, credentials, bot_handle, bot_image_url)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [randomUUID(), id, 'slack', encrypted, botHandle, botImageUrl]
       );
     }
   }

@@ -22,24 +22,25 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 const STATUS_RANK: Record<string, number> = { running: 0, error: 1, stopped: 2, stale: 3 };
 
-// Deterministic avatar palette — pairs of colors that feel calm together.
-// Picked to read on both light and dark surface; saturation kept moderate.
-const AVATAR_PALETTES = [
-  ['#fb923c', '#f59e0b'], // orange
-  ['#34d399', '#059669'], // emerald
-  ['#60a5fa', '#2563eb'], // blue
-  ['#a78bfa', '#7c3aed'], // violet
-  ['#f472b6', '#db2777'], // pink
-  ['#fbbf24', '#d97706'], // amber
-  ['#22d3ee', '#0891b2'], // cyan
-  ['#f87171', '#dc2626'], // red
-  ['#4ade80', '#16a34a'], // green
-  ['#94a3b8', '#475569'], // slate
+// Minimalist deterministic avatar palette — soft pastel background + darker
+// foreground letter, à la Linear / Notion. Low saturation so cards feel calm
+// in dense grids; the actual Slack profile image is preferred when available.
+const AVATAR_PALETTES: { bg: string; fg: string }[] = [
+  { bg: '#fef3c7', fg: '#92400e' }, // amber
+  { bg: '#fce7f3', fg: '#9d174d' }, // pink
+  { bg: '#ede9fe', fg: '#5b21b6' }, // violet
+  { bg: '#dbeafe', fg: '#1e40af' }, // blue
+  { bg: '#cffafe', fg: '#155e75' }, // cyan
+  { bg: '#dcfce7', fg: '#166534' }, // green
+  { bg: '#ecfccb', fg: '#3f6212' }, // lime
+  { bg: '#fee2e2', fg: '#991b1b' }, // red
+  { bg: '#ffedd5', fg: '#9a3412' }, // orange
+  { bg: '#f3f4f6', fg: '#1f2937' }, // gray
 ];
-function avatarPalette(name: string): [string, string] {
+function avatarPalette(name: string): { bg: string; fg: string } {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-  return AVATAR_PALETTES[Math.abs(h) % AVATAR_PALETTES.length] as [string, string];
+  return AVATAR_PALETTES[Math.abs(h) % AVATAR_PALETTES.length];
 }
 
 function relativeTime(iso?: string | null): string | null {
@@ -130,7 +131,26 @@ export default function Dashboard() {
   useEffect(() => {
     fetch('/api/agents')
       .then(r => r.json())
-      .then(setAgents)
+      .then((list: Agent[]) => {
+        setAgents(list);
+        // Lazy-backfill Slack avatar URL for any agent missing one.
+        // Fire-and-forget; refresh agent state with new URL on success.
+        list
+          .filter(a => a.slackBotUserId && !a.slackBotImageUrl)
+          .forEach(a => {
+            fetch(`/api/agents/${a.id}/refresh-slack-profile`, { method: 'POST' })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => {
+                if (d?.ok && d.slackBotImageUrl) {
+                  setAgents(prev => prev.map(x => x.id === a.id
+                    ? { ...x, slackBotImageUrl: d.slackBotImageUrl, slackBotHandle: d.slackBotHandle ?? x.slackBotHandle }
+                    : x
+                  ));
+                }
+              })
+              .catch(() => {});
+          });
+      })
       .finally(() => setLoading(false));
     fetch('/api/settings')
       .then(r => r.json())
@@ -599,9 +619,11 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
   const visibleTags = tags.slice(0, 2);
   const overflowTags = tags.length - visibleTags.length;
   const modelShort = agent.model.replace('claude-', '').split('-20')[0];
-  const [g1, g2] = avatarPalette(agent.name);
+  const palette = avatarPalette(agent.name);
   const lastActive = relativeTime(agent.lastHeartbeat);
   const hasDescription = !!agent.description?.trim();
+  const [imgFailed, setImgFailed] = useState(false);
+  const showSlackImage = !!agent.slackBotImageUrl && !imgFailed;
 
   return (
     <Link
@@ -647,23 +669,33 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: hasDescription ? 8 : 10 }}>
         <div style={{
           width: 44, height: 44,
-          borderRadius: 12, flexShrink: 0,
-          background: agent.isBoss
-            ? 'linear-gradient(135deg, #171717 0%, #404040 100%)'
-            : `linear-gradient(135deg, ${g1} 0%, ${g2} 100%)`,
+          borderRadius: '50%', flexShrink: 0,
+          background: showSlackImage ? 'var(--surface-2)' : palette.bg,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18, fontWeight: 600,
-          color: '#fff',
-          textShadow: '0 1px 2px rgba(0,0,0,0.15)',
+          fontSize: 17, fontWeight: 600,
+          color: palette.fg,
           position: 'relative',
+          overflow: 'hidden',
         }}>
-          {agent.name.charAt(0).toUpperCase()}
+          {showSlackImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={agent.slackBotImageUrl}
+              alt={agent.name}
+              width={44}
+              height={44}
+              onError={() => setImgFailed(true)}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+          ) : (
+            agent.name.charAt(0).toUpperCase()
+          )}
           {/* Status dot — bottom-right of avatar */}
           <span
             className={displayStatus === 'running' ? 'status-running' : ''}
             style={{
-              position: 'absolute', bottom: -2, right: -2,
-              width: 12, height: 12, borderRadius: '50%',
+              position: 'absolute', bottom: 0, right: 0,
+              width: 11, height: 11, borderRadius: '50%',
               background: color, border: '2px solid var(--surface)',
             }}
             title={statusLabel}
