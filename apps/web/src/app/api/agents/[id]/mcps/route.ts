@@ -58,15 +58,19 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
     const { mcpIds } = (await req.json()) as { mcpIds: string[] };
     const normalizedIds: string[] = mcpIds ?? [];
 
-    // Editors can only assign/unassign MCPs they own; admins/superadmins bypass.
+    // Editors can only add/remove MCPs they own; admins/superadmins bypass.
+    // Only check MCPs being changed (added or removed), not already-assigned ones.
     const isAdmin = session.role === 'admin' || session.role === 'superadmin';
+    const existingMcps = await getAgentMcpServers(id);
     if (!isAdmin) {
-      const allIds = new Set([
-        ...normalizedIds,
-        ...(await getAgentMcpServers(id)).map(m => m.id),
-      ]);
-      const mcps = await Promise.all([...allIds].map(mid => getMcpServerById(mid)));
-      const unauthorized = mcps.find(m => m && m.createdBy !== session.username);
+      const currentIds = new Set(existingMcps.map(m => m.id));
+      const newIdSet = new Set(normalizedIds);
+      const changedIds = [
+        ...normalizedIds.filter(mid => !currentIds.has(mid)),  // newly added
+        ...[...currentIds].filter(mid => !newIdSet.has(mid)),  // removed
+      ];
+      const changedMcps = await Promise.all(changedIds.map(mid => getMcpServerById(mid)));
+      const unauthorized = changedMcps.find(m => m && m.createdBy !== session.username);
       if (unauthorized) {
         return NextResponse.json(
           { error: `Only the MCP owner or an admin can assign "${unauthorized.name}"` },
@@ -76,13 +80,12 @@ export async function PUT(req: NextRequest, { params }: RouteParams): Promise<Ne
     }
 
     // Snapshot before mutation — only if MCP assignments actually changed
-    const [agent, currentSkills, perms, currentMcps] = await Promise.all([
+    const [agent, currentSkills, perms] = await Promise.all([
       getAgentById(id),
       getAgentSkills(id),
       getAgentPermissions(id),
-      // Non-admins already fetched this above; re-fetch is cheap and keeps the code simple
-      getAgentMcpServers(id),
     ]);
+    const currentMcps = existingMcps;
     const oldMcpIds = JSON.stringify([...currentMcps.map(m => m.id)].sort());
     const newMcpIds = JSON.stringify([...normalizedIds].sort());
     if (oldMcpIds !== newMcpIds) {
