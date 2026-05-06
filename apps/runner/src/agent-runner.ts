@@ -1684,8 +1684,8 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         await writeProgress({ status: 'building', folderId, step: 'Clearing wiki for rebuild...' });
         try { fs.rmSync(wikiDir, { recursive: true, force: true }); } catch { /* ok */ }
         fs.mkdirSync(wikiDir, { recursive: true });
-        // Re-write lock after rmSync removed the directory
-        fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }));
+        // Re-write lock after rmSync removed the directory ('w' not 'wx' — file is guaranteed gone)
+        fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }), { flag: 'w' });
         // Only reset compiled/error/stale sources to pending — this is the one explicit user-triggered reset
         await getDb().query(
           "UPDATE wiki_sources SET status = 'pending' WHERE folder_id = $1 AND status IN ('compiled', 'error', 'stale')",
@@ -1765,6 +1765,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         const src = pendingSources[i];
         // Issue 2: namespace all article paths by source slug to prevent cross-source collisions
         const sourceSlug = src.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        let sourceWords = 0; // per-source word count, separate from running total
         await updateWikiSourceStatus(src.id, 'building');
         await writeProgress({
           status: 'building', folderId,
@@ -1804,6 +1805,11 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           if (effectiveMode === 'sync' && manifest[src.name]) {
             const prevPaths = [...(manifest[src.name].created ?? []), ...(manifest[src.name].updated ?? [])];
             for (const p of prevPaths) {
+              // Validate path stays within the source slug directory to prevent traversal
+              if (!p.startsWith(`${sourceSlug}/`) || p.includes('..')) {
+                logger.warn('[wiki] Skipping manifest path outside source slug', { path: p, sourceSlug });
+                continue;
+              }
               const full = path.join(wikiDir, p);
               try { if (fs.existsSync(full)) fs.unlinkSync(full); } catch { /* ok */ }
             }
@@ -1892,8 +1898,9 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               fs.mkdirSync(path.dirname(p), { recursive: true });
               fs.writeFileSync(p, article.content, 'utf-8');
               totalPages++;
-              // Issue 8: count words from created articles
-              totalWords += article.content.split(/\s+/).filter(Boolean).length;
+              const wc = article.content.split(/\s+/).filter(Boolean).length;
+              totalWords += wc;
+              sourceWords += wc;
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
             for (const article of (parsed.updated ?? [])) {
@@ -1902,8 +1909,9 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               const p = path.join(wikiDir, articlePath);
               fs.mkdirSync(path.dirname(p), { recursive: true });
               fs.writeFileSync(p, article.content, 'utf-8');
-              // Issue 8: also count words from updated articles (fixes undercount on re-sync)
-              totalWords += article.content.split(/\s+/).filter(Boolean).length;
+              const wc = article.content.split(/\s+/).filter(Boolean).length;
+              totalWords += wc;
+              sourceWords += wc;
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
             if (parsed.overview && chunkIdx === 0) fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
@@ -1924,7 +1932,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
           } // end chunk loop
 
-          await updateWikiSourceStatus(src.id, 'compiled', totalWords, new Date().toISOString());
+          await updateWikiSourceStatus(src.id, 'compiled', sourceWords, new Date().toISOString());
           logger.info('Wiki source compiled', { folderId, source: src.name });
         } catch (err) {
           const msg = sanitizeError((err as Error).message ?? String(err));
@@ -1937,7 +1945,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
       if (allIndexEntries.length > 0) {
         const byGroup: Record<string, { path: string; title: string }[]> = {};
         for (const entry of allIndexEntries) {
-          const group = entry.path.split('/')[0] ?? 'misc';
+          const group = entry.path.split('/')[0] || 'misc';
           (byGroup[group] ??= []).push(entry);
         }
         const indexLines = ['# Wiki Index\n'];
