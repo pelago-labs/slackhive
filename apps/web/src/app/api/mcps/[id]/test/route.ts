@@ -21,7 +21,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getMcpServerById, getEnvVarValues } from '@/lib/db';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAuth } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
 import { spawn } from 'child_process';
 import { writeFile, unlink, mkdir, access } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -41,13 +42,20 @@ const TIMEOUT_MS = 30_000;
  * @returns {Promise<NextResponse>} { ok: true, message } or { ok: false, error }
  */
 export async function POST(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
-  const denied = guardAdmin(req);
+  const denied = guardAuth(req);
   if (denied) return denied;
 
   const { id } = await params;
   const server = await getMcpServerById(id);
   if (!server) {
     return NextResponse.json({ error: 'MCP server not found' }, { status: 404 });
+  }
+
+  // Only the MCP owner or admin/superadmin can run a test
+  const session = getSessionFromRequest(req);
+  const isAdmin = session?.role === 'admin' || session?.role === 'superadmin';
+  if (!isAdmin && server.createdBy !== session?.username) {
+    return NextResponse.json({ error: 'Only the MCP owner or an admin can test this server' }, { status: 403 });
   }
 
   try {
