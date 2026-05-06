@@ -667,36 +667,39 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
     >
       {/* Avatar + name + status row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: hasDescription ? 8 : 10 }}>
-        <div style={{
-          width: 44, height: 44,
-          borderRadius: '50%', flexShrink: 0,
-          background: showSlackImage ? 'var(--surface-2)' : palette.bg,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 17, fontWeight: 600,
-          color: palette.fg,
-          position: 'relative',
-          overflow: 'hidden',
-        }}>
-          {showSlackImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={agent.slackBotImageUrl}
-              alt={agent.name}
-              width={44}
-              height={44}
-              onError={() => setImgFailed(true)}
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            />
-          ) : (
-            agent.name.charAt(0).toUpperCase()
-          )}
-          {/* Status dot — bottom-right of avatar */}
+        {/* Avatar wrapper — relative for status dot, no overflow:hidden so dot can sit outside circle */}
+        <div style={{ position: 'relative', flexShrink: 0, width: 44, height: 44 }}>
+          <div style={{
+            width: 44, height: 44,
+            borderRadius: '50%',
+            background: showSlackImage ? 'var(--surface-2)' : palette.bg,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 17, fontWeight: 600,
+            color: palette.fg,
+            overflow: 'hidden',
+          }}>
+            {showSlackImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={agent.slackBotImageUrl}
+                alt={agent.name}
+                width={44}
+                height={44}
+                onError={() => setImgFailed(true)}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              />
+            ) : (
+              agent.name.charAt(0).toUpperCase()
+            )}
+          </div>
+          {/* Status dot — bottom-right, outside the clipped avatar so it isn't cut off */}
           <span
             className={displayStatus === 'running' ? 'status-running' : ''}
             style={{
               position: 'absolute', bottom: 0, right: 0,
               width: 11, height: 11, borderRadius: '50%',
               background: color, border: '2px solid var(--surface)',
+              boxSizing: 'content-box',
             }}
             title={statusLabel}
           />
