@@ -36,11 +36,26 @@ This is what that team's Slack looks like **after one month with SlackHive** —
 
 ## The idea behind it
 
-Andrej Karpathy made two observations that shaped how we built it: LLMs read **wikis** better than file dumps, and **specialists beat generalists**. So we built a shared **Knowledge Library** of Karpathy-style wiki folders that any agent can be assigned, gave each agent its own tools and memory, and added a Boss agent that delegates to the right specialist instead of cramming everything into one context window.
+> A workspace where humans and AI agents work side by side beats any team made of just one or the other.
 
-These aren't chatbots you switch to. They're **colleagues you @mention** - in the same channels, the same threads, with the same @mention pattern your team already uses for each other. Each one connects to the tools your team already uses - Notion, Jira, GitHub, Figma, your database, your analytics stack.
+That's the bet. Not "AI replaces your team" — a genuinely hybrid team collaborating in the same Slack channels, on the same threads, with the same `@mention` your team already uses for each other.
+
+You don't switch to a separate AI app. You don't open a new tab. You `@data-analyst` in `#sales` the way you'd ping a real one. The agent reads the full thread, queries your warehouse, posts the answer in 40 seconds — while your `@designer` is mocking flows in Figma in another channel and `@devops` is quietly opening a PR for the 500s the engineer just complained about.
+
+**Why this beats every alternative:**
+
+| | Why it loses |
+|---|---|
+| All-human team | Slow, lots of context-switching, "let me get back to you" everywhere |
+| One mega-AI assistant (single ChatGPT-style entry point) | No domain expertise, no team patterns, lives outside your workflow |
+| AI tools with their own siloed UI | Separate interface = friction = nobody uses it after week two |
+| **Humans + AI agents in Slack** | **Each does what it's best at, in the place the work already happens** |
 
 **Anyone on the team can create an agent.** No engineers required. If you can describe what you need, you can deploy it in minutes.
+
+<Note>
+  **Under the hood:** small specialist agents instead of one mega-agent (Karpathy's *specialists beat generalists*), each grounded in a per-folder Karpathy-style wiki (LLMs read structured wikis better than raw file dumps), with a Boss agent that delegates so no one context window has to hold the whole company. The architecture is the means; the team-in-Slack experience is the point.
+</Note>
 
 ---
 
@@ -147,7 +162,7 @@ SlackHive runs two local processes:
 State is stored in a local SQLite database at `~/.slackhive/data.db`. One command (`slackhive start` / `slackhive stop`) manages the whole stack.
 
 <Note>
-  SlackHive agents are powered by **Claude Code** - not a chatbot wrapper. Each agent is a real AI agent with tools, memory, and instructions. Works with a Claude Pro or Max subscription, or a standard API key.
+  SlackHive agents are powered by **Claude Code**. Each agent is a real AI agent with tools, memory, and instructions — full read/write/exec capability through MCP, not a thin wrapper around a model. Works with a Claude Pro or Max subscription, or a standard API key.
 </Note>
 
 ---

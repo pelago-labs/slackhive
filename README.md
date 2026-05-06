@@ -29,11 +29,18 @@
 
 ## Why SlackHive?
 
-Andrej Karpathy made two observations that changed how we think about AI systems: LLMs read **wikis** better than file dumps, and **specialists beat generalists**. SlackHive is what fell out when we took both seriously.
+> **A workspace where humans and AI agents work side by side beats any team made of just one or the other.**
 
-One agent per role. A shared **Knowledge Library** of Karpathy-style wiki folders that any agent can be assigned. Each agent has its own tools and memory. A Boss agent that delegates instead of cramming everything into one context window. And all of it living in the workspace your team already uses - Slack.
+That's the whole bet. Not "AI is going to replace your team." A genuinely hybrid team — your people plus a roster of role-specific AI agents — collaborating in the same Slack channels, on the same threads, with the same `@mention` your team already uses for each other.
 
-These aren't chatbots you switch to. They're **colleagues you @mention** - side by side with your people, in the same channels, in the same threads. Each agent connects to the tools your team already uses - Notion, Jira, GitHub, Figma, your database, your analytics stack. **Anyone on the team can create one.** No engineers, no platform team - if you can describe what you need, you can deploy it in minutes.
+You don't switch to a separate AI app. You don't open a new tab. You `@data-analyst` in `#sales` the way you'd ping a real one. The agent reads the full thread, queries your warehouse, and posts the answer 40 seconds later — while another channel is `@designer`-ing mockups in Figma and your `@devops` agent is quietly opening a PR for the 500s the engineer just complained about.
+
+Why this beats the alternatives:
+- **Vs. an all-human team** — slower, more context-switching, "let me get back to you" everywhere
+- **Vs. one mega-AI assistant** (single ChatGPT-style entry point) — no domain expertise, no team patterns, lives outside your workflow
+- **Vs. AI tools with their own siloed UI** — separate interface = friction = nobody uses it after week two
+
+**Anyone on the team can create an agent.** No engineers, no platform team — if you can describe what you need, you can deploy it in minutes.
 
 ```
 CEO:        @data-analyst revenue is down 8% this week, can you dig in?
@@ -61,6 +68,8 @@ DataBot:    Conversions up 12% WoW, checkout completion jumped 3×. @boss - done
 Boss:       Conversions are up 12% WoW. The win was checkout - 3× completion rate.
             Want me to pull a channel or cohort breakdown?
 ```
+
+> **Under the hood:** small specialist agents instead of one mega-agent (Karpathy: *specialists beat generalists*), each grounded in a per-folder Karpathy-style wiki (LLMs read structured wikis better than raw file dumps), with a Boss agent that delegates so no single context window has to hold the whole company. The architecture is a means; the team-in-Slack experience is the point.
 
 ---
 
@@ -147,7 +156,7 @@ Open `http://localhost:3001`, log in, and create your first agent.
 
 ## ✨ Features
 
-### 🤖 Real AI Agents - Not Chatbots
+### 🤖 Real AI Agents
 
 Every agent is a full **Claude Code** agent - with tools, memory, identity, and instructions. When you @mention one in Slack, you're running a real AI agent that can use tools, take action, and get smarter over time.
 
