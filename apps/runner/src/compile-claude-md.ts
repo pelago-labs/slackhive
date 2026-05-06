@@ -260,17 +260,24 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
   }
 
   // Built-in wiki skill — injected whenever the knowledge wiki dir exists.
-  // We do NOT gate on non-empty contents: the wiki may be populated mid-session
-  // Copy built wiki pages from platform knowledge dir into agent workspace.
-  // Each assigned folder gets its own subdir: knowledge/wiki/{folder-slug}/
+  // We do NOT gate on non-empty contents: the wiki may be populated mid-session.
+  //
+  // Path layout:
+  // - Single assigned folder → copy contents directly to knowledge/wiki/
+  //   so paths like `knowledge/wiki/concepts/foo.md` work without a slug
+  //   subdir. Backward compatible with hand-written persona references that
+  //   pre-date the platform-wiki-folders migration.
+  // - Multiple folders → namespace each under knowledge/wiki/{folder-slug}/
+  //   to disambiguate.
   const agentWikiDir = path.join(workDir, 'knowledge', 'wiki');
   fs.rmSync(agentWikiDir, { recursive: true, force: true });
   let hasWiki = false;
+  const isSingleFolder = folderSlugToName.size === 1;
   for (const [folderSlug, folderName] of folderSlugToName) {
     const folder = assignedFolders.find(f => f.name === folderName)!;
     const folderWikiSrc = path.join(KNOWLEDGE_DIR, folder.id, 'wiki');
     if (fs.existsSync(folderWikiSrc)) {
-      const dest = path.join(agentWikiDir, folderSlug);
+      const dest = isSingleFolder ? agentWikiDir : path.join(agentWikiDir, folderSlug);
       fs.mkdirSync(dest, { recursive: true });
       fs.cpSync(folderWikiSrc, dest, { recursive: true });
       hasWiki = true;
@@ -417,31 +424,30 @@ function buildWikiIndexSection(workDir: string, folderSlugToName?: Map<string, s
   const wikiDir = path.join(workDir, 'knowledge', 'wiki');
   if (!fs.existsSync(wikiDir)) return null;
 
-  // Each subfolder is a wiki folder slug. Collect articles per folder.
-  const folderSections: string[] = [];
-  let totalFiles = 0;
-
+  // Layout detection:
+  // - Single folder → wiki contents live directly at knowledge/wiki/ (no slug subdir)
+  // - Multi folder  → each folder under knowledge/wiki/{slug}/
+  // We detect by checking whether knowledge/wiki/index.md exists at the top level.
   let entries: string[];
   try {
     entries = fs.readdirSync(wikiDir);
   } catch {
     return null;
   }
+  const isSingleFolder = entries.includes('index.md');
 
-  for (const entry of entries) {
-    const folderPath = path.join(wikiDir, entry);
-    if (!fs.statSync(folderPath).isDirectory()) continue;
-
+  // Inline a folder's index.md, rewriting relative article links so they
+  // resolve from the agent workspace root rather than the folder dir.
+  // pathPrefix is the prefix to prepend (empty string for single-folder case,
+  // 'knowledge/wiki/{slug}/' for multi-folder).
+  const inlineFolder = (folderPath: string, pathPrefix: string): { lines: string; count: number } => {
     let wikiFiles: string[] = [];
     try {
       wikiFiles = (fs.readdirSync(folderPath, { recursive: true }) as string[])
         .filter(f => f.endsWith('.md') && f !== 'index.md' && f !== 'log.md');
-    } catch { continue; }
-    if (wikiFiles.length === 0) continue;
+    } catch { return { lines: '', count: 0 }; }
+    if (wikiFiles.length === 0) return { lines: '', count: 0 };
 
-    totalFiles += wikiFiles.length;
-
-    // Parse index.md for this folder if available
     const indexPath = path.join(folderPath, 'index.md');
     let inlinedIndex: string | null = null;
     if (fs.existsSync(indexPath)) {
@@ -451,17 +457,46 @@ function buildWikiIndexSection(workDir: string, folderSlugToName?: Map<string, s
           .split('\n')
           .filter(line => /^\s*[-*]\s+/.test(line) && /\.md\)/.test(line))
           .map(line => line.trim());
-        if (articleLines.length > 0) inlinedIndex = articleLines.join('\n');
+        if (articleLines.length > 0) {
+          // Rewrite [Title](relative.md) → [Title](knowledge/wiki/{slug}/relative.md)
+          // so paths in CLAUDE.md resolve from the agent workspace root.
+          const fullPrefix = `knowledge/wiki/${pathPrefix}`;
+          inlinedIndex = articleLines
+            .map(line => line.replace(/\(([^)]+\.md)\)/g, (_m, p) =>
+              p.startsWith(fullPrefix) || p.startsWith('/') ? `(${p})` : `(${fullPrefix}${p})`
+            ))
+            .join('\n');
+        }
       } catch { /* fall through */ }
     }
     if (!inlinedIndex) {
-      inlinedIndex = wikiFiles.map(f => `- \`knowledge/wiki/${entry}/${f}\``).join('\n');
+      inlinedIndex = wikiFiles.map(f => `- \`knowledge/wiki/${pathPrefix}${f}\``).join('\n');
     }
+    return { lines: inlinedIndex, count: wikiFiles.length };
+  };
 
-    // Use the DB folder name when available; fall back to title-casing the slug for legacy state.
-    const folderTitle = folderSlugToName?.get(entry)
-      ?? entry.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    folderSections.push(`## ${folderTitle}\n${inlinedIndex}`);
+  const folderSections: string[] = [];
+  let totalFiles = 0;
+
+  if (isSingleFolder) {
+    const { lines, count } = inlineFolder(wikiDir, '');
+    if (count > 0) {
+      // Single folder: name comes from the only entry in folderSlugToName, if set.
+      const folderTitle = folderSlugToName ? [...folderSlugToName.values()][0] : 'Knowledge';
+      folderSections.push(`## ${folderTitle}\n${lines}`);
+      totalFiles = count;
+    }
+  } else {
+    for (const entry of entries) {
+      const folderPath = path.join(wikiDir, entry);
+      if (!fs.statSync(folderPath).isDirectory()) continue;
+      const { lines, count } = inlineFolder(folderPath, `${entry}/`);
+      if (count === 0) continue;
+      const folderTitle = folderSlugToName?.get(entry)
+        ?? entry.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      folderSections.push(`## ${folderTitle}\n${lines}`);
+      totalFiles += count;
+    }
   }
 
   if (totalFiles === 0) return null;

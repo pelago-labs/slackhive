@@ -216,7 +216,22 @@ export class ClaudeHandler {
 
       // Create memory dir for per-thread memory files (outside .claude/ to avoid SDK sensitive-file blocking)
       fs.mkdirSync(path.join(sessionDir, 'memory'), { recursive: true });
+
       this.log.debug('Session work dir created', { sessionKey, sessionDir });
+    }
+
+    // Ensure the knowledge/ symlink exists. Idempotent — runs every session
+    // open so older session dirs (from before the symlink fix) get backfilled.
+    // Symlink (not copy) so wiki rebuilds propagate immediately and disk
+    // isn't duplicated per thread.
+    const agentKnowledge = path.join(this.workDir, 'knowledge');
+    const sessionKnowledge = path.join(sessionDir, 'knowledge');
+    if (fs.existsSync(agentKnowledge) && !fs.existsSync(sessionKnowledge)) {
+      try {
+        fs.symlinkSync(agentKnowledge, sessionKnowledge, 'dir');
+      } catch (err) {
+        this.log.warn('Failed to symlink knowledge dir into session', { error: (err as Error).message });
+      }
     }
 
     return sessionDir;
