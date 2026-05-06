@@ -22,6 +22,44 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 const STATUS_RANK: Record<string, number> = { running: 0, error: 1, stopped: 2, stale: 3 };
 
+// Deterministic avatar palette — pairs of colors that feel calm together.
+// Picked to read on both light and dark surface; saturation kept moderate.
+const AVATAR_PALETTES = [
+  ['#fb923c', '#f59e0b'], // orange
+  ['#34d399', '#059669'], // emerald
+  ['#60a5fa', '#2563eb'], // blue
+  ['#a78bfa', '#7c3aed'], // violet
+  ['#f472b6', '#db2777'], // pink
+  ['#fbbf24', '#d97706'], // amber
+  ['#22d3ee', '#0891b2'], // cyan
+  ['#f87171', '#dc2626'], // red
+  ['#4ade80', '#16a34a'], // green
+  ['#94a3b8', '#475569'], // slate
+];
+function avatarPalette(name: string): [string, string] {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return AVATAR_PALETTES[Math.abs(h) % AVATAR_PALETTES.length] as [string, string];
+}
+
+function relativeTime(iso?: string | null): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!t) return null;
+  const sec = Math.max(1, Math.floor((Date.now() - t) / 1000));
+  if (sec < 30) return 'just now';
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(mo / 12)}y ago`;
+}
+
 const InProgressContext = createContext<Record<string, number>>({});
 
 const STATUS_COLOR: Record<string, string> = {
@@ -57,7 +95,15 @@ export default function Dashboard() {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('boss-first');
   const [sortOpen, setSortOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const { canEdit } = useAuth();
+
+  // Track scroll for sticky-bar shadow
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   // Persist sort choice
   useEffect(() => {
@@ -256,8 +302,10 @@ export default function Dashboard() {
       {!loading && total > 0 && (
         <div style={{
           position: 'sticky', top: 0, zIndex: 20,
-          background: 'var(--bg)', paddingBottom: 14, marginBottom: 18,
+          background: 'var(--bg)', paddingTop: 4, paddingBottom: 14, marginBottom: 18,
           borderBottom: '1px solid var(--border)',
+          boxShadow: scrolled ? '0 4px 12px -8px rgba(0,0,0,0.12)' : 'none',
+          transition: 'box-shadow 0.18s ease',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: allTags.length > 0 ? 12 : 0 }}>
             {/* Search */}
@@ -551,6 +599,9 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
   const visibleTags = tags.slice(0, 2);
   const overflowTags = tags.length - visibleTags.length;
   const modelShort = agent.model.replace('claude-', '').split('-20')[0];
+  const [g1, g2] = avatarPalette(agent.name);
+  const lastActive = relativeTime(agent.lastHeartbeat);
+  const hasDescription = !!agent.description?.trim();
 
   return (
     <Link
@@ -558,12 +609,16 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
       className="fade-up agent-card-v2"
       style={{
         display: 'block', textDecoration: 'none',
-        background: 'var(--surface)',
-        border: highlight ? '1.5px solid rgba(217,119,6,0.25)' : '1px solid var(--border)',
+        background: agent.isBoss
+          ? 'linear-gradient(135deg, var(--surface) 0%, rgba(217,119,6,0.04) 100%)'
+          : 'var(--surface)',
+        border: agent.isBoss
+          ? '1px solid rgba(217,119,6,0.22)'
+          : highlight ? '1.5px solid rgba(217,119,6,0.25)' : '1px solid var(--border)',
         borderRadius: 14,
         padding: compact ? '14px 14px 12px' : '14px 16px 12px',
-        boxShadow: highlight
-          ? '0 0 0 1px rgba(217,119,6,0.12), var(--shadow-card)'
+        boxShadow: agent.isBoss || highlight
+          ? '0 0 0 1px rgba(217,119,6,0.06), var(--shadow-sm)'
           : 'var(--shadow-sm)',
         transition: 'box-shadow 0.2s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1), border-color 0.2s',
         cursor: 'pointer',
@@ -571,31 +626,35 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
       }}
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = highlight
-          ? '0 0 0 1px rgba(217,119,6,0.2), var(--shadow-hover)'
+        el.style.boxShadow = agent.isBoss || highlight
+          ? '0 0 0 1px rgba(217,119,6,0.18), var(--shadow-hover)'
           : 'var(--shadow-hover)';
         el.style.transform = 'translateY(-2px)';
-        el.style.borderColor = highlight ? 'rgba(217,119,6,0.3)' : 'var(--border-2)';
+        el.style.borderColor = agent.isBoss || highlight ? 'rgba(217,119,6,0.35)' : 'var(--border-2)';
       }}
       onMouseLeave={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = highlight
-          ? '0 0 0 1px rgba(217,119,6,0.12), var(--shadow-card)'
+        el.style.boxShadow = agent.isBoss || highlight
+          ? '0 0 0 1px rgba(217,119,6,0.06), var(--shadow-sm)'
           : 'var(--shadow-sm)';
         el.style.transform = 'translateY(0)';
-        el.style.borderColor = highlight ? 'rgba(217,119,6,0.25)' : 'var(--border)';
+        el.style.borderColor = agent.isBoss
+          ? 'rgba(217,119,6,0.22)'
+          : highlight ? 'rgba(217,119,6,0.25)' : 'var(--border)';
       }}
     >
       {/* Avatar + name + status row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: hasDescription ? 8 : 10 }}>
         <div style={{
           width: 44, height: 44,
           borderRadius: 12, flexShrink: 0,
-          background: agent.isBoss ? '#171717' : 'var(--surface-2)',
-          border: agent.isBoss ? 'none' : '1px solid var(--border)',
+          background: agent.isBoss
+            ? 'linear-gradient(135deg, #171717 0%, #404040 100%)'
+            : `linear-gradient(135deg, ${g1} 0%, ${g2} 100%)`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 17, fontWeight: 600,
-          color: agent.isBoss ? '#fff' : 'var(--text)',
+          fontSize: 18, fontWeight: 600,
+          color: '#fff',
+          textShadow: '0 1px 2px rgba(0,0,0,0.15)',
           position: 'relative',
         }}>
           {agent.name.charAt(0).toUpperCase()}
@@ -603,29 +662,31 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
           <span
             className={displayStatus === 'running' ? 'status-running' : ''}
             style={{
-              position: 'absolute', bottom: -1, right: -1,
-              width: 11, height: 11, borderRadius: '50%',
+              position: 'absolute', bottom: -2, right: -2,
+              width: 12, height: 12, borderRadius: '50%',
               background: color, border: '2px solid var(--surface)',
             }}
+            title={statusLabel}
           />
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{
-            fontSize: 14, fontWeight: 600, color: 'var(--text)',
-            letterSpacing: '-0.01em',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            display: 'flex', alignItems: 'center', gap: 6,
           }}>
-            {agent.name}
-          </div>
-          <div style={{
-            fontSize: 11.5, color: 'var(--muted)',
-            display: 'flex', alignItems: 'center', gap: 6, marginTop: 1,
-          }}>
+            <span style={{
+              fontSize: 14, fontWeight: 600, color: 'var(--text)',
+              letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              minWidth: 0,
+            }}>
+              {agent.name}
+            </span>
             {agent.isBoss && (
               <span style={{
                 fontSize: 9, fontWeight: 700, letterSpacing: '0.05em',
                 background: 'rgba(217,119,6,0.12)', color: '#d97706',
                 padding: '1px 5px', borderRadius: 3, textTransform: 'uppercase',
+                flexShrink: 0,
               }}>Boss</span>
             )}
             {multiReport && (
@@ -633,9 +694,21 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
                 fontSize: 9, fontWeight: 600,
                 background: 'rgba(99,102,241,0.1)', color: '#6366f1',
                 padding: '1px 4px', borderRadius: 3,
+                flexShrink: 0,
               }}>×2</span>
             )}
+          </div>
+          <div style={{
+            fontSize: 11.5, color: 'var(--muted)',
+            display: 'flex', alignItems: 'center', gap: 6, marginTop: 2,
+          }}>
             <span style={{ color, fontWeight: 500 }}>{statusLabel}</span>
+            {displayStatus === 'running' && lastActive && (
+              <>
+                <span style={{ color: 'var(--border-2)' }}>·</span>
+                <span>{lastActive}</span>
+              </>
+            )}
           </div>
         </div>
         {inProgress > 0 && (
@@ -651,17 +724,16 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
         )}
       </div>
 
-      {/* One-line description */}
-      <p style={{
-        margin: '0 0 10px', fontSize: 12, color: 'var(--muted)',
-        lineHeight: 1.45,
-        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        minHeight: 17,
-      }}>
-        {agent.description || (
-          <span style={{ color: 'var(--subtle)', fontStyle: 'italic' }}>No description</span>
-        )}
-      </p>
+      {/* Description — only if present, no italic placeholder noise */}
+      {hasDescription && (
+        <p style={{
+          margin: '0 0 10px', fontSize: 12, color: 'var(--muted)',
+          lineHeight: 1.45,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }} title={agent.description}>
+          {agent.description}
+        </p>
+      )}
 
       {/* Tags row + model badge — single line */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, minHeight: 18 }}>
@@ -681,10 +753,11 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
           fontSize: 10, color: 'var(--subtle)',
           fontFamily: 'var(--font-mono)',
           whiteSpace: 'nowrap',
+          display: 'inline-flex', alignItems: 'center', gap: 4,
         }}>
           {modelShort}
           {agent.slackBotUserId && (
-            <span style={{ marginLeft: 6, color: '#059669' }} title={agent.slackBotHandle ? `@${agent.slackBotHandle}` : 'Slack connected'}>●</span>
+            <span style={{ color: '#059669' }} title={agent.slackBotHandle ? `@${agent.slackBotHandle}` : 'Slack connected'}>●</span>
           )}
         </span>
       </div>
