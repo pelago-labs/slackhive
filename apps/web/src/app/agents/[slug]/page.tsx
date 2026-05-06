@@ -52,6 +52,21 @@ const STATUS_COLOR = {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+// Minimalist deterministic avatar palette — soft pastel bg + darker fg letter.
+// Mirrors the palette used on the dashboard (apps/web/src/app/page.tsx).
+const AVATAR_PALETTES: { bg: string; fg: string }[] = [
+  { bg: '#fef3c7', fg: '#92400e' }, { bg: '#fce7f3', fg: '#9d174d' },
+  { bg: '#ede9fe', fg: '#5b21b6' }, { bg: '#dbeafe', fg: '#1e40af' },
+  { bg: '#cffafe', fg: '#155e75' }, { bg: '#dcfce7', fg: '#166534' },
+  { bg: '#ecfccb', fg: '#3f6212' }, { bg: '#fee2e2', fg: '#991b1b' },
+  { bg: '#ffedd5', fg: '#9a3412' }, { bg: '#f3f4f6', fg: '#1f2937' },
+];
+function avatarPalette(name: string): { bg: string; fg: string } {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return AVATAR_PALETTES[Math.abs(h) % AVATAR_PALETTES.length];
+}
+
 /**
  * Agent detail page — loads the agent by slug then renders the tabbed UI.
  *
@@ -71,6 +86,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const [pendingCoachOpen, setPendingCoachOpen] = useState(coachArmedFromWizard);
   const [agent, setAgent] = useState<Agent | null>(null);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
+  const [avatarImgFailed, setAvatarImgFailed] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const [viewOnly, setViewOnly] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
@@ -205,16 +221,33 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
           {/* Agent name + status */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-              background: agent.isBoss
-                ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
-                : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 14, fontWeight: 700, color: 'var(--accent-fg)',
-            }}>
-              {agent.name.charAt(0)}
-            </div>
+            {(() => {
+              const palette = avatarPalette(agent.name);
+              const showSlackImage = !!agent.slackBotImageUrl && !avatarImgFailed;
+              return (
+                <div style={{
+                  width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                  background: showSlackImage ? 'var(--surface-2)' : palette.bg,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 14, fontWeight: 700, color: palette.fg,
+                  overflow: 'hidden',
+                }}>
+                  {showSlackImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={agent.slackBotImageUrl}
+                      alt={agent.name}
+                      width={36}
+                      height={36}
+                      onError={() => setAvatarImgFailed(true)}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    />
+                  ) : (
+                    agent.name.charAt(0).toUpperCase()
+                  )}
+                </div>
+              );
+            })()}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--text)' }}>
