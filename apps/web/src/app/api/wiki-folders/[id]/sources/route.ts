@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
 import { getWikiFolder, getWikiSources, createWikiSource } from '@/lib/db';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAuth } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,12 +17,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }): Promise<NextResponse> {
-  const deny = guardAdmin(req);
+  const deny = guardAuth(req);
   if (deny) return deny;
   try {
     const { id } = await params;
     const folder = await getWikiFolder(id);
     if (!folder) return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
+    const session = getSessionFromRequest(req)!;
+    const isAdmin = session.role === 'admin' || session.role === 'superadmin';
+    if (!isAdmin && folder.createdBy !== session.username) {
+      return NextResponse.json({ error: 'Only the folder owner or an admin can add sources' }, { status: 403 });
+    }
     const body = await req.json();
     if (!body.type || !body.name?.trim()) return NextResponse.json({ error: 'type and name are required' }, { status: 400 });
     const MAX_CONTENT_BYTES = 2 * 1024 * 1024;

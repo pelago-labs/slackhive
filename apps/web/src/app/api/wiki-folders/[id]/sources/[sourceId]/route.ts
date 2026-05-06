@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { updateWikiSource, deleteWikiSource, getWikiSource } from '@/lib/db';
-import { guardAdmin } from '@/lib/api-guard';
+import { updateWikiSource, deleteWikiSource, getWikiSource, getWikiFolder } from '@/lib/db';
+import { guardAuth } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string; sourceId: string }> }): Promise<NextResponse> {
-  const deny = guardAdmin(req);
+  const deny = guardAuth(req);
   if (deny) return deny;
   try {
     const { sourceId } = await params;
@@ -17,6 +18,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     const existing = await getWikiSource(sourceId);
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const folder = await getWikiFolder(existing.folderId);
+    const session = getSessionFromRequest(req)!;
+    const isAdmin = session.role === 'admin' || session.role === 'superadmin';
+    if (!isAdmin && folder?.createdBy !== session.username) {
+      return NextResponse.json({ error: 'Only the folder owner or an admin can edit sources' }, { status: 403 });
+    }
     // Mark stale when file/url content changes and source is already compiled
     if (existing.type !== 'repo' && existing.status === 'compiled' && (body.content !== undefined || body.url !== undefined)) {
       body.status = 'stale';
@@ -30,10 +37,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string; sourceId: string }> }): Promise<NextResponse> {
-  const deny = guardAdmin(req);
+  const deny = guardAuth(req);
   if (deny) return deny;
   try {
     const { sourceId } = await params;
+    const existing = await getWikiSource(sourceId);
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const folder = await getWikiFolder(existing.folderId);
+    const session = getSessionFromRequest(req)!;
+    const isAdmin = session.role === 'admin' || session.role === 'superadmin';
+    if (!isAdmin && folder?.createdBy !== session.username) {
+      return NextResponse.json({ error: 'Only the folder owner or an admin can delete sources' }, { status: 403 });
+    }
     await deleteWikiSource(sourceId);
     return NextResponse.json({ ok: true });
   } catch (err) {
