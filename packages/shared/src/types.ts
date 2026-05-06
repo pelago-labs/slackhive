@@ -110,6 +110,8 @@ export interface Agent {
   slackSigningSecret?: string;
   slackBotUserId?: string;
   slackBotHandle?: string;
+  /** Slack profile image URL (cached from users.info on save / refresh). */
+  slackBotImageUrl?: string;
   /**
    * Derived presence flag for list endpoints that strip the raw credentials.
    * True when an active slack platform_integrations row exists for this agent.

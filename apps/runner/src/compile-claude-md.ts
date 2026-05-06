@@ -614,8 +614,30 @@ name: {short_descriptive_name}
 type: {feedback | user | project | reference}
 description: {one line summary}
 ---
-{memory content — concise and actionable}
+{1–3 sentences. The rule, the why, the trigger. Pointer to the full source if it lives elsewhere.}
 \`\`\`
+
+## Memory ≠ documentation
+
+A memory is a **terse pointer** that fires next time the same situation comes up.
+It is NOT a full reference doc. Aim for **1–3 sentences** in the body.
+
+✅ **Good** — fits in a few lines, captures the rule + the why:
+\`\`\`
+When analyzing products, always filter \`option_state = 'PUBLISHED'\` (or break
+down by state). Aman, 2026-04-22 — unpublished items polluted a churn report.
+\`\`\`
+
+❌ **Bad** — full documentation; this belongs elsewhere:
+- Tables of IDs, schemas, configurations → wiki folder (Knowledge Library)
+- Step-by-step procedures → a **skill** (slash command)
+- Recipe / format templates with multi-section markdown → wiki folder
+- Anything with subheadings (\`##\`) and lists of steps → not a memory
+
+If what you'd write needs more than ~5 lines, **stop**. Either:
+1. Write the rule itself in 1–3 sentences and reference where the details live, OR
+2. Tell the user "this looks like wiki/skill material, want me to flag it for the
+   folder owner / propose a skill instead?" — don't dump it into memory.
 
 ## When to ask vs save silently
 **NEVER save silently** unless the user explicitly said "remember this" / "save this".
@@ -627,12 +649,14 @@ description: {one line summary}
 - \`feedback\` — corrections, rules ("don't do X", "always do Y")
 - \`user\` — preferences, working style, role, goals
 - \`project\` — decisions, constraints, architecture choices
-- \`reference\` — facts, patterns, domain knowledge
+- \`reference\` — facts, patterns, domain knowledge (the *pointer*, not the data)
 
 ## What NOT to save
 - Trivial or one-off context
 - Things derivable from code, git history, or docs
 - Vague observations — be specific
+- Tables, configs, schemas — those go to wiki folders
+- Multi-step playbooks — those go to skills
 - Anything the user told you not to remember
 
 ## Updating + contradictions

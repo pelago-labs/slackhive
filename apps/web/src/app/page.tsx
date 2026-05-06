@@ -11,7 +11,55 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { Agent } from '@slackhive/shared';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { Bot, LayoutGrid, GitBranch } from 'lucide-react';
+import { Bot, LayoutGrid, GitBranch, Search, ArrowUpDown } from 'lucide-react';
+
+type SortKey = 'boss-first' | 'name' | 'recent' | 'status';
+const SORT_LABELS: Record<SortKey, string> = {
+  'boss-first': 'Boss first',
+  'name': 'A → Z',
+  'recent': 'Recently active',
+  'status': 'Status',
+};
+const STATUS_RANK: Record<string, number> = { running: 0, error: 1, stopped: 2, stale: 3 };
+
+// Minimalist deterministic avatar palette — soft pastel background + darker
+// foreground letter, à la Linear / Notion. Low saturation so cards feel calm
+// in dense grids; the actual Slack profile image is preferred when available.
+const AVATAR_PALETTES: { bg: string; fg: string }[] = [
+  { bg: '#fef3c7', fg: '#92400e' }, // amber
+  { bg: '#fce7f3', fg: '#9d174d' }, // pink
+  { bg: '#ede9fe', fg: '#5b21b6' }, // violet
+  { bg: '#dbeafe', fg: '#1e40af' }, // blue
+  { bg: '#cffafe', fg: '#155e75' }, // cyan
+  { bg: '#dcfce7', fg: '#166534' }, // green
+  { bg: '#ecfccb', fg: '#3f6212' }, // lime
+  { bg: '#fee2e2', fg: '#991b1b' }, // red
+  { bg: '#ffedd5', fg: '#9a3412' }, // orange
+  { bg: '#f3f4f6', fg: '#1f2937' }, // gray
+];
+function avatarPalette(name: string): { bg: string; fg: string } {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return AVATAR_PALETTES[Math.abs(h) % AVATAR_PALETTES.length];
+}
+
+function relativeTime(iso?: string | null): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!t) return null;
+  const sec = Math.max(1, Math.floor((Date.now() - t) / 1000));
+  if (sec < 30) return 'just now';
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(mo / 12)}y ago`;
+}
 
 const InProgressContext = createContext<Record<string, number>>({});
 
@@ -45,7 +93,27 @@ export default function Dashboard() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [inProgressByAgent, setInProgressByAgent] = useState<Record<string, number>>({});
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<SortKey>('boss-first');
+  const [sortOpen, setSortOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const { canEdit } = useAuth();
+
+  // Track scroll for sticky-bar shadow
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Persist sort choice
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('slackhive-dashboard-sort') : null;
+    if (saved && saved in SORT_LABELS) setSort(saved as SortKey);
+  }, []);
+  useEffect(() => {
+    if (typeof window !== 'undefined') localStorage.setItem('slackhive-dashboard-sort', sort);
+  }, [sort]);
 
   const loadStatus = () => {
     fetch('/api/system/claude-status').then(r => r.json()).then(setClaudeStatus).catch(() => {});
@@ -63,7 +131,26 @@ export default function Dashboard() {
   useEffect(() => {
     fetch('/api/agents')
       .then(r => r.json())
-      .then(setAgents)
+      .then((list: Agent[]) => {
+        setAgents(list);
+        // Lazy-backfill Slack avatar URL for any agent missing one.
+        // Fire-and-forget; refresh agent state with new URL on success.
+        list
+          .filter(a => a.slackBotUserId && !a.slackBotImageUrl)
+          .forEach(a => {
+            fetch(`/api/agents/${a.id}/refresh-slack-profile`, { method: 'POST' })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => {
+                if (d?.ok && d.slackBotImageUrl) {
+                  setAgents(prev => prev.map(x => x.id === a.id
+                    ? { ...x, slackBotImageUrl: d.slackBotImageUrl, slackBotHandle: d.slackBotHandle ?? x.slackBotHandle }
+                    : x
+                  ));
+                }
+              })
+              .catch(() => {});
+          });
+      })
       .finally(() => setLoading(false));
     fetch('/api/settings')
       .then(r => r.json())
@@ -77,7 +164,35 @@ export default function Dashboard() {
   }, []);
 
   const allTags = [...new Set(agents.flatMap(a => a.tags ?? []))].sort();
-  const filteredAgents = selectedTag ? agents.filter(a => (a.tags ?? []).includes(selectedTag)) : agents;
+  const q = search.trim().toLowerCase();
+  const filteredAgents = agents
+    .filter(a => !selectedTag || (a.tags ?? []).includes(selectedTag))
+    .filter(a => !q || (
+      a.name.toLowerCase().includes(q) ||
+      a.slug.toLowerCase().includes(q) ||
+      (a.persona ?? '').toLowerCase().includes(q) ||
+      (a.description ?? '').toLowerCase().includes(q) ||
+      (a.tags ?? []).some(t => t.toLowerCase().includes(q))
+    ))
+    .sort((a, b) => {
+      switch (sort) {
+        case 'name': return a.name.localeCompare(b.name);
+        case 'recent': {
+          const ta = a.lastHeartbeat ? new Date(a.lastHeartbeat).getTime() : 0;
+          const tb = b.lastHeartbeat ? new Date(b.lastHeartbeat).getTime() : 0;
+          return tb - ta;
+        }
+        case 'status': {
+          const sa = STATUS_RANK[(a.liveStatus ?? a.status) as string] ?? 99;
+          const sb = STATUS_RANK[(b.liveStatus ?? b.status) as string] ?? 99;
+          return sa - sb || a.name.localeCompare(b.name);
+        }
+        case 'boss-first':
+        default:
+          if (a.isBoss !== b.isBoss) return a.isBoss ? -1 : 1;
+          return a.name.localeCompare(b.name);
+      }
+    });
 
   const running = agents.filter(a => a.status === 'running').length;
   const stopped = agents.filter(a => a.status === 'stopped').length;
@@ -88,7 +203,7 @@ export default function Dashboard() {
 
   return (
     <InProgressContext.Provider value={inProgressByAgent}>
-    <div style={{ padding: '36px 40px', maxWidth: 1200 }} className="fade-up responsive-pad">
+    <div style={{ padding: '32px 40px', maxWidth: 1440 }} className="fade-up responsive-pad">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
@@ -183,43 +298,111 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Stats ────────────────────────────────────────────────────────── */}
+      {/* ── Inline stats strip ───────────────────────────────────────────── */}
       {!loading && total > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }} className="stagger stats-grid">
-          <StatCard label="Total" value={total} sub={`${total} agent${total !== 1 ? 's' : ''} registered`} />
-          <StatCard label="Running" value={running} color="#059669" sub={running > 0 ? 'All systems healthy' : 'None active'} />
-          <StatCard label="Stopped" value={stopped} color="#a3a3a3" sub={stopped > 0 ? `${stopped} offline` : 'All online'} />
-          <StatCard label="Boss" value={bossCount || '—'} color="#d97706" sub={bossCount > 0 ? `${bossCount} orchestrator${bossCount > 1 ? 's' : ''} active` : 'No boss assigned'} />
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap',
+          fontSize: 13, color: 'var(--muted)', marginBottom: 18,
+        }}>
+          <Stat n={total} label={`agent${total !== 1 ? 's' : ''}`} />
+          <span style={{ color: 'var(--border-2)' }}>·</span>
+          <Stat n={running} label="running" color="#059669" />
+          <span style={{ color: 'var(--border-2)' }}>·</span>
+          <Stat n={stopped} label="stopped" color={stopped > 0 ? '#a3a3a3' : undefined} />
+          {bossCount > 0 && (
+            <>
+              <span style={{ color: 'var(--border-2)' }}>·</span>
+              <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} color="#d97706" />
+            </>
+          )}
         </div>
       )}
 
-      {/* ── Tag filter ───────────────────────────────────────────────────── */}
-      {!loading && allTags.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
-          <button
-            onClick={() => setSelectedTag(null)}
-            style={{
-              fontSize: 12, fontWeight: 500, padding: '4px 12px', borderRadius: 20,
-              border: '1px solid var(--border-2)', cursor: 'pointer',
-              background: selectedTag === null ? 'var(--text)' : 'var(--surface)',
-              color: selectedTag === null ? 'var(--surface)' : 'var(--muted)',
-              transition: 'all 0.15s',
-            }}
-          >All</button>
-          {allTags.map(tag => (
-            <button
-              key={tag}
-              onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
-              style={{
-                fontSize: 12, fontWeight: 500, padding: '4px 12px', borderRadius: 20,
-                border: `1px solid ${selectedTag === tag ? 'var(--accent, #3b82f6)' : 'var(--border-2)'}`,
-                cursor: 'pointer',
-                background: selectedTag === tag ? 'rgba(59,130,246,0.12)' : 'var(--surface)',
-                color: selectedTag === tag ? 'var(--accent, #3b82f6)' : 'var(--muted)',
-                transition: 'all 0.15s',
-              }}
-            >{tag}</button>
-          ))}
+      {/* ── Sticky search + sort + tag filter bar ────────────────────────── */}
+      {!loading && total > 0 && (
+        <div style={{
+          position: 'sticky', top: 0, zIndex: 20,
+          background: 'var(--bg)', paddingTop: 4, paddingBottom: 14, marginBottom: 18,
+          borderBottom: '1px solid var(--border)',
+          boxShadow: scrolled ? '0 4px 12px -8px rgba(0,0,0,0.12)' : 'none',
+          transition: 'box-shadow 0.18s ease',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: allTags.length > 0 ? 12 : 0 }}>
+            {/* Search */}
+            <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
+              <Search size={14} style={{
+                position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                color: 'var(--subtle)', pointerEvents: 'none',
+              }} />
+              <input
+                type="search"
+                placeholder="Search agents…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{
+                  width: '100%', height: 34, padding: '0 12px 0 34px',
+                  fontSize: 13, color: 'var(--text)',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8, outline: 'none',
+                  fontFamily: 'var(--font-sans)',
+                }}
+              />
+            </div>
+            {/* Sort */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setSortOpen(!sortOpen)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  height: 34, padding: '0 12px',
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 8, cursor: 'pointer',
+                  fontSize: 12.5, color: 'var(--text)', fontFamily: 'var(--font-sans)',
+                }}
+              >
+                <ArrowUpDown size={13} />
+                {SORT_LABELS[sort]}
+              </button>
+              {sortOpen && (
+                <div style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: 4,
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 8, padding: 4, minWidth: 180, zIndex: 30,
+                  boxShadow: 'var(--shadow-md)',
+                }}>
+                  {(Object.keys(SORT_LABELS) as SortKey[]).map(k => (
+                    <button
+                      key={k}
+                      onClick={() => { setSort(k); setSortOpen(false); }}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '7px 10px', fontSize: 12.5,
+                        background: sort === k ? 'var(--surface-2)' : 'transparent',
+                        color: 'var(--text)', border: 'none', borderRadius: 6,
+                        cursor: 'pointer', fontWeight: sort === k ? 600 : 400,
+                      }}
+                    >{SORT_LABELS[k]}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Match count */}
+            <span style={{ fontSize: 12, color: 'var(--subtle)', marginLeft: 'auto' }}>
+              {filteredAgents.length} of {total}
+            </span>
+          </div>
+          {/* Tag chips */}
+          {allTags.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+              <FilterChip active={selectedTag === null} onClick={() => setSelectedTag(null)}>All</FilterChip>
+              {allTags.map(tag => (
+                <FilterChip key={tag} active={selectedTag === tag} onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}>
+                  {tag}
+                </FilterChip>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -382,20 +565,33 @@ function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
 
 // ── Grid view ─────────────────────────────────────────────────────────────────
 
-function GridView({ agents, label = 'All Agents' }: { agents: Agent[]; label?: string }) {
+function GridView({ agents, label }: { agents: Agent[]; label?: string }) {
+  if (agents.length === 0) {
+    return (
+      <div style={{
+        textAlign: 'center', padding: '48px 24px', color: 'var(--muted)',
+        fontSize: 13, background: 'var(--surface)', borderRadius: 'var(--radius-lg)',
+        border: '1px dashed var(--border)',
+      }}>
+        No agents match the current filters.
+      </div>
+    );
+  }
   return (
     <>
-      <div style={{
-        fontSize: 11, fontWeight: 600, letterSpacing: '0.06em',
-        color: 'var(--subtle)', textTransform: 'uppercase',
-        marginBottom: 12, paddingLeft: 2,
-      }}>
-        {label}
-      </div>
+      {label && (
+        <div style={{
+          fontSize: 11, fontWeight: 600, letterSpacing: '0.06em',
+          color: 'var(--subtle)', textTransform: 'uppercase',
+          marginBottom: 12, paddingLeft: 2,
+        }}>
+          {label}
+        </div>
+      )}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-        gap: 14,
+        gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+        gap: 12,
       }} className="stagger agent-grid">
         {agents.map(agent => (
           <AgentCard key={agent.id} agent={agent} />
@@ -419,206 +615,227 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
   const statusLabel = noCreds ? 'Not configured' : STATUS_LABEL[displayStatus];
   const inProgressMap = useContext(InProgressContext);
   const inProgress = inProgressMap[agent.id] ?? 0;
+  const tags = agent.tags ?? [];
+  const visibleTags = tags.slice(0, 1);
+  const overflowTags = tags.length - visibleTags.length;
+  const modelShort = agent.model.replace('claude-', '').split('-20')[0];
+  const palette = avatarPalette(agent.name);
+  const lastActive = relativeTime(agent.lastHeartbeat);
+  const hasDescription = !!agent.description?.trim();
+  const [imgFailed, setImgFailed] = useState(false);
+  const showSlackImage = !!agent.slackBotImageUrl && !imgFailed;
 
   return (
     <Link
       href={`/agents/${agent.slug}`}
-      className="fade-up"
+      className="fade-up agent-card-v2"
       style={{
         display: 'block', textDecoration: 'none',
-        background: 'var(--surface)',
-        border: highlight ? '1.5px solid rgba(217,119,6,0.25)' : 'none',
-        borderRadius: 'var(--radius-lg)',
-        padding: compact ? '14px 16px' : '22px 24px',
-        boxShadow: highlight
-          ? '0 0 0 1px rgba(217,119,6,0.12), var(--shadow-card)'
-          : 'var(--shadow-card)',
-        transition: 'box-shadow 0.2s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1)',
+        background: agent.isBoss
+          ? 'linear-gradient(135deg, var(--surface) 0%, rgba(217,119,6,0.04) 100%)'
+          : 'var(--surface)',
+        border: agent.isBoss
+          ? '1px solid rgba(217,119,6,0.22)'
+          : highlight ? '1.5px solid rgba(217,119,6,0.25)' : '1px solid var(--border)',
+        borderRadius: 14,
+        padding: compact ? '14px 14px 12px' : '14px 16px 12px',
+        boxShadow: agent.isBoss || highlight
+          ? '0 0 0 1px rgba(217,119,6,0.06), var(--shadow-sm)'
+          : 'var(--shadow-sm)',
+        transition: 'box-shadow 0.2s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1), border-color 0.2s',
         cursor: 'pointer',
         position: 'relative',
-        overflow: 'hidden',
       }}
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = highlight
-          ? '0 0 0 1px rgba(217,119,6,0.2), var(--shadow-hover)'
+        el.style.boxShadow = agent.isBoss || highlight
+          ? '0 0 0 1px rgba(217,119,6,0.18), var(--shadow-hover)'
           : 'var(--shadow-hover)';
-        el.style.transform = 'translateY(-3px)';
+        el.style.transform = 'translateY(-2px)';
+        el.style.borderColor = agent.isBoss || highlight ? 'rgba(217,119,6,0.35)' : 'var(--border-2)';
       }}
       onMouseLeave={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = highlight
-          ? '0 0 0 1px rgba(217,119,6,0.12), var(--shadow-card)'
-          : 'var(--shadow-card)';
+        el.style.boxShadow = agent.isBoss || highlight
+          ? '0 0 0 1px rgba(217,119,6,0.06), var(--shadow-sm)'
+          : 'var(--shadow-sm)';
         el.style.transform = 'translateY(0)';
+        el.style.borderColor = agent.isBoss
+          ? 'rgba(217,119,6,0.22)'
+          : highlight ? 'rgba(217,119,6,0.25)' : 'var(--border)';
       }}
     >
-      {/* Boss accent bar */}
-      {agent.isBoss && (
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-          background: 'linear-gradient(90deg, #d97706, #f59e0b)',
-        }} />
-      )}
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: compact ? 8 : 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      {/* Avatar + name + status row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: hasDescription ? 8 : 10 }}>
+        {/* Avatar wrapper — relative for status dot, no overflow:hidden so dot can sit outside circle */}
+        <div style={{ position: 'relative', flexShrink: 0, width: 44, height: 44 }}>
           <div style={{
-            width: compact ? 30 : 36, height: compact ? 30 : 36,
-            borderRadius: compact ? 8 : 10, flexShrink: 0,
-            background: agent.isBoss ? '#171717' : 'var(--surface-2)',
-            border: agent.isBoss ? 'none' : '1px solid var(--border)',
+            width: 44, height: 44,
+            borderRadius: '50%',
+            background: showSlackImage ? 'var(--surface-2)' : palette.bg,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: compact ? 12 : 14, fontWeight: 600,
-            color: agent.isBoss ? '#fff' : 'var(--text)',
+            fontSize: 17, fontWeight: 600,
+            color: palette.fg,
+            overflow: 'hidden',
           }}>
-            {agent.name.charAt(0).toUpperCase()}
+            {showSlackImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={agent.slackBotImageUrl}
+                alt={agent.name}
+                width={44}
+                height={44}
+                onError={() => setImgFailed(true)}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              />
+            ) : (
+              agent.name.charAt(0).toUpperCase()
+            )}
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{
-                fontSize: compact ? 13 : 14.5, fontWeight: 600, color: 'var(--text)',
-                letterSpacing: '-0.01em',
-              }}>
-                {agent.name}
-              </span>
-              {agent.isBoss && (
-                <span style={{
-                  fontSize: 9.5, fontWeight: 600, letterSpacing: '0.04em',
-                  background: 'rgba(217,119,6,0.1)', color: '#d97706',
-                  padding: '2px 6px', borderRadius: 4,
-                  textTransform: 'uppercase',
-                }}>Boss</span>
-              )}
-              {multiReport && (
-                <span style={{
-                  fontSize: 9, fontWeight: 600, letterSpacing: '0.03em',
-                  background: 'rgba(99,102,241,0.08)', color: '#6366f1',
-                  padding: '2px 5px', borderRadius: 4,
-                }}>×2 bosses</span>
-              )}
-            </div>
-          </div>
+          {/* Status dot — bottom-right, outside the clipped avatar so it isn't cut off */}
+          <span
+            className={displayStatus === 'running' ? 'status-running' : ''}
+            style={{
+              position: 'absolute', bottom: 0, right: 0,
+              width: 11, height: 11, borderRadius: '50%',
+              background: color, border: '2px solid var(--surface)',
+              boxSizing: 'content-box',
+            }}
+            title={statusLabel}
+          />
         </div>
-
-        {/* Status */}
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3,
-          flexShrink: 0, marginTop: 2,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div
-              className={displayStatus === 'running' ? 'status-running' : ''}
-              style={{ width: 7, height: 7, borderRadius: '50%', background: color }}
-            />
-            <span style={{ fontSize: 11.5, color, fontWeight: 500 }}>
-              {statusLabel}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{
+              fontSize: 14, fontWeight: 600, color: 'var(--text)',
+              letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              minWidth: 0,
+            }}>
+              {agent.name}
             </span>
+            {agent.isBoss && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: '0.05em',
+                background: 'rgba(217,119,6,0.12)', color: '#d97706',
+                padding: '1px 5px', borderRadius: 3, textTransform: 'uppercase',
+                flexShrink: 0,
+              }}>Boss</span>
+            )}
+            {multiReport && (
+              <span style={{
+                fontSize: 9, fontWeight: 600,
+                background: 'rgba(99,102,241,0.1)', color: '#6366f1',
+                padding: '1px 4px', borderRadius: 3,
+                flexShrink: 0,
+              }}>×2</span>
+            )}
           </div>
-          {inProgress > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span className="status-running" style={{
-                width: 6, height: 6, borderRadius: '50%', background: '#2563eb',
-              }} />
-              <span style={{ fontSize: 10.5, color: '#2563eb', fontWeight: 600 }}>
-                Replying{inProgress > 1 ? ` ×${inProgress}` : ''}
-              </span>
-            </div>
-          )}
+          <div style={{
+            fontSize: 11.5, color: 'var(--muted)',
+            display: 'flex', alignItems: 'center', gap: 6, marginTop: 2,
+          }}>
+            <span style={{ color, fontWeight: 500 }}>{statusLabel}</span>
+            {displayStatus === 'running' && lastActive && (
+              <>
+                <span style={{ color: 'var(--border-2)' }}>·</span>
+                <span>{lastActive}</span>
+              </>
+            )}
+          </div>
         </div>
+        {inProgress > 0 && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            fontSize: 10, fontWeight: 600, color: '#2563eb',
+            background: 'rgba(37,99,235,0.08)',
+            padding: '2px 6px', borderRadius: 4, flexShrink: 0,
+          }}>
+            <span className="status-running" style={{ width: 5, height: 5, borderRadius: '50%', background: '#2563eb' }} />
+            {inProgress > 1 ? `×${inProgress}` : ''}
+          </span>
+        )}
       </div>
 
-      {/* Description — hide in compact if no description */}
-      {(!compact || agent.description) && (
+      {/* Description — only if present, no italic placeholder noise */}
+      {hasDescription && (
         <p style={{
-          margin: `0 0 ${compact ? 10 : 16}px`, fontSize: 12.5, color: 'var(--muted)',
-          lineHeight: 1.55,
-          display: '-webkit-box', WebkitLineClamp: compact ? 1 : 2,
-          WebkitBoxOrient: 'vertical', overflow: 'hidden',
-          minHeight: compact ? 'auto' : 38,
-        }}>
-          {agent.description || (
-            <span style={{ color: 'var(--subtle)', fontStyle: 'italic' }}>No description</span>
-          )}
+          margin: '0 0 10px', fontSize: 12, color: 'var(--muted)',
+          lineHeight: 1.45,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }} title={agent.description}>
+          {agent.description}
         </p>
       )}
 
-      {/* Tags */}
-      {(agent.tags ?? []).length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: compact ? 10 : 14 }}>
-          {(agent.tags ?? []).map(tag => (
+      {/* Tags row + model badge — single line, model never overflows the card */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minHeight: 18, minWidth: 0 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          flex: '0 1 auto', minWidth: 0, overflow: 'hidden',
+        }}>
+          {visibleTags.map(tag => (
             <span key={tag} style={{
-              fontSize: 10.5, fontWeight: 500, padding: '2px 7px', borderRadius: 5,
+              fontSize: 10, fontWeight: 500, padding: '2px 6px', borderRadius: 4,
               background: 'var(--surface-2)', color: 'var(--muted)',
               border: '1px solid var(--border)',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              maxWidth: 110,
             }}>{tag}</span>
           ))}
+          {overflowTags > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0 }}>+{overflowTags}</span>
+          )}
         </div>
-      )}
-
-      {/* Footer */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: compact ? 10 : 14, borderTop: '1px solid var(--border)',
-      }}>
         <span style={{
-          fontSize: 11, color: 'var(--muted)',
+          marginLeft: 'auto',
+          fontSize: 10, color: 'var(--subtle)',
           fontFamily: 'var(--font-mono)',
-          background: 'var(--surface-2)',
-          padding: '2px 7px', borderRadius: 4,
+          whiteSpace: 'nowrap', flexShrink: 0,
+          display: 'inline-flex', alignItems: 'center', gap: 4,
         }}>
-          {agent.model.replace('claude-', '').split('-20')[0]}
-        </span>
-        <span style={{
-          fontSize: 11,
-          color: agent.slackBotUserId ? '#059669' : 'var(--subtle)',
-          display: 'flex', alignItems: 'center', gap: 4,
-        }}>
-          {agent.slackBotUserId ? (
-            <>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#059669' }} />
-              {agent.slackBotHandle ? `@${agent.slackBotHandle}` : 'Connected'}
-            </>
-          ) : 'Not connected'}
+          {modelShort}
+          {agent.slackBotUserId && (
+            <span style={{ color: '#059669' }} title={agent.slackBotHandle ? `@${agent.slackBotHandle}` : 'Slack connected'}>●</span>
+          )}
         </span>
       </div>
     </Link>
   );
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
+// ── Inline stat + filter chip helpers ─────────────────────────────────────────
 
-function StatCard({ label, value, color, sub }: {
-  label: string; value: number | string; color?: string; sub?: string;
+function Stat({ n, label, color }: { n: number; label: string; color?: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
+      <strong style={{
+        fontSize: 14, fontWeight: 700, color: color ?? 'var(--text)',
+        fontVariantNumeric: 'tabular-nums',
+      }}>{n}</strong>
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function FilterChip({ active, onClick, children }: {
+  active: boolean; onClick: () => void; children: React.ReactNode;
 }) {
   return (
-    <div className="fade-up" style={{
-      background: 'var(--surface)',
-      border: 'none',
-      borderRadius: 'var(--radius-lg)',
-      padding: '20px 24px',
-      boxShadow: 'var(--shadow-card)',
-    }}>
-      <div style={{
-        fontSize: 11, fontWeight: 600, letterSpacing: '0.05em',
-        color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8,
-      }}>
-        {label}
-      </div>
-      <div style={{
-        fontSize: 28, fontWeight: 700, color: color ?? 'var(--text)',
-        letterSpacing: '-0.03em', lineHeight: 1,
-        fontVariantNumeric: 'tabular-nums',
-      }}>
-        {value}
-      </div>
-      {sub && (
-        <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 6 }}>
-          {sub}
-        </div>
-      )}
-    </div>
+    <button
+      onClick={onClick}
+      style={{
+        flexShrink: 0,
+        fontSize: 12, fontWeight: 500, padding: '4px 12px', borderRadius: 20,
+        border: `1px solid ${active ? 'var(--text)' : 'var(--border-2)'}`,
+        cursor: 'pointer',
+        background: active ? 'var(--text)' : 'var(--surface)',
+        color: active ? 'var(--surface)' : 'var(--muted)',
+        transition: 'all 0.15s',
+      }}
+    >{children}</button>
   );
 }
 
@@ -626,21 +843,22 @@ function StatCard({ label, value, color, sub }: {
 
 function SkeletonGrid() {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
-      {[1, 2, 3].map(i => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+      {[1, 2, 3, 4, 5, 6].map(i => (
         <div key={i} style={{
-          background: 'var(--surface)', borderRadius: 'var(--radius-lg)', padding: '22px 24px',
-          boxShadow: 'var(--shadow-card)', opacity: 1 - (i - 1) * 0.2,
+          background: 'var(--surface)', borderRadius: 14, padding: '14px 16px 12px',
+          border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)',
+          opacity: 1 - (i - 1) * 0.12,
         }}>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-            <Skel w={36} h={36} r={10} />
-            <div style={{ flex: 1 }}>
-              <Skel w="55%" h={15} r={5} mb={6} />
-              <Skel w="35%" h={12} r={4} />
+          <div style={{ display: 'flex', gap: 11, marginBottom: 10 }}>
+            <Skel w={44} h={44} r={12} />
+            <div style={{ flex: 1, paddingTop: 4 }}>
+              <Skel w="60%" h={14} r={5} mb={6} />
+              <Skel w="40%" h={11} r={4} />
             </div>
           </div>
-          <Skel w="100%" h={12} r={4} mb={6} />
-          <Skel w="70%" h={12} r={4} />
+          <Skel w="90%" h={11} r={4} mb={10} />
+          <Skel w="50%" h={11} r={4} />
         </div>
       ))}
     </div>

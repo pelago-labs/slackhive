@@ -21,7 +21,7 @@
 
 <br />
 
-<img src="https://raw.githubusercontent.com/pelago-labs/slackhive/main/docs/images/slack-ai-agent-team-dashboard.png" alt="SlackHive dashboard" style="border-radius: 12px;" />
+<img src="https://raw.githubusercontent.com/pelago-labs/slackhive/main/docs/images/slack-ai-agent-team-dashboard-with-avatars.png" alt="SlackHive dashboard" style="border-radius: 12px;" />
 
 </div>
 

@@ -374,6 +374,7 @@ CREATE TABLE IF NOT EXISTS platform_integrations (
   credentials TEXT NOT NULL,
   bot_user_id TEXT,
   bot_handle  TEXT,
+  bot_image_url TEXT,
   enabled     INTEGER DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(agent_id, platform)
@@ -583,6 +584,9 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const piCols = (db.pragma('table_info(platform_integrations)') as { name: string }[]).map(c => c.name);
   if (!piCols.includes('bot_handle')) {
     db.exec('ALTER TABLE platform_integrations ADD COLUMN bot_handle TEXT');
+  }
+  if (!piCols.includes('bot_image_url')) {
+    db.exec('ALTER TABLE platform_integrations ADD COLUMN bot_image_url TEXT');
   }
 
   const accessCols = (db.pragma('table_info(agent_access)') as { name: string }[]).map(c => c.name);
