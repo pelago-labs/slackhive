@@ -297,6 +297,19 @@ export class AgentRunner {
       await getDb().query(
         "UPDATE wiki_sources SET status = 'pending' WHERE status = 'building'"
       );
+
+      // Issue 4: remove any stale .build.lock files left by a crashed process
+      const knowledgeDir = path.join(os.homedir(), '.slackhive', 'knowledge');
+      if (fs.existsSync(knowledgeDir)) {
+        for (const entry of fs.readdirSync(knowledgeDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const lockFile = path.join(knowledgeDir, entry.name, 'wiki', '.build.lock');
+          if (fs.existsSync(lockFile)) {
+            try { fs.unlinkSync(lockFile); } catch { /* ok */ }
+            logger.info('Removed stale wiki build lock', { folder: entry.name });
+          }
+        }
+      }
     } catch (err) {
       logger.warn('Failed to clean stale requests', { error: (err as Error).message });
     }
@@ -1644,12 +1657,31 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
       await setResult(`wiki-build:${requestId}`, JSON.stringify({ buildStartedAt, ...data }));
     };
 
+    // Issue 5: sanitize PAT tokens from error messages before storing/logging
+    const sanitizeError = (msg: string) =>
+      msg.replace(/https?:\/\/[^@\s]+@/g, 'https://**REDACTED**@');
+
+    // Issue 4: file-based lock to prevent concurrent builds on the same folder
+    fs.mkdirSync(wikiDir, { recursive: true });
+    const lockPath = path.join(wikiDir, '.build.lock');
+    if (fs.existsSync(lockPath)) {
+      let lockInfo: Record<string, unknown> = {};
+      try { lockInfo = JSON.parse(fs.readFileSync(lockPath, 'utf-8')); } catch { /* ok */ }
+      logger.warn('Wiki build already in progress, skipping', { folderId, lockInfo });
+      await writeProgress({ status: 'error', folderId, error: 'Build already in progress — try again shortly.' });
+      return;
+    }
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }));
+
     try {
       await writeProgress({ status: 'building', folderId, step: 'Starting...' });
 
       if (scratch) {
         await writeProgress({ status: 'building', folderId, step: 'Clearing wiki for rebuild...' });
         try { fs.rmSync(wikiDir, { recursive: true, force: true }); } catch { /* ok */ }
+        fs.mkdirSync(wikiDir, { recursive: true });
+        // Re-write lock after rmSync removed the directory
+        fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: buildStartedAt, requestId }));
         // Only reset compiled/error/stale sources to pending — this is the one explicit user-triggered reset
         const { getDb } = await import('@slackhive/shared');
         await getDb().query(
@@ -1657,8 +1689,6 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           [folderId],
         );
       }
-
-      fs.mkdirSync(wikiDir, { recursive: true });
 
       // Query sources with status directly
       const { getDb } = await import('@slackhive/shared');
@@ -1690,10 +1720,9 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         return;
       }
 
-      // Read existing wiki
+      // Read existing wiki — returns index.md or article path list to keep prompt small
       const readExistingWiki = (): string => {
         if (!fs.existsSync(wikiDir)) return '(empty — no wiki yet)';
-        // Only return index.md to keep prompt size small; fall back to listing article paths.
         const indexPath = path.join(wikiDir, 'index.md');
         if (fs.existsSync(indexPath)) return fs.readFileSync(indexPath, 'utf-8');
         const paths: string[] = [];
@@ -1714,9 +1743,26 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
 
       let totalPages = 0;
       let totalWords = 0;
+      // Issue 1: accumulate all articles across all chunks and sources to build index once at end
+      const allIndexEntries: { path: string; title: string }[] = [];
+      // Pre-populate index entries from sources not being rebuilt this run
+      for (const [srcName, srcManifest] of Object.entries(manifest)) {
+        if (!pendingSources.find(s => s.name === srcName)) {
+          for (const p of [...(srcManifest.created ?? []), ...(srcManifest.updated ?? [])]) {
+            allIndexEntries.push({ path: p, title: path.basename(p, '.md').replace(/-/g, ' ') });
+          }
+        }
+      }
+
+      // Issue 7: cross-repo context block when folder has multiple sources
+      const siblingBlock = pendingSources.length > 1
+        ? `\n\n## Sibling sources in this wiki folder\nThis folder contains ${pendingSources.length} sources: ${pendingSources.map(s => `"${s.name}"`).join(', ')}. You are currently building for the source named below. Where relevant, note cross-service dependencies between sources.\n`
+        : '';
 
       for (let i = 0; i < pendingSources.length; i++) {
         const src = pendingSources[i];
+        // Issue 2: namespace all article paths by source slug to prevent cross-source collisions
+        const sourceSlug = src.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         await updateWikiSourceStatus(src.id, 'building');
         await writeProgress({
           status: 'building', folderId,
@@ -1750,11 +1796,40 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           const sourceEverIngested = !!manifest[src.name];
           const isCode = src.type === 'repo';
           const targetRange = isCode ? '20-40' : '3-8';
-          const articleTypesList = isCode
-            ? ['- `modules/xxx.md`', '- `concepts/xxx.md`', '- `entities/xxx.md`', '- `flows/xxx.md`'].join('\n')
-            : ['- `concepts/xxx.md`', '- `entities/xxx.md` (optional)'].join('\n');
-          const codebaseWord = isCode ? 'codebase' : 'document';
           const effectiveMode = wikiIsEmpty ? 'first' : (sourceEverIngested && src.status === 'stale') ? 'sync' : 'new-source';
+
+          // Issue 3: for stale re-sync, delete old files for this source before re-ingesting
+          if (effectiveMode === 'sync' && manifest[src.name]) {
+            const prevPaths = [...(manifest[src.name].created ?? []), ...(manifest[src.name].updated ?? [])];
+            for (const p of prevPaths) {
+              const full = path.join(wikiDir, p);
+              try { if (fs.existsSync(full)) fs.unlinkSync(full); } catch { /* ok */ }
+            }
+            delete manifest[src.name];
+            fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+          }
+
+          // Issue 6: expanded article types — architecture, guides, api, infra for repos
+          const articleTypesList = isCode
+            ? [
+                `- \`${sourceSlug}/architecture/overview.md\` — high-level design, component map, tech stack`,
+                `- \`${sourceSlug}/architecture/data-flow.md\` — data flow between services/layers`,
+                `- \`${sourceSlug}/guides/onboarding.md\` — setup, first run, how to make first contribution`,
+                `- \`${sourceSlug}/guides/deprecated.md\` — deprecated APIs, patterns to avoid and why`,
+                `- \`${sourceSlug}/api/contracts.md\` — public API surface, endpoints, request/response shapes`,
+                `- \`${sourceSlug}/api/events.md\` — events, webhooks, message queues emitted/consumed`,
+                `- \`${sourceSlug}/infra/deployment.md\` — deploy process, environments, CI/CD pipeline`,
+                `- \`${sourceSlug}/infra/config.md\` — env vars, feature flags, required secrets`,
+                `- \`${sourceSlug}/modules/{name}.md\` — per-module/package breakdown`,
+                `- \`${sourceSlug}/concepts/{name}.md\` — domain concepts, business logic`,
+                `- \`${sourceSlug}/entities/{name}.md\` — data models, schemas`,
+                `- \`${sourceSlug}/flows/{name}.md\` — user or system flows`,
+              ].join('\n')
+            : [
+                `- \`${sourceSlug}/concepts/{name}.md\``,
+                `- \`${sourceSlug}/entities/{name}.md\` (optional)`,
+              ].join('\n');
+
           const modeInstruction = effectiveMode === 'first'
             ? `This is the FIRST source. Create the initial wiki — aim for ${targetRange} articles. Don't pad.`
             : effectiveMode === 'new-source'
@@ -1783,7 +1858,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             });
             const currentWiki = readExistingWiki();
 
-          const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\n## Existing wiki\n${currentWiki}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "concepts/x.md", "title": "X", "content": "..." }],\n  ${chunkIdx === 0 && effectiveMode === 'first' ? '"overview": "# Overview\\n...",' : ''}\n  "index": "# Wiki Index\\n...",\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
+            const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\nIMPORTANT: All file paths MUST be prefixed with \`${sourceSlug}/\`. Example: \`${sourceSlug}/concepts/auth.md\`. Never write a path without this prefix.${siblingBlock}\n\n## Existing wiki\n${currentWiki}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "${sourceSlug}/entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "${sourceSlug}/concepts/x.md", "title": "X", "content": "..." }],\n  ${chunkIdx === 0 && effectiveMode === 'first' ? '"overview": "# Overview\\n...",' : ''}\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
 
             let lastProgress = 0;
             const response = await this.callClaudeWithRetry(prompt, (chars) => {
@@ -1802,30 +1877,47 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             const parsed = this.parseWikiJson(response);
             if (!parsed) throw new Error(`Could not parse Claude response for chunk ${chunkIdx + 1}`);
 
+            // Issue 9: warn if chunk produced no articles
+            const chunkArticleCount = (parsed.created?.length ?? 0) + (parsed.updated?.length ?? 0);
+            if (chunkArticleCount === 0) {
+              logger.warn('[wiki] Chunk produced 0 articles', { folderId, source: src.name, chunkIdx });
+            }
+
             for (const article of (parsed.created ?? [])) {
-              const p = path.join(wikiDir, article.path);
+              // Issue 2: enforce slug prefix defensively on write
+              const articlePath = article.path.startsWith(`${sourceSlug}/`) ? article.path : `${sourceSlug}/${article.path}`;
+              const p = path.join(wikiDir, articlePath);
               fs.mkdirSync(path.dirname(p), { recursive: true });
               fs.writeFileSync(p, article.content, 'utf-8');
               totalPages++;
+              // Issue 8: count words from created articles
               totalWords += article.content.split(/\s+/).length;
+              allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
             for (const article of (parsed.updated ?? [])) {
-              const p = path.join(wikiDir, article.path);
+              // Issue 2: enforce slug prefix defensively on write
+              const articlePath = article.path.startsWith(`${sourceSlug}/`) ? article.path : `${sourceSlug}/${article.path}`;
+              const p = path.join(wikiDir, articlePath);
               fs.mkdirSync(path.dirname(p), { recursive: true });
               fs.writeFileSync(p, article.content, 'utf-8');
+              // Issue 8: also count words from updated articles (fixes undercount on re-sync)
+              totalWords += article.content.split(/\s+/).length;
+              allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
-            if (parsed.overview) fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
-            if (parsed.index) fs.writeFileSync(path.join(wikiDir, 'index.md'), parsed.index, 'utf-8');
+            if (parsed.overview && chunkIdx === 0) fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
+            // Issue 1: do NOT write index.md here — we write it once after all sources finish
             if (parsed.logEntry) {
               const logPath = path.join(wikiDir, 'log.md');
               const existingLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8') : '# Wiki Log\n';
               fs.writeFileSync(logPath, existingLog + '\n' + parsed.logEntry + '\n', 'utf-8');
             }
-            const createdPaths = (parsed.created ?? []).map((a: any) => a.path);
-            const updatedPaths = (parsed.updated ?? []).map((a: any) => a.path);
+            const createdPaths = (parsed.created ?? []).map((a: any) =>
+              a.path.startsWith(`${sourceSlug}/`) ? a.path : `${sourceSlug}/${a.path}`);
+            const updatedPaths = (parsed.updated ?? []).map((a: any) =>
+              a.path.startsWith(`${sourceSlug}/`) ? a.path : `${sourceSlug}/${a.path}`);
             manifest[src.name] = {
-              created: [...(manifest[src.name]?.created ?? []), ...createdPaths].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
-              updated: [...(manifest[src.name]?.updated ?? []), ...updatedPaths].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+              created: [...(manifest[src.name]?.created ?? []), ...createdPaths].filter((v: string, idx: number, a: string[]) => a.indexOf(v) === idx),
+              updated: [...(manifest[src.name]?.updated ?? []), ...updatedPaths].filter((v: string, idx: number, a: string[]) => a.indexOf(v) === idx),
             };
             fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
           } // end chunk loop
@@ -1833,18 +1925,38 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           await updateWikiSourceStatus(src.id, 'compiled', totalWords, new Date().toISOString());
           logger.info('Wiki source compiled', { folderId, source: src.name });
         } catch (err) {
-          const msg = (err as Error).message ?? String(err);
+          const msg = sanitizeError((err as Error).message ?? String(err));
           logger.error('Wiki source build failed', { folderId, source: src.name, error: msg });
           await updateWikiSourceStatus(src.id, 'error');
         }
       }
 
+      // Issue 1: write index.md once after all sources, grouping by top-level directory (source slug)
+      if (allIndexEntries.length > 0) {
+        const byGroup: Record<string, { path: string; title: string }[]> = {};
+        for (const entry of allIndexEntries) {
+          const group = entry.path.split('/')[0] ?? 'misc';
+          (byGroup[group] ??= []).push(entry);
+        }
+        const indexLines = ['# Wiki Index\n'];
+        for (const [group, entries] of Object.entries(byGroup).sort()) {
+          indexLines.push(`\n## ${group}\n`);
+          for (const e of entries) {
+            indexLines.push(`- [${e.title}](${e.path})`);
+          }
+        }
+        fs.writeFileSync(path.join(wikiDir, 'index.md'), indexLines.join('\n') + '\n', 'utf-8');
+      }
+
       await writeProgress({ status: 'done', folderId, pages: totalPages, words: totalWords });
       logger.info('Wiki folder build complete', { folderId, pages: totalPages, words: totalWords });
     } catch (err) {
-      const msg = (err as Error).message ?? String(err);
+      const msg = sanitizeError((err as Error).message ?? String(err));
       logger.error('Wiki folder build error', { folderId, requestId, error: msg });
       await writeProgress({ status: 'error', folderId, error: msg.slice(0, 200) });
+    } finally {
+      // Issue 4: always release the build lock
+      try { fs.unlinkSync(lockPath); } catch { /* ok */ }
     }
   }
 
