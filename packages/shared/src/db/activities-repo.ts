@@ -500,11 +500,12 @@ export async function countInProgressByAgent(
 }
 
 /**
- * Mark any activities/tool_calls that are still `in_progress` as `error`.
- * Called once at runner startup to recover from unclean shutdowns (SIGKILL,
- * crashes) that bypassed the normal closeActivity path.
+ * Mark any activities/tool_calls that are still `in_progress` as `error` and
+ * return the swept activity IDs so the caller can decide whether to auto-
+ * replay them. Called once at runner startup to recover from unclean
+ * shutdowns (SIGKILL, crashes) that bypassed the normal closeActivity path.
  */
-export async function sweepStaleActivities(): Promise<number> {
+export async function sweepStaleActivities(): Promise<string[]> {
   const db = getDb();
   await db.query(
     `UPDATE tool_calls SET status = 'ok'
@@ -519,7 +520,7 @@ export async function sweepStaleActivities(): Promise<number> {
   RETURNING id`,
     [],
   );
-  return rows.length;
+  return rows.map(r => r.id as string);
 }
 
 // =============================================================================
