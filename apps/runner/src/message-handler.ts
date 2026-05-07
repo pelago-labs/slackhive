@@ -235,6 +235,18 @@ export class MessageHandler {
         }
       }
 
+      // If abort fired during the stream, fall through to the catch handler
+      // so the activity is marked 'error/aborted' and Slack reaction shows
+      // :stop_button:. Without this throw the success path below runs and
+      // we'd post a "No response generated" fallback + mark the cancelled
+      // message as 'done'. The SDK's query() generator returns silently when
+      // the consumer breaks on signal.aborted instead of throwing AbortError,
+      // which is why our existing catch never fired for interrupted runs.
+      if (abortController.signal.aborted) {
+        const err: Error & { name: string } = Object.assign(new Error('aborted'), { name: 'AbortError' });
+        throw err;
+      }
+
       // Fallback if no messages were sent
       if (sentMessages.length === 0) {
         const fallback = lastAssistantText ?? lastToolResultText ?? '_No response generated._';
