@@ -1912,7 +1912,7 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
                     padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
                     cursor: saving ? 'default' : 'pointer', border: 'none',
                     background: f.assigned ? 'var(--accent)' : 'var(--surface-2)',
-                    color: f.assigned ? '#fff' : 'var(--text)',
+                    color: f.assigned ? 'var(--accent-fg)' : 'var(--text)',
                     opacity: saving ? 0.6 : 1, transition: 'background 0.15s, color 0.15s',
                     flexShrink: 0,
                   }}
