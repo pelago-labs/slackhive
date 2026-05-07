@@ -161,6 +161,31 @@ export async function getAgentBySlackBotUserId(botUserId: string): Promise<Agent
   return agent;
 }
 
+/**
+ * Returns a map of `slack_bot_user_id` → Agent for every SlackHive agent
+ * with a Slack integration. Used by MessageHandler to scope the agent-
+ * traffic bypass to trusted bots (other SlackHive agents) AND to enforce
+ * the boss/reportee relationship — without this, any 3rd-party bot
+ * (PagerDuty, GitHub, etc.) could trigger an agent by mentioning it, and
+ * any SlackHive agent could trigger any other regardless of reportsTo.
+ */
+export async function getAgentsByBotUserId(): Promise<Map<string, Agent>> {
+  const r = await getDb().query(
+    `SELECT a.*, pi.bot_user_id FROM agents a
+     JOIN platform_integrations pi ON pi.agent_id = a.id
+     WHERE pi.platform = $1 AND pi.bot_user_id IS NOT NULL`,
+    ['slack']
+  );
+  const out = new Map<string, Agent>();
+  for (const row of r.rows) {
+    const agent = rowToAgent(row);
+    const botUserId = (row as Record<string, unknown>).bot_user_id as string;
+    agent.slackBotUserId = botUserId;
+    out.set(botUserId, agent);
+  }
+  return out;
+}
+
 export async function updateAgentStatus(
   id: string,
   status: AgentStatus,

@@ -1154,7 +1154,9 @@ export class AgentRunner {
       // Pre-flight: wipe tmpDir if a previous run was killed mid-clone (SIGTERM
       // skips the finally cleanup). git clone refuses to write into a
       // non-empty directory, so a stale dir would block this run forever.
-      try { execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
+      // Use fs.rmSync (no shell) so no chance of metachar interpolation
+      // through the path even if src.id ever ceases to be a UUID.
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ok */ }
       try {
         // Capture stderr so a clone failure surfaces git's actual error
         // ("Remote branch foo not found", auth failure, etc.) — previously
@@ -1438,7 +1440,8 @@ export class AgentRunner {
       return result;
 
     } finally {
-      try { (await import('child_process')).execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
+      // No-shell cleanup — see pre-flight rmSync above for rationale.
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ok */ }
     }
   }
 
@@ -2083,11 +2086,19 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             // wiki — past (from manifest) + current — so the overview can
             // be a true high-level synthesis across all of them, not just
             // a description of the source being ingested right now.
+            //
+            // Cap the existing overview at 4KB before injection so a runaway
+            // prior overview can't push the prompt over Claude's context
+            // limit when combined with a 100KB source chunk and large index.
             const wantsOverview = chunkIdx === 0;
+            const MAX_OVERVIEW_PROMPT_BYTES = 4_000;
+            const overviewForPrompt = currentOverview.length > MAX_OVERVIEW_PROMPT_BYTES
+              ? currentOverview.slice(0, MAX_OVERVIEW_PROMPT_BYTES) + '\n…[truncated for prompt budget]'
+              : currentOverview;
             const allSourceNames = [...new Set([...Object.keys(manifest), src.name])].sort();
             const sourceListLine = `All sources in this wiki: ${allSourceNames.join(', ')}`;
-            const overviewInstruction = !wantsOverview ? '' : (currentOverview
-              ? `\n\n## Overview update\noverview.md is the high-level intro to the ENTIRE wiki — it must summarize what every source contributes, not just this one. Extend the existing overview below to incorporate "${src.name}" alongside the coverage already there. Preserve structure; extend rather than replace. Keep it 3–5 paragraphs total.\n\n${sourceListLine}\n\nExisting overview:\n\n${currentOverview}`
+            const overviewInstruction = !wantsOverview ? '' : (overviewForPrompt
+              ? `\n\n## Overview update\noverview.md is the high-level intro to the ENTIRE wiki — it must summarize what every source contributes, not just this one. Extend the existing overview below to incorporate "${src.name}" alongside the coverage already there. Preserve structure; extend rather than replace. Keep it 3–5 paragraphs total.\n\n${sourceListLine}\n\nExisting overview:\n\n${overviewForPrompt}`
               : `\n\n## Overview\nCreate overview.md — a brief 3–5 paragraph intro describing what this wiki covers across ALL sources at a high level. Lead with the highest-level domain, then summarize the major areas.\n\n${sourceListLine}`);
             const overviewField = wantsOverview ? '\n  "overview": "# Overview\\n...",' : '';
 
@@ -2139,7 +2150,17 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               sourceWords += wc;
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
-            if (parsed.overview && chunkIdx === 0) fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
+            // Sanity-check the returned overview before persisting: must be
+            // a non-trivial string (>= 50 chars). Guards against empty or
+            // pathologically short returns silently overwriting a
+            // perfectly-good prior overview.
+            if (chunkIdx === 0 && typeof parsed.overview === 'string' && parsed.overview.trim().length >= 50) {
+              fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
+            } else if (chunkIdx === 0 && parsed.overview) {
+              logger.warn('[wiki] Skipping overview write — return too short', {
+                folderId, source: src.name, length: String(parsed.overview).length,
+              });
+            }
             // Issue 1: do NOT write index.md here — we write it once after all sources finish
             if (parsed.logEntry) {
               const logPath = path.join(wikiDir, 'log.md');

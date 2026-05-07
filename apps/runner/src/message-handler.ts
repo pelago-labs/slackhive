@@ -25,6 +25,7 @@ import {
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
+import { getAgentsByBotUserId } from './db';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -52,11 +53,24 @@ const MAX_THREAD_CONTEXT_CHARS = 8_000;
 /** Max bytes for text file content. */
 const MAX_TEXT_FILE_BYTES = 512 * 1024;
 
+/** TTL for the cached map of trusted agent bot user IDs → Agent (60s). */
+const AGENT_BOT_IDS_TTL_MS = 60_000;
+
 export class MessageHandler {
   private log: Logger;
   private correctionHandler: CorrectionHandler;
   private activeControllers = new Map<string, AbortController>();
   private currentReactions = new Map<string, string>();
+
+  /**
+   * Cached map of `slack_bot_user_id` → Agent for every SlackHive agent in
+   * this workspace. Populated lazily on first agent-traffic message and
+   * refreshed every 60s. Used by `isAuthorizedAgentTraffic` to enforce the
+   * boss/reportee relationship — only the agent's own bosses (or its own
+   * reportees replying back) can bypass the per-user access gate.
+   */
+  private knownAgentsByBotId: Map<string, Agent> = new Map();
+  private knownAgentsExpiresAt = 0;
 
   constructor(
     private adapter: PlatformAdapter,
@@ -66,6 +80,39 @@ export class MessageHandler {
   ) {
     this.log = agentLogger(agent.slug);
     this.correctionHandler = new CorrectionHandler(agent);
+  }
+
+  /**
+   * Returns true when `senderUserId` is the bot user of a SlackHive agent
+   * AND that agent has a boss/reportee relationship with this agent — i.e.
+   *   - this agent reports to the sender (boss → specialist), or
+   *   - the sender reports to this agent (specialist replying to its boss).
+   *
+   * Peer-to-peer agent traffic (two specialists messaging each other) is
+   * denied; the SlackHive hierarchy doesn't permit it, and allowing it
+   * would let any agent that knows this agent's mention trigger it.
+   *
+   * Returns false on lookup failure (fail-closed).
+   */
+  private async isAuthorizedAgentTraffic(senderUserId: string): Promise<boolean> {
+    if (Date.now() > this.knownAgentsExpiresAt) {
+      try {
+        this.knownAgentsByBotId = await getAgentsByBotUserId();
+        this.knownAgentsExpiresAt = Date.now() + AGENT_BOT_IDS_TTL_MS;
+      } catch (err) {
+        this.log.warn('Failed to refresh known agent bot map', { error: (err as Error).message });
+        return false;
+      }
+    }
+    const senderAgent = this.knownAgentsByBotId.get(senderUserId);
+    if (!senderAgent) return false; // not a SlackHive agent at all
+    const myReportsTo = this.agent.reportsTo ?? [];
+    const senderReportsTo = senderAgent.reportsTo ?? [];
+    // (a) boss → specialist: I report to the sender.
+    if (myReportsTo.includes(senderAgent.id)) return true;
+    // (b) specialist → boss: sender reports to me.
+    if (senderReportsTo.includes(this.agent.id)) return true;
+    return false;
   }
 
   /**
@@ -83,15 +130,17 @@ export class MessageHandler {
 
     // Check user access — only users with trigger/view/edit grant (or admins/creators) may interact.
     // Bypasses:
-    //   - Test platform (synthetic users)
-    //   - Boss → specialist agent traffic. Detected via `bot_id`/`app_id` on
-    //     the raw event (Slack populates these for bot-posted messages).
-    //     The boss's authorization to invoke this specialist is enforced
-    //     upstream by the boss registry / reportsTo config; checking the
-    //     boss's bot user against per-user grants would always deny.
-    const isAgentTraffic = Boolean((msg.raw as any)?.bot_id ?? (msg.raw as any)?.app_id);
+    //   - Test platform (synthetic users).
+    //   - Authorized boss/reportee agent traffic. The sender must have a
+    //     `bot_id`/`app_id` on the raw Slack event AND be a SlackHive agent
+    //     in a boss/reportee relationship with this agent (this.reportsTo
+    //     ∋ sender OR sender.reportsTo ∋ this). Peer-to-peer agent traffic
+    //     and 3rd-party bots (PagerDuty, GitHub, etc.) still go through
+    //     the per-user gate, which they fail.
+    const hasBotMarker = Boolean((msg.raw as any)?.bot_id ?? (msg.raw as any)?.app_id);
+    const isAgentTraffic = hasBotMarker && (await this.isAuthorizedAgentTraffic(userId));
     if (msg.platform !== 'test' && !isAgentTraffic && !(await this.userCanTrigger(userId))) {
-      this.log.info('Denying message — user has no access to this agent', { userId });
+      this.log.info('Denying message — user has no access to this agent', { userId, hasBotMarker });
       await this.adapter.postMessage(channelId, "You don't have access to this agent.", threadId).catch(() => {});
       return;
     }
