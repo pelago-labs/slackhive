@@ -29,12 +29,11 @@ describe('cleanDescription', () => {
     expect(cleanDescription('Stop right there!')).toBe('Stop right there!');
   });
 
-  it('clamps to 80 characters with an ellipsis', () => {
-    const long = 'x'.repeat(120);
+  it('does NOT hard-truncate long output (regression: would chop mid-word)', () => {
+    const long = 'Standards for resilient external API calls covering timeouts, retries, and error handling';
     const out = cleanDescription(long);
-    expect(out).not.toBeNull();
-    expect(out!.length).toBeLessThanOrEqual(80);
-    expect(out!.endsWith('…')).toBe(true);
+    expect(out).toBe(long);
+    expect(out!.endsWith('…')).toBe(false);
   });
 
   it('returns null for empty / whitespace-only input', () => {

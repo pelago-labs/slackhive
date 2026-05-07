@@ -1155,7 +1155,13 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
   const [selected, setSelected]     = useState<Skill | null>(null);
   const [content, setContent]       = useState('');
   const [description, setDescription] = useState('');
-  const [editingDesc, setEditingDesc] = useState(false);
+  const [descModal, setDescModal]   = useState(false);
+  const [descDraft, setDescDraft]   = useState('');
+  // Description value at the moment Regenerate was clicked. We only end the
+  // loader when polling brings in a description that differs from this — the
+  // old code ended on any truthy description, so the spinner flickered off
+  // before the runner had even started summarizing.
+  const [regenBaseline, setRegenBaseline] = useState<string | null>(null);
   const [saving, setSaving]         = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [msg, setMsg]               = useState('');
@@ -1188,21 +1194,37 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     return () => window.removeEventListener('slackhive:instructions-refresh', h);
   }, [agentId]);
 
-  // Light polling so a freshly-saved skill picks up the description the
-  // runner just summarized. Only polls while a real skill is selected and
-  // its description is still empty — stops itself once filled.
+  // Light polling so a freshly-saved or regenerating skill picks up the
+  // description the runner just summarized. Polls while the selected skill
+  // has no description OR a regenerate is in flight; stops once filled.
   useEffect(() => {
     if (!selected || selected.id === '__identity__') return;
-    if (selected.description) return;
-    const t = setInterval(load, 2_000);
+    if (selected.description && !regenerating) return;
+    const t = setInterval(load, 1_500);
     return () => clearInterval(t);
-  }, [selected?.id, selected?.description]);
+  }, [selected?.id, selected?.description, regenerating]);
+
+  // When polling brings in a fresh description that's actually new (not the
+  // pre-click value), end the regenerating state and seed the modal draft.
+  useEffect(() => {
+    if (!regenerating) return;
+    if (!selected?.description) return;
+    if (selected.description === regenBaseline) return; // still old value
+    setRegenerating(false);
+    setRegenBaseline(null);
+    if (descModal) setDescDraft(selected.description);
+  }, [selected?.description, regenerating, regenBaseline, descModal]);
 
   const select = (s: Skill) => {
     setSelected(s);
     setContent(s.content);
     setDescription(s.description ?? '');
-    setEditingDesc(false);
+    setDescModal(false);
+  };
+
+  const openDescModal = () => {
+    setDescDraft(description);
+    setDescModal(true);
   };
 
   const save = async () => {
@@ -1222,26 +1244,30 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
 
   const regenerate = async () => {
     if (!selected || selected.id === '__identity__') return;
+    // Snapshot the current description so the polling effect can tell when
+    // the runner has actually written a NEW value (vs just seeing the old
+    // one on the next poll tick).
+    setRegenBaseline(selected.description ?? '');
     setRegenerating(true);
-    setDescription('');
-    setEditingDesc(false);
+    // Modal stays OPEN so the user has somewhere to watch the spinner and
+    // can review the new draft before saving it. The second effect below
+    // populates descDraft once the runner writes back.
     await fetch(`/api/agents/${agentId}/skills/${selected.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ regenerate: true }),
     });
-    setRegenerating(false);
-    setMsg('Generating…'); setTimeout(() => setMsg(''), 2500);
-    // load() runs from the polling effect once the runner writes back.
+    // Polling keeps `regenerating` true until the new description arrives.
   };
 
   const saveDescription = async () => {
     if (!selected || selected.id === '__identity__') return;
-    const trimmed = description.trim();
+    const trimmed = descDraft.trim();
     await fetch(`/api/agents/${agentId}/skills/${selected.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: trimmed === '' ? null : trimmed }),
     });
-    setEditingDesc(false);
+    setDescription(trimmed);
+    setDescModal(false);
     setMsg('Saved'); setTimeout(() => setMsg(''), 1500);
     load();
   };
@@ -1381,94 +1407,50 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
         {selected ? (
           <>
             <div style={{
-              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '10px 16px', borderBottom: '1px solid var(--border)',
               background: 'var(--surface-2)', gap: 12,
             }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-                    {selected.category}/{selected.filename}
-                  </span>
-                  {isIdentity && <span style={{ fontSize: 10, color: 'var(--subtle)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3 }}>read-only · edit in Overview</span>}
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                  {selected.category}/{selected.filename}
+                </span>
+                {isIdentity && <span style={{ fontSize: 10, color: 'var(--subtle)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3 }}>read-only · edit in Overview</span>}
                 {!isIdentity && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 22 }}>
-                    {editingDesc ? (
-                      <>
-                        <input
-                          type="text"
-                          value={description}
-                          onChange={e => setDescription(e.target.value)}
-                          autoFocus
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') saveDescription();
-                            if (e.key === 'Escape') { setDescription(selected.description ?? ''); setEditingDesc(false); }
-                          }}
-                          placeholder="One-line summary shown in the agent’s skills index"
-                          style={{
-                            flex: 1, border: '1px solid var(--border)', borderRadius: 4,
-                            padding: '2px 6px', fontSize: 12, lineHeight: 1.4,
-                            background: 'var(--surface)', color: 'var(--text)',
-                            fontFamily: 'var(--font-sans)', outline: 'none',
-                          }}
-                          maxLength={120}
-                        />
-                        <button
-                          onClick={saveDescription}
-                          title="Save description"
-                          style={{
-                            background: 'var(--accent)', color: 'var(--accent-fg)',
-                            border: 'none', borderRadius: 4,
-                            padding: '2px 8px', fontSize: 11, fontWeight: 500,
-                            cursor: 'pointer', fontFamily: 'var(--font-sans)', flexShrink: 0,
-                          }}
-                        >Save</button>
-                        <button
-                          onClick={() => { setDescription(selected.description ?? ''); setEditingDesc(false); }}
-                          title="Cancel"
-                          style={{
-                            background: 'none', border: 'none', cursor: 'pointer',
-                            color: 'var(--muted)', fontSize: 14, lineHeight: 1, padding: '2px 4px', flexShrink: 0,
-                          }}
-                        >×</button>
-                      </>
-                    ) : (
-                      <>
-                        <span style={{
-                          fontSize: 12, color: description ? 'var(--muted)' : 'var(--subtle)',
-                          fontStyle: description ? 'normal' : 'italic',
-                          fontFamily: 'var(--font-sans)',
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          flex: 1, minWidth: 0,
-                        }}>
-                          {regenerating ? 'Generating…' : (description || 'No description yet')}
-                        </span>
-                        {canEdit && !regenerating && (
-                          <>
-                            <button
-                              onClick={() => setEditingDesc(true)}
-                              title="Edit description"
-                              style={{
-                                background: 'none', border: 'none', cursor: 'pointer',
-                                color: 'var(--muted)', fontSize: 12, lineHeight: 1, padding: '2px 4px', flexShrink: 0,
-                              }}
-                            >✎</button>
-                            <button
-                              onClick={regenerate}
-                              title="Regenerate description with the runner summarizer"
-                              style={{
-                                background: 'none', border: 'none', cursor: 'pointer',
-                                color: 'var(--muted)', fontSize: 11, lineHeight: 1,
-                                padding: '2px 4px', flexShrink: 0, fontFamily: 'var(--font-sans)',
-                                textDecoration: 'underline',
-                              }}
-                            >regenerate</button>
-                          </>
-                        )}
-                      </>
+                  <button
+                    onClick={openDescModal}
+                    disabled={!canEdit && !description}
+                    title={
+                      regenerating ? 'Regenerating with AI…'
+                        : description ? description
+                        : (canEdit ? 'Add a "when to use" description' : 'No description')
+                    }
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      fontSize: 10, fontWeight: 500, letterSpacing: '0.04em',
+                      textTransform: 'uppercase', fontFamily: 'var(--font-sans)',
+                      background: 'var(--surface-3)', color: 'var(--muted)',
+                      border: 'none', borderRadius: 3,
+                      padding: '2px 8px', cursor: canEdit ? 'pointer' : 'default',
+                      flexShrink: 0,
+                    }}
+                    onMouseEnter={e => { if (canEdit) (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+                    onMouseLeave={e => { if (canEdit) (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+                  >
+                    {regenerating && (
+                      <span
+                        aria-label="Regenerating"
+                        style={{
+                          width: 8, height: 8, flexShrink: 0,
+                          border: '1.5px solid var(--border-2)',
+                          borderTopColor: 'var(--text)',
+                          borderRadius: '50%',
+                          animation: 'spin 0.8s linear infinite',
+                        }}
+                      />
                     )}
-                  </div>
+                    desc
+                  </button>
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
@@ -1519,6 +1501,49 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <PrimaryBtn onClick={create}>Create</PrimaryBtn>
             <GhostBtn onClick={() => setShowNew(false)}>Cancel</GhostBtn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit description modal */}
+      {descModal && selected && (
+        <Modal title={`Edit description — ${selected.filename}`} onClose={() => setDescModal(false)}>
+          <div style={{ position: 'relative' }}>
+            <TextArea
+              label="Description"
+              value={descDraft}
+              onChange={setDescDraft}
+              rows={3}
+              hint='Frame as a "when to use" trigger so the agent picks the right /command. e.g. "Use when filing a Notion bug ticket from a Slack investigation".'
+            />
+            {regenerating && (
+              <div style={{
+                position: 'absolute', inset: '24px 0 32px 0',
+                background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)',
+                borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                color: 'var(--text)', fontSize: 13, fontWeight: 500,
+                pointerEvents: 'none',
+              }}>
+                <span
+                  aria-label="Regenerating"
+                  style={{
+                    width: 14, height: 14, flexShrink: 0,
+                    border: '2px solid var(--border-2)',
+                    borderTopColor: 'var(--text)',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite',
+                  }}
+                />
+                Regenerating with AI…
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4, justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <PrimaryBtn onClick={saveDescription}>Save</PrimaryBtn>
+              <GhostBtn onClick={() => setDescModal(false)}>Cancel</GhostBtn>
+            </div>
+            <GhostBtn onClick={regenerate}>{regenerating ? 'Regenerating…' : 'Regenerate with AI'}</GhostBtn>
           </div>
         </Modal>
       )}

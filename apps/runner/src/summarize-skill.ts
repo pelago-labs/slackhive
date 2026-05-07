@@ -18,13 +18,26 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { logger } from './logger';
 
 const MODEL = 'claude-sonnet-4-6';
-const MAX_CHARS = 80;
 
-const SYSTEM_PROMPT = `You write one-line descriptions of a developer's "skill" \
-(a slash-command playbook). Output ONE sentence in plain text, no markdown, no \
-quotes, no trailing period. Maximum 80 characters. Describe what the skill does, \
-not how. Imperative or noun phrase, e.g. "File a Notion bug ticket with team \
-routing" or "Redaction rules for customer data and credentials".`;
+const SYSTEM_PROMPT = `You write one-line "WHEN TO USE" descriptions for a \
+developer's "skill" (a slash-command playbook). The output goes into the \
+agent's CLAUDE.md skills index — its sole purpose is to help the model pick \
+the right /command in a fresh conversation.
+
+Output ONE concise sentence in plain text. No markdown, no quotes, no trailing \
+period. Aim for ~100 characters but always finish the sentence naturally — do \
+NOT cut off mid-word.
+
+Frame it as a TRIGGER, not a description of internals. Start with "Use when…", \
+"Invoke when…", "When…", or an equivalent triggering phrase. Examples:
+- "Use when filing a Notion bug ticket from a Slack investigation"
+- "Use before writing any SQL query against Redshift"
+- "Invoke when redacting PII from a customer support response"
+- "When investigating a customer-reported production incident across logs and traces"
+
+Bad (describes what, not when):
+- "Standards for resilient external API calls covering timeouts and retries"
+- "SQL query conventions for data-analyst role including limits and schema qualification"`;
 
 /**
  * Summarizes a skill into a short one-line description suitable for the
@@ -47,6 +60,8 @@ export async function summarizeSkill(filename: string, content: string): Promise
         allowedTools: [],
         maxTurns: 1,
         systemPrompt: SYSTEM_PROMPT,
+        // No raw `max_tokens` cap on the agent SDK — letting the model finish
+        // the sentence naturally is more important than saving 50 tokens.
       },
     })) {
       const m = msg as { type: string; message?: { content?: unknown[] }; result?: string };
@@ -70,8 +85,11 @@ export async function summarizeSkill(filename: string, content: string): Promise
 }
 
 /**
- * Trims whitespace, strips wrapping quotes, drops trailing period, collapses
- * internal whitespace, and clamps to MAX_CHARS. Public for tests.
+ * Trims whitespace, strips wrapping quotes, drops trailing period, and
+ * collapses internal whitespace. Does NOT clamp length — the model is asked
+ * to be concise; clipping mid-word produced ugly truncations like
+ * "covering timeouts, retries, and erro…" so we trust the model output now.
+ * Public for tests.
  */
 export function cleanDescription(raw: string): string | null {
   let s = raw.trim().replace(/\s+/g, ' ');
@@ -79,6 +97,5 @@ export function cleanDescription(raw: string): string | null {
     s = s.slice(1, -1).trim();
   }
   if (s.endsWith('.')) s = s.slice(0, -1);
-  if (s.length > MAX_CHARS) s = s.slice(0, MAX_CHARS - 1).trimEnd() + '…';
   return s.length > 0 ? s : null;
 }
