@@ -141,7 +141,12 @@ export class SlackAdapter implements PlatformAdapter {
         text: fullText,
         isDM: false,
         files: allFiles.length > 0 ? allFiles : undefined,
-        raw: { client, messageTs: event.ts },
+        raw: {
+          client,
+          messageTs: event.ts,
+          bot_id: (event as any).bot_id,
+          app_id: (event as any).app_id,
+        },
       });
     });
 
@@ -163,7 +168,12 @@ export class SlackAdapter implements PlatformAdapter {
         text: fullText,
         isDM: true,
         files: allFiles.length > 0 ? allFiles : undefined,
-        raw: { client, messageTs: msg.ts },
+        raw: {
+          client,
+          messageTs: msg.ts,
+          bot_id: msg.bot_id,
+          app_id: msg.app_id,
+        },
       });
     });
 

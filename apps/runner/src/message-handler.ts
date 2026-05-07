@@ -81,9 +81,16 @@ export class MessageHandler {
     // Check channel restrictions
     if (this.isChannelRestricted(channelId)) return;
 
-    // Check user access — only users with trigger/view/edit grant (or admins/creators) may interact
-    // Test platform bypasses this check (test users are synthetic)
-    if (msg.platform !== 'test' && !(await this.userCanTrigger(userId))) {
+    // Check user access — only users with trigger/view/edit grant (or admins/creators) may interact.
+    // Bypasses:
+    //   - Test platform (synthetic users)
+    //   - Boss → specialist agent traffic. Detected via `bot_id`/`app_id` on
+    //     the raw event (Slack populates these for bot-posted messages).
+    //     The boss's authorization to invoke this specialist is enforced
+    //     upstream by the boss registry / reportsTo config; checking the
+    //     boss's bot user against per-user grants would always deny.
+    const isAgentTraffic = Boolean((msg.raw as any)?.bot_id ?? (msg.raw as any)?.app_id);
+    if (msg.platform !== 'test' && !isAgentTraffic && !(await this.userCanTrigger(userId))) {
       this.log.info('Denying message — user has no access to this agent', { userId });
       await this.adapter.postMessage(channelId, "You don't have access to this agent.", threadId).catch(() => {});
       return;
