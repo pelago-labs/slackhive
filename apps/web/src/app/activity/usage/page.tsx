@@ -314,7 +314,7 @@ function PowerUsers(props: {
   const rows = byUser ?? [];
   return (
     <section style={sectionStyle}>
-      <SectionHeader title="Power users" subtitle="ranked by tasks started" />
+      <SectionHeader title="Power users" subtitle="ranked by tasks, then tokens" />
       {loading && <EmptyRow text="Loading…" />}
       {!loading && rows.length === 0 && <EmptyRow text="No user activity in this window." />}
       {!loading && rows.map((row, i) => (

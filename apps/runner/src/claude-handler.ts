@@ -28,10 +28,13 @@ import {
 } from './db';
 import { agentLogger } from './logger';
 import { McpProcessManager } from './mcp-process-manager.js';
+import { findProcessesByEnv, killProcessesGracefully } from './process-utils.js';
 import type { Logger } from 'winston';
 
 const SESSION_MAX_AGE_MS = 30 * 60 * 1_000;
 const SESSION_CLEANUP_INTERVAL_MS = 10 * 60 * 1_000;
+const COOPERATIVE_SHUTDOWN_GRACE_MS = 1_000;
+const FORCE_KILL_GRACE_MS = 2_000;
 
 export class ClaudeHandler {
   private readonly agent: Agent;
@@ -45,6 +48,9 @@ export class ClaudeHandler {
 
   /** In-memory cache: sessionKey → Claude session ID */
   private sessionCache: Map<string, string> = new Map();
+
+  /** AbortControllers for queries currently streaming through {@link streamQuery}. */
+  private inflightAborts: Set<AbortController> = new Set();
 
   private cleanupTimer: NodeJS.Timeout | null = null;
 
@@ -108,17 +114,42 @@ export class ClaudeHandler {
   }
 
   /**
-   * Stops the cleanup timer and clears the in-memory session cache.
-   * Called when the agent is stopped or reloaded.
+   * Tears down everything the agent owns: cleanup timer, in-flight queries,
+   * any orphaned Claude SDK subprocesses, and MCP proxies.
    *
-   * @returns {void}
+   * Shutdown order matters: we abort first so the SDK can exit cooperatively,
+   * wait briefly, then force-kill any subprocess still around (e.g. one wedged
+   * waiting for an MCP tool response that never arrives — see
+   * https://github.com/anthropics/slackhive/issues for context). Only then do
+   * we tear down the MCP proxies, since killing the consumer first lets the
+   * proxy http server actually close instead of hanging on dangling SSE.
    */
   async destroy(): Promise<void> {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
+
+    for (const ctl of this.inflightAborts) {
+      try { ctl.abort(); } catch { /* swallow */ }
+    }
+    this.inflightAborts.clear();
     this.sessionCache.clear();
+
+    await sleep(COOPERATIVE_SHUTDOWN_GRACE_MS);
+
+    // The SDK owns spawning the `claude` subprocess and doesn't expose its
+    // PID, so we identify orphans after the fact via AGENT_SLUG (set on the
+    // runner process, inherited by the SDK subprocess).
+    const orphans = findProcessesByEnv('AGENT_SLUG', this.agent.slug);
+    if (orphans.length > 0) {
+      this.log.warn('Force-killing orphaned Claude subprocesses', {
+        count: orphans.length,
+        pids: orphans,
+      });
+      await killProcessesGracefully(orphans, FORCE_KILL_GRACE_MS, this.log);
+    }
+
     await this.mcpManager.stopAll().catch((err) =>
       this.log.warn('Error stopping MCP proxies', { error: (err as Error).message })
     );
@@ -254,6 +285,19 @@ export class ClaudeHandler {
    * @throws {Error} On unrecoverable SDK errors (re-thrown after logging).
    */
   async *streamQuery(
+    prompt: string | ContentBlockParam[],
+    sessionKey: string,
+    abortController?: AbortController
+  ): AsyncGenerator<SDKMessage, void, unknown> {
+    if (abortController) this.inflightAborts.add(abortController);
+    try {
+      yield* this.streamQueryInner(prompt, sessionKey, abortController);
+    } finally {
+      if (abortController) this.inflightAborts.delete(abortController);
+    }
+  }
+
+  private async *streamQueryInner(
     prompt: string | ContentBlockParam[],
     sessionKey: string,
     abortController?: AbortController
@@ -579,4 +623,8 @@ export class ClaudeHandler {
       this.log.warn('Session cleanup failed', { error });
     }
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

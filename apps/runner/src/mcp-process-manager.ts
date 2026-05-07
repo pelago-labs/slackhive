@@ -233,6 +233,10 @@ export class McpProcessManager {
     if (!proxy) return;
     this.proxies.delete(name);
     await proxy.client.close().catch(() => {});
+    // closeAllConnections drops dangling SSE sockets so httpServer.close
+    // resolves promptly. Without it, a wedged consumer (e.g. a stuck Claude
+    // SDK subprocess holding the stream open) can pin teardown indefinitely.
+    proxy.httpServer.closeAllConnections?.();
     await new Promise<void>((resolve) => proxy.httpServer.close(() => resolve()));
     this.log.info('MCP proxy stopped', { server: name });
   }
