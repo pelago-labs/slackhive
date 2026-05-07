@@ -1915,6 +1915,14 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         return paths.length ? `Existing articles:\n${paths.join('\n')}` : '(empty — no wiki yet)';
       };
 
+      // Read the current overview.md so Claude can extend it in-place rather
+      // than regenerating from scratch each source. Returns '' when missing.
+      const readExistingOverview = (): string => {
+        const overviewPath = path.join(wikiDir, 'overview.md');
+        try { return fs.existsSync(overviewPath) ? fs.readFileSync(overviewPath, 'utf-8') : ''; }
+        catch { return ''; }
+      };
+
       const manifestPath = path.join(wikiDir, 'manifest.json');
       let manifest: Record<string, { created: string[]; updated: string[] }> = {};
       try { if (fs.existsSync(manifestPath)) manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')); } catch { /* ok */ }
@@ -2041,8 +2049,26 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               articlesWritten: totalPages,
             });
             const currentWiki = readExistingWiki();
+            const currentOverview = readExistingOverview();
 
-            const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\nIMPORTANT: All file paths MUST be prefixed with \`${sourceSlug}/\`. Example: \`${sourceSlug}/concepts/auth.md\`. Never write a path without this prefix.${siblingBlock}\n\n## Existing wiki\n${currentWiki}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "${sourceSlug}/entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "${sourceSlug}/concepts/x.md", "title": "X", "content": "..." }],\n  ${chunkIdx === 0 && effectiveMode === 'first' ? '"overview": "# Overview\\n...",' : ''}\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
+            // Overview policy: refresh overview.md on the FIRST chunk of
+            // EVERY source so it grows to reflect the whole wiki, not just
+            // source #1. Multi-chunk single sources still only generate
+            // overview once (chunkIdx === 0), so cost stays bounded.
+            //
+            // Tell Claude the full set of sources that contribute to this
+            // wiki — past (from manifest) + current — so the overview can
+            // be a true high-level synthesis across all of them, not just
+            // a description of the source being ingested right now.
+            const wantsOverview = chunkIdx === 0;
+            const allSourceNames = [...new Set([...Object.keys(manifest), src.name])].sort();
+            const sourceListLine = `All sources in this wiki: ${allSourceNames.join(', ')}`;
+            const overviewInstruction = !wantsOverview ? '' : (currentOverview
+              ? `\n\n## Overview update\noverview.md is the high-level intro to the ENTIRE wiki — it must summarize what every source contributes, not just this one. Extend the existing overview below to incorporate "${src.name}" alongside the coverage already there. Preserve structure; extend rather than replace. Keep it 3–5 paragraphs total.\n\n${sourceListLine}\n\nExisting overview:\n\n${currentOverview}`
+              : `\n\n## Overview\nCreate overview.md — a brief 3–5 paragraph intro describing what this wiki covers across ALL sources at a high level. Lead with the highest-level domain, then summarize the major areas.\n\n${sourceListLine}`);
+            const overviewField = wantsOverview ? '\n  "overview": "# Overview\\n...",' : '';
+
+            const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\nIMPORTANT: All file paths MUST be prefixed with \`${sourceSlug}/\`. Example: \`${sourceSlug}/concepts/auth.md\`. Never write a path without this prefix.${siblingBlock}\n\n## Existing wiki\n${currentWiki}${overviewInstruction}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "${sourceSlug}/entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "${sourceSlug}/concepts/x.md", "title": "X", "content": "..." }],${overviewField}\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
 
             let lastProgress = 0;
             const response = await this.callClaudeWithRetry(prompt, (chars) => {
