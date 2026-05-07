@@ -315,8 +315,8 @@ export class AgentRunner {
         }
 
         const newer = await db.query(
-          `SELECT 1 FROM activities WHERE task_id = $1 AND started_at > $2 LIMIT 1`,
-          [task_id, started_at],
+          `SELECT 1 FROM activities WHERE task_id = $1 AND id != $2 AND started_at >= $3 LIMIT 1`,
+          [task_id, id, started_at],
         );
         if (newer.rows.length > 0) {
           logger.info('Auto-replay skip: newer activity exists', { activityId: id });
