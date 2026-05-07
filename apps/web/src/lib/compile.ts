@@ -47,5 +47,6 @@ export function skillToSnapshotSkill(s: Skill): SnapshotSkill {
     filename: s.filename,
     content: s.content,
     sort_order: s.sortOrder,
+    description: s.description,
   };
 }

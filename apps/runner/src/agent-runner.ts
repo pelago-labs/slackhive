@@ -44,7 +44,11 @@ import {
   setResult,
   getPlatformIntegration,
   updateWikiSourceStatus,
+  getSkillById,
+  updateSkillDescription,
+  getSkillsMissingDescription,
 } from './db';
+import { summarizeSkill } from './summarize-skill';
 import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
 import { MemoryWatcher } from './memory-watcher';
@@ -245,6 +249,13 @@ export class AgentRunner {
     await this.jobScheduler.start();
     this.startHeartbeat();
     this.registerShutdownHandlers();
+
+    // Background-fill any skill description that's still NULL — covers rows
+    // saved while the runner was down or where a previous summarize call
+    // crashed before completing. Fire-and-forget; safe to run after startup.
+    this.sweepMissingSkillDescriptions().catch((err) =>
+      logger.warn('Skill description sweep failed', { error: (err as Error).message })
+    );
 
     logger.info('AgentRunner started', { agents: this.runningAgents.size, runnerId: this.runnerId });
   }
@@ -712,6 +723,11 @@ export class AgentRunner {
             logger.error('Failed to reload jobs', { error: (err as Error).message })
           );
           break;
+        case 'skill-saved':
+          this.summarizeSkillIfNeeded(event.agentId, event.skillId).catch((err) =>
+            logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
+          );
+          break;
       }
     });
 
@@ -806,6 +822,11 @@ export class AgentRunner {
               break;
             case 'reload-jobs':
               await this.jobScheduler.reload();
+              break;
+            case 'skill-saved':
+              this.summarizeSkillIfNeeded(event.agentId, event.skillId).catch((err) =>
+                logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
+              );
               break;
             default: {
               // Handle mcp-auth, analyze-memories, and other custom events
@@ -1967,6 +1988,93 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
     } finally {
       // Issue 4: always release the build lock
       try { fs.unlinkSync(lockPath); } catch { /* ok */ }
+    }
+  }
+
+  /**
+   * Summarize a single skill on demand: load it, call the summarizer with one
+   * retry on transient failure, write the description back, and trigger a
+   * lightweight reload so the new description appears in the agent's
+   * compiled CLAUDE.md skills index. No-ops if the skill already has a
+   * description (lets event re-deliveries be idempotent) or the agent isn't
+   * running on this runner.
+   */
+  private async summarizeSkillIfNeeded(agentId: string, skillId: string): Promise<void> {
+    const skill = await getSkillById(skillId);
+    if (!skill) return;
+    if (skill.description) return; // Already filled — nothing to do.
+    if (!this.runningAgents.has(agentId)) return; // Not our agent on this runner.
+
+    const description = await this.callSummarizerWithRetry(skill.filename, skill.content);
+    if (!description) return;
+
+    await updateSkillDescription(skillId, description);
+    logger.info('Skill description filled', {
+      agentId,
+      skillId,
+      filename: skill.filename,
+      description,
+    });
+
+    // Recompile CLAUDE.md so the new line appears in the skills index. Reload
+    // is safe (the running session resumes via cached session keys); it's
+    // also what every other config-touching mutation triggers.
+    await this.reloadAgent(agentId).catch((err) =>
+      logger.warn('Reload after skill summarize failed', { agentId, error: (err as Error).message })
+    );
+  }
+
+  /**
+   * One retry with a short backoff. Sonnet 4.6 is reliable enough that more
+   * aggressive retries would cost more than they save — the startup sweep
+   * catches anything that stays unfilled.
+   */
+  private async callSummarizerWithRetry(filename: string, content: string): Promise<string | null> {
+    const first = await summarizeSkill(filename, content);
+    if (first) return first;
+    await new Promise(r => setTimeout(r, 1_500));
+    return await summarizeSkill(filename, content);
+  }
+
+  /**
+   * Find every skill across the workspace whose description is still NULL
+   * and queue it for summarization. Throttled to one in-flight call at a
+   * time so a 50-skill backlog doesn't spike API usage.
+   */
+  private async sweepMissingSkillDescriptions(): Promise<void> {
+    const missing = await getSkillsMissingDescription();
+    if (missing.length === 0) return;
+    logger.info('Sweeping skills missing description', { count: missing.length });
+
+    let filled = 0;
+    for (const skill of missing) {
+      // Only summarize for agents this runner actually owns; another runner
+      // may pick up the rest. The skill-saved event handler does the same check.
+      if (!this.runningAgents.has(skill.agentId)) continue;
+      try {
+        const description = await this.callSummarizerWithRetry(skill.filename, skill.content);
+        if (description) {
+          await updateSkillDescription(skill.id, description);
+          filled++;
+        }
+      } catch (err) {
+        logger.warn('Sweep summarize failed', {
+          skillId: skill.id,
+          filename: skill.filename,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    if (filled > 0) {
+      logger.info('Skill description sweep complete', { filled, attempted: missing.length });
+      // Reload all touched agents so their CLAUDE.md picks up the new descriptions.
+      const touchedAgents = new Set(missing.map(s => s.agentId).filter(id => this.runningAgents.has(id)));
+      for (const agentId of touchedAgents) {
+        await this.reloadAgent(agentId).catch((err) =>
+          logger.warn('Sweep reload failed', { agentId, error: (err as Error).message })
+        );
+      }
     }
   }
 

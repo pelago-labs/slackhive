@@ -1151,16 +1151,32 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
 // ─── Skills ───────────────────────────────────────────────────────────────────
 
 function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription }: { agentId: string; canEdit: boolean; agentName: string; agentPersona: string; agentDescription: string }) {
-  const [skills, setSkills]     = useState<Skill[]>([]);
-  const [selected, setSelected] = useState<Skill | null>(null);
-  const [content, setContent]   = useState('');
-  const [saving, setSaving]     = useState(false);
-  const [msg, setMsg]           = useState('');
-  const [showNew, setShowNew]   = useState(false);
-  const [newSkill, setNewSkill] = useState({ category: '', filename: '', content: '' });
+  const [skills, setSkills]         = useState<Skill[]>([]);
+  const [selected, setSelected]     = useState<Skill | null>(null);
+  const [content, setContent]       = useState('');
+  const [description, setDescription] = useState('');
+  const [saving, setSaving]         = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [msg, setMsg]               = useState('');
+  const [showNew, setShowNew]       = useState(false);
+  const [newSkill, setNewSkill]     = useState({ category: '', filename: '', content: '' });
 
   const load = () =>
-    fetch(`/api/agents/${agentId}/skills`).then(r => r.json()).then(setSkills);
+    fetch(`/api/agents/${agentId}/skills`).then(r => r.json()).then((next: Skill[]) => {
+      setSkills(next);
+      // Keep the selected skill's description in sync if the runner just
+      // filled it in via summarize. Without this, the input shows the stale
+      // value from the moment the user clicked into the file.
+      setSelected(prev => {
+        if (!prev || prev.id === '__identity__') return prev;
+        const fresh = next.find(s => s.id === prev.id);
+        if (fresh && fresh.description !== prev.description) {
+          setDescription(fresh.description ?? '');
+          return fresh;
+        }
+        return prev;
+      });
+    });
 
   useEffect(() => { load(); }, [agentId]);
 
@@ -1171,16 +1187,47 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     return () => window.removeEventListener('slackhive:instructions-refresh', h);
   }, [agentId]);
 
-  const select = (s: Skill) => { setSelected(s); setContent(s.content); };
+  // Light polling so a freshly-saved skill picks up the description the
+  // runner just summarized. Only polls while a real skill is selected and
+  // its description is still empty — stops itself once filled.
+  useEffect(() => {
+    if (!selected || selected.id === '__identity__') return;
+    if (selected.description) return;
+    const t = setInterval(load, 2_000);
+    return () => clearInterval(t);
+  }, [selected?.id, selected?.description]);
+
+  const select = (s: Skill) => {
+    setSelected(s);
+    setContent(s.content);
+    setDescription(s.description ?? '');
+  };
 
   const save = async () => {
     if (!selected) return;
     setSaving(true);
     await fetch(`/api/agents/${agentId}/skills`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: selected.category, filename: selected.filename, content, sortOrder: selected.sortOrder }),
+      body: JSON.stringify({
+        category: selected.category, filename: selected.filename,
+        content, sortOrder: selected.sortOrder,
+        description: description.trim() === '' ? null : description.trim(),
+      }),
     });
     setSaving(false); setMsg('Saved'); setTimeout(() => setMsg(''), 2000); load();
+  };
+
+  const regenerate = async () => {
+    if (!selected || selected.id === '__identity__') return;
+    setRegenerating(true);
+    setDescription('');
+    await fetch(`/api/agents/${agentId}/skills/${selected.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ regenerate: true }),
+    });
+    setRegenerating(false);
+    setMsg('Generating…'); setTimeout(() => setMsg(''), 2500);
+    // load() runs from the polling effect once the runner writes back.
   };
 
   const remove = async (s: Skill) => {
@@ -1207,6 +1254,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     filename: 'identity.md',
     sortOrder: -1,
     content: [`# ${agentName}`, agentPersona, agentDescription].filter(Boolean).join('\n\n'),
+    description: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -1343,6 +1391,51 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                 </button>}
               </div>
             </div>
+            {!isIdentity && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 16px', borderBottom: '1px solid var(--border)',
+                background: 'var(--surface)',
+              }}>
+                <span style={{
+                  fontSize: 10.5, fontWeight: 600, color: 'var(--muted)',
+                  letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0,
+                }}>
+                  Description
+                </span>
+                <input
+                  type="text"
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  readOnly={!canEdit}
+                  placeholder={regenerating ? 'Generating…' : 'One-line summary shown in the agent’s skills index'}
+                  style={{
+                    flex: 1, border: '1px solid var(--border)', borderRadius: 6,
+                    padding: '6px 10px', fontSize: 12.5, lineHeight: 1.4,
+                    background: 'var(--surface-2)', color: 'var(--text)',
+                    fontFamily: 'var(--font-sans)', outline: 'none',
+                  }}
+                  maxLength={120}
+                />
+                {canEdit && (
+                  <button
+                    onClick={regenerate}
+                    disabled={regenerating || saving}
+                    title="Have the runner summarize this skill into a one-line description"
+                    style={{
+                      background: 'var(--surface-2)', color: 'var(--text)',
+                      border: '1px solid var(--border)', borderRadius: 6,
+                      padding: '5px 10px', fontSize: 11.5, fontWeight: 500,
+                      cursor: (regenerating || saving) ? 'not-allowed' : 'pointer',
+                      opacity: (regenerating || saving) ? 0.6 : 1,
+                      fontFamily: 'var(--font-sans)', flexShrink: 0,
+                    }}
+                  >
+                    {regenerating ? 'Generating…' : 'Regenerate'}
+                  </button>
+                )}
+              </div>
+            )}
             <textarea
               value={isIdentity ? identityVirtual.content : content}
               onChange={e => { if (!isIdentity) setContent(e.target.value); }}

@@ -266,6 +266,12 @@ export interface Skill {
   filename: string;
   /** Full markdown content of the skill file. */
   content: string;
+  /**
+   * Short one-line summary (~80 chars) shown in the CLAUDE.md skills index so
+   * the model can pick the right slash command without loading the body. Null
+   * until generated (manually or by the runner-side Sonnet summarizer).
+   */
+  description: string | null;
   /** Sort order within the category (lower = compiled first). */
   sortOrder: number;
   createdAt: Date;
@@ -415,8 +421,20 @@ export interface JobsReloadEvent {
   type: 'reload-jobs';
 }
 
+/**
+ * Event fired when a skill is created or updated. The runner picks this up,
+ * generates a one-line description with Sonnet, and writes it back to the DB.
+ * Decoupled from `reload` so summarization runs in the background and the
+ * agent doesn't get an extra restart for what is effectively a metadata fill.
+ */
+export interface SkillSavedEvent {
+  type: 'skill-saved';
+  agentId: string;
+  skillId: string;
+}
+
 /** Union of all lifecycle events published on Redis. */
-export type AgentEvent = AgentReloadEvent | AgentStartEvent | AgentStopEvent | JobsReloadEvent;
+export type AgentEvent = AgentReloadEvent | AgentStartEvent | AgentStopEvent | JobsReloadEvent | SkillSavedEvent;
 
 // =============================================================================
 // Coach (interactive instruction tuning) types
@@ -664,6 +682,8 @@ export interface UpdateRestrictionsRequest {
 export interface UpsertSkillRequest {
   content: string;
   sortOrder?: number;
+  /** Optional one-line description; if omitted, the runner summarizer fills it in. */
+  description?: string | null;
 }
 
 /**
@@ -876,6 +896,7 @@ export interface SnapshotSkill {
   filename: string;
   content: string;
   sort_order: number;
+  description?: string | null;
 }
 
 /** What triggered the snapshot creation. */

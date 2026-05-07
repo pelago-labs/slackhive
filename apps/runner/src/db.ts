@@ -72,6 +72,7 @@ function rowToSkill(row: Record<string, unknown>): Skill {
     category: row.category as string,
     filename: row.filename as string,
     content: row.content as string,
+    description: (row.description as string | null) ?? null,
     sortOrder: row.sort_order as number,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -282,6 +283,35 @@ export async function upsertSkill(
     [id, agentId, category, filename, content, sortOrder]
   );
   return rowToSkill(result.rows[0]);
+}
+
+/**
+ * Loads a single skill by UUID. Used by the runner subscriber after a
+ * `skill-saved` event so the summarizer can read the just-written content.
+ */
+export async function getSkillById(skillId: string): Promise<Skill | null> {
+  const r = await getDb().query('SELECT * FROM skills WHERE id = $1', [skillId]);
+  return r.rows[0] ? rowToSkill(r.rows[0]) : null;
+}
+
+/**
+ * Updates only the `description` column of a skill. Does not bump
+ * `updated_at` so a description fill from the summarizer doesn't look like a
+ * content edit to snapshot/diff tooling.
+ */
+export async function updateSkillDescription(skillId: string, description: string | null): Promise<void> {
+  await getDb().query('UPDATE skills SET description = $1 WHERE id = $2', [description, skillId]);
+}
+
+/**
+ * Returns every skill across all agents whose description column is NULL.
+ * Used by the backfill script so we only summarize rows that need it.
+ */
+export async function getSkillsMissingDescription(): Promise<Skill[]> {
+  const r = await getDb().query(
+    'SELECT * FROM skills WHERE description IS NULL ORDER BY agent_id, category, filename'
+  );
+  return r.rows.map(rowToSkill);
 }
 
 export async function deleteSkill(

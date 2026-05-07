@@ -46,7 +46,7 @@ export async function POST(
     // Replace skills
     await deleteSkillsByAgent(id);
     for (const s of snapshot.skillsJson) {
-      await upsertSkill(id, s.category, s.filename, s.content, s.sort_order);
+      await upsertSkill(id, s.category, s.filename, s.content, s.sort_order, s.description ?? null);
     }
 
     // Replace permissions

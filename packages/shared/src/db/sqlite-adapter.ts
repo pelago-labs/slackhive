@@ -244,14 +244,15 @@ CREATE TABLE IF NOT EXISTS agent_mcps (
 );
 
 CREATE TABLE IF NOT EXISTS skills (
-  id         TEXT PRIMARY KEY,
-  agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-  category   TEXT NOT NULL,
-  filename   TEXT NOT NULL,
-  content    TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  category    TEXT NOT NULL,
+  filename    TEXT NOT NULL,
+  content     TEXT NOT NULL,
+  description TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (agent_id, category, filename)
 );
 
@@ -579,6 +580,11 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const jobCols = (db.pragma('table_info(scheduled_jobs)') as { name: string }[]).map(c => c.name);
   if (!jobCols.includes('created_by')) {
     db.exec("ALTER TABLE scheduled_jobs ADD COLUMN created_by TEXT NOT NULL DEFAULT 'system'");
+  }
+
+  const skillCols = (db.pragma('table_info(skills)') as { name: string }[]).map(c => c.name);
+  if (!skillCols.includes('description')) {
+    db.exec('ALTER TABLE skills ADD COLUMN description TEXT');
   }
 
   const piCols = (db.pragma('table_info(platform_integrations)') as { name: string }[]).map(c => c.name);
