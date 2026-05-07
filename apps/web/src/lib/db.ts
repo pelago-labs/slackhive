@@ -1149,6 +1149,20 @@ export async function userCanWriteAgent(agentId: string, username: string, role:
   return r.rows.length > 0;
 }
 
+/**
+ * Returns true if a user can delete an agent. Stricter than write — only the
+ * creator or an admin/superadmin qualifies. Editor-grant collaborators can
+ * modify the agent but cannot remove it (delete is irreversible).
+ */
+export async function userCanDeleteAgent(agentId: string, username: string, role: string): Promise<boolean> {
+  if (role === 'admin' || role === 'superadmin') return true;
+  const r = await (await db()).query(
+    `SELECT 1 FROM agents WHERE id = $1 AND created_by = $2 LIMIT 1`,
+    [agentId, username]
+  );
+  return r.rows.length > 0;
+}
+
 
 /**
  * Returns agent IDs where the user has edit access (for job creation).

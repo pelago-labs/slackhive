@@ -378,7 +378,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} onOpenCoach={() => setCoachOpen(true)} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} username={username} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
@@ -402,7 +402,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null; onOpenCoach?: () => void }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null; username: string; onOpenCoach?: () => void }) {
   const [form, setForm] = useState({
     name:               agent.name,
     description:        agent.description ?? '',
@@ -496,6 +496,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
   };
 
   const isAdmin = role === 'admin' || role === 'superadmin';
+  const canDelete = isAdmin || agent.createdBy === username;
 
   return (
     <div style={{ maxWidth: 640 }} className="fade-up">
@@ -733,7 +734,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
       )}
 
       {/* ── Danger Zone ── */}
-      {isAdmin && (
+      {canDelete && (
         <div style={{
           marginTop: 40, borderTop: '1px solid var(--red-soft-border)', paddingTop: 28,
         }}>

@@ -15,7 +15,7 @@ import path from 'path';
 import { getAgentById, updateAgent, deleteAgent, publishAgentEvent, applyLiveStatus, userCanWriteAgent } from '@/lib/db';
 import type { UpdateAgentRequest } from '@slackhive/shared';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
-import { guardAgentWrite, guardUserAdmin } from '@/lib/api-guard';
+import { guardAgentWrite, guardAgentDelete } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { toAgentPublic } from '@/lib/agent-public';
 
@@ -87,7 +87,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
 export async function DELETE(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const denied = guardUserAdmin(req);
+    const denied = await guardAgentDelete(req, id);
     if (denied) return denied;
     const agent = await getAgentById(id);
     await publishAgentEvent({ type: 'stop', agentId: id });
