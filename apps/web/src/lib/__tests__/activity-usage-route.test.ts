@@ -84,6 +84,28 @@ describe('GET /api/activity/usage — auth gate', () => {
   });
 });
 
+describe('GET /api/activity/usage — filter passthrough', () => {
+  // Regression guard: PR fixing power-users-respects-filters confirmed both
+  // helpers receive the agent + window the UI sends. Without this assertion,
+  // a future refactor could quietly drop the agent filter for one of them
+  // and the leaderboard would silently show all-agents data.
+  it('passes both agent and window to getTokensByAgent and getTopUsers', async () => {
+    const session: SessionPayload = { username: 'super', role: 'superadmin' };
+    const url = 'http://localhost/api/activity/usage?window=24h&agent=agent-xyz';
+    const req = new Request(url, { headers: { cookie: `${COOKIE_NAME}=${signSession(session)}` } });
+    const { GET } = await loadRoute();
+    await GET(req as any);
+    expect(getTokensByAgent).toHaveBeenCalledTimes(1);
+    expect(getTopUsers).toHaveBeenCalledTimes(1);
+    const tokensFilter = vi.mocked(getTokensByAgent).mock.calls[0][0];
+    const usersFilter = vi.mocked(getTopUsers).mock.calls[0][0];
+    expect(tokensFilter?.agentId).toBe('agent-xyz');
+    expect(usersFilter?.agentId).toBe('agent-xyz');
+    expect(typeof tokensFilter?.since).toBe('string');
+    expect(tokensFilter?.since).toBe(usersFilter?.since);
+  });
+});
+
 describe('GET /api/activity/usage — response shape', () => {
   it('returns byAgent, byUser, totals (with token fields zeroed when empty)', async () => {
     const { GET } = await loadRoute();

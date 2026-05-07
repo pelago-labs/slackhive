@@ -816,7 +816,7 @@ function BuildProgressPanel({ progress }: { progress?: BuildProgress }) {
 
   return (
     <div style={{
-      margin: '0 40px 0', padding: '14px 18px',
+      margin: '16px 40px 0', padding: '14px 18px',
       background: 'rgba(37,99,235,0.07)', border: '1px solid rgba(37,99,235,0.2)',
       borderRadius: 10, fontSize: 13,
     }}>

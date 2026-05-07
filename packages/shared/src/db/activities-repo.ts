@@ -612,11 +612,13 @@ export async function getTokensByAgent(filter: ActivityFilter = {}): Promise<Age
 
 /**
  * Top N users by distinct task count within the filter window. Ties broken
- * by turn count descending. Excludes rows with no initiator_user_id.
+ * by total token spend, then turn count, both descending. Tokens are the
+ * tiebreaker (not turns) because this powers the billing-adjacent Usage
+ * dashboard — a 2-task user burning 111K tokens is a heavier user than a
+ * 2-task user with more turns but a fraction of the tokens.
  *
- * All counts filter on `a.started_at` so a user's totals match what the
- * per-agent bars show for the same window — the earlier version filtered
- * on `t.last_activity_at`, which over-counted turns on long-lived tasks.
+ * Excludes rows with no initiator_user_id. All counts filter on
+ * `a.started_at` so totals match the per-agent bars in the same window.
  */
 export async function getTopUsers(
   filter: ActivityFilter = {},
@@ -658,7 +660,7 @@ export async function getTopUsers(
        JOIN activities a ON a.task_id = t.id
       WHERE ${wheres.join(' AND ')}
       GROUP BY t.initiator_user_id
-      ORDER BY task_count DESC, turn_count DESC
+      ORDER BY task_count DESC, total_tokens DESC, turn_count DESC
       LIMIT $${params.length}`,
     params,
   );

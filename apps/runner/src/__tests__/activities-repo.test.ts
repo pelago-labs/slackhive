@@ -453,7 +453,7 @@ describe('getTokensByAgent', () => {
 });
 
 describe('getTopUsers', () => {
-  it('ranks by distinct task count with turn-count tiebreaker', async () => {
+  it('ranks by distinct task count first', async () => {
     const agentId = await seedAgent();
     const big   = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'big',   initiatorUserId: 'U_big',  initiatorHandle: 'alice' });
     const busy1 = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'busy1', initiatorUserId: 'U_busy', initiatorHandle: 'bob' });
@@ -502,6 +502,52 @@ describe('getTopUsers', () => {
     await seedActivityWithUsage({ taskId: anon, agentId, userId: 'U_ignored', input: 100, output: 10 });
 
     expect(await getTopUsers({})).toHaveLength(0);
+  });
+
+  it('breaks task-count ties by total tokens, not turns', async () => {
+    // Power Users powers the billing-adjacent Usage page. When two users
+    // have the same task count, the higher-spending one is the bigger
+    // "power user" — even if the other took more turns. Ties on tokens
+    // fall through to turn count for stability.
+    const agentId = await seedAgent();
+    const heavyTask = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'heavy1', initiatorUserId: 'U_heavy', initiatorHandle: 'heavy' });
+    const heavyTask2 = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'heavy2', initiatorUserId: 'U_heavy', initiatorHandle: 'heavy' });
+    const chattyTask = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'chatty1', initiatorUserId: 'U_chatty', initiatorHandle: 'chatty' });
+    const chattyTask2 = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'chatty2', initiatorUserId: 'U_chatty', initiatorHandle: 'chatty' });
+
+    // heavy: 2 tasks, 2 turns total, 100K tokens
+    await seedActivityWithUsage({ taskId: heavyTask, agentId, userId: 'U_heavy', input: 50_000, output: 0 });
+    await seedActivityWithUsage({ taskId: heavyTask2, agentId, userId: 'U_heavy', input: 50_000, output: 0 });
+    // chatty: 2 tasks, 8 turns total, 8K tokens
+    for (let i = 0; i < 4; i++) {
+      await seedActivityWithUsage({ taskId: chattyTask, agentId, userId: 'U_chatty', input: 1_000, output: 0 });
+      await seedActivityWithUsage({ taskId: chattyTask2, agentId, userId: 'U_chatty', input: 1_000, output: 0 });
+    }
+
+    const rows = await getTopUsers({});
+    expect(rows[0].userId).toBe('U_heavy');
+    expect(rows[0].totalTokens).toBe(100_000);
+    expect(rows[1].userId).toBe('U_chatty');
+    expect(rows[1].turnCount).toBe(8);
+  });
+
+  it('filters task and turn counts by agentId when set', async () => {
+    // Regression guard: when the user picks an agent in the dashboard
+    // filter, Power Users must reflect only that agent's activity — both
+    // tasks and tokens. Without this, the leaderboard would over-count
+    // anyone who's active across many agents.
+    const agentA = await seedAgent('agent-a');
+    const agentB = await seedAgent('agent-b');
+    const taskA = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'a', initiatorUserId: 'U1', initiatorHandle: 'u1' });
+    const taskB = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'b', initiatorUserId: 'U1', initiatorHandle: 'u1' });
+
+    await seedActivityWithUsage({ taskId: taskA, agentId: agentA, userId: 'U1', input: 100, output: 0 });
+    await seedActivityWithUsage({ taskId: taskB, agentId: agentB, userId: 'U1', input: 999, output: 0 });
+
+    const onlyA = await getTopUsers({ agentId: agentA });
+    expect(onlyA).toHaveLength(1);
+    expect(onlyA[0].taskCount).toBe(1);
+    expect(onlyA[0].totalTokens).toBe(100);
   });
 
   it('respects the limit arg', async () => {
