@@ -452,6 +452,30 @@ describe('getTokensByAgent', () => {
   });
 });
 
+describe('sweepStaleActivities', () => {
+  it('returns the IDs of swept activities, not just a count', async () => {
+    // Auto-replay-on-startup needs the IDs back so it can decide which
+    // activities to retry. Locks in the new contract after switching from
+    // returning a count.
+    const { sweepStaleActivities } = await import('@slackhive/shared');
+    const agentId = await seedAgent();
+    const taskA = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'sweep-a', initiatorUserId: 'U_a', initiatorHandle: 'a' });
+    const taskB = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'sweep-b', initiatorUserId: 'U_b', initiatorHandle: 'b' });
+
+    const aId = await beginActivity({ taskId: taskA, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U_a' });
+    const bId = await beginActivity({ taskId: taskB, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U_b' });
+
+    const swept = await sweepStaleActivities();
+    expect(swept).toContain(aId);
+    expect(swept).toContain(bId);
+  });
+
+  it('returns an empty array when nothing was in_progress', async () => {
+    const { sweepStaleActivities } = await import('@slackhive/shared');
+    expect(await sweepStaleActivities()).toEqual([]);
+  });
+});
+
 describe('getTopUsers', () => {
   it('ranks by distinct task count first', async () => {
     const agentId = await seedAgent();
