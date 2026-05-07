@@ -58,6 +58,40 @@ import { logger } from './logger';
  * Represents a fully initialized running agent.
  * All resources owned by a running agent are held here for cleanup.
  */
+
+/**
+ * Files-changed summary between two commits on a wiki source repo. Returned
+ * by `readRepoContent` when an incremental diff was successfully computed
+ * against `lastSha`. Empty arrays mean no files of that kind changed.
+ */
+export interface RepoDiff {
+  added: string[];
+  modified: string[];
+  deleted: string[];
+  renamed: Array<{ from: string; to: string }>;
+}
+
+/**
+ * Parse the output of `git diff --name-status -M base..HEAD`. Tab-separated.
+ * Status codes: A=added, M=modified, D=deleted, R<score>=rename old→new,
+ * C<score>=copy (treated as add), T=type change (treated as modified).
+ */
+export function parseDiffNameStatus(out: string): RepoDiff {
+  const diff: RepoDiff = { added: [], modified: [], deleted: [], renamed: [] };
+  for (const line of out.split('\n')) {
+    if (!line.trim()) continue;
+    const parts = line.split('\t');
+    const status = parts[0];
+    if (status === 'A') diff.added.push(parts[1]);
+    else if (status === 'M') diff.modified.push(parts[1]);
+    else if (status === 'D') diff.deleted.push(parts[1]);
+    else if (status === 'T') diff.modified.push(parts[1]);
+    else if (status.startsWith('R') && parts.length >= 3) diff.renamed.push({ from: parts[1], to: parts[2] });
+    else if (status.startsWith('C') && parts.length >= 3) diff.added.push(parts[2]);
+  }
+  return diff;
+}
+
 interface RunningAgent {
   agent: Agent;
   adapter: PlatformAdapter;
@@ -1094,10 +1128,28 @@ export class AgentRunner {
   // ─── Knowledge Wiki (Karpathy Incremental Ingest) ────────────────────────
 
   /**
-   * Reads a git repo into a content string for wiki compilation.
-   * Clones to temp dir, reads deeply, deletes clone.
+   * Reads a git repo for wiki compilation. Returns:
+   *   - `content`: the repo content as a single string for Claude.
+   *   - `currentSha`: HEAD SHA after clone (empty string if `git rev-parse`
+   *     fails for any reason).
+   *   - `diff`: when a `lastSha` was supplied AND it's reachable from HEAD via
+   *     incremental `git fetch --deepen`, the changed-files list against
+   *     that SHA. The `content` in this case is *focused* on the diff (only
+   *     changed/added/renamed file bodies + a small README context block,
+   *     not the whole repo) which dramatically reduces token cost on small
+   *     re-syncs. When the diff can't be computed (no `lastSha`, force-push,
+   *     branch swap, deepen failure), returns `diff: null` and a full
+   *     snapshot in `content` — same behavior as before.
+   *
+   * @param src The wiki_sources row for this source.
+   * @param lastSha Optional commit SHA from a prior successful sync. When
+   *   provided AND reachable, the function returns a diff-focused content
+   *   string. When omitted or unreachable, falls back to full snapshot.
    */
-  private async readRepoContent(src: Record<string, unknown>): Promise<string> {
+  private async readRepoContent(
+    src: Record<string, unknown>,
+    lastSha?: string | null,
+  ): Promise<{ content: string; currentSha: string; diff: RepoDiff | null }> {
     const fs = await import('fs');
     const path = await import('path');
     const { execSync } = await import('child_process');
@@ -1169,6 +1221,48 @@ export class AgentRunner {
         const safeUrl = (src.repo_url as string) ?? '<unknown>';
         const reason = stderr || (err as Error).message;
         throw new Error(`git clone failed for ${src.name} (${safeUrl} @ ${branch}): ${reason}`);
+      }
+
+      // Capture HEAD SHA — always returned to the caller so it can persist
+      // last_synced_sha after a successful build. Never fails the function;
+      // we'd rather lose incremental optimisation than break the build.
+      let currentSha = '';
+      try {
+        currentSha = execSync(`git -C "${tmpDir}" rev-parse HEAD`, { encoding: 'utf-8', timeout: 10000 }).trim();
+      } catch (err) {
+        logger.warn('[wiki] Failed to read HEAD SHA — incremental sync disabled for this run', {
+          source: src.name as string, error: (err as Error).message,
+        });
+      }
+
+      // Try to compute a diff against `lastSha` so we can send Claude only
+      // the changed files. Bails out (returns null diff → falls back to
+      // full snapshot) on any failure path:
+      //   - lastSha not provided (first sync)
+      //   - lastSha == currentSha (no work — caller will short-circuit)
+      //   - branch was force-pushed, swapped, or rewritten (lastSha not
+      //     reachable from HEAD even after deepening)
+      //   - server doesn't allow `--deepen` fetches
+      let diff: RepoDiff | null = null;
+      if (lastSha && currentSha && lastSha !== currentSha) {
+        diff = await this.tryComputeRepoDiff(tmpDir, lastSha, branch, execSync);
+      }
+
+      // Diff-focused content path: dramatically smaller prompt for incremental
+      // syncs. Only the changed/added/renamed file bodies + a small README
+      // context block, plus an explicit deleted-files list so Claude can mark
+      // referencing articles for cleanup.
+      if (diff) {
+        const diffContent = this.buildDiffFocusedRepoContent(
+          tmpDir, diff, src, lastSha!, currentSha, branch, read, fileBlock, budgetSection,
+        );
+        logger.info('Repo diff read', {
+          source: src.name as string,
+          chars: diffContent.length,
+          added: diff.added.length, modified: diff.modified.length,
+          deleted: diff.deleted.length, renamed: diff.renamed.length,
+        });
+        return { content: diffContent, currentSha, diff };
       }
 
       const sections: string[] = [];
@@ -1437,12 +1531,143 @@ export class AgentRunner {
 
       const result = sections.filter(s => s.trim()).join('\n');
       logger.info('Repo content read', { source: src.name as string, chars: budgetUsed, capped: budgetUsed >= TOTAL_BUDGET });
-      return result;
+      return { content: result, currentSha, diff: null };
 
     } finally {
       // No-shell cleanup — see pre-flight rmSync above for rationale.
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ok */ }
     }
+  }
+
+  /**
+   * Try to compute a diff against `lastSha` by incrementally deepening the
+   * shallow clone until that commit becomes reachable. Returns parsed diff
+   * on success, `null` on any failure (force-push, branch swap, server
+   * rejection, lastSha never on this branch, etc.) so the caller falls back
+   * to the full snapshot path. Capped at 1000-commit deepening to avoid
+   * pulling massive history on long-lived repos.
+   */
+  private async tryComputeRepoDiff(
+    tmpDir: string,
+    lastSha: string,
+    branch: string,
+    execSync: typeof import('child_process').execSync,
+  ): Promise<RepoDiff | null> {
+    for (const depth of [50, 200, 1000]) {
+      try {
+        execSync(`git -C "${tmpDir}" fetch --deepen=${depth} origin "${branch}"`, {
+          stdio: ['ignore', 'ignore', 'pipe'], timeout: 60_000,
+        });
+      } catch {
+        continue;
+      }
+      try {
+        execSync(`git -C "${tmpDir}" cat-file -e "${lastSha}^{commit}"`, { stdio: 'ignore' });
+      } catch {
+        continue; // lastSha still not reachable, try deeper
+      }
+      // Reachable — compute the diff. -M turns on rename detection.
+      try {
+        const out = execSync(
+          `git -C "${tmpDir}" diff --name-status -M "${lastSha}..HEAD"`,
+          { encoding: 'utf-8', timeout: 30_000 },
+        );
+        return parseDiffNameStatus(out);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Build a diff-focused content block for Claude. Always include a small
+   * README excerpt for orientation, then sections for added/modified/renamed
+   * file bodies and bare path lists for deleted files. Reuses the same
+   * read/fileBlock/budgetSection helpers from the snapshot path so the byte
+   * budget stays consistent.
+   */
+  private buildDiffFocusedRepoContent(
+    tmpDir: string,
+    diff: RepoDiff,
+    src: Record<string, unknown>,
+    lastSha: string,
+    currentSha: string,
+    branch: string,
+    read: (p: string, max?: number) => string,
+    fileBlock: (relPath: string, content: string) => string,
+    budgetSection: (title: string, content: string) => string,
+  ): string {
+    const path = require('path') as typeof import('path');
+    const sections: string[] = [];
+    sections.push(
+      `# Repository: ${src.name as string} (incremental diff)\n` +
+      `Branch: ${branch} | URL: ${src.repo_url as string}\n` +
+      `Range: ${lastSha.slice(0, 7)}..${currentSha.slice(0, 7)}\n` +
+      `Files changed — added: ${diff.added.length}, modified: ${diff.modified.length}, ` +
+      `deleted: ${diff.deleted.length}, renamed: ${diff.renamed.length}`
+    );
+
+    // Always provide README context — even small diffs are easier for Claude
+    // to interpret with a one-paragraph reminder of what this repo is about.
+    let readme = '';
+    for (const f of ['README.md', 'readme.md', 'README.rst', 'README']) {
+      const c = read(path.join(tmpDir, f), 4_000);
+      if (c) { readme = c; break; }
+    }
+    if (readme) sections.push(budgetSection('README (for context)', readme));
+
+    // Deleted files — paths only. Claude uses these to mark articles that
+    // referenced them for cleanup. No need to ship the (now-gone) content.
+    if (diff.deleted.length) {
+      sections.push(budgetSection(
+        'Deleted files (mark articles that referenced these for removal)',
+        diff.deleted.map(p => `- ${p}`).join('\n'),
+      ));
+    }
+
+    // Renamed files — show the from→to mapping so Claude can update path
+    // references in existing articles, and include the new file content.
+    if (diff.renamed.length) {
+      sections.push(budgetSection(
+        'Renamed files (update article references from old → new path)',
+        diff.renamed.map(r => `- ${r.from} → ${r.to}`).join('\n'),
+      ));
+    }
+
+    // Added files — full content.
+    if (diff.added.length) {
+      let added = '';
+      for (const p of diff.added) {
+        const c = read(path.join(tmpDir, p));
+        if (c) added += fileBlock(p, c);
+      }
+      if (added) sections.push(budgetSection('Added files (NEW)', added));
+    }
+
+    // Modified files — full content. Claude already has the existing wiki
+    // article catalog from the prompt's "Existing wiki" section so it can
+    // update articles in place rather than recreate.
+    if (diff.modified.length) {
+      let modified = '';
+      for (const p of diff.modified) {
+        const c = read(path.join(tmpDir, p));
+        if (c) modified += fileBlock(p, c);
+      }
+      if (modified) sections.push(budgetSection('Modified files (UPDATED)', modified));
+    }
+
+    // Renamed file new content.
+    if (diff.renamed.length) {
+      let renamed = '';
+      for (const r of diff.renamed) {
+        const c = read(path.join(tmpDir, r.to));
+        if (c) renamed += fileBlock(`${r.to} (renamed from ${r.from})`, c);
+      }
+      if (renamed) sections.push(budgetSection('Renamed files (new content)', renamed));
+    }
+
+    return sections.filter(s => s.trim()).join('\n');
   }
 
   /** Parse JSON from Claude response, trying multiple strategies. */
@@ -1523,7 +1748,11 @@ export class AgentRunner {
       if (!content) throw new Error(`Source "${srcName}" has no content`);
     } else if (srcType === 'repo') {
       await updateStatus(`Cloning ${srcName}...`);
-      content = await this.readRepoContent(src);
+      // Older ingestSource path — no per-source last_synced_sha tracking
+      // here yet, so always pulls a full snapshot. Migrate this caller
+      // when/if we need diff-aware sync for direct knowledge_sources too.
+      const repoResult = await this.readRepoContent(src);
+      content = repoResult.content;
     }
 
     // 2. Read existing wiki state + manifest
@@ -1892,26 +2121,28 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
       }
 
       // Query sources with status directly
-      let pendingSources: Array<{ id: string; name: string; type: string; content: string | null; url: string | null; repoUrl: string | null; branch: string; patEnvRef: string | null; status: string }>;
+      let pendingSources: Array<{ id: string; name: string; type: string; content: string | null; url: string | null; repoUrl: string | null; branch: string; patEnvRef: string | null; status: string; lastSyncedSha: string | null }>;
       if (singleSourceId != null) {
         const r = await getDb().query(
-          'SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE id = $1 AND folder_id = $2',
+          'SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status, last_synced_sha FROM wiki_sources WHERE id = $1 AND folder_id = $2',
           [singleSourceId, folderId],
         );
         pendingSources = r.rows.map((row: any) => ({
           id: row.id, name: row.name, type: row.type, content: row.content ?? null,
           url: row.url ?? null, repoUrl: row.repo_url ?? null, branch: row.branch ?? 'main',
           patEnvRef: row.pat_env_ref ?? null, status: row.status,
+          lastSyncedSha: row.last_synced_sha ?? null,
         }));
       } else {
         const r = await getDb().query(
-          "SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE folder_id = $1 AND status IN ('pending', 'stale', 'error') ORDER BY created_at ASC",
+          "SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status, last_synced_sha FROM wiki_sources WHERE folder_id = $1 AND status IN ('pending', 'stale', 'error') ORDER BY created_at ASC",
           [folderId],
         );
         pendingSources = r.rows.map((row: any) => ({
           id: row.id, name: row.name, type: row.type, content: row.content ?? null,
           url: row.url ?? null, repoUrl: row.repo_url ?? null, branch: row.branch ?? 'main',
           patEnvRef: row.pat_env_ref ?? null, status: row.status,
+          lastSyncedSha: row.last_synced_sha ?? null,
         }));
       }
 
@@ -1982,6 +2213,10 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
 
         try {
           let content = '';
+          // Set by the repo branch below; consumed when persisting last_synced_sha
+          // after a successful compile and when building the diff-mode prompt.
+          let sourceCurrentSha: string | null = null;
+          let sourceDiff: RepoDiff | null = null;
           if (src.type === 'file' || src.type === 'url') {
             content = src.content ?? '';
             if (!content && src.url) {
@@ -1999,9 +2234,33 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             // dir. Without this every repo clones into /tmp/slackhive-repo-undefined,
             // which collides with any leftover dir from a SIGTERM-killed previous
             // build and breaks the FIRST source's clone on every fresh restart.
-            content = await this.readRepoContent({
+            // Pass src.lastSyncedSha so readRepoContent can return a diff-focused
+            // content slice on incremental re-syncs.
+            const repoResult = await this.readRepoContent({
               id: src.id, repo_url: src.repoUrl, branch: src.branch, pat_env_ref: src.patEnvRef, name: src.name,
-            } as any);
+            } as any, src.lastSyncedSha);
+            content = repoResult.content;
+            sourceCurrentSha = repoResult.currentSha;
+            sourceDiff = repoResult.diff;
+
+            // Short-circuit: HEAD hasn't moved since last sync. Skip Claude
+            // entirely, refresh last_synced timestamp, and move on. Massive
+            // win on no-op rebuilds — zero token spend.
+            if (
+              src.lastSyncedSha &&
+              sourceCurrentSha &&
+              src.lastSyncedSha === sourceCurrentSha &&
+              src.status === 'compiled'
+            ) {
+              logger.info('[wiki] Repo unchanged since last sync — skipping', {
+                source: src.name, sha: sourceCurrentSha.slice(0, 7),
+              });
+              await getDb().query(
+                'UPDATE wiki_sources SET last_synced = $1 WHERE id = $2',
+                [new Date().toISOString(), src.id],
+              );
+              continue; // jump to next source in the for loop
+            }
           }
 
           const existingWiki = readExistingWiki();
@@ -2060,11 +2319,22 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           const chunks: string[] = [];
           for (let off = 0; off < content.length; off += CHUNK_SIZE) chunks.push(content.slice(off, off + CHUNK_SIZE));
 
+          // When we have a diff (incremental sync), tell Claude that the
+          // source content is ONLY changed files, that any prior articles
+          // about untouched files should be left alone, and that articles
+          // for deleted/renamed files should be removed via the new
+          // `removed` field. This replaces the standard mode instruction
+          // for the first chunk only — subsequent chunks (rare in diff
+          // mode since diffs are small) keep the part-N message.
+          const incrementalInstruction = sourceDiff
+            ? `This is an INCREMENTAL re-sync of source "${src.name}". The content below is ONLY the files that changed since the last sync (added / modified / renamed) — NOT the whole repo. Articles about files that didn't change must be LEFT ALONE; do not regenerate or rewrite them. For each changed file: update the article that describes it (or create one if it's new). For deleted files (paths listed but no body), include the affected article paths in the new "removed" field so they're cleaned up.`
+            : null;
+
           for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
             const chunkContent = chunks[chunkIdx];
             const chunkLabel = chunks.length > 1 ? ` (part ${chunkIdx + 1}/${chunks.length})` : '';
             const chunkModeInstruction = chunkIdx === 0
-              ? modeInstruction
+              ? (incrementalInstruction ?? modeInstruction)
               : `This is PART ${chunkIdx + 1} of ${chunks.length} of source "${src.name}". Articles from earlier parts are already in the wiki. Add new articles for topics in this part not yet covered. Update existing articles where this part adds relevant info.`;
             const chunkStartedAt = new Date().toISOString();
             await writeProgress({
@@ -2101,8 +2371,13 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               ? `\n\n## Overview update\noverview.md is the high-level intro to the ENTIRE wiki — it must summarize what every source contributes, not just this one. Extend the existing overview below to incorporate "${src.name}" alongside the coverage already there. Preserve structure; extend rather than replace. Keep it 3–5 paragraphs total.\n\n${sourceListLine}\n\nExisting overview:\n\n${overviewForPrompt}`
               : `\n\n## Overview\nCreate overview.md — a brief 3–5 paragraph intro describing what this wiki covers across ALL sources at a high level. Lead with the highest-level domain, then summarize the major areas.\n\n${sourceListLine}`);
             const overviewField = wantsOverview ? '\n  "overview": "# Overview\\n...",' : '';
+            // In diff mode, advertise the `removed` field so Claude can
+            // signal articles to delete (deleted/renamed source files).
+            // Snapshot mode never uses this — leave the field out so we
+            // don't accidentally invite spurious removals on first ingest.
+            const removedField = sourceDiff ? '\n  "removed": ["' + sourceSlug + '/path/to/article-to-delete.md"],' : '';
 
-            const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\nIMPORTANT: All file paths MUST be prefixed with \`${sourceSlug}/\`. Example: \`${sourceSlug}/concepts/auth.md\`. Never write a path without this prefix.${siblingBlock}\n\n## Existing wiki\n${currentWiki}${overviewInstruction}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "${sourceSlug}/entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "${sourceSlug}/concepts/x.md", "title": "X", "content": "..." }],${overviewField}\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
+            const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\nIMPORTANT: All file paths MUST be prefixed with \`${sourceSlug}/\`. Example: \`${sourceSlug}/concepts/auth.md\`. Never write a path without this prefix.${siblingBlock}\n\n## Existing wiki\n${currentWiki}${overviewInstruction}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "${sourceSlug}/entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "${sourceSlug}/concepts/x.md", "title": "X", "content": "..." }],${removedField}${overviewField}\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
 
             let lastProgress = 0;
             const response = await this.callClaudeWithRetry(prompt, (chars) => {
@@ -2150,6 +2425,34 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               sourceWords += wc;
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
+            // `removed` only ever appears in incremental (diff) mode — Claude
+            // is told to list articles tied to deleted/renamed files. Guard
+            // each path with the same wikiDir-containment check used for
+            // creates/updates so a malformed return can't escape the
+            // workspace.
+            for (const removedPathRaw of (parsed.removed ?? [])) {
+              if (typeof removedPathRaw !== 'string') continue;
+              const removedPath = removedPathRaw.startsWith(`${sourceSlug}/`) ? removedPathRaw : `${sourceSlug}/${removedPathRaw}`;
+              const p = path.resolve(wikiDir, removedPath);
+              if (!p.startsWith(wikiDir + path.sep)) {
+                logger.warn('[wiki] Skipping remove path outside wikiDir', { path: removedPath });
+                continue;
+              }
+              try {
+                if (fs.existsSync(p)) {
+                  fs.unlinkSync(p);
+                  logger.info('[wiki] Removed article (source file deleted)', { path: removedPath });
+                  // Drop from manifest's created/updated sets so the next
+                  // sync's "previously ingested" check is honest.
+                  if (manifest[src.name]) {
+                    manifest[src.name].created = (manifest[src.name].created ?? []).filter(p => p !== removedPath);
+                    manifest[src.name].updated = (manifest[src.name].updated ?? []).filter(p => p !== removedPath);
+                  }
+                }
+              } catch (err) {
+                logger.warn('[wiki] Failed to remove article', { path: removedPath, error: (err as Error).message });
+              }
+            }
             // Sanity-check the returned overview before persisting: must be
             // a non-trivial string (>= 50 chars). Guards against empty or
             // pathologically short returns silently overwriting a
@@ -2179,7 +2482,20 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           } // end chunk loop
 
           await updateWikiSourceStatus(src.id, 'compiled', sourceWords, new Date().toISOString());
-          logger.info('Wiki source compiled', { folderId, source: src.name });
+          // Persist HEAD SHA so the next sync can compute a diff against it.
+          // Skipped if rev-parse failed (sourceCurrentSha empty) — better to
+          // re-do a full snapshot next time than to write a wrong SHA.
+          if (sourceCurrentSha) {
+            await getDb().query(
+              'UPDATE wiki_sources SET last_synced_sha = $1 WHERE id = $2',
+              [sourceCurrentSha, src.id],
+            );
+          }
+          logger.info('Wiki source compiled', {
+            folderId, source: src.name,
+            sha: sourceCurrentSha ? sourceCurrentSha.slice(0, 7) : null,
+            mode: sourceDiff ? 'incremental' : 'snapshot',
+          });
         } catch (err) {
           const msg = sanitizeError((err as Error).message ?? String(err));
           logger.error('Wiki source build failed', { folderId, source: src.name, error: msg });
