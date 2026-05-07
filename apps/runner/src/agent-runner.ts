@@ -58,6 +58,7 @@ interface RunningAgent {
   agent: Agent;
   adapter: PlatformAdapter;
   claudeHandler: ClaudeHandler;
+  messageHandler: MessageHandler;
   memoryWatcher: MemoryWatcher;
 }
 
@@ -221,6 +222,135 @@ export class AgentRunner {
   }
 
   /**
+   * Re-runs an activity by reconstructing its original Slack-side message and
+   * handing it to the live MessageHandler — the same path a fresh @mention
+   * would take. Used to recover from interrupted activities (e.g. an agent
+   * that was wedged and reaped, or a turn lost to a runner restart).
+   *
+   * The Claude session is keyed by (user, channel, thread) and persisted, so
+   * the agent resumes with the full prior context. A new activity row is
+   * created for the retry; the old errored row is left in place for history.
+   */
+  async replayActivity(activityId: string): Promise<{ ok: boolean; error?: string }> {
+    if (!activityId) return { ok: false, error: 'activityId required' };
+
+    const { getDb } = await import('@slackhive/shared');
+    const { rows } = await getDb().query(
+      `SELECT a.message_ref, a.message_preview, a.initiator_user_id, a.platform,
+              a.agent_id, t.channel_id, t.thread_ts
+         FROM activities a LEFT JOIN tasks t ON t.id = a.task_id
+        WHERE a.id = $1`,
+      [activityId],
+    );
+    if (rows.length === 0) return { ok: false, error: 'activity not found' };
+    const r = rows[0] as Record<string, string | null>;
+
+    if (!r.initiator_user_id || !r.channel_id || !r.message_preview) {
+      return { ok: false, error: 'activity missing replay fields (channel/user/text)' };
+    }
+
+    const running = this.runningAgents.get(r.agent_id as string);
+    if (!running) return { ok: false, error: 'agent not running' };
+
+    const platform = (r.platform ?? 'slack') as string;
+    const msg = {
+      id: r.message_ref ?? `replay-${activityId}`,
+      platform,
+      userId: r.initiator_user_id,
+      channelId: r.channel_id,
+      threadId: r.thread_ts ?? undefined,
+      text: r.message_preview,
+      // Slack DM channels are prefixed 'D'; everything else is a channel/group.
+      isDM: platform === 'slack' && r.channel_id.startsWith('D'),
+      raw: { replay: true, originalActivityId: activityId },
+    };
+
+    logger.info('Replaying activity', { activityId, agent: running.agent.slug, channelId: msg.channelId, threadId: msg.threadId });
+    running.messageHandler.handleMessage(msg as any).catch((err) =>
+      logger.error('Replay handleMessage failed', { activityId, error: (err as Error).message }),
+    );
+    return { ok: true };
+  }
+
+  /**
+   * After a runner restart, walk the activities the sweep just marked as
+   * `Interrupted — runner restarted` and replay each one that's still
+   * relevant. Best-effort, sequential, with three safety gates:
+   *
+   *   1. **Age cap (30 min):** older interruptions are likely stale (user
+   *      moved on, system state has drifted), so don't pester the channel.
+   *   2. **Already-handled:** if a *newer* activity exists in the same task,
+   *      the user (or another runner) already engaged — skip.
+   *   3. **Crash-loop cap:** if the same task already has 3+ activities
+   *      auto-replayed within the last hour, give up; something is wrong
+   *      and we shouldn't keep burning tokens.
+   *
+   * On a successful kickoff, we tag the original row's `error` with
+   * `[auto-replayed]` so it's excluded from future cycles. Set
+   * `RUNNER_AUTO_REPLAY=0` in env to disable entirely.
+   */
+  private async autoReplaySweptActivities(activityIds: string[]): Promise<void> {
+    const { getDb } = await import('@slackhive/shared');
+    const db = getDb();
+    const cutoff = new Date(Date.now() - 30 * 60 * 1_000).toISOString().replace('T', ' ').slice(0, 19);
+    let attempted = 0;
+    let skipped = 0;
+
+    for (const id of activityIds) {
+      try {
+        const { rows } = await db.query(
+          `SELECT started_at, task_id FROM activities WHERE id = $1`,
+          [id],
+        );
+        if (rows.length === 0) { skipped++; continue; }
+        const { started_at, task_id } = rows[0] as Record<string, string>;
+
+        if (started_at < cutoff) {
+          logger.info('Auto-replay skip: too old', { activityId: id, started_at });
+          skipped++; continue;
+        }
+
+        const newer = await db.query(
+          `SELECT 1 FROM activities WHERE task_id = $1 AND id != $2 AND started_at >= $3 LIMIT 1`,
+          [task_id, id, started_at],
+        );
+        if (newer.rows.length > 0) {
+          logger.info('Auto-replay skip: newer activity exists', { activityId: id });
+          skipped++; continue;
+        }
+
+        const replays = await db.query(
+          `SELECT COUNT(*) AS n FROM activities
+            WHERE task_id = $1 AND started_at > datetime('now', '-1 hour')
+              AND error LIKE '%[auto-replayed]%'`,
+          [task_id],
+        );
+        if (Number((replays.rows[0] as Record<string, unknown>).n) >= 3) {
+          logger.warn('Auto-replay skip: crash-loop cap hit (3 replays/hour)', { taskId: task_id });
+          skipped++; continue;
+        }
+
+        const result = await this.replayActivity(id);
+        if (result.ok) {
+          attempted++;
+          await db.query(
+            `UPDATE activities SET error = COALESCE(error, '') || ' [auto-replayed]' WHERE id = $1`,
+            [id],
+          );
+        } else {
+          logger.warn('Auto-replay returned not-ok', { activityId: id, error: result.error });
+          skipped++;
+        }
+      } catch (err) {
+        logger.warn('Auto-replay failed', { activityId: id, error: (err as Error).message });
+        skipped++;
+      }
+    }
+
+    logger.info('Auto-replay sweep complete', { attempted, skipped, total: activityIds.length });
+  }
+
+  /**
    * Starts the runner:
    * 1. Connects to Redis for hot-reload events
    * 2. Loads and starts all active agents from the database
@@ -234,9 +364,10 @@ export class AgentRunner {
 
     await this.connectEventBus();
     await this.cleanupStaleRequests();
+    let sweptActivityIds: string[] = [];
     try {
-      const swept = await sweepStaleActivities();
-      if (swept > 0) logger.info('Swept stale in-progress activities', { count: swept });
+      sweptActivityIds = await sweepStaleActivities();
+      if (sweptActivityIds.length > 0) logger.info('Swept stale in-progress activities', { count: sweptActivityIds.length });
     } catch (err) {
       logger.warn('Failed to sweep stale activities', { error: (err as Error).message });
     }
@@ -247,6 +378,11 @@ export class AgentRunner {
     this.registerShutdownHandlers();
 
     logger.info('AgentRunner started', { agents: this.runningAgents.size, runnerId: this.runnerId });
+
+    if (sweptActivityIds.length > 0 && process.env.RUNNER_AUTO_REPLAY !== '0') {
+      // Fire-and-forget — don't block boot on Slack round-trips.
+      void this.autoReplaySweptActivities(sweptActivityIds);
+    }
   }
 
   /**
@@ -461,7 +597,7 @@ export class AgentRunner {
       agent.slackBotUserId = botUserId;
     }
 
-    this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, memoryWatcher });
+    this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, messageHandler, memoryWatcher });
     // Success — clear any leftover error message from a prior failed start.
     await updateAgentStatus(agent.id, 'running', null, this.runnerId);
 
@@ -770,6 +906,25 @@ export class AgentRunner {
             } else {
               res.end();
             }
+          }
+        });
+        return;
+      }
+
+      // Replay an errored / interrupted activity by feeding its original
+      // message back through the live MessageHandler.
+      if (req.method === 'POST' && req.url === '/replay-activity') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { activityId } = JSON.parse(body) as { activityId?: string };
+            const result = await this.replayActivity(activityId ?? '');
+            res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
           }
         });
         return;
