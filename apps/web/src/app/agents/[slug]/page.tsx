@@ -1155,6 +1155,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
   const [selected, setSelected]     = useState<Skill | null>(null);
   const [content, setContent]       = useState('');
   const [description, setDescription] = useState('');
+  const [editingDesc, setEditingDesc] = useState(false);
   const [saving, setSaving]         = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [msg, setMsg]               = useState('');
@@ -1201,17 +1202,19 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     setSelected(s);
     setContent(s.content);
     setDescription(s.description ?? '');
+    setEditingDesc(false);
   };
 
   const save = async () => {
     if (!selected) return;
     setSaving(true);
+    // Content-only save. Description has its own PATCH path so a content edit
+    // never wipes a description the runner just summarized.
     await fetch(`/api/agents/${agentId}/skills`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         category: selected.category, filename: selected.filename,
         content, sortOrder: selected.sortOrder,
-        description: description.trim() === '' ? null : description.trim(),
       }),
     });
     setSaving(false); setMsg('Saved'); setTimeout(() => setMsg(''), 2000); load();
@@ -1221,6 +1224,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     if (!selected || selected.id === '__identity__') return;
     setRegenerating(true);
     setDescription('');
+    setEditingDesc(false);
     await fetch(`/api/agents/${agentId}/skills/${selected.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ regenerate: true }),
@@ -1228,6 +1232,18 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     setRegenerating(false);
     setMsg('Generating…'); setTimeout(() => setMsg(''), 2500);
     // load() runs from the polling effect once the runner writes back.
+  };
+
+  const saveDescription = async () => {
+    if (!selected || selected.id === '__identity__') return;
+    const trimmed = description.trim();
+    await fetch(`/api/agents/${agentId}/skills/${selected.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: trimmed === '' ? null : trimmed }),
+    });
+    setEditingDesc(false);
+    setMsg('Saved'); setTimeout(() => setMsg(''), 1500);
+    load();
   };
 
   const remove = async (s: Skill) => {
@@ -1365,17 +1381,97 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
         {selected ? (
           <>
             <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
               padding: '10px 16px', borderBottom: '1px solid var(--border)',
-              background: 'var(--surface-2)',
+              background: 'var(--surface-2)', gap: 12,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-                  {selected.category}/{selected.filename}
-                </span>
-                {isIdentity && <span style={{ fontSize: 10, color: 'var(--subtle)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3 }}>read-only · edit in Overview</span>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                    {selected.category}/{selected.filename}
+                  </span>
+                  {isIdentity && <span style={{ fontSize: 10, color: 'var(--subtle)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3 }}>read-only · edit in Overview</span>}
+                </div>
+                {!isIdentity && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 22 }}>
+                    {editingDesc ? (
+                      <>
+                        <input
+                          type="text"
+                          value={description}
+                          onChange={e => setDescription(e.target.value)}
+                          autoFocus
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') saveDescription();
+                            if (e.key === 'Escape') { setDescription(selected.description ?? ''); setEditingDesc(false); }
+                          }}
+                          placeholder="One-line summary shown in the agent’s skills index"
+                          style={{
+                            flex: 1, border: '1px solid var(--border)', borderRadius: 4,
+                            padding: '2px 6px', fontSize: 12, lineHeight: 1.4,
+                            background: 'var(--surface)', color: 'var(--text)',
+                            fontFamily: 'var(--font-sans)', outline: 'none',
+                          }}
+                          maxLength={120}
+                        />
+                        <button
+                          onClick={saveDescription}
+                          title="Save description"
+                          style={{
+                            background: 'var(--accent)', color: 'var(--accent-fg)',
+                            border: 'none', borderRadius: 4,
+                            padding: '2px 8px', fontSize: 11, fontWeight: 500,
+                            cursor: 'pointer', fontFamily: 'var(--font-sans)', flexShrink: 0,
+                          }}
+                        >Save</button>
+                        <button
+                          onClick={() => { setDescription(selected.description ?? ''); setEditingDesc(false); }}
+                          title="Cancel"
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: 'var(--muted)', fontSize: 14, lineHeight: 1, padding: '2px 4px', flexShrink: 0,
+                          }}
+                        >×</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{
+                          fontSize: 12, color: description ? 'var(--muted)' : 'var(--subtle)',
+                          fontStyle: description ? 'normal' : 'italic',
+                          fontFamily: 'var(--font-sans)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          flex: 1, minWidth: 0,
+                        }}>
+                          {regenerating ? 'Generating…' : (description || 'No description yet')}
+                        </span>
+                        {canEdit && !regenerating && (
+                          <>
+                            <button
+                              onClick={() => setEditingDesc(true)}
+                              title="Edit description"
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: 'var(--muted)', fontSize: 12, lineHeight: 1, padding: '2px 4px', flexShrink: 0,
+                              }}
+                            >✎</button>
+                            <button
+                              onClick={regenerate}
+                              title="Regenerate description with the runner summarizer"
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: 'var(--muted)', fontSize: 11, lineHeight: 1,
+                                padding: '2px 4px', flexShrink: 0, fontFamily: 'var(--font-sans)',
+                                textDecoration: 'underline',
+                              }}
+                            >regenerate</button>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                 {msg && <span style={{ fontSize: 11.5, color: '#16a34a' }}>{msg}</span>}
                 {canEdit && !isIdentity && <button
                   onClick={save} disabled={saving}
@@ -1391,51 +1487,6 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                 </button>}
               </div>
             </div>
-            {!isIdentity && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 16px', borderBottom: '1px solid var(--border)',
-                background: 'var(--surface)',
-              }}>
-                <span style={{
-                  fontSize: 10.5, fontWeight: 600, color: 'var(--muted)',
-                  letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0,
-                }}>
-                  Description
-                </span>
-                <input
-                  type="text"
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  readOnly={!canEdit}
-                  placeholder={regenerating ? 'Generating…' : 'One-line summary shown in the agent’s skills index'}
-                  style={{
-                    flex: 1, border: '1px solid var(--border)', borderRadius: 6,
-                    padding: '6px 10px', fontSize: 12.5, lineHeight: 1.4,
-                    background: 'var(--surface-2)', color: 'var(--text)',
-                    fontFamily: 'var(--font-sans)', outline: 'none',
-                  }}
-                  maxLength={120}
-                />
-                {canEdit && (
-                  <button
-                    onClick={regenerate}
-                    disabled={regenerating || saving}
-                    title="Have the runner summarize this skill into a one-line description"
-                    style={{
-                      background: 'var(--surface-2)', color: 'var(--text)',
-                      border: '1px solid var(--border)', borderRadius: 6,
-                      padding: '5px 10px', fontSize: 11.5, fontWeight: 500,
-                      cursor: (regenerating || saving) ? 'not-allowed' : 'pointer',
-                      opacity: (regenerating || saving) ? 0.6 : 1,
-                      fontFamily: 'var(--font-sans)', flexShrink: 0,
-                    }}
-                  >
-                    {regenerating ? 'Generating…' : 'Regenerate'}
-                  </button>
-                )}
-              </div>
-            )}
             <textarea
               value={isIdentity ? identityVirtual.content : content}
               onChange={e => { if (!isIdentity) setContent(e.target.value); }}
