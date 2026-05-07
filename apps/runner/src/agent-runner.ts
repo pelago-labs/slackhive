@@ -1151,7 +1151,23 @@ export class AgentRunner {
       }
 
       const branch = (src.branch as string) || 'main';
-      execSync(`git clone --depth 1 --branch "${branch}" "${cloneUrl}" "${tmpDir}"`, { stdio: 'ignore', timeout: 120000 });
+      // Pre-flight: wipe tmpDir if a previous run was killed mid-clone (SIGTERM
+      // skips the finally cleanup). git clone refuses to write into a
+      // non-empty directory, so a stale dir would block this run forever.
+      try { execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
+      try {
+        // Capture stderr so a clone failure surfaces git's actual error
+        // ("Remote branch foo not found", auth failure, etc.) — previously
+        // the catch only got "Command failed: …" with no useful detail.
+        execSync(`git clone --depth 1 --branch "${branch}" "${cloneUrl}" "${tmpDir}"`, { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120000 });
+      } catch (err) {
+        // Redact the URL (it contains the PAT in basic-auth form). Re-throw
+        // a descriptive error so the upstream catch records the real reason.
+        const stderr = ((err as { stderr?: Buffer }).stderr?.toString() ?? '').trim();
+        const safeUrl = (src.repo_url as string) ?? '<unknown>';
+        const reason = stderr || (err as Error).message;
+        throw new Error(`git clone failed for ${src.name} (${safeUrl} @ ${branch}): ${reason}`);
+      }
 
       const sections: string[] = [];
       const header = `# Repository: ${src.name}\nBranch: ${branch} | URL: ${src.repo_url}`;
@@ -1862,9 +1878,12 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         try { fs.rmSync(wikiDir, { recursive: true, force: true }); } catch { /* ok */ }
         fs.mkdirSync(wikiDir, { recursive: true });
         // Lock is at folderDir level (above wikiDir) so rmSync above doesn't touch it
-        // Only reset compiled/error/stale sources to pending — this is the one explicit user-triggered reset
+        // Reset every source in the folder back to a clean pending state:
+        // status, word_count, and last_synced. Without zeroing word_count and
+        // last_synced the UI keeps showing stale figures (e.g. "5,124 words ·
+        // synced 2d ago") even though the wiki on disk just got wiped.
         await getDb().query(
-          "UPDATE wiki_sources SET status = 'pending' WHERE folder_id = $1 AND status IN ('compiled', 'error', 'stale')",
+          "UPDATE wiki_sources SET status = 'pending', word_count = 0, last_synced = NULL WHERE folder_id = $1",
           [folderId],
         );
       }
@@ -1973,8 +1992,12 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             if (!content) throw new Error(`Source "${src.name}" has no content`);
           } else if (src.type === 'repo') {
             await writeProgress({ status: 'building', folderId, step: `Cloning ${src.name}…`, sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length, articlesWritten: totalPages });
+            // Pass src.id so each clone gets its own /tmp/slackhive-repo-<uuid>
+            // dir. Without this every repo clones into /tmp/slackhive-repo-undefined,
+            // which collides with any leftover dir from a SIGTERM-killed previous
+            // build and breaks the FIRST source's clone on every fresh restart.
             content = await this.readRepoContent({
-              repo_url: src.repoUrl, branch: src.branch, pat_env_ref: src.patEnvRef, name: src.name,
+              id: src.id, repo_url: src.repoUrl, branch: src.branch, pat_env_ref: src.patEnvRef, name: src.name,
             } as any);
           }
 
