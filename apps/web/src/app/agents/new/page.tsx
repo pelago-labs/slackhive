@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import type { Agent, McpServer, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import { PERSONA_CATALOG, searchPersonas, MODELS, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
+import { useAuth } from '@/lib/auth-context';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ const TEMPLATES = [
  */
 export default function NewAgentWizard() {
   const router   = useRouter();
+  const { username, role } = useAuth();
   const [step, setStep]       = useState(0);
   const [state, setState]     = useState<WizardState>(INITIAL);
   const [catalog, setCatalog] = useState<McpServer[]>([]);
@@ -246,7 +248,7 @@ export default function NewAgentWizard() {
             {!state.isBoss && step === 1 && <Step2Persona state={state} update={update} />}
             {!state.isBoss && step === 2 && <Step2SlackApp state={state} />}
             {!state.isBoss && step === 3 && <Step3Tokens state={state} update={update} />}
-            {!state.isBoss && step === 4 && <Step4McpsSkills state={state} update={update} catalog={catalog} />}
+            {!state.isBoss && step === 4 && <Step4McpsSkills state={state} update={update} catalog={catalog} username={username} role={role} />}
             {!state.isBoss && step === 5 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
             {/* Boss steps */}
             {state.isBoss && step === 1 && <Step2SlackApp state={state} />}
@@ -1176,8 +1178,15 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
 // ─── Step 4: MCPs ─────────────────────────────────────────────────────────────
 
 function Step4McpsSkills({
-  state, update, catalog,
-}: { state: WizardState; update: (p: Partial<WizardState>) => void; catalog: McpServer[] }) {
+  state, update, catalog, username, role,
+}: { state: WizardState; update: (p: Partial<WizardState>) => void; catalog: McpServer[]; username: string; role: string | null }) {
+  // Mirror the API gate at /api/agents POST: editors can only assign MCPs they
+  // own; admins/superadmins bypass. Without this hint here, an editor could
+  // tick a box that the server then rejects with a 403 — surface the lock
+  // upfront instead.
+  const isAdmin = role === 'admin' || role === 'superadmin';
+  const canAssign = (mcp: McpServer) => isAdmin || mcp.createdBy === username;
+
   const toggle = (id: string) => {
     const ids = state.mcpServerIds.includes(id)
       ? state.mcpServerIds.filter(x => x !== id)
@@ -1203,31 +1212,45 @@ function Step4McpsSkills({
           </div>
         ) : (
           <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-            {catalog.map((mcp, i) => (
+            {catalog.map((mcp, i) => {
+              const assignable = canAssign(mcp);
+              const interactive = mcp.enabled && assignable;
+              return (
               <label key={mcp.id} style={{
                 display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px',
-                cursor: mcp.enabled ? 'pointer' : 'not-allowed',
+                cursor: interactive ? 'pointer' : 'not-allowed',
                 borderBottom: i < catalog.length - 1 ? '1px solid var(--border)' : 'none',
-                opacity: mcp.enabled ? 1 : 0.4, transition: 'background 0.12s',
+                opacity: interactive ? 1 : 0.45, transition: 'background 0.12s',
               }}
-                onMouseEnter={e => { if (mcp.enabled) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
+                title={!mcp.enabled ? 'MCP is disabled' : !assignable ? `Only ${mcp.createdBy} or an admin can assign this MCP` : undefined}
+                onMouseEnter={e => { if (interactive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
               >
                 <input type="checkbox" checked={state.mcpServerIds.includes(mcp.id)}
-                  onChange={() => toggle(mcp.id)} disabled={!mcp.enabled}
+                  onChange={() => toggle(mcp.id)} disabled={!interactive}
                   style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} />
-                <div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{mcp.name}</span>
                     <span style={{
                       fontSize: 10.5, fontFamily: 'var(--font-mono)',
                       color: 'var(--muted)', background: 'var(--border)', padding: '1px 6px', borderRadius: 4,
                     }}>{mcp.type}</span>
+                    {!assignable && (
+                      <span style={{
+                        fontSize: 10.5, fontWeight: 500,
+                        color: 'var(--subtle)', background: 'var(--surface-2)',
+                        border: '1px solid var(--border)',
+                        padding: '1px 6px', borderRadius: 4,
+                      }}
+                        title={`Only ${mcp.createdBy} or an admin can assign this MCP`}
+                      >🔒 owned by {mcp.createdBy}</span>
+                    )}
                   </div>
                   {mcp.description && <p style={{ margin: 0, fontSize: 11.5, color: 'var(--subtle)' }}>{mcp.description}</p>}
                 </div>
               </label>
-            ))}
+            );})}
           </div>
         )}
       </div>
