@@ -154,9 +154,71 @@ describe('regenerateBossRegistry', () => {
     await regenerateBossRegistry();
 
     const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
-    expect(content).toContain('ALWAYS delegate');
     expect(content).toContain('## Your Team');
     expect(content).toContain('## How to delegate');
+  });
+
+  it('embeds the judgment gate ("is this actually specialist work?")', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
+    const spec = makeAgent({
+      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1',
+    });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('Use judgment, not a script');
+    expect(content).toContain('Is this actually specialist work?');
+  });
+
+  it('makes tag-back the default for every delegation', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slackBotUserId: 'UBOSS' });
+    const spec = makeAgent({
+      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1',
+    });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('Always ask the specialist to tag you back');
+    expect(content).toContain('tag-back is the default for every delegation');
+  });
+
+  it('strengthens the one-specialist-at-a-time rule', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss' });
+    const spec = makeAgent({
+      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1',
+    });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    expect(content).toContain('One specialist at a time. No exceptions.');
+    expect(content).toContain('Never @mention two specialists in the same message');
+  });
+
+  it('drops the old corporate boilerplate phrases', async () => {
+    const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slackBotUserId: 'UBOSS' });
+    const spec = makeAgent({
+      id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'U1',
+    });
+
+    vi.mocked(getAllAgents).mockResolvedValue([boss, spec]);
+    await regenerateBossRegistry();
+
+    const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
+    // Old hardcoded "ALWAYS delegate" rule and the corporate "please tag X so I
+    // can confirm and coordinate next steps" close were the source of the
+    // joke-routing bug. Their literal active-voice forms must not come back.
+    // (The new template references the corporate phrase as a NEGATIVE example
+    // — "don't end with so I can confirm…" — so we match a fingerprint that
+    // only appears in the old hardcoded delegation format.)
+    expect(content).not.toContain('ALWAYS delegate — do not attempt');
+    expect(content).not.toContain('please tag <@UBOSS> so I can confirm');
+    expect(content).not.toContain('use this exact format');
   });
 
   it('publishes a reload event after updating the registry', async () => {
@@ -288,7 +350,7 @@ describe('regenerateBossRegistry', () => {
     expect(content).toContain('@my-boss');
   });
 
-  it('includes post-delegation confirmation instructions', async () => {
+  it('includes post-delegation handling instructions', async () => {
     const boss = makeAgent({ id: 'boss-1', isBoss: true, name: 'Boss', slackBotUserId: 'UBOSS' });
     const spec = makeAgent({ id: 'spec-1', isBoss: false, reportsTo: ['boss-1'], slackBotUserId: 'USPEC' });
 
@@ -297,7 +359,8 @@ describe('regenerateBossRegistry', () => {
 
     const content = vi.mocked(updateAgentClaudeMd).mock.calls[0][1];
     expect(content).toContain('After a specialist responds');
-    expect(content).toContain("When you're done, please tag");
+    // The new template uses concise tag-back phrasing, not the old corporate close.
+    expect(content).toContain('Tag <@UBOSS> when done');
   });
 });
 
