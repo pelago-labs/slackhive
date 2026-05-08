@@ -62,6 +62,26 @@ For routine updates on a single source — say a repo that just got new commits 
 
 A source is automatically marked `stale` when its `repoUrl`, `branch`, `patEnvRef`, content, or URL changes. Stale sources are picked up by the next folder build.
 
+### Incremental re-sync (repo sources)
+
+Repo-type sources track the last successfully ingested commit SHA. On the **next** sync after a successful first build, the runner compares HEAD to that SHA and takes one of three paths:
+
+| HEAD vs `last_synced_sha` | What runs | Token cost |
+|---|---|---|
+| HEAD unchanged | **Skip Claude entirely.** Just bump `last_synced` timestamp. | Near zero |
+| HEAD moved, diff computable | **Diff-focused content.** Only the bodies of changed/added/renamed files plus a small README context block. Deleted files become a path list so Claude can clean up the corresponding wiki articles. | ~5–10% of a full snapshot on small diffs |
+| HEAD moved, diff unreachable (force-push, branch swap, deepen failed) | **Full snapshot fallback.** Same as today's first-time ingest. | Same as a normal build |
+
+You can see which path ran in the runner log:
+
+```
+Repo unchanged since last sync — skipping
+Repo diff read … added: 2, modified: 5, deleted: 1, renamed: 0
+Repo content read … chars: 466382      ← snapshot fallback
+```
+
+The `Wiki source compiled` line includes `mode: incremental` or `mode: snapshot` so you can verify after the fact. **File-type and URL-type sources don't track a SHA** — re-syncs always re-process the full content for those. **Build from scratch** ignores incremental tracking entirely and zeros every source's `last_synced_sha`, `word_count`, and `last_synced` so the wiki rebuilds from a clean slate.
+
 <img src="/images/engineering-knowledge-wiki-diversity.png" alt="A built wiki folder with the article tree on the left and concepts/diversity.md open on the right" style={{borderRadius: "12px", marginBottom: "24px"}} />
 
 ## Assign folders to an agent

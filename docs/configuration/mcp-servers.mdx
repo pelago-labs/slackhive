@@ -222,6 +222,19 @@ Once a server is in the catalog, you can assign it to agents:
 
 An agent can have any number of MCP servers assigned. All tools from all assigned servers become available to the agent.
 
+### Who can assign which MCP
+
+The catalog is workspace-wide — every authenticated user sees every MCP — but assignment is gated by ownership:
+
+| Role | What they can assign |
+|---|---|
+| **Editor** | Only MCPs they created (`createdBy = themselves`) |
+| **Admin / Superadmin** | Any MCP regardless of owner |
+
+This applies both during agent creation and on the per-agent Tools tab. In the wizard's Step 4, MCPs you can't assign show a `🔒 owned by <user>` badge with a disabled checkbox; the API rejects unauthorized assignment with a 403 naming the specific MCP. The intent is that an MCP holding production credentials (a private database PAT, a paid API key) can only be wired into agents by the person who configured it — or an admin who has explicit authority.
+
+To hand off ownership, the current owner deletes their MCP and the new owner re-creates it, or an admin updates the `created_by` column directly.
+
 ## Keeping secrets safe
 
 Never paste database credentials, API keys, or passwords directly into MCP config `env` fields. Use the **encrypted env store** instead.

@@ -133,6 +133,15 @@ Changes hot-reload within seconds - no restart needed.
   **Boss agents:** the System Prompt is locked and the Optimize button is hidden. Boss identity is auto-generated from the team registry whenever any specialist is added, updated, or deleted.
 </Note>
 
+### Skill descriptions
+
+Each skill carries a short one-line description that gets inlined into the agent's compiled `CLAUDE.md` as a "when to use" hint — so the model can pick the right `/command` without loading the full body. In the Skills sub-tab, click into a skill to see a small grey **DESC** chip next to the filename. Click the chip to open the edit modal:
+
+- **Save** — write a manual description (free-form text, ~80 char target).
+- **Regenerate with AI** — ask the runner to summarize the skill body via Claude Sonnet 4.6 into a "Use when…" trigger phrase. The modal stays open with a spinner overlay until the new draft arrives, then auto-populates so you can review before saving.
+
+Descriptions auto-fill on first save (no human input needed) and self-heal on every runner restart — any skill row that's still NULL gets summarized in the background sweep. Empty descriptions render the skill as `- /name` in the index; populated ones render as `- /name — Use when …`.
+
 ## Tools tab
 
 The Tools tab has two sections:
