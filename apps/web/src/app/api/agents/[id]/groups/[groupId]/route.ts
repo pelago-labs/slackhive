@@ -11,9 +11,13 @@ export async function GET(
 ): Promise<NextResponse> {
   const session = getSessionFromRequest(req);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { groupId } = await params;
+  const { id, groupId } = await params;
   const group = await getAgentGroup(groupId);
-  if (!group) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  // Cross-agent guard: 404 (not 403, to avoid leaking which group IDs exist
+  // on other agents) if the URL agent doesn't actually own this group.
+  if (!group || group.agentId !== id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
   const members = await listGroupMembers(groupId);
   return NextResponse.json({ group, members });
 }

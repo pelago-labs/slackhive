@@ -186,6 +186,41 @@ describe('PATCH /api/agents/[id]/groups/[groupId]', () => {
   });
 });
 
+// ─── GET /api/agents/[id]/groups/[groupId] ────────────────────────────────
+
+describe('GET /api/agents/[id]/groups/[groupId]', () => {
+  it('returns 404 when the URL agent does not own the group (cross-agent read guard)', async () => {
+    vi.mocked(getAgentGroup).mockResolvedValue({ id: 'g1', agentId: 'agent-OTHER', name: 'leaked' } as any);
+    const { GET } = await import('@/app/api/agents/[id]/groups/[groupId]/route');
+    const req = new Request('http://localhost', { headers: authHeaders() }) as any;
+    const res = await GET(req, { params: Promise.resolve({ id: 'agent-1', groupId: 'g1' }) });
+    expect(res.status).toBe(404);
+    // Critical: must NOT leak the group payload in the body.
+    const body = await res.json();
+    expect(body.group).toBeUndefined();
+    expect(body.name).toBeUndefined();
+  });
+
+  it('returns 401 for unauthenticated', async () => {
+    const { GET } = await import('@/app/api/agents/[id]/groups/[groupId]/route');
+    const req = new Request('http://localhost') as any;
+    const res = await GET(req, { params: Promise.resolve({ id: 'agent-1', groupId: 'g1' }) });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns the group when the URL agent owns it', async () => {
+    vi.mocked(getAgentGroup).mockResolvedValue({ id: 'g1', agentId: 'agent-1', name: 'Marketing' } as any);
+    vi.mocked(listGroupMembers).mockResolvedValue([{ userId: 'u1', username: 'aman' }]);
+    const { GET } = await import('@/app/api/agents/[id]/groups/[groupId]/route');
+    const req = new Request('http://localhost', { headers: authHeaders() }) as any;
+    const res = await GET(req, { params: Promise.resolve({ id: 'agent-1', groupId: 'g1' }) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.group.name).toBe('Marketing');
+    expect(body.members).toHaveLength(1);
+  });
+});
+
 // ─── DELETE /api/agents/[id]/groups/[groupId] ─────────────────────────────
 
 describe('DELETE /api/agents/[id]/groups/[groupId]', () => {
