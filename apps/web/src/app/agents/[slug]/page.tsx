@@ -21,8 +21,9 @@ import { useAuth } from '@/lib/auth-context';
 import { FilesChanged, type FileChange } from './diff-view';
 import { CoachPanel } from './coach-panel';
 import { TestPanel } from './test-panel';
+import { AudiencesPanel } from './audiences-panel';
 
-type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'logs' | 'history';
+type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'logs' | 'history';
 
 interface AgentExportPayload {
   version: number;
@@ -38,7 +39,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',      label: 'Overview'      },
   { id: 'instructions',  label: 'Instructions'  },
   { id: 'tools',         label: 'Tools'         },
-  { id: 'knowledge',     label: 'Wiki'           },
+  { id: 'knowledge',     label: 'Wiki'          },
+  { id: 'audiences',     label: 'Audiences'     },
   { id: 'logs',          label: 'Logs'          },
   { id: 'history',       label: 'History'       },
 ];
@@ -382,6 +384,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
+        {tab === 'audiences'     && <AudiencesPanel    agentId={agent.id} canEdit={canEdit} />}
         {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}

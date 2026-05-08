@@ -336,6 +336,27 @@ CREATE TABLE IF NOT EXISTS agent_access (
   PRIMARY KEY (agent_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS agent_groups (
+  id           TEXT PRIMARY KEY,
+  agent_id     TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  description  TEXT,
+  instructions TEXT NOT NULL DEFAULT '',
+  priority     INTEGER NOT NULL DEFAULT 100,
+  verbose      INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (agent_id, name),
+  UNIQUE (agent_id, priority)
+);
+
+CREATE TABLE IF NOT EXISTS agent_group_members (
+  group_id   TEXT NOT NULL REFERENCES agent_groups(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (group_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS agent_snapshots (
   id               TEXT PRIMARY KEY,
   agent_id         TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -504,6 +525,9 @@ CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled     ON mcp_servers(enabled) W
 CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_enabled  ON scheduled_jobs(enabled) WHERE enabled = 1;
 CREATE INDEX IF NOT EXISTS idx_snapshots_agent_created ON agent_snapshots(agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_access_agent      ON agent_access(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_groups_agent       ON agent_groups(agent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_groups_priority ON agent_groups(agent_id, priority);
+CREATE INDEX IF NOT EXISTS idx_agent_group_members_user ON agent_group_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_created           ON users(created_at);
 CREATE INDEX IF NOT EXISTS idx_job_runs_job            ON job_runs(job_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_restrictions_agent ON agent_restrictions(agent_id);
@@ -645,6 +669,13 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const accessCols = (db.pragma('table_info(agent_access)') as { name: string }[]).map(c => c.name);
   if (!accessCols.includes('can_write')) {
     db.exec('ALTER TABLE agent_access ADD COLUMN can_write INTEGER NOT NULL DEFAULT 1');
+  }
+
+  // agent_groups.verbose was added after the initial table; backfill for installs
+  // that already migrated the table without the column.
+  const groupCols = (db.pragma('table_info(agent_groups)') as { name: string }[]).map(c => c.name);
+  if (groupCols.length > 0 && !groupCols.includes('verbose')) {
+    db.exec('ALTER TABLE agent_groups ADD COLUMN verbose INTEGER NOT NULL DEFAULT 0');
   }
   if (!accessCols.includes('access_level')) {
     // Migrate can_write → access_level, then recreate table without can_write

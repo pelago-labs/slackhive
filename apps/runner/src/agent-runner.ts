@@ -1113,6 +1113,49 @@ export class AgentRunner {
         return;
       }
 
+      // AI polish for audience-group instructions (single Claude turn, no SSE).
+      if (req.method === 'POST' && req.url === '/polish-audience-instructions') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const input = JSON.parse(body) as {
+              audienceName?: string;
+              audienceDescription?: string | null;
+              agentName?: string;
+              agentDescription?: string | null;
+              verbose?: boolean;
+              draft?: string;
+            };
+            if (!input.audienceName || !input.agentName) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'audienceName and agentName required' }));
+              return;
+            }
+            const { polishAudienceInstructions } = await import('./polish-audience-instructions');
+            const text = await polishAudienceInstructions({
+              audienceName: input.audienceName,
+              audienceDescription: input.audienceDescription ?? null,
+              agentName: input.agentName,
+              agentDescription: input.agentDescription ?? null,
+              verbose: !!input.verbose,
+              draft: input.draft ?? '',
+            });
+            if (text == null) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'polish failed' }));
+              return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ text }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: (err as Error).message }));
+          }
+        });
+        return;
+      }
+
       // Replay an errored / interrupted activity by feeding its original
       // message back through the live MessageHandler.
       if (req.method === 'POST' && req.url === '/replay-activity') {

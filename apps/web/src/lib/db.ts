@@ -29,6 +29,7 @@ import type {
   SnapshotSkill,
   SnapshotTrigger,
   Restriction,
+  AgentGroup,
   WikiFolder,
   WikiSource,
   CreateWikiFolderRequest,
@@ -1237,6 +1238,173 @@ export async function listAccessibleAgentIds(
     [username],
   );
   return r.rows.map(row => row.id as string);
+}
+
+// =============================================================================
+// Agent groups (audience personalization)
+// =============================================================================
+
+function rowToAgentGroup(row: Record<string, unknown>): AgentGroup {
+  return {
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    name: row.name as string,
+    description: (row.description as string | null) ?? null,
+    instructions: (row.instructions as string) ?? '',
+    priority: Number(row.priority ?? 100),
+    verbose: row.verbose === 1 || row.verbose === true,
+    memberCount: row.member_count == null ? undefined : Number(row.member_count),
+    createdAt: row.created_at as Date,
+    updatedAt: row.updated_at as Date,
+  };
+}
+
+/** All groups for an agent, ordered by priority then name. Includes member counts. */
+export async function listAgentGroups(agentId: string): Promise<AgentGroup[]> {
+  const r = await (await db()).query(
+    `SELECT g.*, (SELECT COUNT(*) FROM agent_group_members m WHERE m.group_id = g.id) AS member_count
+       FROM agent_groups g
+      WHERE g.agent_id = $1
+      ORDER BY g.priority ASC, g.name ASC`,
+    [agentId]
+  );
+  return r.rows.map(rowToAgentGroup);
+}
+
+export async function getAgentGroup(groupId: string): Promise<AgentGroup | null> {
+  const r = await (await db()).query(
+    `SELECT g.*, (SELECT COUNT(*) FROM agent_group_members m WHERE m.group_id = g.id) AS member_count
+       FROM agent_groups g
+      WHERE g.id = $1`,
+    [groupId]
+  );
+  return r.rows.length ? rowToAgentGroup(r.rows[0] as Record<string, unknown>) : null;
+}
+
+export async function createAgentGroup(input: {
+  agentId: string;
+  name: string;
+  description?: string | null;
+  instructions?: string;
+  priority?: number;
+  verbose?: boolean;
+}): Promise<AgentGroup> {
+  const id = randomUUID();
+  await (await db()).query(
+    `INSERT INTO agent_groups (id, agent_id, name, description, instructions, priority, verbose)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      id,
+      input.agentId,
+      input.name,
+      input.description ?? null,
+      input.instructions ?? '',
+      input.priority ?? 100,
+      input.verbose ? 1 : 0,
+    ]
+  );
+  const created = await getAgentGroup(id);
+  if (!created) throw new Error(`Group ${id} disappeared after insert`);
+  return created;
+}
+
+export async function updateAgentGroup(
+  groupId: string,
+  patch: { name?: string; description?: string | null; instructions?: string; priority?: number; verbose?: boolean }
+): Promise<AgentGroup | null> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  let n = 1;
+  if (patch.name !== undefined)         { sets.push(`name = $${n++}`);         params.push(patch.name); }
+  if (patch.description !== undefined)  { sets.push(`description = $${n++}`);  params.push(patch.description); }
+  if (patch.instructions !== undefined) { sets.push(`instructions = $${n++}`); params.push(patch.instructions); }
+  if (patch.priority !== undefined)     { sets.push(`priority = $${n++}`);     params.push(patch.priority); }
+  if (patch.verbose !== undefined)      { sets.push(`verbose = $${n++}`);      params.push(patch.verbose ? 1 : 0); }
+  if (sets.length === 0) return getAgentGroup(groupId);
+  sets.push(`updated_at = datetime('now')`);
+  params.push(groupId);
+  await (await db()).query(
+    `UPDATE agent_groups SET ${sets.join(', ')} WHERE id = $${n}`,
+    params
+  );
+  return getAgentGroup(groupId);
+}
+
+export async function deleteAgentGroup(groupId: string): Promise<void> {
+  await (await db()).query(`DELETE FROM agent_groups WHERE id = $1`, [groupId]);
+}
+
+/**
+ * Users who can at least *trigger* this agent (i.e. could receive a response
+ * from it via Slack). Used to filter the audience-membership picker so admins
+ * don't accidentally add a user who has no path to interact with the agent.
+ *
+ * Eligibility = admins/superadmins ∪ agent creator ∪ anyone with an
+ * `agent_access` row of any level. Mirrors the trigger logic in
+ * `apps/runner/src/message-handler.ts:userCanTrigger`.
+ */
+export async function listAgentEligibleUsers(agentId: string): Promise<{ id: string; username: string; role: string; source: 'admin' | 'creator' | 'access' }[]> {
+  // NOTE: the SQLite adapter detects reads vs writes by checking whether the
+  // statement starts with "SELECT" — so we cannot use a leading CTE (`WITH …`)
+  // here. Use SELECT … FROM (UNION ALL) instead, with a numeric source rank
+  // (lower = stronger) that we MIN() to pick the best label per user.
+  const r = await (await db()).query(
+    `SELECT id, username, role, MIN(source_rank) AS top_rank
+       FROM (
+         SELECT u.id, u.username, u.role, 1 AS source_rank
+           FROM users u
+          WHERE u.role IN ('admin', 'superadmin')
+         UNION ALL
+         SELECT u.id, u.username, u.role, 2 AS source_rank
+           FROM users u
+           JOIN agents a ON a.created_by = u.username
+          WHERE a.id = $1
+         UNION ALL
+         SELECT u.id, u.username, u.role, 3 AS source_rank
+           FROM users u
+           JOIN agent_access aa ON aa.user_id = u.id
+          WHERE aa.agent_id = $2
+       ) sub
+      GROUP BY id, username, role
+      ORDER BY username ASC`,
+    [agentId, agentId]
+  );
+  return r.rows.map(row => {
+    const rank = Number(row.top_rank);
+    const source: 'admin' | 'creator' | 'access' = rank === 1 ? 'admin' : rank === 2 ? 'creator' : 'access';
+    return {
+      id: row.id as string,
+      username: row.username as string,
+      role: row.role as string,
+      source,
+    };
+  });
+}
+
+/** Members of a group as user rows (id + username). */
+export async function listGroupMembers(groupId: string): Promise<{ userId: string; username: string }[]> {
+  const r = await (await db()).query(
+    `SELECT u.id, u.username
+       FROM agent_group_members m
+       JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = $1
+      ORDER BY u.username ASC`,
+    [groupId]
+  );
+  return r.rows.map(row => ({ userId: row.id as string, username: row.username as string }));
+}
+
+/** Replaces the membership of a group with the given user IDs. */
+export async function setGroupMembers(groupId: string, userIds: string[]): Promise<void> {
+  const conn = await db();
+  await conn.query(`DELETE FROM agent_group_members WHERE group_id = $1`, [groupId]);
+  for (const userId of userIds) {
+    await conn.query(
+      `INSERT INTO agent_group_members (group_id, user_id) VALUES ($1, $2)
+       ON CONFLICT (group_id, user_id) DO NOTHING`,
+      [groupId, userId]
+    );
+  }
 }
 
 // =============================================================================

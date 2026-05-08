@@ -486,7 +486,53 @@ export class MessageHandler {
     try {
       senderName = await this.adapter.getUserDisplayName(userId);
     } catch { /* fall back to userId */ }
-    const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}]\n\n`;
+
+    // Audience groups: look up which groups (if any) this sender belongs to
+    // for THIS agent, ordered by priority. We append each group's free-text
+    // instructions before the user's message so the model treats them as
+    // current-turn guidance. Joins users.slack_user_id → users.id →
+    // agent_group_members → agent_groups.
+    let audienceBlock = '';
+    let groupNames = '';
+    try {
+      const db = getDb();
+      const r = await db.query(
+        `SELECT g.name, g.instructions, g.verbose
+           FROM users u
+           JOIN agent_group_members m ON m.user_id = u.id
+           JOIN agent_groups g ON g.id = m.group_id
+          WHERE u.slack_user_id = $1
+            AND g.agent_id = $2
+            AND (TRIM(g.instructions) <> '' OR g.verbose = 1)
+          ORDER BY g.priority ASC, g.name ASC`,
+        [userId, this.agent.id]
+      );
+      if (r.rows.length) {
+        const lines: string[] = [];
+        const names: string[] = [];
+        for (const row of r.rows as { name: string; instructions: string; verbose: number | boolean }[]) {
+          names.push(row.name);
+          const isVerbose = row.verbose === 1 || row.verbose === true;
+          const directives: string[] = [];
+          if (isVerbose) {
+            directives.push('BE VERBOSE — explain in detail with examples and reasoning, not terse summaries.');
+          }
+          const txt = row.instructions.trim();
+          if (txt) directives.push(txt);
+          if (directives.length) {
+            lines.push(`- (${row.name}) ${directives.join(' ')}`);
+          }
+        }
+        if (lines.length) {
+          groupNames = ` · groups: ${names.join(', ')}`;
+          audienceBlock = `[Audience guidance for this sender]\n${lines.join('\n')}\n\n`;
+        }
+      }
+    } catch {
+      // Audience lookup is best-effort — never block message handling.
+    }
+
+    const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}${groupNames}]\n\n`;
 
     // Fetch thread context via adapter
     let threadContext = '';
@@ -582,7 +628,7 @@ export class MessageHandler {
     }
 
     const allTextChunks = [...linkedChunks, ...textChunks];
-    const textPrompt = `${senderHeader}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
+    const textPrompt = `${senderHeader}${audienceBlock}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
 
     if (binaryBlocks.length > 0) {
       const blocks: ContentBlockParam[] = [];
