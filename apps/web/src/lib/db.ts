@@ -1415,23 +1415,26 @@ export async function listGroupMembers(groupId: string): Promise<{ userId: strin
 }
 
 /**
- * Replaces the membership of a group with the given user IDs.
+ * Replaces the membership of a group with the given user IDs atomically.
  *
- * Performs a DELETE followed by a single multi-row INSERT to avoid an N+1 round
- * trip on large member lists. De-duplicates `userIds` in JS so the multi-row
- * insert can drop the per-row ON CONFLICT clause.
+ * DELETE + single multi-row INSERT, wrapped in a transaction so a partial
+ * failure can't leave the group with the old rows deleted but the new rows
+ * not yet inserted. De-dupes input in JS so the multi-row INSERT can drop
+ * the per-row ON CONFLICT clause.
  */
 export async function setGroupMembers(groupId: string, userIds: string[]): Promise<void> {
   const conn = await db();
   const unique = Array.from(new Set(userIds.filter(Boolean)));
-  await conn.query(`DELETE FROM agent_group_members WHERE group_id = $1`, [groupId]);
-  if (unique.length === 0) return;
-  // Build $1, ($2, $3), ($2, $4), ... — group_id stays at $2, users at $3..$N.
-  const placeholders = unique.map((_, i) => `($1, $${i + 2})`).join(', ');
-  await conn.query(
-    `INSERT INTO agent_group_members (group_id, user_id) VALUES ${placeholders}`,
-    [groupId, ...unique]
-  );
+  await conn.transaction(async tx => {
+    await tx.query(`DELETE FROM agent_group_members WHERE group_id = $1`, [groupId]);
+    if (unique.length === 0) return;
+    // Build ($1, $2), ($1, $3), ... — group_id stays at $1, users at $2..$N.
+    const placeholders = unique.map((_, i) => `($1, $${i + 2})`).join(', ');
+    await tx.query(
+      `INSERT INTO agent_group_members (group_id, user_id) VALUES ${placeholders}`,
+      [groupId, ...unique]
+    );
+  });
 }
 
 // =============================================================================

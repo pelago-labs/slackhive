@@ -345,6 +345,27 @@ function GroupEditor({
     priority: group.priority,
     verbose: group.verbose,
   });
+  // Track whether the user has made unsaved local edits. We sync `draft` from
+  // a refreshed `group` only when the local copy is clean — that way a parent
+  // refresh (e.g. after another tab saved) doesn't blow away in-progress
+  // edits, but a clean editor stays in sync with the latest server state.
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (dirty) return;
+    setDraft({
+      name: group.name,
+      description: group.description ?? '',
+      instructions: group.instructions ?? '',
+      priority: group.priority,
+      verbose: group.verbose,
+    });
+    // We intentionally only depend on the fields that come back from the server.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group.id, group.updatedAt]);
+  function patchDraft(patch: Partial<DraftPatch>) {
+    setDraft(d => ({ ...d, ...patch }));
+    setDirty(true);
+  }
   const [saving, setSaving] = useState(false);
   const [savedFlash, flashSaved] = useSavedFlash();
   const [saveError, setSaveError] = useState<{ field?: string; message: string } | null>(null);
@@ -352,6 +373,10 @@ function GroupEditor({
   const [polishError, setPolishError] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<BasicUser[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  // 'idle' until the first fetch has resolved one way or the other. Toggle is
+  // gated on 'loaded' so a failed initial fetch (which sets members to [])
+  // can never round-trip and accidentally mass-delete real members.
+  const [membersStatus, setMembersStatus] = useState<'idle' | 'loaded' | 'error'>('idle');
   const [memberSearch, setMemberSearch] = useState('');
   const [savingMembers, setSavingMembers] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -361,13 +386,19 @@ function GroupEditor({
     // between groups would otherwise let an older fetch land last and clobber
     // the newer group's members list.
     const ctrl = new AbortController();
+    setMembersStatus('idle');
     fetch(`/api/agents/${agentId}/eligible-users`, { signal: ctrl.signal })
       .then(r => r.ok ? r.json() : { users: [] })
       .then(j => setAllUsers(j.users ?? []))
       .catch(err => { if (err?.name !== 'AbortError') setAllUsers([]); });
     fetch(`/api/agents/${agentId}/groups/${group.id}/members`, { signal: ctrl.signal })
-      .then(r => r.json()).then(j => setMembers(j.members ?? []))
-      .catch(err => { if (err?.name !== 'AbortError') setMembers([]); });
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(j => { setMembers(j.members ?? []); setMembersStatus('loaded'); })
+      .catch(err => {
+        if (err?.name === 'AbortError') return;
+        setMembers([]);
+        setMembersStatus('error');
+      });
     return () => ctrl.abort();
   }, [agentId, group.id]);
 
@@ -388,6 +419,7 @@ function GroupEditor({
         return;
       }
       flashSaved();
+      setDirty(false);
       onChanged();
     } finally {
       setSaving(false);
@@ -396,6 +428,10 @@ function GroupEditor({
 
   async function toggleMember(userId: string) {
     if (!canEdit) return;
+    // Refuse toggles before the initial members list has loaded — otherwise a
+    // failed initial fetch leaves us with members=[] and a single click would
+    // PUT just one user, mass-deleting everyone else.
+    if (membersStatus !== 'loaded') return;
     setSavingMembers(true);
     try {
       const next = memberIds.has(userId)
@@ -438,7 +474,9 @@ function GroupEditor({
       }
       const json = await res.json();
       if (typeof json.text === 'string' && json.text.trim()) {
-        setDraft(d => ({ ...d, instructions: json.text }));
+        patchDraft({ instructions: json.text });
+      } else {
+        setPolishError('AI returned an empty draft — try clicking again or write the instructions manually.');
       }
     } catch (e) {
       const msg = e instanceof Error ? (e.name === 'AbortError' ? 'Timed out after 60s — the runner may still be busy.' : e.message) : String(e);
@@ -481,7 +519,7 @@ function GroupEditor({
             <input
               value={draft.name ?? ''}
               disabled={!canEdit}
-              onChange={e => { setDraft(d => ({ ...d, name: e.target.value })); setSaveError(null); }}
+              onChange={e => { patchDraft({ name: e.target.value }); setSaveError(null); }}
               style={{ ...inp, border: `1px solid ${saveError?.field === 'name' ? 'var(--red)' : 'var(--border-2)'}` }}
             />
             {saveError?.field === 'name' && (
@@ -493,7 +531,11 @@ function GroupEditor({
               type="number"
               value={draft.priority ?? 100}
               disabled={!canEdit}
-              onChange={e => { setDraft(d => ({ ...d, priority: Number(e.target.value) })); setSaveError(null); }}
+              onChange={e => {
+                const n = Number(e.target.value);
+                patchDraft({ priority: Number.isFinite(n) ? n : 100 });
+                setSaveError(null);
+              }}
               style={{ ...inp, border: `1px solid ${saveError?.field === 'priority' ? 'var(--red)' : 'var(--border-2)'}` }}
             />
             {saveError?.field === 'priority' && (
@@ -505,7 +547,7 @@ function GroupEditor({
           <input
             value={draft.description ?? ''}
             disabled={!canEdit}
-            onChange={e => setDraft(d => ({ ...d, description: e.target.value }))}
+            onChange={e => patchDraft({ description: e.target.value })}
             style={inp}
             placeholder="What sets this audience apart"
           />
@@ -521,9 +563,9 @@ function GroupEditor({
           right={canEdit && (
             <button
               onClick={polish}
-              disabled={polishing}
+              disabled={polishing || saving}
               style={{ ...btnGhost, padding: '5px 10px', height: 28, fontSize: 12 }}
-              title={(draft.instructions ?? '').trim().length < 8 ? 'Generate from audience name' : 'Polish the current draft'}
+              title={saving ? 'Save in progress…' : (draft.instructions ?? '').trim().length < 8 ? 'Generate from audience name' : 'Polish the current draft'}
             >
               {polishing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={12} />}
               {polishing ? 'Drafting…' : (draft.instructions ?? '').trim().length < 8 ? 'Generate with AI' : 'Polish with AI'}
@@ -533,7 +575,7 @@ function GroupEditor({
           <textarea
             value={draft.instructions ?? ''}
             disabled={!canEdit || polishing}
-            onChange={e => setDraft(d => ({ ...d, instructions: e.target.value }))}
+            onChange={e => patchDraft({ instructions: e.target.value })}
             rows={6}
             style={{ ...inp, fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.55 }}
             placeholder="e.g. Keep replies under 3 sentences. Avoid jargon. Address the user as 'Dear colleague'."
@@ -544,7 +586,7 @@ function GroupEditor({
         <ToggleRow
           checked={!!draft.verbose}
           disabled={!canEdit}
-          onChange={v => setDraft(d => ({ ...d, verbose: v }))}
+          onChange={v => patchDraft({ verbose: v })}
           title="Verbose responses"
           subtitle="Override the agent's default style and force detailed, example-rich answers for members of this audience."
         />
@@ -571,7 +613,12 @@ function GroupEditor({
               {saveError && !saveError.field && (
                 <span style={{ fontSize: 12, color: 'var(--red)' }}>{saveError.message}</span>
               )}
-              <button onClick={saveMeta} disabled={saving} style={btnPrimary}>
+              <button
+                onClick={saveMeta}
+                disabled={saving || polishing}
+                style={btnPrimary}
+                title={polishing ? 'AI polish in progress…' : undefined}
+              >
                 {saving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />}
                 Save changes
               </button>
@@ -601,7 +648,15 @@ function GroupEditor({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
-          {filtered.length === 0 ? (
+          {membersStatus === 'idle' ? (
+            <div style={{ padding: 16, color: 'var(--muted)', fontSize: 13, textAlign: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading members…
+            </div>
+          ) : membersStatus === 'error' ? (
+            <div style={{ padding: 12, color: 'var(--red)', fontSize: 13, textAlign: 'center', background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 6 }}>
+              Couldn't load members. Toggling is disabled until this loads — try collapsing and re-expanding the row.
+            </div>
+          ) : filtered.length === 0 ? (
             <div style={{ padding: 16, color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>
               {allUsers.length === 0
                 ? 'No users can trigger this agent yet. Grant access from the Overview tab first.'

@@ -30,12 +30,17 @@ export async function POST(
   if (!Number.isInteger(priority) || priority < 0 || priority > 1_000_000) {
     return NextResponse.json({ error: 'priority must be a non-negative integer ≤ 1,000,000', field: 'priority' }, { status: 400 });
   }
+  // Normalise description: any string-ish value, trim, then null if empty.
+  let description: string | null = null;
+  if (typeof body.description === 'string' && body.description.trim().length > 0) {
+    description = body.description;
+  }
   try {
     const group = await createAgentGroup({
       agentId: id,
       name,
-      description: body.description ?? null,
-      instructions: body.instructions ?? '',
+      description,
+      instructions: typeof body.instructions === 'string' ? body.instructions : '',
       priority,
       verbose: !!body.verbose,
     });

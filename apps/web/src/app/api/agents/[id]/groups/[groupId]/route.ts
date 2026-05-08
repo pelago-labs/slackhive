@@ -24,11 +24,33 @@ export async function PATCH(
 ): Promise<NextResponse> {
   const denied = guardAdmin(req);
   if (denied) return denied;
-  const { groupId } = await params;
+  const { id, groupId } = await params;
+  // Cross-agent guard: 404 (not 403, to avoid leaking which group IDs exist)
+  // if the URL agent doesn't actually own this group.
+  const existing = await getAgentGroup(groupId);
+  if (!existing || existing.agentId !== id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
   const body = await req.json().catch(() => ({}));
   const patch: { name?: string; description?: string | null; instructions?: string; priority?: number; verbose?: boolean } = {};
-  if (typeof body.name === 'string')        patch.name = body.name.trim();
-  if ('description' in body)                patch.description = body.description ?? null;
+  if (typeof body.name === 'string') {
+    const trimmed = body.name.trim();
+    if (!trimmed) {
+      return NextResponse.json({ error: 'name cannot be empty', field: 'name' }, { status: 400 });
+    }
+    patch.name = trimmed;
+  }
+  if ('description' in body) {
+    // Normalise empty / whitespace-only to null so POST and PATCH agree on
+    // round-trip semantics (read → save shouldn't flip null↔'').
+    if (typeof body.description === 'string') {
+      const trimmed = body.description.trim();
+      patch.description = trimmed.length > 0 ? body.description : null;
+    } else {
+      patch.description = null;
+    }
+  }
   if (typeof body.instructions === 'string') patch.instructions = body.instructions;
   if (typeof body.priority === 'number') {
     if (!Number.isFinite(body.priority) || !Number.isInteger(body.priority) || body.priority < 0 || body.priority > 1_000_000) {
@@ -54,7 +76,11 @@ export async function DELETE(
 ): Promise<NextResponse> {
   const denied = guardAdmin(req);
   if (denied) return denied;
-  const { groupId } = await params;
+  const { id, groupId } = await params;
+  const existing = await getAgentGroup(groupId);
+  if (!existing || existing.agentId !== id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
   await deleteAgentGroup(groupId);
   return new NextResponse(null, { status: 204 });
 }

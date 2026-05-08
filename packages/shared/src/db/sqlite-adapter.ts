@@ -528,7 +528,9 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_enabled  ON scheduled_jobs(enabled
 CREATE INDEX IF NOT EXISTS idx_snapshots_agent_created ON agent_snapshots(agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_access_agent      ON agent_access(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_groups_agent       ON agent_groups(agent_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_groups_priority ON agent_groups(agent_id, priority);
+-- uniq_agent_groups_priority is created in the migration block below so we
+-- can defensively bump pre-existing duplicate priorities before enforcing
+-- uniqueness; running CREATE UNIQUE INDEX here would crash startup on dirty data.
 CREATE INDEX IF NOT EXISTS idx_agent_group_members_user ON agent_group_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_created           ON users(created_at);
 CREATE INDEX IF NOT EXISTS idx_job_runs_job            ON job_runs(job_id, started_at DESC);
@@ -678,6 +680,50 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const groupCols = (db.pragma('table_info(agent_groups)') as { name: string }[]).map(c => c.name);
   if (groupCols.length > 0 && !groupCols.includes('verbose')) {
     db.exec('ALTER TABLE agent_groups ADD COLUMN verbose INTEGER NOT NULL DEFAULT 0');
+  }
+
+  // Defensive: agent_groups.(agent_id, priority) must be unique. If an earlier
+  // dev build allowed duplicates, bump them before creating the unique index
+  // so startup doesn't crash on dirty data.
+  if (groupCols.length > 0) {
+    const indexes = db.pragma("index_list('agent_groups')") as { name: string }[];
+    const hasUniq = indexes.some(i => i.name === 'uniq_agent_groups_priority');
+    if (!hasUniq) {
+      const dupes = db.prepare(`
+        SELECT agent_id, priority, COUNT(*) AS n
+          FROM agent_groups
+         GROUP BY agent_id, priority
+         HAVING n > 1
+      `).all() as { agent_id: string; priority: number; n: number }[];
+      if (dupes.length > 0) {
+        // For each dup-set, leave the oldest (lowest created_at) at the original
+        // priority and bump the rest to the next free slots. We pick from
+        // ORDER BY priority DESC so we open up gaps without creating new
+        // collisions on already-used numbers.
+        const fix = db.transaction(() => {
+          for (const d of dupes) {
+            const rows = db.prepare(`
+              SELECT id FROM agent_groups
+               WHERE agent_id = ? AND priority = ?
+               ORDER BY created_at ASC, id ASC
+            `).all(d.agent_id, d.priority) as { id: string }[];
+            // Skip the first; bump the rest to (max+1, max+2, …).
+            const taken = new Set(
+              (db.prepare('SELECT priority FROM agent_groups WHERE agent_id = ?').all(d.agent_id) as { priority: number }[])
+                .map(r => r.priority)
+            );
+            for (let i = 1; i < rows.length; i++) {
+              let p = d.priority + 1;
+              while (taken.has(p)) p++;
+              taken.add(p);
+              db.prepare('UPDATE agent_groups SET priority = ?, updated_at = datetime(\'now\') WHERE id = ?').run(p, rows[i].id);
+            }
+          }
+        });
+        fix();
+      }
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_groups_priority ON agent_groups(agent_id, priority)');
+    }
   }
   if (!accessCols.includes('access_level')) {
     // Migrate can_write → access_level, then recreate table without can_write

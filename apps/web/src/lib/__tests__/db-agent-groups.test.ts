@@ -116,8 +116,13 @@ describe('parseAgentGroupsConflict', () => {
 // ─── setGroupMembers ─────────────────────────────────────────────────────────
 
 describe('setGroupMembers', () => {
-  it('issues a DELETE then a single multi-row INSERT (no N+1 inserts)', async () => {
+  it('runs DELETE + multi-row INSERT inside a transaction (atomic replace)', async () => {
+    const txSpy = vi.fn(async (fn: (tx: DbAdapter) => Promise<unknown>) => fn(fakeAdapter));
+    const adapter: DbAdapter = { ...fakeAdapter, transaction: txSpy };
+    setDb(adapter);
+
     await setGroupMembers('group-1', ['user-a', 'user-b', 'user-c']);
+    expect(txSpy).toHaveBeenCalledTimes(1);
     expect(mockQuery).toHaveBeenCalledTimes(2);
 
     const [delSql, delParams] = mockQuery.mock.calls[0];

@@ -511,7 +511,11 @@ export class MessageHandler {
         const lines: string[] = [];
         const names: string[] = [];
         for (const row of r.rows as { name: string; instructions: string; verbose: number | boolean }[]) {
-          names.push(row.name);
+          // Strip framing metacharacters so an audience name can't break out of
+          // the senderHeader / audienceBlock format and inject fake directives.
+          // (CR/LF, '[' / ']' close-brackets, '·' separator.)
+          const safeName = row.name.replace(/[\r\n\[\]·]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'audience';
+          names.push(safeName);
           const isVerbose = row.verbose === 1 || row.verbose === true;
           const directives: string[] = [];
           if (isVerbose) {
@@ -520,7 +524,7 @@ export class MessageHandler {
           const txt = row.instructions.trim();
           if (txt) directives.push(txt);
           if (directives.length) {
-            lines.push(`- (${row.name}) ${directives.join(' ')}`);
+            lines.push(`- (${safeName}) ${directives.join(' ')}`);
           }
         }
         if (lines.length) {
