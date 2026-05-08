@@ -2394,7 +2394,22 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             });
 
             const parsed = this.parseWikiJson(response);
-            if (!parsed) throw new Error(`Could not parse Claude response for chunk ${chunkIdx + 1}`);
+            if (!parsed) {
+              // Diagnostic: log a head + tail snippet of the unparseable
+              // response so we can tell whether Claude returned prose, a
+              // refusal, was truncated mid-JSON, or hit a token cap. Without
+              // this the only signal was the bare error message and we'd
+              // have to add logging + re-trigger the build to learn anything.
+              const head = response.slice(0, 500);
+              const tail = response.length > 1000 ? response.slice(-500) : '';
+              logger.error('[wiki] Could not parse Claude response', {
+                folderId, source: src.name, chunkIdx,
+                responseLength: response.length,
+                responseHead: head,
+                responseTail: tail,
+              });
+              throw new Error(`Could not parse Claude response for chunk ${chunkIdx + 1} (response was ${response.length} chars; check log for head/tail)`);
+            }
 
             // Issue 9: warn if chunk produced no articles
             const chunkArticleCount = (parsed.created?.length ?? 0) + (parsed.updated?.length ?? 0);
