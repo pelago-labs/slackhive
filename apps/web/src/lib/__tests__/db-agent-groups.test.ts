@@ -117,8 +117,11 @@ describe('parseAgentGroupsConflict', () => {
 
 describe('setGroupMembers', () => {
   it('runs DELETE + multi-row INSERT inside a transaction (atomic replace)', async () => {
+    // The transaction signature is generic (`<T>(fn) => Promise<T>`), which
+    // doesn't unify with vi.fn's inferred return type — cast to any here so
+    // the spy still records calls. We assert call count below.
     const txSpy = vi.fn(async (fn: (tx: DbAdapter) => Promise<unknown>) => fn(fakeAdapter));
-    const adapter: DbAdapter = { ...fakeAdapter, transaction: txSpy };
+    const adapter: DbAdapter = { ...fakeAdapter, transaction: txSpy as unknown as DbAdapter['transaction'] };
     setDb(adapter);
 
     await setGroupMembers('group-1', ['user-a', 'user-b', 'user-c']);
