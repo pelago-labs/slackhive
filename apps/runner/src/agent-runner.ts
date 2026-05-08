@@ -92,6 +92,157 @@ export function parseDiffNameStatus(out: string): RepoDiff {
   return diff;
 }
 
+/**
+ * Build a diff-focused content block for Claude on incremental wiki re-syncs.
+ * Always include a small README excerpt for orientation, then sections for
+ * added/modified/renamed file bodies and bare path lists for deleted files.
+ *
+ * Pure function — read/fileBlock/budgetSection are passed in by the caller
+ * (readRepoContent) so the shared snapshot-mode budget bookkeeping stays
+ * consistent. Exported so unit tests can exercise the section composition
+ * directly with stubbed file readers, without spinning up an AgentRunner.
+ */
+export function buildDiffFocusedRepoContent(
+  tmpDir: string,
+  diff: RepoDiff,
+  src: Record<string, unknown>,
+  lastSha: string,
+  currentSha: string,
+  branch: string,
+  read: (p: string, max?: number) => string,
+  fileBlock: (relPath: string, content: string) => string,
+  budgetSection: (title: string, content: string) => string,
+): string {
+  const path = require('path') as typeof import('path');
+  const sections: string[] = [];
+  sections.push(
+    `# Repository: ${src.name as string} (incremental diff)\n` +
+    `Branch: ${branch} | URL: ${src.repo_url as string}\n` +
+    `Range: ${lastSha.slice(0, 7)}..${currentSha.slice(0, 7)}\n` +
+    `Files changed — added: ${diff.added.length}, modified: ${diff.modified.length}, ` +
+    `deleted: ${diff.deleted.length}, renamed: ${diff.renamed.length}`
+  );
+
+  // Always provide README context — even small diffs are easier for Claude
+  // to interpret with a one-paragraph reminder of what this repo is about.
+  let readme = '';
+  for (const f of ['README.md', 'readme.md', 'README.rst', 'README']) {
+    const c = read(path.join(tmpDir, f), 4_000);
+    if (c) { readme = c; break; }
+  }
+  if (readme) sections.push(budgetSection('README (for context)', readme));
+
+  // Deleted files — paths only. Claude uses these to mark articles that
+  // referenced them for cleanup. No need to ship the (now-gone) content.
+  if (diff.deleted.length) {
+    sections.push(budgetSection(
+      'Deleted files (mark articles that referenced these for removal)',
+      diff.deleted.map(p => `- ${p}`).join('\n'),
+    ));
+  }
+
+  // Renamed files — show the from→to mapping so Claude can update path
+  // references in existing articles, and include the new file content.
+  if (diff.renamed.length) {
+    sections.push(budgetSection(
+      'Renamed files (update article references from old → new path)',
+      diff.renamed.map(r => `- ${r.from} → ${r.to}`).join('\n'),
+    ));
+  }
+
+  // Added files — full content.
+  if (diff.added.length) {
+    let added = '';
+    for (const p of diff.added) {
+      const c = read(path.join(tmpDir, p));
+      if (c) added += fileBlock(p, c);
+    }
+    if (added) sections.push(budgetSection('Added files (NEW)', added));
+  }
+
+  // Modified files — full content. Claude already has the existing wiki
+  // article catalog from the prompt's "Existing wiki" section so it can
+  // update articles in place rather than recreate.
+  if (diff.modified.length) {
+    let modified = '';
+    for (const p of diff.modified) {
+      const c = read(path.join(tmpDir, p));
+      if (c) modified += fileBlock(p, c);
+    }
+    if (modified) sections.push(budgetSection('Modified files (UPDATED)', modified));
+  }
+
+  // Renamed file new content.
+  if (diff.renamed.length) {
+    let renamed = '';
+    for (const r of diff.renamed) {
+      const c = read(path.join(tmpDir, r.to));
+      if (c) renamed += fileBlock(`${r.to} (renamed from ${r.from})`, c);
+    }
+    if (renamed) sections.push(budgetSection('Renamed files (new content)', renamed));
+  }
+
+  return sections.filter(s => s.trim()).join('\n');
+}
+
+/**
+ * Wiki source manifest entry. Mirrors the in-file shape used by
+ * buildWikiFolderSources's manifest.json; promoted to a named type for
+ * the extracted helpers to share.
+ */
+export interface SourceManifest {
+  [sourceName: string]: { created: string[]; updated: string[] };
+}
+
+/**
+ * Process the `removed` field from a Claude wiki response. Validates each
+ * path stays inside `wikiDir`, unlinks the article, and trims the entry from
+ * the source manifest so subsequent syncs see an honest catalog. Skipped
+ * silently for non-string entries.
+ *
+ * Pure side-effects on the filesystem and the (mutable) manifest argument —
+ * extracted so unit tests can exercise traversal protection + manifest
+ * cleanup without spinning up the full wiki build flow.
+ */
+export function processRemovedArticles(
+  wikiDir: string,
+  sourceSlug: string,
+  sourceName: string,
+  removedRaw: unknown[],
+  manifest: SourceManifest,
+  log: { info: (m: string, ctx?: object) => void; warn: (m: string, ctx?: object) => void },
+): void {
+  const fs = require('fs') as typeof import('fs');
+  const path = require('path') as typeof import('path');
+  // Confine deletes to THIS source's subdirectory. Without the slug-scoped
+  // prefix, a path like '../other-source/secret.md' would (after the
+  // sourceSlug-prefix nudge below) resolve to a sibling source's article
+  // and delete it. Only protecting against escaping wikiDir entirely is
+  // insufficient — that lets one source's response trash another's.
+  const sourceRoot = path.join(wikiDir, sourceSlug) + path.sep;
+  for (const removedPathRaw of removedRaw) {
+    if (typeof removedPathRaw !== 'string') continue;
+    const removedPath = removedPathRaw.startsWith(`${sourceSlug}/`) ? removedPathRaw : `${sourceSlug}/${removedPathRaw}`;
+    const p = path.resolve(wikiDir, removedPath);
+    if (!p.startsWith(sourceRoot)) {
+      log.warn('[wiki] Skipping remove path outside source slug', { path: removedPath, sourceSlug });
+      continue;
+    }
+    try {
+      if (fs.existsSync(p)) {
+        fs.unlinkSync(p);
+        log.info('[wiki] Removed article (source file deleted)', { path: removedPath });
+        if (manifest[sourceName]) {
+          manifest[sourceName].created = (manifest[sourceName].created ?? []).filter(p => p !== removedPath);
+          manifest[sourceName].updated = (manifest[sourceName].updated ?? []).filter(p => p !== removedPath);
+        }
+      }
+    } catch (err) {
+      log.warn('[wiki] Failed to remove article', { path: removedPath, error: (err as Error).message });
+    }
+  }
+}
+
 interface RunningAgent {
   agent: Agent;
   adapter: PlatformAdapter;
@@ -1581,11 +1732,10 @@ export class AgentRunner {
   }
 
   /**
-   * Build a diff-focused content block for Claude. Always include a small
-   * README excerpt for orientation, then sections for added/modified/renamed
-   * file bodies and bare path lists for deleted files. Reuses the same
-   * read/fileBlock/budgetSection helpers from the snapshot path so the byte
-   * budget stays consistent.
+   * Build a diff-focused content block for Claude. See the free-function
+   * implementation in `buildDiffFocusedRepoContent` below — kept as a thin
+   * wrapper so the call site inside `readRepoContent` stays unchanged while
+   * the logic is independently testable from outside the AgentRunner class.
    */
   private buildDiffFocusedRepoContent(
     tmpDir: string,
@@ -1598,76 +1748,7 @@ export class AgentRunner {
     fileBlock: (relPath: string, content: string) => string,
     budgetSection: (title: string, content: string) => string,
   ): string {
-    const path = require('path') as typeof import('path');
-    const sections: string[] = [];
-    sections.push(
-      `# Repository: ${src.name as string} (incremental diff)\n` +
-      `Branch: ${branch} | URL: ${src.repo_url as string}\n` +
-      `Range: ${lastSha.slice(0, 7)}..${currentSha.slice(0, 7)}\n` +
-      `Files changed — added: ${diff.added.length}, modified: ${diff.modified.length}, ` +
-      `deleted: ${diff.deleted.length}, renamed: ${diff.renamed.length}`
-    );
-
-    // Always provide README context — even small diffs are easier for Claude
-    // to interpret with a one-paragraph reminder of what this repo is about.
-    let readme = '';
-    for (const f of ['README.md', 'readme.md', 'README.rst', 'README']) {
-      const c = read(path.join(tmpDir, f), 4_000);
-      if (c) { readme = c; break; }
-    }
-    if (readme) sections.push(budgetSection('README (for context)', readme));
-
-    // Deleted files — paths only. Claude uses these to mark articles that
-    // referenced them for cleanup. No need to ship the (now-gone) content.
-    if (diff.deleted.length) {
-      sections.push(budgetSection(
-        'Deleted files (mark articles that referenced these for removal)',
-        diff.deleted.map(p => `- ${p}`).join('\n'),
-      ));
-    }
-
-    // Renamed files — show the from→to mapping so Claude can update path
-    // references in existing articles, and include the new file content.
-    if (diff.renamed.length) {
-      sections.push(budgetSection(
-        'Renamed files (update article references from old → new path)',
-        diff.renamed.map(r => `- ${r.from} → ${r.to}`).join('\n'),
-      ));
-    }
-
-    // Added files — full content.
-    if (diff.added.length) {
-      let added = '';
-      for (const p of diff.added) {
-        const c = read(path.join(tmpDir, p));
-        if (c) added += fileBlock(p, c);
-      }
-      if (added) sections.push(budgetSection('Added files (NEW)', added));
-    }
-
-    // Modified files — full content. Claude already has the existing wiki
-    // article catalog from the prompt's "Existing wiki" section so it can
-    // update articles in place rather than recreate.
-    if (diff.modified.length) {
-      let modified = '';
-      for (const p of diff.modified) {
-        const c = read(path.join(tmpDir, p));
-        if (c) modified += fileBlock(p, c);
-      }
-      if (modified) sections.push(budgetSection('Modified files (UPDATED)', modified));
-    }
-
-    // Renamed file new content.
-    if (diff.renamed.length) {
-      let renamed = '';
-      for (const r of diff.renamed) {
-        const c = read(path.join(tmpDir, r.to));
-        if (c) renamed += fileBlock(`${r.to} (renamed from ${r.from})`, c);
-      }
-      if (renamed) sections.push(budgetSection('Renamed files (new content)', renamed));
-    }
-
-    return sections.filter(s => s.trim()).join('\n');
+    return buildDiffFocusedRepoContent(tmpDir, diff, src, lastSha, currentSha, branch, read, fileBlock, budgetSection);
   }
 
   /** Parse JSON from Claude response, trying multiple strategies. */
@@ -2440,33 +2521,12 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               sourceWords += wc;
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
-            // `removed` only ever appears in incremental (diff) mode — Claude
-            // is told to list articles tied to deleted/renamed files. Guard
-            // each path with the same wikiDir-containment check used for
-            // creates/updates so a malformed return can't escape the
-            // workspace.
-            for (const removedPathRaw of (parsed.removed ?? [])) {
-              if (typeof removedPathRaw !== 'string') continue;
-              const removedPath = removedPathRaw.startsWith(`${sourceSlug}/`) ? removedPathRaw : `${sourceSlug}/${removedPathRaw}`;
-              const p = path.resolve(wikiDir, removedPath);
-              if (!p.startsWith(wikiDir + path.sep)) {
-                logger.warn('[wiki] Skipping remove path outside wikiDir', { path: removedPath });
-                continue;
-              }
-              try {
-                if (fs.existsSync(p)) {
-                  fs.unlinkSync(p);
-                  logger.info('[wiki] Removed article (source file deleted)', { path: removedPath });
-                  // Drop from manifest's created/updated sets so the next
-                  // sync's "previously ingested" check is honest.
-                  if (manifest[src.name]) {
-                    manifest[src.name].created = (manifest[src.name].created ?? []).filter(p => p !== removedPath);
-                    manifest[src.name].updated = (manifest[src.name].updated ?? []).filter(p => p !== removedPath);
-                  }
-                }
-              } catch (err) {
-                logger.warn('[wiki] Failed to remove article', { path: removedPath, error: (err as Error).message });
-              }
+            // Diff-mode-only `removed` field — Claude is told to list articles
+            // tied to deleted/renamed source files. Extracted to a free
+            // function so it's independently testable (path-traversal
+            // protection + manifest trimming).
+            if (Array.isArray(parsed.removed)) {
+              processRemovedArticles(wikiDir, sourceSlug, src.name, parsed.removed, manifest as SourceManifest, logger);
             }
             // Sanity-check the returned overview before persisting: must be
             // a non-trivial string (>= 50 chars). Guards against empty or

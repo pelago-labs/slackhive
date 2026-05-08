@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Agent, IncomingMessage, PlatformAdapter } from '@slackhive/shared';
 import { MessageHandler } from '../message-handler';
 import type { ClaudeHandler } from '../claude-handler';
+import { _resetAgentRegistryCache } from '../agent-registry';
 
 const DENIAL_TEXT = "You don't have access to this agent.";
 
@@ -98,6 +99,10 @@ let adapter: ReturnType<typeof makeAdapter>;
 let claude: ReturnType<typeof makeClaudeHandler>;
 
 beforeEach(() => {
+  // Reset the workspace-wide cache between tests — singleton state
+  // would otherwise leak across files and let earlier tests' fakes
+  // pollute later runs.
+  _resetAgentRegistryCache();
   adapter = makeAdapter();
   claude = makeClaudeHandler();
   // The recipient agent reports to 'agent-boss-1' (boss).

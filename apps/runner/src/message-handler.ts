@@ -25,7 +25,7 @@ import {
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
-import { getAgentsByBotUserId } from './db';
+import { getKnownAgentsByBotId } from './agent-registry';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -53,24 +53,11 @@ const MAX_THREAD_CONTEXT_CHARS = 8_000;
 /** Max bytes for text file content. */
 const MAX_TEXT_FILE_BYTES = 512 * 1024;
 
-/** TTL for the cached map of trusted agent bot user IDs → Agent (60s). */
-const AGENT_BOT_IDS_TTL_MS = 60_000;
-
 export class MessageHandler {
   private log: Logger;
   private correctionHandler: CorrectionHandler;
   private activeControllers = new Map<string, AbortController>();
   private currentReactions = new Map<string, string>();
-
-  /**
-   * Cached map of `slack_bot_user_id` → Agent for every SlackHive agent in
-   * this workspace. Populated lazily on first agent-traffic message and
-   * refreshed every 60s. Used by `isAuthorizedAgentTraffic` to enforce the
-   * boss/reportee relationship — only the agent's own bosses (or its own
-   * reportees replying back) can bypass the per-user access gate.
-   */
-  private knownAgentsByBotId: Map<string, Agent> = new Map();
-  private knownAgentsExpiresAt = 0;
 
   constructor(
     private adapter: PlatformAdapter,
@@ -92,19 +79,19 @@ export class MessageHandler {
    * denied; the SlackHive hierarchy doesn't permit it, and allowing it
    * would let any agent that knows this agent's mention trigger it.
    *
-   * Returns false on lookup failure (fail-closed).
+   * The known-agents map is a workspace-wide singleton (see agent-registry.ts);
+   * N MessageHandler instances share one cache instead of each maintaining
+   * a redundant copy. Returns false on lookup failure (fail-closed).
    */
   private async isAuthorizedAgentTraffic(senderUserId: string): Promise<boolean> {
-    if (Date.now() > this.knownAgentsExpiresAt) {
-      try {
-        this.knownAgentsByBotId = await getAgentsByBotUserId();
-        this.knownAgentsExpiresAt = Date.now() + AGENT_BOT_IDS_TTL_MS;
-      } catch (err) {
-        this.log.warn('Failed to refresh known agent bot map', { error: (err as Error).message });
-        return false;
-      }
+    let known: Map<string, Agent>;
+    try {
+      known = await getKnownAgentsByBotId();
+    } catch (err) {
+      this.log.warn('Failed to refresh known agent bot map', { error: (err as Error).message });
+      return false;
     }
-    const senderAgent = this.knownAgentsByBotId.get(senderUserId);
+    const senderAgent = known.get(senderUserId);
     if (!senderAgent) return false; // not a SlackHive agent at all
     const myReportsTo = this.agent.reportsTo ?? [];
     const senderReportsTo = senderAgent.reportsTo ?? [];
