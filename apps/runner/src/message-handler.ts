@@ -193,6 +193,18 @@ export class MessageHandler {
           const hasToolUse = content.some((b: any) => b.type === 'tool_use');
 
           const textContent = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+          // Modern Sonnet/Opus emit reasoning prose as `thinking` blocks (not
+          // `text`) when ThinkingConfig is `adaptive` (the SDK default). The
+          // old code only filtered `type === 'text'`, so verbose mode silently
+          // stopped showing intermediate prose. Surfaced here for verbose
+          // posting only — never folded into `textContent` because
+          // `lastAssistantText` (the non-verbose fallback) should remain the
+          // model's actual output, not its scratch reasoning. `redacted_thinking`
+          // blocks are encrypted bytes by design — skip them.
+          const thinkingContent = content
+            .filter((b: any) => b.type === 'thinking')
+            .map((b: any) => b.thinking ?? '')
+            .join('');
           if (textContent) lastAssistantText = textContent;
 
           if (hasToolUse) {
@@ -218,18 +230,32 @@ export class MessageHandler {
             if (statusMsgId && toolStatus) {
               await this.adapter.updateMessage(channelId, statusMsgId, toolStatus).catch(() => {});
             }
-            // In verbose mode, also post reasoning text that arrives alongside tool_use blocks
-            if (textContent && this.agent.verbose) {
-              if (!textContent.includes('authentication_error') && !textContent.includes('Failed to authenticate')) {
-                sentMessages.push(textContent);
-                await this.postFormattedMessage(channelId, threadId, textContent);
+            // Verbose mode: post reasoning (thinking) and any text that arrived
+            // alongside the tool_use blocks. Italicize thinking so it reads as
+            // "model's reasoning" vs the model's actual output.
+            if (this.agent.verbose) {
+              const isAuth = (s: string) => s.includes('authentication_error') || s.includes('Failed to authenticate');
+              const safeText = textContent && !isAuth(textContent) ? textContent : '';
+              const verbosePost = [
+                thinkingContent.trim() ? `_${thinkingContent.trim()}_` : '',
+                safeText,
+              ].filter(Boolean).join('\n\n');
+              if (verbosePost) {
+                if (safeText) sentMessages.push(safeText);
+                await this.postFormattedMessage(channelId, threadId, verbosePost);
               }
             }
-          } else if (textContent) {
-            if (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate')) continue;
+          } else if (textContent || thinkingContent) {
+            if (textContent && (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate'))) continue;
             if (this.agent.verbose) {
-              sentMessages.push(textContent);
-              await this.postFormattedMessage(channelId, threadId, textContent);
+              const verbosePost = [
+                thinkingContent.trim() ? `_${thinkingContent.trim()}_` : '',
+                textContent,
+              ].filter(Boolean).join('\n\n');
+              if (verbosePost) {
+                if (textContent) sentMessages.push(textContent);
+                await this.postFormattedMessage(channelId, threadId, verbosePost);
+              }
             }
             // non-verbose: lastAssistantText already updated above; fallback posts it at end
           }
