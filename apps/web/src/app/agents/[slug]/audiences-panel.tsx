@@ -7,7 +7,7 @@
  * @module web/app/agents/[slug]/audiences-panel
  */
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Users, Plus, Trash2, ChevronDown, ChevronRight, Loader2, Save, X, Sparkles, Search, Check, MessageSquareMore } from 'lucide-react';
 import type { AgentGroup } from '@slackhive/shared';
 
@@ -111,9 +111,16 @@ function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (
 // ─── Saved flash ──────────────────────────────────────────────────────────
 function useSavedFlash(): [boolean, () => void] {
   const [shown, setShown] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Clear pending timer on unmount so the late setShown(false) doesn't fire
+  // on a dead component.
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
   const trigger = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
     setShown(true);
-    setTimeout(() => setShown(false), 1800);
+    timerRef.current = setTimeout(() => setShown(false), 1800);
   };
   return [shown, trigger];
 }
@@ -381,6 +388,15 @@ function GroupEditor({
   const [savingMembers, setSavingMembers] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Track mount state so async callbacks (saveMeta, polish, toggleMember)
+  // don't call setState on a component that has been unmounted — happens when
+  // the user collapses a row mid-request, or navigates tabs.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   useEffect(() => {
     // AbortController guards against stale-response races: rapidly toggling
     // between groups would otherwise let an older fetch land last and clobber
@@ -413,8 +429,10 @@ function GroupEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draft),
       });
+      if (!mountedRef.current) return;
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        if (!mountedRef.current) return;
         setSaveError({ field: body.field, message: body.error ?? `HTTP ${res.status}` });
         return;
       }
@@ -422,7 +440,7 @@ function GroupEditor({
       setDirty(false);
       onChanged();
     } finally {
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
   }
 
@@ -442,12 +460,14 @@ function GroupEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userIds: next }),
       });
+      if (!mountedRef.current) return;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      if (!mountedRef.current) return;
       setMembers(json.members ?? []);
       onChanged();
     } finally {
-      setSavingMembers(false);
+      if (mountedRef.current) setSavingMembers(false);
     }
   }
 
@@ -473,17 +493,19 @@ function GroupEditor({
         throw new Error(errText);
       }
       const json = await res.json();
+      if (!mountedRef.current) return;
       if (typeof json.text === 'string' && json.text.trim()) {
         patchDraft({ instructions: json.text });
       } else {
         setPolishError('AI returned an empty draft — try clicking again or write the instructions manually.');
       }
     } catch (e) {
+      if (!mountedRef.current) return;
       const msg = e instanceof Error ? (e.name === 'AbortError' ? 'Timed out after 60s — the runner may still be busy.' : e.message) : String(e);
       setPolishError(msg);
     } finally {
       clearTimeout(timer);
-      setPolishing(false);
+      if (mountedRef.current) setPolishing(false);
     }
   }
 

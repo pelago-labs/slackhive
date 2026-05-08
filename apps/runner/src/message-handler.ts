@@ -496,8 +496,12 @@ export class MessageHandler {
     let groupNames = '';
     try {
       const db = getDb();
+      // SELECT DISTINCT defends against the (theoretically-possible) case of
+      // two `users` rows sharing the same slack_user_id — which would otherwise
+      // duplicate the audience bullet in the prompt. The schema doesn't enforce
+      // uniqueness on slack_user_id; this keeps the prompt clean regardless.
       const r = await db.query(
-        `SELECT g.name, g.instructions, g.verbose
+        `SELECT DISTINCT g.id, g.name, g.instructions, g.verbose, g.priority
            FROM users u
            JOIN agent_group_members m ON m.user_id = u.id
            JOIN agent_groups g ON g.id = m.group_id
