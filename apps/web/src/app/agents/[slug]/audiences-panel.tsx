@@ -357,12 +357,18 @@ function GroupEditor({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/agents/${agentId}/eligible-users`)
+    // AbortController guards against stale-response races: rapidly toggling
+    // between groups would otherwise let an older fetch land last and clobber
+    // the newer group's members list.
+    const ctrl = new AbortController();
+    fetch(`/api/agents/${agentId}/eligible-users`, { signal: ctrl.signal })
       .then(r => r.ok ? r.json() : { users: [] })
       .then(j => setAllUsers(j.users ?? []))
-      .catch(() => setAllUsers([]));
-    fetch(`/api/agents/${agentId}/groups/${group.id}/members`)
-      .then(r => r.json()).then(j => setMembers(j.members ?? []));
+      .catch(err => { if (err?.name !== 'AbortError') setAllUsers([]); });
+    fetch(`/api/agents/${agentId}/groups/${group.id}/members`, { signal: ctrl.signal })
+      .then(r => r.json()).then(j => setMembers(j.members ?? []))
+      .catch(err => { if (err?.name !== 'AbortError') setMembers([]); });
+    return () => ctrl.abort();
   }, [agentId, group.id]);
 
   const memberIds = useMemo(() => new Set(members.map(m => m.userId)), [members]);

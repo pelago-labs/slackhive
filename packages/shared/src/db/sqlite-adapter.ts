@@ -144,9 +144,11 @@ class SqliteAdapter implements DbAdapter {
     translatedSql = translated.sql;
     const sqliteParams = translated.params.map(serializeParam);
 
-    // Determine if this is a SELECT (read) or write operation
+    // Determine if this is a read or write operation. Both leading SELECT and
+    // WITH (CTE-prefixed reads) are routed to .all(); other statements run via
+    // .run() unless they include RETURNING.
     const trimmed = translatedSql.trim().toUpperCase();
-    const isSelect = trimmed.startsWith('SELECT');
+    const isSelect = trimmed.startsWith('SELECT') || trimmed.startsWith('WITH');
     const hasReturning = /\bRETURNING\b/i.test(translatedSql);
 
     if (isSelect) {

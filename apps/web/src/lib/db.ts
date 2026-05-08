@@ -1244,6 +1244,26 @@ export async function listAccessibleAgentIds(
 // Agent groups (audience personalization)
 // =============================================================================
 
+/**
+ * Maps a SQLite UNIQUE-constraint error to a typed conflict descriptor that
+ * route handlers can return as a 409 with a `field`. Driver-agnostic in the
+ * sense that we match on table.column substrings — Postgres would need its
+ * own parser, which is fine because we only run on SQLite today.
+ *
+ * Returns null if the error is not a recognised conflict.
+ */
+export function parseAgentGroupsConflict(err: unknown): { field: 'priority' | 'name'; message: string } | null {
+  const msg = (err as Error)?.message ?? '';
+  if (/UNIQUE constraint failed:\s*agent_groups\.agent_id,\s*agent_groups\.priority/i.test(msg)) {
+    return { field: 'priority', message: 'Another audience already uses that priority. Pick a different number.' };
+  }
+  if (/UNIQUE constraint failed:\s*agent_groups\.agent_id,\s*agent_groups\.name/i.test(msg)) {
+    return { field: 'name', message: 'Another audience on this agent already has that name.' };
+  }
+  return null;
+}
+
+
 function rowToAgentGroup(row: Record<string, unknown>): AgentGroup {
   return {
     id: row.id as string,
@@ -1394,17 +1414,24 @@ export async function listGroupMembers(groupId: string): Promise<{ userId: strin
   return r.rows.map(row => ({ userId: row.id as string, username: row.username as string }));
 }
 
-/** Replaces the membership of a group with the given user IDs. */
+/**
+ * Replaces the membership of a group with the given user IDs.
+ *
+ * Performs a DELETE followed by a single multi-row INSERT to avoid an N+1 round
+ * trip on large member lists. De-duplicates `userIds` in JS so the multi-row
+ * insert can drop the per-row ON CONFLICT clause.
+ */
 export async function setGroupMembers(groupId: string, userIds: string[]): Promise<void> {
   const conn = await db();
+  const unique = Array.from(new Set(userIds.filter(Boolean)));
   await conn.query(`DELETE FROM agent_group_members WHERE group_id = $1`, [groupId]);
-  for (const userId of userIds) {
-    await conn.query(
-      `INSERT INTO agent_group_members (group_id, user_id) VALUES ($1, $2)
-       ON CONFLICT (group_id, user_id) DO NOTHING`,
-      [groupId, userId]
-    );
-  }
+  if (unique.length === 0) return;
+  // Build $1, ($2, $3), ($2, $4), ... — group_id stays at $2, users at $3..$N.
+  const placeholders = unique.map((_, i) => `($1, $${i + 2})`).join(', ');
+  await conn.query(
+    `INSERT INTO agent_group_members (group_id, user_id) VALUES ${placeholders}`,
+    [groupId, ...unique]
+  );
 }
 
 // =============================================================================
