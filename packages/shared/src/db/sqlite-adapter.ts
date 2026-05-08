@@ -244,14 +244,15 @@ CREATE TABLE IF NOT EXISTS agent_mcps (
 );
 
 CREATE TABLE IF NOT EXISTS skills (
-  id         TEXT PRIMARY KEY,
-  agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-  category   TEXT NOT NULL,
-  filename   TEXT NOT NULL,
-  content    TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  category    TEXT NOT NULL,
+  filename    TEXT NOT NULL,
+  content     TEXT NOT NULL,
+  description TEXT,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (agent_id, category, filename)
 );
 
@@ -455,20 +456,27 @@ CREATE TABLE IF NOT EXISTS wiki_folders (
 );
 
 CREATE TABLE IF NOT EXISTS wiki_sources (
-  id          TEXT PRIMARY KEY,
-  folder_id   TEXT NOT NULL REFERENCES wiki_folders(id) ON DELETE CASCADE,
-  type        TEXT NOT NULL CHECK (type IN ('url', 'file', 'repo')),
-  name        TEXT NOT NULL,
-  content     TEXT,
-  url         TEXT,
-  repo_url    TEXT,
-  branch      TEXT DEFAULT 'main',
-  pat_env_ref TEXT,
-  status      TEXT NOT NULL DEFAULT 'pending'
-                   CHECK (status IN ('pending', 'building', 'compiled', 'stale', 'error')),
-  word_count  INTEGER DEFAULT 0,
-  last_synced TEXT,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  id              TEXT PRIMARY KEY,
+  folder_id       TEXT NOT NULL REFERENCES wiki_folders(id) ON DELETE CASCADE,
+  type            TEXT NOT NULL CHECK (type IN ('url', 'file', 'repo')),
+  name            TEXT NOT NULL,
+  content         TEXT,
+  url             TEXT,
+  repo_url        TEXT,
+  branch          TEXT DEFAULT 'main',
+  pat_env_ref     TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending', 'building', 'compiled', 'stale', 'error')),
+  word_count      INTEGER DEFAULT 0,
+  last_synced     TEXT,
+  -- Last commit SHA on the configured branch that was successfully ingested.
+  -- NULL until the first successful repo sync. Used for diff-aware re-syncs:
+  -- on the next build the runner clones HEAD, compares HEAD SHA to
+  -- last_synced_sha, and only feeds Claude the changed files (saving ~95%
+  -- of the prompt budget on small diffs). When NULL or unreachable, the
+  -- runner falls back to the full snapshot ingest.
+  last_synced_sha TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (folder_id, name)
 );
 
@@ -579,6 +587,16 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const jobCols = (db.pragma('table_info(scheduled_jobs)') as { name: string }[]).map(c => c.name);
   if (!jobCols.includes('created_by')) {
     db.exec("ALTER TABLE scheduled_jobs ADD COLUMN created_by TEXT NOT NULL DEFAULT 'system'");
+  }
+
+  const skillCols = (db.pragma('table_info(skills)') as { name: string }[]).map(c => c.name);
+  if (!skillCols.includes('description')) {
+    db.exec('ALTER TABLE skills ADD COLUMN description TEXT');
+  }
+
+  const wikiSourceCols = (db.pragma('table_info(wiki_sources)') as { name: string }[]).map(c => c.name);
+  if (!wikiSourceCols.includes('last_synced_sha')) {
+    db.exec('ALTER TABLE wiki_sources ADD COLUMN last_synced_sha TEXT');
   }
 
   const piCols = (db.pragma('table_info(platform_integrations)') as { name: string }[]).map(c => c.name);

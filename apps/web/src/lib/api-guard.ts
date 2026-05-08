@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { getSessionFromRequest, type Role } from './auth';
-import { userCanWriteAgent } from './db';
+import { userCanWriteAgent, userCanDeleteAgent } from './db';
 
 /**
  * Returns 401 if the user is not logged in, null otherwise.
@@ -54,6 +54,19 @@ export async function guardAgentWrite(req: Request, agentId: string): Promise<Ne
   const session = getSessionFromRequest(req);
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   const allowed = await userCanWriteAgent(agentId, session.username, session.role);
+  if (!allowed) return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+  return null;
+}
+
+/**
+ * Returns 403 if the user cannot delete the specified agent.
+ * Allows admins/superadmins and the agent's creator. Editor-grant collaborators
+ * are blocked here even though they can edit — delete is irreversible.
+ */
+export async function guardAgentDelete(req: Request, agentId: string): Promise<NextResponse | null> {
+  const session = getSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const allowed = await userCanDeleteAgent(agentId, session.username, session.role);
   if (!allowed) return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   return null;
 }

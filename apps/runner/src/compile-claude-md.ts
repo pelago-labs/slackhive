@@ -538,7 +538,12 @@ function buildSkillsIndexSection(skills: Skill[], hasWiki: boolean): string | nu
 
   for (const skill of skills) {
     const name = skill.filename.replace(/\.md$/, '');
-    lines.push(`- \`/${name}\``);
+    // Render the description when present so the model can pick the right
+    // command without loading the body. Falls back to name-only when the
+    // summarizer hasn't filled it in yet.
+    lines.push(skill.description
+      ? `- \`/${name}\` — ${skill.description}`
+      : `- \`/${name}\``);
   }
 
   return `# Available Skills

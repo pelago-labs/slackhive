@@ -201,6 +201,7 @@ function rowToSkill(row: Record<string, unknown>): Skill {
     category: row.category as string,
     filename: row.filename as string,
     content: row.content as string,
+    description: (row.description as string | null) ?? null,
     sortOrder: row.sort_order as number,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -705,16 +706,26 @@ export async function upsertSkill(
   category: string,
   filename: string,
   content: string,
-  sortOrder = 0
+  sortOrder = 0,
+  description?: string | null,
 ): Promise<Skill> {
   const id = randomUUID();
+  // Description handling: on INSERT use the provided value (or NULL).
+  // On CONFLICT, preserve the existing description unless the caller
+  // explicitly provides one — content edits shouldn't wipe a description
+  // the runner summarizer (or user) put there. Snapshot restore passes the
+  // snapshotted description so it round-trips correctly.
   const r = await (await db()).query(
-    `INSERT INTO skills (id, agent_id, category, filename, content, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO skills (id, agent_id, category, filename, content, sort_order, description)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (agent_id, category, filename)
-     DO UPDATE SET content = EXCLUDED.content, sort_order = EXCLUDED.sort_order, updated_at = now()
+     DO UPDATE SET
+       content     = EXCLUDED.content,
+       sort_order  = EXCLUDED.sort_order,
+       description = COALESCE($7, skills.description),
+       updated_at  = now()
      RETURNING *`,
-    [id, agentId, category, filename, content, sortOrder]
+    [id, agentId, category, filename, content, sortOrder, description ?? null]
   );
   return rowToSkill(r.rows[0]);
 }
@@ -727,6 +738,33 @@ export async function upsertSkill(
  */
 export async function deleteSkill(id: string): Promise<void> {
   await (await db()).query('DELETE FROM skills WHERE id = $1', [id]);
+}
+
+/**
+ * Updates only the description of a skill. Used by the runner-side Haiku
+ * summarizer (background fill) and the UI Regenerate button. Does not bump
+ * `updated_at` because a description refresh is metadata, not a content edit —
+ * keeping `updated_at` stable means snapshot/diff tooling won't flag it.
+ *
+ * @param {string} skillId - Skill UUID.
+ * @param {string | null} description - New description (or null to clear).
+ * @returns {Promise<Skill | null>} Updated skill or null if not found.
+ */
+export async function updateSkillDescription(skillId: string, description: string | null): Promise<Skill | null> {
+  const r = await (await db()).query(
+    'UPDATE skills SET description = $1 WHERE id = $2 RETURNING *',
+    [description, skillId]
+  );
+  return r.rows[0] ? rowToSkill(r.rows[0]) : null;
+}
+
+/**
+ * Loads a single skill by ID. Used by the runner subscriber after a
+ * `skill-saved` event, since the event payload only carries IDs.
+ */
+export async function getSkillById(skillId: string): Promise<Skill | null> {
+  const r = await (await db()).query('SELECT * FROM skills WHERE id = $1', [skillId]);
+  return r.rows[0] ? rowToSkill(r.rows[0]) : null;
 }
 
 /**
@@ -1144,6 +1182,20 @@ export async function userCanWriteAgent(agentId: string, username: string, role:
      SELECT 1 FROM agent_access aa JOIN users u ON u.id = aa.user_id
        WHERE aa.agent_id = $1 AND u.username = $2 AND aa.access_level = 'edit'
      LIMIT 1`,
+    [agentId, username]
+  );
+  return r.rows.length > 0;
+}
+
+/**
+ * Returns true if a user can delete an agent. Stricter than write — only the
+ * creator or an admin/superadmin qualifies. Editor-grant collaborators can
+ * modify the agent but cannot remove it (delete is irreversible).
+ */
+export async function userCanDeleteAgent(agentId: string, username: string, role: string): Promise<boolean> {
+  if (role === 'admin' || role === 'superadmin') return true;
+  const r = await (await db()).query(
+    `SELECT 1 FROM agents WHERE id = $1 AND created_by = $2 LIMIT 1`,
     [agentId, username]
   );
   return r.rows.length > 0;

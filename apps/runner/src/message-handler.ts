@@ -25,6 +25,7 @@ import {
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
+import { getKnownAgentsByBotId } from './agent-registry';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -69,6 +70,39 @@ export class MessageHandler {
   }
 
   /**
+   * Returns true when `senderUserId` is the bot user of a SlackHive agent
+   * AND that agent has a boss/reportee relationship with this agent — i.e.
+   *   - this agent reports to the sender (boss → specialist), or
+   *   - the sender reports to this agent (specialist replying to its boss).
+   *
+   * Peer-to-peer agent traffic (two specialists messaging each other) is
+   * denied; the SlackHive hierarchy doesn't permit it, and allowing it
+   * would let any agent that knows this agent's mention trigger it.
+   *
+   * The known-agents map is a workspace-wide singleton (see agent-registry.ts);
+   * N MessageHandler instances share one cache instead of each maintaining
+   * a redundant copy. Returns false on lookup failure (fail-closed).
+   */
+  private async isAuthorizedAgentTraffic(senderUserId: string): Promise<boolean> {
+    let known: Map<string, Agent>;
+    try {
+      known = await getKnownAgentsByBotId();
+    } catch (err) {
+      this.log.warn('Failed to refresh known agent bot map', { error: (err as Error).message });
+      return false;
+    }
+    const senderAgent = known.get(senderUserId);
+    if (!senderAgent) return false; // not a SlackHive agent at all
+    const myReportsTo = this.agent.reportsTo ?? [];
+    const senderReportsTo = senderAgent.reportsTo ?? [];
+    // (a) boss → specialist: I report to the sender.
+    if (myReportsTo.includes(senderAgent.id)) return true;
+    // (b) specialist → boss: sender reports to me.
+    if (senderReportsTo.includes(this.agent.id)) return true;
+    return false;
+  }
+
+  /**
    * Handle an incoming message from any platform.
    * This is the core message flow — platform-agnostic.
    */
@@ -81,10 +115,19 @@ export class MessageHandler {
     // Check channel restrictions
     if (this.isChannelRestricted(channelId)) return;
 
-    // Check user access — only users with trigger/view/edit grant (or admins/creators) may interact
-    // Test platform bypasses this check (test users are synthetic)
-    if (msg.platform !== 'test' && !(await this.userCanTrigger(userId))) {
-      this.log.info('Denying message — user has no access to this agent', { userId });
+    // Check user access — only users with trigger/view/edit grant (or admins/creators) may interact.
+    // Bypasses:
+    //   - Test platform (synthetic users).
+    //   - Authorized boss/reportee agent traffic. The sender must have a
+    //     `bot_id`/`app_id` on the raw Slack event AND be a SlackHive agent
+    //     in a boss/reportee relationship with this agent (this.reportsTo
+    //     ∋ sender OR sender.reportsTo ∋ this). Peer-to-peer agent traffic
+    //     and 3rd-party bots (PagerDuty, GitHub, etc.) still go through
+    //     the per-user gate, which they fail.
+    const hasBotMarker = Boolean((msg.raw as any)?.bot_id ?? (msg.raw as any)?.app_id);
+    const isAgentTraffic = hasBotMarker && (await this.isAuthorizedAgentTraffic(userId));
+    if (msg.platform !== 'test' && !isAgentTraffic && !(await this.userCanTrigger(userId))) {
+      this.log.info('Denying message — user has no access to this agent', { userId, hasBotMarker });
       await this.adapter.postMessage(channelId, "You don't have access to this agent.", threadId).catch(() => {});
       return;
     }
@@ -137,6 +180,18 @@ export class MessageHandler {
           const hasToolUse = content.some((b: any) => b.type === 'tool_use');
 
           const textContent = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+          // Modern Sonnet/Opus emit reasoning prose as `thinking` blocks (not
+          // `text`) when ThinkingConfig is `adaptive` (the SDK default). The
+          // old code only filtered `type === 'text'`, so verbose mode silently
+          // stopped showing intermediate prose. Surfaced here for verbose
+          // posting only — never folded into `textContent` because
+          // `lastAssistantText` (the non-verbose fallback) should remain the
+          // model's actual output, not its scratch reasoning. `redacted_thinking`
+          // blocks are encrypted bytes by design — skip them.
+          const thinkingContent = content
+            .filter((b: any) => b.type === 'thinking')
+            .map((b: any) => b.thinking ?? '')
+            .join('');
           if (textContent) lastAssistantText = textContent;
 
           if (hasToolUse) {
@@ -162,18 +217,32 @@ export class MessageHandler {
             if (statusMsgId && toolStatus) {
               await this.adapter.updateMessage(channelId, statusMsgId, toolStatus).catch(() => {});
             }
-            // In verbose mode, also post reasoning text that arrives alongside tool_use blocks
-            if (textContent && this.agent.verbose) {
-              if (!textContent.includes('authentication_error') && !textContent.includes('Failed to authenticate')) {
-                sentMessages.push(textContent);
-                await this.postFormattedMessage(channelId, threadId, textContent);
+            // Verbose mode: post reasoning (thinking) and any text that arrived
+            // alongside the tool_use blocks. Italicize thinking so it reads as
+            // "model's reasoning" vs the model's actual output.
+            if (this.agent.verbose) {
+              const isAuth = (s: string) => s.includes('authentication_error') || s.includes('Failed to authenticate');
+              const safeText = textContent && !isAuth(textContent) ? textContent : '';
+              const verbosePost = [
+                thinkingContent.trim() ? `_${thinkingContent.trim()}_` : '',
+                safeText,
+              ].filter(Boolean).join('\n\n');
+              if (verbosePost) {
+                if (safeText) sentMessages.push(safeText);
+                await this.postFormattedMessage(channelId, threadId, verbosePost);
               }
             }
-          } else if (textContent) {
-            if (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate')) continue;
+          } else if (textContent || thinkingContent) {
+            if (textContent && (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate'))) continue;
             if (this.agent.verbose) {
-              sentMessages.push(textContent);
-              await this.postFormattedMessage(channelId, threadId, textContent);
+              const verbosePost = [
+                thinkingContent.trim() ? `_${thinkingContent.trim()}_` : '',
+                textContent,
+              ].filter(Boolean).join('\n\n');
+              if (verbosePost) {
+                if (textContent) sentMessages.push(textContent);
+                await this.postFormattedMessage(channelId, threadId, verbosePost);
+              }
             }
             // non-verbose: lastAssistantText already updated above; fallback posts it at end
           }
@@ -233,6 +302,18 @@ export class MessageHandler {
             }
           }
         }
+      }
+
+      // If abort fired during the stream, fall through to the catch handler
+      // so the activity is marked 'error/aborted' and Slack reaction shows
+      // :stop_button:. Without this throw the success path below runs and
+      // we'd post a "No response generated" fallback + mark the cancelled
+      // message as 'done'. The SDK's query() generator returns silently when
+      // the consumer breaks on signal.aborted instead of throwing AbortError,
+      // which is why our existing catch never fired for interrupted runs.
+      if (abortController.signal.aborted) {
+        const err: Error & { name: string } = Object.assign(new Error('aborted'), { name: 'AbortError' });
+        throw err;
       }
 
       // Fallback if no messages were sent

@@ -72,6 +72,7 @@ function rowToSkill(row: Record<string, unknown>): Skill {
     category: row.category as string,
     filename: row.filename as string,
     content: row.content as string,
+    description: (row.description as string | null) ?? null,
     sortOrder: row.sort_order as number,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -158,6 +159,31 @@ export async function getAgentBySlackBotUserId(botUserId: string): Promise<Agent
   const agent = rowToAgent(r.rows[0]);
   agent.slackBotUserId = botUserId;
   return agent;
+}
+
+/**
+ * Returns a map of `slack_bot_user_id` → Agent for every SlackHive agent
+ * with a Slack integration. Used by MessageHandler to scope the agent-
+ * traffic bypass to trusted bots (other SlackHive agents) AND to enforce
+ * the boss/reportee relationship — without this, any 3rd-party bot
+ * (PagerDuty, GitHub, etc.) could trigger an agent by mentioning it, and
+ * any SlackHive agent could trigger any other regardless of reportsTo.
+ */
+export async function getAgentsByBotUserId(): Promise<Map<string, Agent>> {
+  const r = await getDb().query(
+    `SELECT a.*, pi.bot_user_id FROM agents a
+     JOIN platform_integrations pi ON pi.agent_id = a.id
+     WHERE pi.platform = $1 AND pi.bot_user_id IS NOT NULL`,
+    ['slack']
+  );
+  const out = new Map<string, Agent>();
+  for (const row of r.rows) {
+    const agent = rowToAgent(row);
+    const botUserId = (row as Record<string, unknown>).bot_user_id as string;
+    agent.slackBotUserId = botUserId;
+    out.set(botUserId, agent);
+  }
+  return out;
 }
 
 export async function updateAgentStatus(
@@ -282,6 +308,35 @@ export async function upsertSkill(
     [id, agentId, category, filename, content, sortOrder]
   );
   return rowToSkill(result.rows[0]);
+}
+
+/**
+ * Loads a single skill by UUID. Used by the runner subscriber after a
+ * `skill-saved` event so the summarizer can read the just-written content.
+ */
+export async function getSkillById(skillId: string): Promise<Skill | null> {
+  const r = await getDb().query('SELECT * FROM skills WHERE id = $1', [skillId]);
+  return r.rows[0] ? rowToSkill(r.rows[0]) : null;
+}
+
+/**
+ * Updates only the `description` column of a skill. Does not bump
+ * `updated_at` so a description fill from the summarizer doesn't look like a
+ * content edit to snapshot/diff tooling.
+ */
+export async function updateSkillDescription(skillId: string, description: string | null): Promise<void> {
+  await getDb().query('UPDATE skills SET description = $1 WHERE id = $2', [description, skillId]);
+}
+
+/**
+ * Returns every skill across all agents whose description column is NULL.
+ * Used by the backfill script so we only summarize rows that need it.
+ */
+export async function getSkillsMissingDescription(): Promise<Skill[]> {
+  const r = await getDb().query(
+    'SELECT * FROM skills WHERE description IS NULL ORDER BY agent_id, category, filename'
+  );
+  return r.rows.map(rowToSkill);
 }
 
 export async function deleteSkill(
