@@ -31,36 +31,6 @@ slackhive start
 
 Heartbeats resume within 15s of the new runner starting. The dot goes back to green.
 
-## In-flight messages lost when the runner restarts
-
-**What it means.** Before the runner exits, the activity sweep marks any `in_progress` activities as `error` with reason `Interrupted — runner restarted`. Without auto-replay these would just stay errored — the user's question goes unanswered.
-
-**What now happens.** On startup, the runner replays each swept activity by reconstructing the original `IncomingMessage` (from the activity + task rows) and feeding it back into the agent's MessageHandler. Three safety gates limit the blast radius:
-
-| Gate | What it skips |
-|---|---|
-| **Age** | Activity started more than 30 min ago — assume the user has moved on |
-| **Newer activity in same task** | The user already engaged again on that thread — replaying would duplicate work |
-| **Crash-loop** | ≥ 3 prior auto-replays for the same task in the last hour — something's wrong, stop trying |
-
-Successfully replayed rows get tagged `[auto-replayed]` in the error column for the audit trail. Watch the runner log on the next start:
-
-```
-Auto-replay sweep complete: attempted=2, skipped=1, total=3
-```
-
-### Manual recovery for activities the sweep missed
-
-Some activities were marked errored by a previous runner that didn't have auto-replay yet, OR they're outside the safety windows above. Replay them manually via the runner's internal HTTP server:
-
-```bash
-curl -X POST http://127.0.0.1:3002/replay-activity \
-  -H 'content-type: application/json' \
-  -d '{"activityId":"<uuid-from-the-activity-dashboard>"}'
-```
-
-Returns `{"ok":true}` if the agent is currently running and the activity row had a replayable user message. Otherwise `{"ok":false,"error":"<reason>"}`.
-
 ## "Slack bot token is invalid or revoked"
 
 **What it means.** The runner probed Slack with the saved bot token and Slack rejected it. The agent's `lastError` shows the full message.
