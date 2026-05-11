@@ -54,6 +54,7 @@ import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
 import { MemoryWatcher } from './memory-watcher';
 import { logger } from './logger';
+import { dispatchCacheEvent } from './access-cache';
 
 /**
  * Represents a fully initialized running agent.
@@ -1050,6 +1051,12 @@ export class AgentRunner {
             logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
           );
           break;
+        case 'user-access-changed':
+        case 'env-vars-changed':
+          // Cache invalidation events — single dispatcher in access-cache.ts
+          // so the routing lives next to the caches it touches.
+          dispatchCacheEvent(event);
+          break;
       }
     });
 
@@ -1211,6 +1218,10 @@ export class AgentRunner {
               this.summarizeSkillIfNeeded(event.agentId, event.skillId).catch((err) =>
                 logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
               );
+              break;
+            case 'user-access-changed':
+            case 'env-vars-changed':
+              dispatchCacheEvent(event);
               break;
             default: {
               // Handle mcp-auth, analyze-memories, and other custom events

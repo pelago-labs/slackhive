@@ -11,7 +11,15 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Users, Plus, Trash2, ChevronDown, ChevronRight, Loader2, Save, X, Sparkles, Search, Check, MessageSquareMore } from 'lucide-react';
 import type { AgentGroup } from '@slackhive/shared';
 
-interface BasicUser { id: string; username: string; role: string; source?: 'admin' | 'creator' | 'access' }
+interface BasicUser {
+  id: string;
+  username: string;
+  role: string;
+  source?: 'admin' | 'creator' | 'access';
+  /** Effective access level on this specific agent. Always populated by the
+   *  server; the audience picker renders the colour-coded pill from this. */
+  accessLevel: 'admin' | 'owner' | 'edit' | 'view' | 'trigger';
+}
 interface Member { userId: string; username: string }
 
 interface DraftPatch {
@@ -329,6 +337,32 @@ function Pill({ children, tone }: { children: React.ReactNode; tone: 'accent' | 
       lineHeight: 1.4,
     }}>
       {children}
+    </span>
+  );
+}
+
+// ─── Access-level pill ────────────────────────────────────────────────────
+// Color-coded so the audience admin can tell at a glance whether a candidate
+// member is a workspace-wide admin, the agent owner, or has a specific
+// per-agent grant (edit / view / trigger). Without this, the picker rendered
+// the user's *platform role* (viewer/editor) — which says nothing about
+// whether they can actually trigger this agent.
+const ACCESS_LEVEL_STYLE: Record<'admin' | 'owner' | 'edit' | 'view' | 'trigger', { bg: string; fg: string }> = {
+  admin:   { bg: 'rgba(220,38,38,0.10)',     fg: '#dc2626' },
+  owner:   { bg: 'rgba(217,119,6,0.10)',     fg: '#d97706' },
+  edit:    { bg: 'rgba(37,99,235,0.10)',     fg: '#2563eb' },
+  view:    { bg: 'var(--surface-3)',         fg: 'var(--text)' },
+  trigger: { bg: 'rgba(5,150,105,0.10)',     fg: 'var(--green)' },
+};
+function AccessLevelPill({ level }: { level: 'admin' | 'owner' | 'edit' | 'view' | 'trigger' }) {
+  const s = ACCESS_LEVEL_STYLE[level];
+  return (
+    <span style={{
+      background: s.bg, color: s.fg,
+      fontSize: 10.5, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+      padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', lineHeight: 1.4,
+    }}>
+      {level}
     </span>
   );
 }
@@ -708,9 +742,9 @@ function GroupEditor({
               >
                 <Avatar name={u.username} size={28} />
                 <span style={{ flex: 1, fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{u.username}</span>
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  {u.source === 'admin' ? 'admin' : u.source === 'creator' ? 'owner' : u.role}
-                </span>
+                {/* Effective access on this agent — admin/owner/edit/view/trigger.
+                    listAgentEligibleUsers always populates accessLevel. */}
+                <AccessLevelPill level={u.accessLevel} />
                 <span style={{
                   width: 18, height: 18, borderRadius: 5,
                   border: selected ? '1px solid var(--accent)' : '1px solid var(--border-2)',

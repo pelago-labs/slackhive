@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { hashPassword, requireRole } from '@/lib/auth';
-import { deleteUser, updateUserPassword, updateUserRole } from '@/lib/db';
+import { deleteUser, updateUserPassword, updateUserRole, publishAgentEvent, getUserSlackIdById } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +26,15 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
   const { id } = await params;
+  // Resolve the Slack mapping BEFORE deleting (after delete the row is gone).
+  // Without a Slack id the runner can't have any cached `userCanTrigger`
+  // entry for this user (cache is keyed by slack_user_id), so the publish
+  // would just be a coarse-clear no-op. Skip it.
+  const slackUserId = await getUserSlackIdById(id).catch(() => null);
   await deleteUser(id);
+  if (slackUserId) {
+    await publishAgentEvent({ type: 'user-access-changed', userId: id, slackUserId }).catch(() => {});
+  }
   return new NextResponse(null, { status: 204 });
 }
 
@@ -54,6 +62,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` }, { status: 400 });
     }
     await updateUserRole(id, role);
+    // Role change can flip access (admin → viewer, etc.). Targeted flush via
+    // slackUserId so role changes for one user don't nuke the cache for the
+    // whole workspace. Admin-created users without a Slack mapping can't
+    // have cached entries — skip the publish entirely for those.
+    const slackUserId = await getUserSlackIdById(id).catch(() => null);
+    if (slackUserId) {
+      await publishAgentEvent({ type: 'user-access-changed', userId: id, slackUserId }).catch(() => {});
+    }
   }
 
   if (password !== undefined) {

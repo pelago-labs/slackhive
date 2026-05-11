@@ -527,12 +527,19 @@ CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled     ON mcp_servers(enabled) W
 CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_enabled  ON scheduled_jobs(enabled) WHERE enabled = 1;
 CREATE INDEX IF NOT EXISTS idx_snapshots_agent_created ON agent_snapshots(agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_access_agent      ON agent_access(agent_id);
+-- Perf: agent_access PK is (agent_id, user_id); the leading column means
+-- user_id-direction scans (find all access for user X) skip the PK. This
+-- index covers JOINs that filter on aa.user_id.
+CREATE INDEX IF NOT EXISTS idx_agent_access_user       ON agent_access(user_id);
+-- Perf: many permission gates filter agents by created_by. Without this
+-- index a full table scan is needed on every userCanRead/Write check.
+CREATE INDEX IF NOT EXISTS idx_agents_created_by       ON agents(created_by);
 CREATE INDEX IF NOT EXISTS idx_agent_groups_agent       ON agent_groups(agent_id);
 -- uniq_agent_groups_priority is created in the migration block below so we
 -- can defensively bump pre-existing duplicate priorities before enforcing
 -- uniqueness; running CREATE UNIQUE INDEX here would crash startup on dirty data.
 CREATE INDEX IF NOT EXISTS idx_agent_group_members_user ON agent_group_members(user_id);
-CREATE INDEX IF NOT EXISTS idx_users_created           ON users(created_at);
+-- idx_users_created was unused. Dropped in the migration block below.
 CREATE INDEX IF NOT EXISTS idx_job_runs_job            ON job_runs(job_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_restrictions_agent ON agent_restrictions(agent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_last_activity     ON tasks(last_activity_at DESC);
@@ -756,6 +763,12 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   if (!activityCols.includes('cache_creation_tokens')) {
     db.exec('ALTER TABLE activities ADD COLUMN cache_creation_tokens INTEGER');
   }
+
+  // Perf: drop unused index that no query touches (users.created_at). The new
+  // hot-path indexes (idx_agent_access_user, idx_agents_created_by) are
+  // created via the main DDL's `CREATE INDEX IF NOT EXISTS` and apply to both
+  // fresh installs and existing ones on startup.
+  db.exec('DROP INDEX IF EXISTS idx_users_created');
 
   // Migrate legacy knowledge_sources → wiki_folders / wiki_sources / agent_wiki_folders
   // Runs once: only if knowledge_sources has rows but agent_wiki_folders is empty

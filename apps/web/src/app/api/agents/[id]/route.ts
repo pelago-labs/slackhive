@@ -95,6 +95,11 @@ export async function DELETE(req: NextRequest, { params }: RouteParams): Promise
     if (agent?.slug) {
       await rm(path.join(AGENTS_TMP_DIR, agent.slug), { recursive: true, force: true });
     }
+    // Drop the runner's per-(agent, sender) userCanTrigger entries for this
+    // agent. Without this, a brief 60s window can leave cached "allow" for
+    // an agent that no longer exists. Targeted to the agent, so other
+    // agents' cache is untouched.
+    await publishAgentEvent({ type: 'user-access-changed', agentId: id }).catch(() => {});
     await regenerateBossRegistry().catch(() => {});
     return new NextResponse(null, { status: 204 });
   } catch (err) {

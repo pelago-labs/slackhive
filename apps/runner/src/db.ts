@@ -514,7 +514,32 @@ export async function updateJobRun(
 // Env Vars
 // =============================================================================
 
+/**
+ * Module-level cache for the decrypted env-var map. Without it, every agent
+ * start re-runs `SELECT * FROM env_vars` and decrypts every row — even agents
+ * that reference one key. 5min TTL with event-bus invalidation makes the
+ * second-and-onward read effectively free.
+ *
+ * PERF_CACHES_ENABLED=0 disables the cache entirely.
+ */
+const ENV_CACHE_TTL_MS = 5 * 60_000;
+/** Read fresh each call so toggling .env + restart isn't required. */
+function envCacheEnabled(): boolean {
+  return process.env.PERF_CACHES_ENABLED !== '0';
+}
+let envCache: { snapshot: Record<string, string>; expiresAt: number } | null = null;
+
+/** Invalidate the env-var cache — called by the runner's event-bus subscriber on `env-vars-changed`. */
+export function flushEnvVarsCache(): void {
+  if (!envCacheEnabled()) return;
+  envCache = null;
+}
+
 export async function getAllEnvVarValues(): Promise<Record<string, string>> {
+  if (envCacheEnabled() && envCache && envCache.expiresAt > Date.now()) {
+    return envCache.snapshot;
+  }
+
   const encKey = process.env.ENV_SECRET_KEY;
   if (!encKey) {
     logger.warn('ENV_SECRET_KEY not set — env var refs will not resolve');
@@ -529,6 +554,10 @@ export async function getAllEnvVarValues(): Promise<Record<string, string>> {
     } catch (err) {
       logger.warn('Failed to decrypt env var', { key: row.key, error: (err as Error).message });
     }
+  }
+
+  if (envCacheEnabled()) {
+    envCache = { snapshot: result, expiresAt: Date.now() + ENV_CACHE_TTL_MS };
   }
   return result;
 }

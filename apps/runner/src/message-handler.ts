@@ -28,6 +28,7 @@ import { agentLogger } from './logger';
 import { isShuttingDown } from './shutdown-signal';
 import { VERBOSE_NARRATION_DIRECTIVE } from './compile-claude-md';
 import { getKnownAgentsByBotId } from './agent-registry';
+import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -446,6 +447,19 @@ export class MessageHandler {
   }
 
   private async userCanTrigger(slackUserId: string): Promise<boolean> {
+    // Per-(agent, sender) cache hit short-circuits the 2-query hot path. Cache
+    // is invalidated by access-grant / user-mutation events from the web tier;
+    // 60s TTL bounds staleness even if an event is dropped.
+    const cached = getCachedUserCanTrigger(this.agent.id, slackUserId);
+    if (cached !== undefined) return cached;
+
+    const allowed = await this.computeUserCanTrigger(slackUserId);
+    setCachedUserCanTrigger(this.agent.id, slackUserId, allowed);
+    return allowed;
+  }
+
+  /** Uncached access check — the original 2-query body, kept for the cache miss path. */
+  private async computeUserCanTrigger(slackUserId: string): Promise<boolean> {
     const db = getDb();
     const userRow = await db.query(
       `SELECT u.role, u.username FROM users u WHERE u.slack_user_id = $1`,
