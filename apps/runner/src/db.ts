@@ -523,16 +523,20 @@ export async function updateJobRun(
  * PERF_CACHES_ENABLED=0 disables the cache entirely.
  */
 const ENV_CACHE_TTL_MS = 5 * 60_000;
-const envCacheEnabled = process.env.PERF_CACHES_ENABLED !== '0';
+/** Read fresh each call so toggling .env + restart isn't required. */
+function envCacheEnabled(): boolean {
+  return process.env.PERF_CACHES_ENABLED !== '0';
+}
 let envCache: { snapshot: Record<string, string>; expiresAt: number } | null = null;
 
 /** Invalidate the env-var cache — called by the runner's event-bus subscriber on `env-vars-changed`. */
 export function flushEnvVarsCache(): void {
+  if (!envCacheEnabled()) return;
   envCache = null;
 }
 
 export async function getAllEnvVarValues(): Promise<Record<string, string>> {
-  if (envCacheEnabled && envCache && envCache.expiresAt > Date.now()) {
+  if (envCacheEnabled() && envCache && envCache.expiresAt > Date.now()) {
     return envCache.snapshot;
   }
 
@@ -552,7 +556,7 @@ export async function getAllEnvVarValues(): Promise<Record<string, string>> {
     }
   }
 
-  if (envCacheEnabled) {
+  if (envCacheEnabled()) {
     envCache = { snapshot: result, expiresAt: Date.now() + ENV_CACHE_TTL_MS };
   }
   return result;

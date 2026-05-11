@@ -20,7 +20,14 @@
 
 import { LruCache } from './lru-cache';
 
-const ENABLED = process.env.PERF_CACHES_ENABLED !== '0';
+/**
+ * Read fresh each call so toggling `.env` + restart isn't required to
+ * enable/disable. Matches the `activityDashboardEnabled()` convention used
+ * elsewhere in the runner.
+ */
+function cachesEnabled(): boolean {
+  return process.env.PERF_CACHES_ENABLED !== '0';
+}
 const TTL_MS = 60_000;
 const CAPACITY = 1000;
 
@@ -36,13 +43,13 @@ function keyOf(agentId: string, slackUserId: string): string {
 
 /** Cached read; returns `undefined` when nothing is cached (or caching is disabled). */
 export function getCachedUserCanTrigger(agentId: string, slackUserId: string): boolean | undefined {
-  if (!ENABLED) return undefined;
+  if (!cachesEnabled()) return undefined;
   return cache.get(keyOf(agentId, slackUserId));
 }
 
 /** Store a fresh result. No-op when caching is disabled. */
 export function setCachedUserCanTrigger(agentId: string, slackUserId: string, allowed: boolean): void {
-  if (!ENABLED) return;
+  if (!cachesEnabled()) return;
   cache.set(keyOf(agentId, slackUserId), allowed);
 }
 
@@ -59,7 +66,7 @@ export function setCachedUserCanTrigger(agentId: string, slackUserId: string, al
  * - No args: `clear()`.
  */
 export function flushUserAccessCache(opts?: { slackUserId?: string; agentId?: string; userId?: string }): void {
-  if (!ENABLED) return;
+  if (!cachesEnabled()) return;
   if (!opts) { cache.clear(); return; }
   if (opts.slackUserId) {
     cache.deleteWhere(k => k.endsWith(`:${opts.slackUserId}`));
@@ -81,4 +88,32 @@ export function _resetAccessCache(): void {
 /** Debugging helper. */
 export function _accessCacheSize(): number {
   return cache.size;
+}
+
+// ─── Event dispatcher ─────────────────────────────────────────────────────────
+// Exported so the runner's bus subscriber can call it and the test suite can
+// drive it without loading the full AgentRunner. Routes the cache-invalidation
+// events to the right flush. Defined here (next to the cache it manages)
+// rather than in agent-runner.ts so the switch stays alongside the cache
+// implementation it depends on.
+
+import type { AgentEvent } from '@slackhive/shared';
+import { flushEnvVarsCache } from './db';
+
+/** Returns `true` if the event was handled, `false` otherwise. */
+export function dispatchCacheEvent(event: AgentEvent): boolean {
+  switch (event.type) {
+    case 'user-access-changed':
+      flushUserAccessCache({
+        slackUserId: event.slackUserId,
+        agentId: event.agentId,
+        userId: event.userId,
+      });
+      return true;
+    case 'env-vars-changed':
+      flushEnvVarsCache();
+      return true;
+    default:
+      return false;
+  }
 }

@@ -171,34 +171,42 @@ describe('userCanTrigger LRU', () => {
     expect(countingAdapter.queryCount).toBeGreaterThanOrEqual(2);
   });
 
-  it('the SECOND call within TTL adds ZERO access-check queries', async () => {
+  it('the SECOND call within TTL saves EXACTLY the 2 access-check queries', async () => {
     await seedAgent('agent-1');
     const userId = await seedUser('U_VIEWER', 'viewer');
     await grantAccess('agent-1', userId);
 
     const handler = new MessageHandler(makePlatformAdapter(), makeClaude(), makeAgent(), null);
+    countingAdapter.resetCounter();
     await handler.handleMessage(makeMsg('U_VIEWER')); // primes the cache
+    const firstCallQueries = countingAdapter.queryCount;
 
-    const before = countingAdapter.queryCount;
+    countingAdapter.resetCounter();
     await handler.handleMessage(makeMsg('U_VIEWER'));
-    const delta = countingAdapter.queryCount - before;
+    const secondCallQueries = countingAdapter.queryCount;
 
-    // Second message's access check should NOT add the 2 access queries.
-    // We can't assert delta === 0 because buildPrompt has its own queries
-    // (audience lookup, etc.). But delta should be strictly less than the
-    // first call's spend by at least the 2 access queries we removed.
-    expect(delta).toBeLessThan(before);
+    // Non-admin path: 1 users-by-slack-id + 1 agents/agent_access UNION = 2
+    // queries saved on the cached call. Other handler work (audience lookup,
+    // session bookkeeping) is identical between the two messages.
+    expect(firstCallQueries - secondCallQueries).toBe(2);
   });
 
-  it('admin senders cache the early-return path (no second-query miss)', async () => {
+  it('admin senders save EXACTLY 1 query on the cached call (early-return path)', async () => {
     await seedAgent('agent-1');
     await seedUser('U_ADMIN', 'admin');
 
     const handler = new MessageHandler(makePlatformAdapter(), makeClaude(), makeAgent(), null);
+    countingAdapter.resetCounter();
     await handler.handleMessage(makeMsg('U_ADMIN'));
-    const before = countingAdapter.queryCount;
+    const firstCallQueries = countingAdapter.queryCount;
+
+    countingAdapter.resetCounter();
     await handler.handleMessage(makeMsg('U_ADMIN'));
-    expect(countingAdapter.queryCount - before).toBeLessThan(before);
+    const secondCallQueries = countingAdapter.queryCount;
+
+    // Admin path: only the users-by-slack-id lookup runs (the UNION is
+    // skipped via early return). Cache hit saves exactly that one query.
+    expect(firstCallQueries - secondCallQueries).toBe(1);
   });
 
   it('flushUserAccessCache by slackUserId re-arms the cache for the next message', async () => {

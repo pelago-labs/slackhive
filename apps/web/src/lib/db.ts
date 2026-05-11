@@ -1023,6 +1023,21 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 /**
+ * Returns the `slack_user_id` for a given DB user id, or `null` when the user
+ * has no Slack mapping (admin-created local user). Used by mutation routes
+ * that want to publish a targeted `user-access-changed` event so the runner
+ * can flush a single cache entry instead of clearing the whole cache.
+ */
+export async function getUserSlackIdById(id: string): Promise<string | null> {
+  const r = await (await db()).query(
+    'SELECT slack_user_id FROM users WHERE id = $1',
+    [id]
+  );
+  if (!r.rows.length) return null;
+  return (r.rows[0].slack_user_id as string | null) ?? null;
+}
+
+/**
  * Looks up a user by their Slack user ID (sub claim from OpenID Connect).
  */
 export async function getUserBySlackId(slackUserId: string): Promise<{ id: string; username: string; role: string } | null> {

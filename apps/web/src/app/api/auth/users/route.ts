@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireRole, hashPassword } from '@/lib/auth';
-import { getAllUsers, createUser, publishAgentEvent } from '@/lib/db';
+import { getAllUsers, createUser } from '@/lib/db';
 import { apiError } from '@/lib/api-error';
 
 export const dynamic = 'force-dynamic';
@@ -55,9 +55,10 @@ export async function POST(req: Request): Promise<NextResponse> {
   try {
     const hash = await hashPassword(password);
     const user = await createUser(username, hash, role || 'viewer');
-    // New user may immediately be granted access elsewhere; flush the runner's
-    // access cache so a stale "deny" can't linger for the new userId.
-    await publishAgentEvent({ type: 'user-access-changed', userId: user.id }).catch(() => {});
+    // No cache flush: a brand-new user has no Slack ID yet (admin-created
+    // flow), so the runner can't have any cached `userCanTrigger` entry for
+    // them. Access grants land via /api/agents/[id]/access POST, which
+    // publishes the event there.
     return NextResponse.json(user, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '';
