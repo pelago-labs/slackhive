@@ -610,7 +610,7 @@ function GroupEditor({
           disabled={!canEdit}
           onChange={v => patchDraft({ verbose: v })}
           title="Verbose for this audience"
-          subtitle="ON: members get a detailed, example-rich final reply (overrides agent default). OFF: agent defaults apply unchanged."
+          subtitle="Always overrides the agent default for members. ON: detailed reply, no progress narration. OFF: terse reply, no progress narration. (Highest-priority group's value wins when a member is in several.)"
         />
 
         {/* Footer */}
@@ -924,7 +924,7 @@ function CreateGroupModal({ agentId, onClose, onCreated }: { agentId: string; on
             checked={verbose}
             onChange={setVerbose}
             title="Verbose for this audience"
-            subtitle="ON: members get a detailed final reply (overrides agent default). OFF: agent defaults apply."
+            subtitle="Always overrides the agent default. ON: detailed reply, no narration. OFF: terse reply, no narration."
           />
           {error && <div style={{ color: 'var(--red)', fontSize: 13 }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>

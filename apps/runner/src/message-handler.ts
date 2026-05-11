@@ -500,6 +500,10 @@ export class MessageHandler {
       // two `users` rows sharing the same slack_user_id — which would otherwise
       // duplicate the audience bullet in the prompt. The schema doesn't enforce
       // uniqueness on slack_user_id; this keeps the prompt clean regardless.
+      // Pull every group this sender belongs to for this agent — ordered by
+      // priority ASC, name ASC. We don't filter on verbose/instructions here:
+      // the verbose flag is an explicit override (true OR false), and the
+      // instructions can be empty for groups that exist only to set verbose.
       const r = await db.query(
         `SELECT DISTINCT g.id, g.name, g.instructions, g.verbose, g.priority
            FROM users u
@@ -507,39 +511,32 @@ export class MessageHandler {
            JOIN agent_groups g ON g.id = m.group_id
           WHERE u.slack_user_id = $1
             AND g.agent_id = $2
-            AND (TRIM(g.instructions) <> '' OR g.verbose = 1)
           ORDER BY g.priority ASC, g.name ASC`,
         [userId, this.agent.id]
       );
       if (r.rows.length) {
         const lines: string[] = [];
         const names: string[] = [];
-        for (const row of r.rows as { name: string; instructions: string; verbose: number | boolean }[]) {
-          // Strip framing metacharacters so an audience name can't break out of
-          // the senderHeader / audienceBlock format and inject fake directives.
-          // (CR/LF, '[' / ']' close-brackets, '·' separator.)
+        // Audience is the sole authority on verbose for its members. The
+        // highest-priority group's verbose value wins (priority ASC, name
+        // ASC). Emitted as one override line at the top of the block,
+        // independent of per-group free-text instructions below it.
+        const top = r.rows[0] as { verbose: number | boolean };
+        const verboseOverride = top.verbose === 1 || top.verbose === true;
+        lines.push(verboseOverride
+          ? '- VERBOSE — write a detailed, example-rich final reply for this audience. Skip progress narration; deliver the complete answer in one go. (Overrides agent default for these members.)'
+          : '- NOT VERBOSE — do NOT narrate progress or "share your direction" for this message. Deliver the final answer directly. (Overrides agent default for these members.)');
+        for (const row of r.rows as { name: string; instructions: string }[]) {
+          // Strip framing metacharacters so an audience name can't break out
+          // of the senderHeader / audienceBlock format and inject fake
+          // directives. (CR/LF, '[' / ']' close-brackets, '·' separator.)
           const safeName = row.name.replace(/[\r\n\[\]·]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'audience';
           names.push(safeName);
-          const isVerbose = row.verbose === 1 || row.verbose === true;
-          const directives: string[] = [];
-          if (isVerbose) {
-            // Simple rule: audience.verbose=true → emit one VERBOSE override
-            // line. audience.verbose=false → emit nothing about verbose (the
-            // agent's defaults apply unchanged).
-            directives.push('VERBOSE — write a detailed, example-rich final reply for this audience. Skip progress narration; deliver the complete answer in one go.');
-          }
           const txt = row.instructions.trim();
-          if (txt) directives.push(txt);
-          if (directives.length) {
-            lines.push(`- (${safeName}) ${directives.join(' ')}`);
-          }
+          if (txt) lines.push(`- (${safeName}) ${txt}`);
         }
-        if (lines.length) {
-          groupNames = ` · groups: ${names.join(', ')}`;
-          // Header marks the block as an explicit override of the agent's
-          // defaults for this message — short, no prose.
-          audienceBlock = `[Audience override for this sender]\n${lines.join('\n')}\n\n`;
-        }
+        groupNames = ` · groups: ${names.join(', ')}`;
+        audienceBlock = `[Audience override for this sender]\n${lines.join('\n')}\n\n`;
       }
     } catch {
       // Audience lookup is best-effort — never block message handling.

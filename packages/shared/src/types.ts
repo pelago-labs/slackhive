@@ -334,14 +334,17 @@ export interface AgentGroup {
   /** Lower = applied first when concatenating multi-group senders. */
   priority: number;
   /**
-   * Audience-level verbose, designed as an explicit override of the agent's
-   * `verbose` setting for members of this audience.
+   * Audience-level verbose, the sole authority on verbose for members of
+   * this audience. Always emits an override line in the per-message audience
+   * block — the agent's `verbose` setting only applies to non-members.
    *
-   * - `true`  → audience block emits a "VERBOSE — write a detailed,
-   *             example-rich final reply, skip progress narration" line.
-   *             Audience wins over the agent's CLAUDE.md narration directive.
-   * - `false` → audience block emits nothing about verbose; the agent's
-   *             default (per `agent.verbose`) applies unchanged.
+   * - `true`  → "VERBOSE — write a detailed, example-rich final reply, skip
+   *             progress narration."
+   * - `false` → "NOT VERBOSE — do not narrate progress; deliver the final
+   *             answer directly."
+   *
+   * If a member belongs to multiple groups with conflicting verbose values,
+   * the highest-priority group (priority ASC, name ASC) wins.
    */
   verbose: boolean;
   /** Number of users in this group. Populated by list endpoints; absent on writes. */
