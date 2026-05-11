@@ -182,13 +182,14 @@ You are responding in Slack. Follow these rules for every message:
 **Text formatting:**
 - Bold: \`*bold*\` — NOT \`**bold**\`
 - Italic: \`_italic_\` — NOT \`*italic*\`
+- Strikethrough: \`~text~\`
 - Section headers: \`*Header Text*\` on its own line — NOT \`#\`, \`##\`, \`###\`
 - Inline code: \`` + '`' + `code\`` + '`' + `
 - Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
 - Lists: \`- item\` or \`1. item\`
 - Links: \`<url|text>\`
+- Blockquotes: \`> text\` (one \`>\` per line for multi-line quotes)
 - Horizontal rules: just a blank line — NOT \`---\` or \`***\`
-- Blockquotes: use plain text or \`_italic_\` — NOT \`>\`
 
 **Tables — use standard Markdown pipe format:**
 - Every row MUST start and end with \`|\`
@@ -202,7 +203,12 @@ Good:
 | Alpha | 42 |
 \`\`\`
 
-**Never use:** \`## headings\`, \`**double asterisks**\`, \`> blockquotes\`, \`---\` rules`;
+**Mentions:**
+- Tag a user: \`<@USER_ID>\` (e.g. \`<@U024DPJTERL>\`) — only use IDs you've actually seen in this thread or earlier turns; never invent one
+- Reference a channel: \`<#CHANNEL_ID>\` (e.g. \`<#C0ARP6RF0GM>\`)
+- Plain \`@username\` will not notify or link — always use the angle-bracket form with the ID
+
+**Never use:** \`## headings\`, \`**double asterisks**\`, \`---\` rules`;
 
 
 /**
