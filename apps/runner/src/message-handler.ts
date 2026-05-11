@@ -26,6 +26,7 @@ import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
 import { isShuttingDown } from './shutdown-signal';
+import { VERBOSE_NARRATION_DIRECTIVE } from './compile-claude-md';
 import { getKnownAgentsByBotId } from './agent-registry';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
@@ -487,22 +488,29 @@ export class MessageHandler {
       senderName = await this.adapter.getUserDisplayName(userId);
     } catch { /* fall back to userId */ }
 
-    // Audience groups: look up which groups (if any) this sender belongs to
-    // for THIS agent, ordered by priority. We append each group's free-text
-    // instructions before the user's message so the model treats them as
-    // current-turn guidance. Joins users.slack_user_id → users.id →
-    // agent_group_members → agent_groups.
+    // Audience groups + verbose resolution.
+    //
+    // Verbose state is resolved here, per-sender, rather than baked into
+    // CLAUDE.md at compile time. Why: a bake-time directive in CLAUDE.md
+    // applies to every sender — there's no way an audience could opt out
+    // for its members. Computing the state here and injecting the
+    // VERBOSE_NARRATION_DIRECTIVE only when resolved=true means audience
+    // verbose truly overrides agent verbose per cohort.
+    //
+    // Resolution:
+    //   resolved = highest-priority matching group's verbose (priority ASC,
+    //              name ASC) when the sender is in any group; otherwise
+    //              agent.verbose.
+    //
+    // SELECT DISTINCT defends against the (theoretical) case of two `users`
+    // rows sharing the same slack_user_id — duplicates would otherwise
+    // double up the audience bullets.
     let audienceBlock = '';
+    let verboseBlock = '';
     let groupNames = '';
+    let resolvedVerbose = this.agent.verbose === true;
     try {
       const db = getDb();
-      // SELECT DISTINCT defends against the (theoretically-possible) case of
-      // two `users` rows sharing the same slack_user_id — which would otherwise
-      // duplicate the audience bullet in the prompt. The schema doesn't enforce
-      // uniqueness on slack_user_id; this keeps the prompt clean regardless.
-      // Simple rule: only emit the audience block when there's something to
-      // say — at least one group with verbose=true OR non-empty instructions.
-      // A group that's all-off contributes nothing to the prompt.
       const r = await db.query(
         `SELECT DISTINCT g.id, g.name, g.instructions, g.verbose, g.priority
            FROM users u
@@ -510,39 +518,37 @@ export class MessageHandler {
            JOIN agent_groups g ON g.id = m.group_id
           WHERE u.slack_user_id = $1
             AND g.agent_id = $2
-            AND (TRIM(g.instructions) <> '' OR g.verbose = 1)
           ORDER BY g.priority ASC, g.name ASC`,
         [userId, this.agent.id]
       );
       if (r.rows.length) {
+        // Audience wins for verbose — highest-priority matching group's value.
+        const top = r.rows[0] as { verbose: number | boolean };
+        resolvedVerbose = top.verbose === 1 || top.verbose === true;
+
         const lines: string[] = [];
         const names: string[] = [];
-        for (const row of r.rows as { name: string; instructions: string; verbose: number | boolean }[]) {
+        for (const row of r.rows as { name: string; instructions: string }[]) {
           // Strip framing metacharacters so an audience name can't break out
           // of the senderHeader / audienceBlock format and inject fake
           // directives. (CR/LF, '[' / ']' close-brackets, '·' separator.)
           const safeName = row.name.replace(/[\r\n\[\]·]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'audience';
           names.push(safeName);
-          const isVerbose = row.verbose === 1 || row.verbose === true;
-          const directives: string[] = [];
-          if (isVerbose) {
-            // ON-only override. OFF means "no opinion" — the agent's own
-            // verbose setting (if any) applies as normal.
-            directives.push('VERBOSE — write a detailed, example-rich final reply for this audience. Skip progress narration; deliver the complete answer in one go.');
-          }
           const txt = row.instructions.trim();
-          if (txt) directives.push(txt);
-          if (directives.length) {
-            lines.push(`- (${safeName}) ${directives.join(' ')}`);
-          }
+          if (txt) lines.push(`- (${safeName}) ${txt}`);
         }
+        groupNames = ` · groups: ${names.join(', ')}`;
         if (lines.length) {
-          groupNames = ` · groups: ${names.join(', ')}`;
-          audienceBlock = `[Audience override for this sender]\n${lines.join('\n')}\n\n`;
+          audienceBlock = `[Audience guidance for this sender]\n${lines.join('\n')}\n\n`;
         }
       }
     } catch {
       // Audience lookup is best-effort — never block message handling.
+      // resolvedVerbose stays at agent.verbose; no audience block.
+    }
+
+    if (resolvedVerbose) {
+      verboseBlock = `${VERBOSE_NARRATION_DIRECTIVE}\n\n`;
     }
 
     const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}${groupNames}]\n\n`;
@@ -641,7 +647,7 @@ export class MessageHandler {
     }
 
     const allTextChunks = [...linkedChunks, ...textChunks];
-    const textPrompt = `${senderHeader}${audienceBlock}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
+    const textPrompt = `${senderHeader}${verboseBlock}${audienceBlock}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
 
     if (binaryBlocks.length > 0) {
       const blocks: ContentBlockParam[] = [];

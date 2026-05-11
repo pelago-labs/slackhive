@@ -65,20 +65,23 @@ describe('compile-claude-md source content', () => {
     expect(src).toContain('knowledge/sources/');
   });
 
-  it('defines a verbose-only narration directive', () => {
-    // Sonnet 4.6 routes reasoning into thinking blocks which subscription
-    // OAuth strips server-side, leaving verbose mode silent. The directive
-    // exists so the model emits text blocks for direction-level updates.
-    expect(src).toContain('VERBOSE_NARRATION_DIRECTIVE');
+  it('defines and EXPORTS the verbose narration directive (consumed at message time)', () => {
+    // The directive still lives here for cohesion with other agent-prompt
+    // constants, but it's no longer injected into CLAUDE.md at compile time.
+    // Per-message injection in message-handler.ts lets audience.verbose
+    // override agent.verbose per sender.
+    expect(src).toMatch(/export\s+const\s+VERBOSE_NARRATION_DIRECTIVE/);
     expect(src).toContain('Share your direction');
     // Body must explicitly say not every tool call needs narration so we
     // don't regress into the per-tool chatter version.
     expect(src).toMatch(/Not every tool call needs narration/);
   });
 
-  it('injects the verbose directive only when agent.verbose === true', () => {
-    // The strict equality check matters: undefined/null/0 must NOT inject.
-    // If this regex stops matching, the gate has been weakened.
-    expect(src).toMatch(/if\s*\(\s*agent\.verbose\s*===\s*true\s*\)\s*\{\s*\n\s*sections\.push\(\s*VERBOSE_NARRATION_DIRECTIVE\s*\)\s*;\s*\n\s*\}/);
+  it('does NOT bake the verbose directive into CLAUDE.md at compile time', () => {
+    // The old `if (agent.verbose === true) sections.push(VERBOSE_NARRATION_DIRECTIVE)`
+    // block is gone — verbose is resolved per-sender in message-handler.ts.
+    // If this regresses (someone adds the bake-time injection back), the test
+    // catches it before the bake-then-override anti-pattern returns.
+    expect(src).not.toMatch(/sections\.push\(\s*VERBOSE_NARRATION_DIRECTIVE\s*\)/);
   });
 });
