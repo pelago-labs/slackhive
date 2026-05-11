@@ -18,7 +18,7 @@ import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKMessage, type SDKUserMessage, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 import type { Agent, McpServer, McpServerConfig, McpServerType, McpStdioConfig, Permission } from '@slackhive/shared';
 import {
@@ -187,6 +187,97 @@ export function buildBashAllowBaseline(workDir: string, sessionWorkDir: string):
     // scope if such a target exists in the cloned repo's Makefile.
     'Bash(make *)',
   ];
+}
+
+/**
+ * Decides whether a Read / Write / Edit tool call against `filePath` is
+ * inside the agent's scope (workDir or sessionWorkDir). Same threat model
+ * as the Bash baseline above: the SDK Read tool, by default, can read any
+ * file the host OS user can read — including `~/.config/gh/hosts.yml`,
+ * `~/.aws/credentials`, `/proc/<runner-pid>/environ`, the slackhive .env,
+ * and the slackhive data.db.
+ *
+ * Policy:
+ *   - Allow paths inside the agent's own workDir or sessionWorkDir.
+ *     This covers wiki, knowledge sources, slash commands, CLAUDE.md,
+ *     per-session memory, scratch files. Wiki access stays working — the
+ *     wiki is materialized to `${workDir}/knowledge/wiki/` at compile time.
+ *   - Deny everything else. There's no legitimate workflow today where an
+ *     agent needs to read a host file outside its own scope; coordination
+ *     happens via Slack and MCPs, not shared host files.
+ *
+ * Same defense-in-depth caveat as the Bash baseline: a determined model
+ * with the Bash tool can still bypass via interpreter escapes (python -c,
+ * node -e). True isolation needs per-agent OS users / containers.
+ *
+ * @param filePath The file path the model wants to read/write/edit.
+ * @param workDir Agent's compile-time workdir.
+ * @param sessionWorkDir Per-session cwd.
+ * @returns `null` if allowed, or a string explaining why it was denied.
+ */
+export function checkPathInAgentScope(
+  filePath: string | undefined,
+  workDir: string,
+  sessionWorkDir: string,
+): string | null {
+  if (!filePath || typeof filePath !== 'string') {
+    // Unknown shape — be conservative and deny so the model has to retry
+    // with a properly-formed call rather than slipping through.
+    return 'no file path provided';
+  }
+  // Resolve relative paths against sessionWorkDir (cwd) and to absolute.
+  const abs = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(sessionWorkDir, filePath);
+
+  const inWorkDir = abs === workDir || abs.startsWith(workDir + path.sep);
+  const inSession = abs === sessionWorkDir || abs.startsWith(sessionWorkDir + path.sep);
+  if (inWorkDir || inSession) return null;
+
+  return `path is outside agent scope (workDir=${workDir}, sessionWorkDir=${sessionWorkDir}): ${abs}`;
+}
+
+/**
+ * Builds a PreToolUse hook callback that blocks Read / Write / Edit calls
+ * outside the agent's scope. Registered into the SDK's hooks system so it
+ * fires regardless of `permissionMode` (which would otherwise auto-accept
+ * file ops under `acceptEdits`).
+ *
+ * Returns `{ decision: 'block', ... }` to deny, or no-op to allow.
+ *
+ * @param workDir Agent's compile-time workdir.
+ * @param sessionWorkDir Per-session cwd.
+ * @param logger Optional logger for emitting deny events (helps audit who tried what).
+ */
+export function buildPreToolUsePathScopeHook(
+  workDir: string,
+  sessionWorkDir: string,
+  logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void },
+): HookCallback {
+  const SCOPED_TOOLS = new Set(['Read', 'Write', 'Edit', 'NotebookEdit']);
+  return async (input) => {
+    if (input.hook_event_name !== 'PreToolUse') return {};
+    const pre = input as PreToolUseHookInput;
+    if (!SCOPED_TOOLS.has(pre.tool_name)) return {};
+
+    const toolInput = (pre.tool_input ?? {}) as { file_path?: string; notebook_path?: string };
+    const filePath = toolInput.file_path ?? toolInput.notebook_path;
+    const denyReason = checkPathInAgentScope(filePath, workDir, sessionWorkDir);
+    if (!denyReason) return {};
+
+    logger?.warn('Tool path-scope deny', {
+      tool: pre.tool_name,
+      filePath,
+      reason: denyReason,
+    });
+    return {
+      decision: 'block',
+      reason: denyReason,
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: denyReason,
+      },
+    };
+  };
 }
 
 export class ClaudeHandler {
@@ -684,6 +775,20 @@ export class ClaudeHandler {
       settingSources: ['project'],
       cwd: sessionWorkDir,
       abortController: abortController ?? new AbortController(),
+      // Whitelist the agent's compile-time workDir so Read/Write of CLAUDE.md,
+      // knowledge/wiki/, knowledge/sources/, and .claude/commands/ never trip
+      // the path-scope hook below. cwd (sessionWorkDir) is implicitly allowed.
+      additionalDirectories: [this.workDir],
+      // PreToolUse hook is the actual enforcement: blocks Read/Write/Edit on
+      // any path outside workDir + sessionWorkDir. Fires regardless of
+      // permissionMode (which would otherwise auto-accept under 'acceptEdits').
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [buildPreToolUsePathScopeHook(this.workDir, sessionWorkDir, this.log)],
+          },
+        ],
+      },
     };
 
     const rawAllowed: string[] = this.permissions?.allowedTools?.length
