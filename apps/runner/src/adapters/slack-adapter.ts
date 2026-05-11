@@ -22,6 +22,7 @@ import type {
   SlackCredentials,
 } from '@slackhive/shared';
 import { agentLogger } from '../logger';
+import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
 
 // =============================================================================
@@ -334,40 +335,9 @@ export class SlackAdapter implements PlatformAdapter {
   // ─── Formatting ────────────────────────────────────────────────────
 
   getFormattingRules(): string {
-    return `# Slack Formatting
-
-You are responding in Slack. Follow these rules for every message:
-
-**Text formatting:**
-- Bold: \`*bold*\` — NOT \`**bold**\`
-- Italic: \`_italic_\` — NOT \`*italic*\`
-- Strikethrough: \`~text~\`
-- Section headers: \`*Header Text*\` on its own line — NOT \`#\`, \`##\`, \`###\`
-- Inline code: \`` + '`' + `code\`` + '`' + `
-- Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
-- Lists: \`- item\` or \`1. item\`
-- Links: \`<url|text>\`
-- Blockquotes: \`> text\` (one \`>\` per line for multi-line quotes)
-- Horizontal rules: just a blank line — NOT \`---\` or \`***\`
-
-**Tables — use standard Markdown pipe format:**
-- Every row MUST start and end with \`|\`
-- Always include a separator row: \`|---|---|---|\`
-- Do NOT wrap tables in code blocks
-
-Good:
-\`\`\`
-| Name | Count |
-|---|---|
-| Alpha | 42 |
-\`\`\`
-
-**Mentions:**
-- Tag a user: \`<@USER_ID>\` (e.g. \`<@U024DPJTERL>\`) — only use IDs you've actually seen in this thread or earlier turns; never invent one
-- Reference a channel: \`<#CHANNEL_ID>\` (e.g. \`<#C0ARP6RF0GM>\`)
-- Plain \`@username\` will not notify or link — always use the angle-bracket form with the ID
-
-**Never use:** \`## headings\`, \`**double asterisks**\`, \`---\` rules`;
+    // Single source of truth lives in compile-claude-md.SLACK_FORMATTING_SECTION
+    // — keeps the production-adapter path and the no-adapter fallback identical.
+    return SLACK_FORMATTING_SECTION;
   }
 
   formatMarkdown(md: string): string {
