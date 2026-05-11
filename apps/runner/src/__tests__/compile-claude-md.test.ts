@@ -84,4 +84,31 @@ describe('compile-claude-md source content', () => {
     // catches it before the bake-then-override anti-pattern returns.
     expect(src).not.toMatch(/sections\.push\(\s*VERBOSE_NARRATION_DIRECTIVE\s*\)/);
   });
+
+  it('Slack formatting rules teach strikethrough, mentions, and `>` blockquotes', () => {
+    // These three pieces were lifted out of a per-agent skill into the
+    // platform-wide rules. Pin them by content (not exact wording) so a
+    // future refactor can't silently delete a rule. Backticks in the source
+    // are escaped (template literal), so we assert on the inner tokens.
+    expect(src).toContain('Strikethrough:');
+    expect(src).toContain('~text~');
+    expect(src).toContain('<@USER_ID>');
+    expect(src).toContain('<#CHANNEL_ID>');
+    expect(src).toMatch(/Blockquotes:.*> text/);
+    // The "Never use" line must NOT forbid `>` anymore — that was the bug.
+    expect(src).not.toMatch(/Never use:.*>\s*blockquotes/);
+  });
+
+  it('uses obviously-fake example IDs in the Mentions block (no real user/channel IDs)', () => {
+    // Real Slack IDs in the prompt risk the model copy-pasting them into a
+    // reply and pinging someone unintended. Pin the placeholder pattern.
+    expect(src).toContain('<@U12345ABCDE>');
+    expect(src).toContain('<#C12345ABCDE>');
+  });
+
+  it('exports SLACK_FORMATTING_SECTION as the single source of truth (re-used by slack-adapter)', () => {
+    // Adapter must import this constant rather than redefining the rules
+    // — duplication has bitten us before (the two strings drifted).
+    expect(src).toMatch(/export\s+const\s+SLACK_FORMATTING_SECTION\s*=/);
+  });
 });

@@ -174,21 +174,29 @@ export async function writeFileSourcesToDisk(workDir: string, agentId: string): 
 /**
  * Slack formatting rules injected into every agent's CLAUDE.md.
  * Built-in at the framework level — not visible in the Skills tab.
+ *
+ * Single source of truth: also re-exported via slack-adapter.getFormattingRules()
+ * so the production path and the test/no-adapter fallback stay byte-identical.
+ *
+ * Example IDs in the Mentions block use obviously-fake placeholders
+ * (`U12345ABCDE`, `C12345ABCDE`) so the model can't blindly copy a real
+ * user/channel ID into a reply.
  */
-const SLACK_FORMATTING_SECTION = `# Slack Formatting
+export const SLACK_FORMATTING_SECTION = `# Slack Formatting
 
 You are responding in Slack. Follow these rules for every message:
 
 **Text formatting:**
 - Bold: \`*bold*\` — NOT \`**bold**\`
 - Italic: \`_italic_\` — NOT \`*italic*\`
+- Strikethrough: \`~text~\`
 - Section headers: \`*Header Text*\` on its own line — NOT \`#\`, \`##\`, \`###\`
 - Inline code: \`` + '`' + `code\`` + '`' + `
 - Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
 - Lists: \`- item\` or \`1. item\`
 - Links: \`<url|text>\`
+- Blockquotes: \`> text\` (one \`>\` per line for multi-line quotes)
 - Horizontal rules: just a blank line — NOT \`---\` or \`***\`
-- Blockquotes: use plain text or \`_italic_\` — NOT \`>\`
 
 **Tables — use standard Markdown pipe format:**
 - Every row MUST start and end with \`|\`
@@ -202,7 +210,12 @@ Good:
 | Alpha | 42 |
 \`\`\`
 
-**Never use:** \`## headings\`, \`**double asterisks**\`, \`> blockquotes\`, \`---\` rules`;
+**Mentions:**
+- Tag a user: \`<@USER_ID>\` (e.g. \`<@U12345ABCDE>\`) — only use IDs you've actually seen in this thread or earlier turns; never invent one
+- Reference a channel: \`<#CHANNEL_ID>\` (e.g. \`<#C12345ABCDE>\`), or with a custom label as \`<#CHANNEL_ID|display-name>\`
+- Plain \`@username\` will not notify or link — always use the angle-bracket form with the ID
+
+**Never use:** \`## headings\`, \`**double asterisks**\`, \`---\` rules`;
 
 
 /**
