@@ -500,10 +500,9 @@ export class MessageHandler {
       // two `users` rows sharing the same slack_user_id — which would otherwise
       // duplicate the audience bullet in the prompt. The schema doesn't enforce
       // uniqueness on slack_user_id; this keeps the prompt clean regardless.
-      // Pull every group this sender belongs to for this agent — ordered by
-      // priority ASC, name ASC. We don't filter on verbose/instructions here:
-      // the verbose flag is an explicit override (true OR false), and the
-      // instructions can be empty for groups that exist only to set verbose.
+      // Simple rule: only emit the audience block when there's something to
+      // say — at least one group with verbose=true OR non-empty instructions.
+      // A group that's all-off contributes nothing to the prompt.
       const r = await db.query(
         `SELECT DISTINCT g.id, g.name, g.instructions, g.verbose, g.priority
            FROM users u
@@ -511,32 +510,36 @@ export class MessageHandler {
            JOIN agent_groups g ON g.id = m.group_id
           WHERE u.slack_user_id = $1
             AND g.agent_id = $2
+            AND (TRIM(g.instructions) <> '' OR g.verbose = 1)
           ORDER BY g.priority ASC, g.name ASC`,
         [userId, this.agent.id]
       );
       if (r.rows.length) {
         const lines: string[] = [];
         const names: string[] = [];
-        // Audience is the sole authority on verbose for its members. The
-        // highest-priority group's verbose value wins (priority ASC, name
-        // ASC). Emitted as one override line at the top of the block,
-        // independent of per-group free-text instructions below it.
-        const top = r.rows[0] as { verbose: number | boolean };
-        const verboseOverride = top.verbose === 1 || top.verbose === true;
-        lines.push(verboseOverride
-          ? '- VERBOSE — write a detailed, example-rich final reply for this audience. Skip progress narration; deliver the complete answer in one go. (Overrides agent default for these members.)'
-          : '- NOT VERBOSE — do NOT narrate progress or "share your direction" for this message. Deliver the final answer directly. (Overrides agent default for these members.)');
-        for (const row of r.rows as { name: string; instructions: string }[]) {
+        for (const row of r.rows as { name: string; instructions: string; verbose: number | boolean }[]) {
           // Strip framing metacharacters so an audience name can't break out
           // of the senderHeader / audienceBlock format and inject fake
           // directives. (CR/LF, '[' / ']' close-brackets, '·' separator.)
           const safeName = row.name.replace(/[\r\n\[\]·]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'audience';
           names.push(safeName);
+          const isVerbose = row.verbose === 1 || row.verbose === true;
+          const directives: string[] = [];
+          if (isVerbose) {
+            // ON-only override. OFF means "no opinion" — the agent's own
+            // verbose setting (if any) applies as normal.
+            directives.push('VERBOSE — write a detailed, example-rich final reply for this audience. Skip progress narration; deliver the complete answer in one go.');
+          }
           const txt = row.instructions.trim();
-          if (txt) lines.push(`- (${safeName}) ${txt}`);
+          if (txt) directives.push(txt);
+          if (directives.length) {
+            lines.push(`- (${safeName}) ${directives.join(' ')}`);
+          }
         }
-        groupNames = ` · groups: ${names.join(', ')}`;
-        audienceBlock = `[Audience override for this sender]\n${lines.join('\n')}\n\n`;
+        if (lines.length) {
+          groupNames = ` · groups: ${names.join(', ')}`;
+          audienceBlock = `[Audience override for this sender]\n${lines.join('\n')}\n\n`;
+        }
       }
     } catch {
       // Audience lookup is best-effort — never block message handling.
