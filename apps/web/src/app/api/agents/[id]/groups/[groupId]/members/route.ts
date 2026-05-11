@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAgentWrite } from '@/lib/api-guard';
 import { getAgentGroup, listGroupMembers, setGroupMembers } from '@/lib/db';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -31,9 +31,9 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; groupId: string }> }
 ): Promise<NextResponse> {
-  const denied = guardAdmin(req);
-  if (denied) return denied;
   const { id, groupId } = await params;
+  const denied = await guardAgentWrite(req, id);
+  if (denied) return denied;
   const guard = await assertGroupOwnedBy(id, groupId);
   if (guard) return guard;
   const body = await req.json().catch(() => ({}));
