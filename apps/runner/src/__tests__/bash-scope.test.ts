@@ -63,11 +63,24 @@ describe('buildBashDenyBaseline', () => {
 
   it('blocks env var introspection', () => {
     expect(deny).toContain('Bash(cat *.env*)');
-    expect(deny).toContain('Bash(env)');
+    // `Bash(env*)` (not `Bash(env)`) so `env | grep AUTH_SECRET` is also blocked.
+    // Bare `Bash(env)` would only match a zero-arg invocation.
+    expect(deny).toContain('Bash(env*)');
+    expect(deny).not.toContain('Bash(env)');
     expect(deny).toContain('Bash(printenv*)');
     // /proc/<pid>/environ leaks the running process env (incl. AUTH_SECRET)
     expect(deny).toContain('Bash(* /proc/*)');
     expect(deny).toContain('Bash(* /sys/*)');
+  });
+
+  it('blocks `go install` (writes to ~/go/bin outside the session scope)', () => {
+    expect(deny).toContain('Bash(go install *)');
+  });
+
+  it('deny baseline is non-trivially sized (catches gut-the-list refactors)', () => {
+    // Floor chosen well below the current count (~70+) so legitimate trims
+    // don't fail this test, but a refactor that drops half the categories does.
+    expect(deny.length).toBeGreaterThan(50);
   });
 
   it('blocks global / user-site package installs that escape session scope', () => {
@@ -166,8 +179,20 @@ describe('buildBashAllowBaseline', () => {
     expect(allow).toContain('Bash(pytest *)');
     expect(allow).toContain('Bash(python3 -m pytest *)');
     expect(allow).toContain('Bash(vitest *)');
-    expect(allow).toContain('Bash(go *)');
     expect(allow).toContain('Bash(make *)');
+  });
+
+  it('allows go subcommands narrowly (test/build/run/mod/vet/fmt) but NOT `go install`', () => {
+    // `Bash(go *)` would have allowed `go install <pkg>` which writes to
+    // ~/go/bin (outside session scope). Enumerate the subcommands instead.
+    expect(allow).toContain('Bash(go test *)');
+    expect(allow).toContain('Bash(go build *)');
+    expect(allow).toContain('Bash(go run *)');
+    expect(allow).toContain('Bash(go mod *)');
+    expect(allow).toContain('Bash(go vet *)');
+    expect(allow).toContain('Bash(go fmt *)');
+    expect(allow).not.toContain('Bash(go *)');
+    expect(allow).not.toContain('Bash(go install *)');
   });
 
   it('does NOT include any host-CLI or host-secret pattern (those live only in deny)', () => {

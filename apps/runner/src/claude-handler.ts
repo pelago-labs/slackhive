@@ -39,15 +39,22 @@ const FORCE_KILL_GRACE_MS = 2_000;
 /**
  * Platform-wide deny list applied whenever an agent has any Bash permission.
  *
- * This is the security boundary: even with operator-defined Bash() patterns,
- * these block scope-escape vectors:
+ * This is **defense-in-depth, not a hard boundary.** Patterns match the
+ * literal command string the model emits, so a determined model can bypass
+ * via runtime expansion (`$HOME`, `$(whoami)`), relative paths after `cd`,
+ * or interpreter-mediated reads (e.g. `python3 -c "open('/home/admin/.aws/credentials').read()"`
+ * with `Bash(python3 *)` in the allow baseline). True isolation requires
+ * per-agent OS users or containers — see the platform isolation issue.
+ *
+ * What this catches:
  *   - Host CLIs that auto-load identity from local config (gh, aws, kubectl, …)
  *   - Direct DB access (could read SlackHive's own data.db)
- *   - Reads of host secret paths (~/.ssh, ~/.aws, ~/.config/gh, etc.)
+ *   - Reads of host secret paths (~/.ssh, ~/.aws, ~/.config/gh, etc.) when the
+ *     model uses the literal tilde or absolute /home/admin form
  *   - Process / sys introspection (/proc, /sys — env vars, mounts)
  *   - Global package installs that escape the per-session scope
  *   - Cross-clone into other agents' or system paths
- *   - Shell-escape commands that defeat glob pattern matching
+ *   - Shell-escape commands that defeat glob pattern matching (eval, bash -c)
  *   - Cross-agent reads under the agents tree (existing rule, kept)
  *   - Already-banned destructive ops (rm, chmod, sudo, kill, curl, wget)
  *
@@ -74,8 +81,9 @@ export function buildBashDenyBaseline(agentsBaseDir: string): string[] {
     'Bash(* /home/admin/.ssh/*)', 'Bash(* /home/admin/.aws/*)',
     'Bash(* /home/admin/.config/*)', 'Bash(* /home/admin/.kube/*)',
 
-    // Env file reads (covers .env, .env.local, etc.)
-    'Bash(cat *.env*)', 'Bash(* .env*)', 'Bash(env)', 'Bash(printenv*)',
+    // Env file reads (covers .env, .env.local, etc.) and env-var dumps.
+    // `Bash(env*)` (not `Bash(env)`) catches `env | grep AUTH_SECRET`, `env -0`, etc.
+    'Bash(cat *.env*)', 'Bash(* .env*)', 'Bash(env*)', 'Bash(printenv*)',
 
     // Process / sys introspection — these expose env vars, mounts, kernel state
     'Bash(* /proc/*)', 'Bash(* /sys/*)',
@@ -93,6 +101,10 @@ export function buildBashDenyBaseline(agentsBaseDir: string): string[] {
     // Cross-clone into other agents' or system paths
     'Bash(git clone * /home/*)', 'Bash(git clone * /etc/*)', 'Bash(git clone * /usr/*)',
     `Bash(git clone * ${agentsBaseDir}/*)`,
+
+    // `go install` writes to $GOPATH/bin (~/go/bin) outside the session scope —
+    // belt-and-suspenders alongside the narrowed go-subcommand allow list below.
+    'Bash(go install *)',
 
     // Shell-escape — these embed arbitrary commands inside a string and defeat
     // glob pattern matching. Without this an agent could route any blocked
@@ -165,8 +177,15 @@ export function buildBashAllowBaseline(workDir: string, sessionWorkDir: string):
     'Bash(vitest *)', 'Bash(npx vitest *)',
     'Bash(jest *)', 'Bash(npx jest *)',
 
-    // Other common dev tooling
-    'Bash(go *)', 'Bash(make *)',
+    // Go — narrowed to subcommands that write/read in cwd. `go install` writes
+    // to ~/go/bin (outside scope) and is explicitly denied above.
+    'Bash(go test *)', 'Bash(go build *)', 'Bash(go run *)',
+    'Bash(go mod *)', 'Bash(go vet *)', 'Bash(go fmt *)',
+
+    // Make — Makefile lives in cwd, so the agent can only invoke targets the
+    // operator's own Makefile defines. `make install` would only write outside
+    // scope if such a target exists in the cloned repo's Makefile.
+    'Bash(make *)',
   ];
 }
 
