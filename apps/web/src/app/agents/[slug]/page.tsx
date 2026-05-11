@@ -1580,14 +1580,29 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [saving, setSaving]   = useState(false);
   const [msg, setMsg]         = useState('');
+  // Tracks the initial fetch so the empty-state ("No MCP servers yet")
+  // doesn't flash before the data arrives. Without this, /api/mcps round-trip
+  // latency reads as "the feature is broken".
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
     Promise.all([
-      fetch('/api/mcps').then(r => r.json()),
-      fetch(`/api/agents/${agentId}/mcps`).then(r => r.json()),
+      fetch('/api/mcps').then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
+      fetch(`/api/agents/${agentId}/mcps`).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
     ]).then(([a, b]: [McpServer[], McpServer[]]) => {
+      if (cancelled) return;
       setAll(a); setAssigned(new Set(b.map(m => m.id)));
+    }).catch(err => {
+      if (cancelled) return;
+      setLoadError(err instanceof Error ? err.message : String(err));
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
     });
+    return () => { cancelled = true; };
   }, [agentId]);
 
   const toggle = (id: string) =>
@@ -1609,7 +1624,15 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
         Select MCP servers from the platform catalog to enable for this agent.
       </p>
       <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
-        {all.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading apps…
+          </div>
+        ) : loadError ? (
+          <div style={{ padding: '16px 20px', color: 'var(--red)', fontSize: 13, background: 'var(--red-soft-bg)' }}>
+            Couldn't load MCP servers: {loadError}
+          </div>
+        ) : all.length === 0 ? (
           <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
             No MCP servers yet.{' '}
             <Link href="/settings/mcps" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Add some →</Link>
@@ -1677,15 +1700,25 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
   const [denied,  setDenied]  = useState<string[]>([]);
   const [saving,  setSaving]  = useState(false);
   const [msg,     setMsg]     = useState('');
+  // Without a loading flag, the toggles render in their "off" state during
+  // the round-trip and then flip on once data arrives — looks like the
+  // setting is being changed under the user's feet.
+  const [loading, setLoading] = useState(true);
 
   const internetOn = INTERNET_TOOLS.every(t => allowed.includes(t));
   const shellOn = SHELL_TOOLS.some(t => allowed.includes(t));
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()).then((p: Permission) => {
+      if (cancelled) return;
       setAllowed(p.allowedTools ?? []);
       setDenied(p.deniedTools ?? []);
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
     });
+    return () => { cancelled = true; };
   }, [agentId]);
 
   const save = async (newAllowed: string[], newDenied: string[]) => {
@@ -1705,6 +1738,18 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
     setAllowed(next);
     save(next, denied);
   };
+
+  if (loading) {
+    return (
+      <div style={{
+        maxWidth: 500, padding: '20px 22px',
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+        display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13,
+      }}>
+        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading capabilities…
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 500 }}>
@@ -1785,8 +1830,15 @@ const MEM_TYPE_STYLE: Record<string, { bg: string; color: string }> = {
 function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
 
-  const load = () => fetch(`/api/agents/${agentId}/memories`).then(r => r.json()).then(setMemories);
+  const load = () => {
+    setLoading(true);
+    return fetch(`/api/agents/${agentId}/memories`)
+      .then(r => r.json())
+      .then(setMemories)
+      .finally(() => setLoading(false));
+  };
   useEffect(() => { load(); }, [agentId]);
 
   const remove = async (id: string, name: string) => {
@@ -1801,6 +1853,19 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
   const grouped = memories.reduce<Record<string, Memory[]>>((acc, m) => {
     (acc[m.type] ??= []).push(m); return acc;
   }, {});
+
+  if (loading) {
+    return (
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, padding: '24px 20px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        color: 'var(--muted)', fontSize: 13,
+      }}>
+        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading memories…
+      </div>
+    );
+  }
 
   if (memories.length === 0) {
     return (
