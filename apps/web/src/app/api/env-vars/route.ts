@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { getAllEnvVars, setEnvVar, getEnvVarCreatedBy } from '@/lib/db';
+import { getAllEnvVars, setEnvVar, getEnvVarCreatedBy, publishAgentEvent } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -64,6 +64,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
     await setEnvVar(key, value, description, session?.username ?? 'admin');
+    // Invalidate the runner's decrypted env-var snapshot cache.
+    await publishAgentEvent({ type: 'env-vars-changed' }).catch(() => {});
     return NextResponse.json({ key }, { status: 201 });
   } catch (err) {
     return apiError('env-vars', err);

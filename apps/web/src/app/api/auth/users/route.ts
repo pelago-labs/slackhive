@@ -55,6 +55,10 @@ export async function POST(req: Request): Promise<NextResponse> {
   try {
     const hash = await hashPassword(password);
     const user = await createUser(username, hash, role || 'viewer');
+    // No cache flush: a brand-new user has no Slack ID yet (admin-created
+    // flow), so the runner can't have any cached `userCanTrigger` entry for
+    // them. Access grants land via /api/agents/[id]/access POST, which
+    // publishes the event there.
     return NextResponse.json(user, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '';

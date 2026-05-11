@@ -24,6 +24,9 @@ vi.mock('@/lib/db', () => ({
   listGroupMembers:       vi.fn(),
   setGroupMembers:        vi.fn(),
   parseAgentGroupsConflict: vi.fn(() => null),
+  // guardAgentWrite delegates to this — mirror prod role-gate so admin/superadmin
+  // pass and editors/viewers fall through to the per-agent grant lookup.
+  userCanWriteAgent:      vi.fn(),
 }));
 
 import {
@@ -33,11 +36,13 @@ import {
   deleteAgentGroup,
   setGroupMembers,
   listGroupMembers,
+  userCanWriteAgent,
 } from '@/lib/db';
 
 const COOKIE_NAME = 'auth_session';
 const adminSession: SessionPayload = { username: 'admin', role: 'admin' };
 const viewerSession: SessionPayload = { username: 'aman', role: 'viewer' };
+const editorSession: SessionPayload = { username: 'editor-user', role: 'editor' };
 function authHeaders(s: SessionPayload = adminSession) {
   return { cookie: `${COOKIE_NAME}=${signSession(s)}` };
 }
@@ -57,6 +62,12 @@ beforeEach(() => {
   vi.mocked(deleteAgentGroup).mockReset().mockResolvedValue(undefined);
   vi.mocked(setGroupMembers).mockReset().mockResolvedValue(undefined);
   vi.mocked(listGroupMembers).mockReset().mockResolvedValue([]);
+  // Default: mirror prod — admin/superadmin always pass; editors/viewers
+  // need an explicit per-agent grant which individual tests opt into.
+  vi.mocked(userCanWriteAgent).mockReset().mockImplementation(
+    async (_agentId: string, _username: string, role: string) =>
+      role === 'admin' || role === 'superadmin',
+  );
 });
 
 // ─── POST /api/agents/[id]/groups ─────────────────────────────────────────
@@ -258,5 +269,81 @@ describe('PUT /api/agents/[id]/groups/[groupId]/members', () => {
       { params: Promise.resolve({ id: 'agent-1', groupId: 'g1' }) },
     );
     expect(res.status).toBe(400);
+  });
+});
+
+// ─── Per-agent write permissions ──────────────────────────────────────────
+// Audience writes use guardAgentWrite, so a global editor needs an explicit
+// per-agent grant (or to be the agent's creator). These tests pin that down.
+
+describe('Audience writes require per-agent edit access', () => {
+  it('POST groups: editor without per-agent grant → 403', async () => {
+    // Default mock denies non-admins; no override here.
+    const { POST } = await import('@/app/api/agents/[id]/groups/route');
+    const res = await POST(
+      jsonReq('POST', { name: 'Marketing' }, editorSession) as any,
+      { params: Promise.resolve({ id: 'agent-1' }) },
+    );
+    expect(res.status).toBe(403);
+    expect(createAgentGroup).not.toHaveBeenCalled();
+  });
+
+  it('POST groups: editor WITH per-agent grant → 201 and grant is scoped to that agent only', async () => {
+    // Grant editor write on agent-1 only; any other agent must still be denied.
+    vi.mocked(userCanWriteAgent).mockImplementation(
+      async (agentId: string, username: string, role: string) => {
+        if (role === 'admin' || role === 'superadmin') return true;
+        return agentId === 'agent-1' && username === 'editor-user';
+      },
+    );
+    vi.mocked(createAgentGroup).mockResolvedValue({ id: 'g1', agentId: 'agent-1', name: 'Marketing' } as any);
+    const { POST } = await import('@/app/api/agents/[id]/groups/route');
+
+    const ok = await POST(
+      jsonReq('POST', { name: 'Marketing' }, editorSession) as any,
+      { params: Promise.resolve({ id: 'agent-1' }) },
+    );
+    expect(ok.status).toBe(201);
+
+    // Same editor, different agent → still 403. Confirms grant is per-agent,
+    // not "any editor can touch any audience."
+    const denied = await POST(
+      jsonReq('POST', { name: 'Marketing' }, editorSession) as any,
+      { params: Promise.resolve({ id: 'agent-OTHER' }) },
+    );
+    expect(denied.status).toBe(403);
+  });
+
+  it('PATCH group: editor without per-agent grant → 403 before any DB write', async () => {
+    vi.mocked(getAgentGroup).mockResolvedValue({ id: 'g1', agentId: 'agent-1', name: 'Marketing' } as any);
+    const { PATCH } = await import('@/app/api/agents/[id]/groups/[groupId]/route');
+    const res = await PATCH(
+      jsonReq('PATCH', { name: 'rename' }, editorSession) as any,
+      { params: Promise.resolve({ id: 'agent-1', groupId: 'g1' }) },
+    );
+    expect(res.status).toBe(403);
+    expect(updateAgentGroup).not.toHaveBeenCalled();
+  });
+
+  it('DELETE group: editor without per-agent grant → 403', async () => {
+    vi.mocked(getAgentGroup).mockResolvedValue({ id: 'g1', agentId: 'agent-1', name: 'Marketing' } as any);
+    const { DELETE } = await import('@/app/api/agents/[id]/groups/[groupId]/route');
+    const res = await DELETE(
+      jsonReq('DELETE', {}, editorSession) as any,
+      { params: Promise.resolve({ id: 'agent-1', groupId: 'g1' }) },
+    );
+    expect(res.status).toBe(403);
+    expect(deleteAgentGroup).not.toHaveBeenCalled();
+  });
+
+  it('PUT members: editor without per-agent grant → 403', async () => {
+    vi.mocked(getAgentGroup).mockResolvedValue({ id: 'g1', agentId: 'agent-1' } as any);
+    const { PUT } = await import('@/app/api/agents/[id]/groups/[groupId]/members/route');
+    const res = await PUT(
+      jsonReq('PUT', { userIds: ['u1'] }, editorSession) as any,
+      { params: Promise.resolve({ id: 'agent-1', groupId: 'g1' }) },
+    );
+    expect(res.status).toBe(403);
+    expect(setGroupMembers).not.toHaveBeenCalled();
   });
 });

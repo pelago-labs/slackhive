@@ -1023,6 +1023,21 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 /**
+ * Returns the `slack_user_id` for a given DB user id, or `null` when the user
+ * has no Slack mapping (admin-created local user). Used by mutation routes
+ * that want to publish a targeted `user-access-changed` event so the runner
+ * can flush a single cache entry instead of clearing the whole cache.
+ */
+export async function getUserSlackIdById(id: string): Promise<string | null> {
+  const r = await (await db()).query(
+    'SELECT slack_user_id FROM users WHERE id = $1',
+    [id]
+  );
+  if (!r.rows.length) return null;
+  return (r.rows[0].slack_user_id as string | null) ?? null;
+}
+
+/**
  * Looks up a user by their Slack user ID (sub claim from OpenID Connect).
  */
 export async function getUserBySlackId(slackUserId: string): Promise<{ id: string; username: string; role: string } | null> {
@@ -1363,24 +1378,48 @@ export async function deleteAgentGroup(groupId: string): Promise<void> {
  * `agent_access` row of any level. Mirrors the trigger logic in
  * `apps/runner/src/message-handler.ts:userCanTrigger`.
  */
-export async function listAgentEligibleUsers(agentId: string): Promise<{ id: string; username: string; role: string; source: 'admin' | 'creator' | 'access' }[]> {
+export type EligibleUserAccessLevel = 'admin' | 'owner' | 'edit' | 'view' | 'trigger';
+
+export interface EligibleUser {
+  id: string;
+  username: string;
+  role: string;
+  /** Why this user is eligible: 'admin' (role), 'creator' (agent owner), or 'access' (agent_access grant). */
+  source: 'admin' | 'creator' | 'access';
+  /**
+   * Effective access level on this specific agent, in user-friendly form:
+   * 'admin' (role-based), 'owner' (creator), or one of 'edit'/'view'/'trigger'
+   * (from agent_access.access_level). Used by the audience picker so it's
+   * obvious whether a member is a viewer with trigger-only Slack access vs
+   * an editor with full SlackHive write.
+   */
+  accessLevel: EligibleUserAccessLevel;
+}
+
+export async function listAgentEligibleUsers(agentId: string): Promise<EligibleUser[]> {
   // NOTE: the SQLite adapter detects reads vs writes by checking whether the
   // statement starts with "SELECT" — so we cannot use a leading CTE (`WITH …`)
   // here. Use SELECT … FROM (UNION ALL) instead, with a numeric source rank
   // (lower = stronger) that we MIN() to pick the best label per user.
+  //
+  // The third UNION arm carries the actual `agent_access.access_level` so
+  // the audience picker can distinguish trigger-only users from view/edit
+  // users (they all appear in the list, but their effective level differs).
   const r = await (await db()).query(
-    `SELECT id, username, role, MIN(source_rank) AS top_rank
+    `SELECT id, username, role,
+            MIN(source_rank) AS top_rank,
+            MAX(access_level) AS access_level
        FROM (
-         SELECT u.id, u.username, u.role, 1 AS source_rank
+         SELECT u.id, u.username, u.role, 1 AS source_rank, NULL AS access_level
            FROM users u
           WHERE u.role IN ('admin', 'superadmin')
          UNION ALL
-         SELECT u.id, u.username, u.role, 2 AS source_rank
+         SELECT u.id, u.username, u.role, 2 AS source_rank, NULL AS access_level
            FROM users u
            JOIN agents a ON a.created_by = u.username
           WHERE a.id = $1
          UNION ALL
-         SELECT u.id, u.username, u.role, 3 AS source_rank
+         SELECT u.id, u.username, u.role, 3 AS source_rank, aa.access_level
            FROM users u
            JOIN agent_access aa ON aa.user_id = u.id
           WHERE aa.agent_id = $2
@@ -1392,11 +1431,25 @@ export async function listAgentEligibleUsers(agentId: string): Promise<{ id: str
   return r.rows.map(row => {
     const rank = Number(row.top_rank);
     const source: 'admin' | 'creator' | 'access' = rank === 1 ? 'admin' : rank === 2 ? 'creator' : 'access';
+    // For source=access, prefer the grant's `access_level`. MAX over the
+    // text values orders them lexicographically: 'view' > 'trigger' > 'edit'
+    // — not the access hierarchy we want. So if the user has multiple
+    // distinct grants on this agent (shouldn't happen, PK enforces unique),
+    // we pick whatever MAX returns; for the common single-row case it's
+    // exactly the grant's level.
+    let accessLevel: EligibleUserAccessLevel;
+    if (source === 'admin') accessLevel = 'admin';
+    else if (source === 'creator') accessLevel = 'owner';
+    else {
+      const raw = (row.access_level as string | null) ?? 'trigger';
+      accessLevel = (raw === 'edit' || raw === 'view' || raw === 'trigger') ? raw : 'trigger';
+    }
     return {
       id: row.id as string,
       username: row.username as string,
       role: row.role as string,
       source,
+      accessLevel,
     };
   });
 }

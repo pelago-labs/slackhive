@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAgentWrite } from '@/lib/api-guard';
 import { getAgentById } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -16,9 +16,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
-  const denied = guardAdmin(req);
-  if (denied) return denied;
   const { id } = await params;
+  const denied = await guardAgentWrite(req, id);
+  if (denied) return denied;
   const agent = await getAgentById(id);
   if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
 

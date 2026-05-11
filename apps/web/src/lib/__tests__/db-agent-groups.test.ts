@@ -14,6 +14,7 @@ import {
   listAgentEligibleUsers,
   parseAgentGroupsConflict,
   setGroupMembers,
+  getUserSlackIdById,
 } from '@/lib/db';
 
 const mockQuery = vi.fn<(sql: string, params?: unknown[]) => Promise<DbResult>>();
@@ -47,21 +48,37 @@ describe('listAgentEligibleUsers', () => {
     expect(params).toEqual(['agent-1', 'agent-1']);
   });
 
-  it('maps source_rank=1 → admin, 2 → creator, 3 → access', async () => {
+  it('maps source_rank → source AND derives accessLevel per row', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [
-        { id: 'u-admin',   username: 'admin',   role: 'admin',  top_rank: 1 },
-        { id: 'u-creator', username: 'bob',     role: 'editor', top_rank: 2 },
-        { id: 'u-access',  username: 'aman',    role: 'viewer', top_rank: 3 },
+        { id: 'u-admin',   username: 'admin',     role: 'admin',  top_rank: 1, access_level: null },
+        { id: 'u-creator', username: 'bob',       role: 'editor', top_rank: 2, access_level: null },
+        { id: 'u-trigger', username: 'aman',      role: 'viewer', top_rank: 3, access_level: 'trigger' },
+        { id: 'u-view',    username: 'altaf',     role: 'viewer', top_rank: 3, access_level: 'view' },
+        { id: 'u-edit',    username: 'collab',    role: 'editor', top_rank: 3, access_level: 'edit' },
       ],
-      rowCount: 3,
+      rowCount: 5,
     });
     const result = await listAgentEligibleUsers('agent-1');
     expect(result).toEqual([
-      { id: 'u-admin',   username: 'admin',   role: 'admin',  source: 'admin' },
-      { id: 'u-creator', username: 'bob',     role: 'editor', source: 'creator' },
-      { id: 'u-access',  username: 'aman',    role: 'viewer', source: 'access' },
+      { id: 'u-admin',   username: 'admin',  role: 'admin',  source: 'admin',   accessLevel: 'admin' },
+      { id: 'u-creator', username: 'bob',    role: 'editor', source: 'creator', accessLevel: 'owner' },
+      { id: 'u-trigger', username: 'aman',   role: 'viewer', source: 'access',  accessLevel: 'trigger' },
+      { id: 'u-view',    username: 'altaf',  role: 'viewer', source: 'access',  accessLevel: 'view' },
+      { id: 'u-edit',    username: 'collab', role: 'editor', source: 'access',  accessLevel: 'edit' },
     ]);
+  });
+
+  it('access_level fallback: missing/unknown value → trigger (least privilege)', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { id: 'u-1', username: 'a', role: 'viewer', top_rank: 3, access_level: null },
+        { id: 'u-2', username: 'b', role: 'viewer', top_rank: 3, access_level: 'something-weird' },
+      ],
+      rowCount: 2,
+    });
+    const result = await listAgentEligibleUsers('agent-1');
+    expect(result.map(u => u.accessLevel)).toEqual(['trigger', 'trigger']);
   });
 
   it('queries the three eligibility sources via UNION ALL', async () => {
@@ -74,6 +91,36 @@ describe('listAgentEligibleUsers', () => {
     expect(sql).toContain('a.created_by = u.username');
     expect(sql).toContain('agent_access aa');
     expect(sql).toContain('MIN(source_rank)');
+    // The third UNION arm now carries aa.access_level so the audience picker
+    // can distinguish trigger-only users from view/edit collaborators.
+    expect(sql).toContain('aa.access_level');
+    expect(sql).toContain('MAX(access_level)');
+  });
+});
+
+// ─── getUserSlackIdById ──────────────────────────────────────────────────────
+
+describe('getUserSlackIdById', () => {
+  it('returns the slack_user_id for a known user', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ slack_user_id: 'U_ABC' }], rowCount: 1 });
+    expect(await getUserSlackIdById('user-1')).toBe('U_ABC');
+  });
+
+  it('returns null when the user does not exist', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    expect(await getUserSlackIdById('missing')).toBeNull();
+  });
+
+  it('returns null when the user has no Slack mapping (admin-created user)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ slack_user_id: null }], rowCount: 1 });
+    expect(await getUserSlackIdById('user-2')).toBeNull();
+  });
+
+  it('passes the user id as the only parameter', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await getUserSlackIdById('user-3');
+    const [, params] = mockQuery.mock.calls[0];
+    expect(params).toEqual(['user-3']);
   });
 });
 

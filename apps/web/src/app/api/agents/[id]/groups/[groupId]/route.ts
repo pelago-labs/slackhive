@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { guardAdmin } from '@/lib/api-guard';
+import { guardAgentWrite } from '@/lib/api-guard';
 import { getAgentGroup, updateAgentGroup, deleteAgentGroup, listGroupMembers, parseAgentGroupsConflict } from '@/lib/db';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -26,9 +26,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; groupId: string }> }
 ): Promise<NextResponse> {
-  const denied = guardAdmin(req);
-  if (denied) return denied;
   const { id, groupId } = await params;
+  const denied = await guardAgentWrite(req, id);
+  if (denied) return denied;
   // Cross-agent guard: 404 (not 403, to avoid leaking which group IDs exist)
   // if the URL agent doesn't actually own this group.
   const existing = await getAgentGroup(groupId);
@@ -78,9 +78,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; groupId: string }> }
 ): Promise<NextResponse> {
-  const denied = guardAdmin(req);
-  if (denied) return denied;
   const { id, groupId } = await params;
+  const denied = await guardAgentWrite(req, id);
+  if (denied) return denied;
   const existing = await getAgentGroup(groupId);
   if (!existing || existing.agentId !== id) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
