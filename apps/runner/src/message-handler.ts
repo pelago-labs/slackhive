@@ -523,7 +523,12 @@ export class MessageHandler {
           const isVerbose = row.verbose === 1 || row.verbose === true;
           const directives: string[] = [];
           if (isVerbose) {
-            directives.push('BE VERBOSE — explain in detail with examples and reasoning, not terse summaries.');
+            // Audience-level "verbose" = depth of the FINAL answer for this
+            // cohort. Distinct from `agent.verbose`, which adds a CLAUDE.md
+            // "share your direction" directive about progress narration during
+            // work. The two compose: agent.verbose narrates the work
+            // in-flight; audience.verbose makes the final reply richer.
+            directives.push('DETAILED ANSWER — for members of this audience, write the final reply in depth: include examples, reasoning, and relevant context. Do not condense into a short summary. This concerns answer depth, not progress narration.');
           }
           const txt = row.instructions.trim();
           if (txt) directives.push(txt);

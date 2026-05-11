@@ -334,9 +334,17 @@ export interface AgentGroup {
   /** Lower = applied first when concatenating multi-group senders. */
   priority: number;
   /**
-   * When true, a "BE VERBOSE: explain with detail and examples." directive is
-   * prepended to this group's instructions in the audience block — overriding
-   * the agent's default conversational style for members.
+   * When true, a "DETAILED ANSWER" directive is prepended to this group's
+   * instructions in the audience block, forcing the model to write in-depth,
+   * example-rich final replies for members of this audience.
+   *
+   * Intentionally distinct from `Agent.verbose`, which is about progress
+   * narration during work (an `agent.verbose === true` agent gets a
+   * "share your direction" directive baked into its CLAUDE.md). The two
+   * compose: agent.verbose narrates the work in flight; audience.verbose
+   * makes the final reply for this cohort richer. The DB column kept its
+   * `verbose` name for migration simplicity; the UI surfaces it as
+   * "Detailed answers for this audience".
    */
   verbose: boolean;
   /** Number of users in this group. Populated by list endpoints; absent on writes. */

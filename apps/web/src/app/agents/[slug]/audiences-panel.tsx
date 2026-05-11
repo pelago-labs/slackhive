@@ -299,7 +299,7 @@ function GroupRow({
             </span>
           )}
         </span>
-        {group.verbose && <Pill tone="accent">verbose</Pill>}
+        {group.verbose && <Pill tone="accent">detailed</Pill>}
         <Pill tone="muted">priority {group.priority}</Pill>
         <Pill tone="muted">{group.memberCount ?? 0} {group.memberCount === 1 ? 'member' : 'members'}</Pill>
       </button>
@@ -609,8 +609,8 @@ function GroupEditor({
           checked={!!draft.verbose}
           disabled={!canEdit}
           onChange={v => patchDraft({ verbose: v })}
-          title="Verbose responses"
-          subtitle="Override the agent's default style and force detailed, example-rich answers for members of this audience."
+          title="Detailed answers for this audience"
+          subtitle="Force in-depth, example-rich final replies for members of this audience. This is about answer depth — separate from the agent-level Verbose flag, which controls live progress narration during work."
         />
 
         {/* Footer */}
@@ -923,8 +923,8 @@ function CreateGroupModal({ agentId, onClose, onCreated }: { agentId: string; on
           <ToggleRow
             checked={verbose}
             onChange={setVerbose}
-            title="Verbose responses"
-            subtitle="Force detailed, example-rich answers for members of this audience."
+            title="Detailed answers for this audience"
+            subtitle="Force in-depth, example-rich final replies for members of this audience. Separate from the agent-level Verbose flag, which narrates progress."
           />
           {error && <div style={{ color: 'var(--red)', fontSize: 13 }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
