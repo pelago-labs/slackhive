@@ -473,8 +473,40 @@ export interface SkillSavedEvent {
   skillId: string;
 }
 
+/**
+ * Event fired when user-access state changes (agent_access grant/revoke,
+ * user create/update/delete). The runner uses it to invalidate its
+ * per-(agent, sender) userCanTrigger cache.
+ *
+ * `slackUserId` is preferred (targeted flush). `userId` (DB id) triggers a
+ * coarse clear because the runner can't resolve DB id → Slack id without
+ * an extra query. `agentId` flushes all entries for that agent.
+ * No fields → flush everything.
+ */
+export interface UserAccessChangedEvent {
+  type: 'user-access-changed';
+  slackUserId?: string;
+  userId?: string;
+  agentId?: string;
+}
+
+/**
+ * Event fired on env_vars write/delete. The runner uses it to drop its
+ * decrypted env-var snapshot cache so the next agent start sees fresh values.
+ */
+export interface EnvVarsChangedEvent {
+  type: 'env-vars-changed';
+}
+
 /** Union of all lifecycle events published on Redis. */
-export type AgentEvent = AgentReloadEvent | AgentStartEvent | AgentStopEvent | JobsReloadEvent | SkillSavedEvent;
+export type AgentEvent =
+  | AgentReloadEvent
+  | AgentStartEvent
+  | AgentStopEvent
+  | JobsReloadEvent
+  | SkillSavedEvent
+  | UserAccessChangedEvent
+  | EnvVarsChangedEvent;
 
 // =============================================================================
 // Coach (interactive instruction tuning) types

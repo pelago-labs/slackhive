@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { hashPassword, requireRole } from '@/lib/auth';
-import { deleteUser, updateUserPassword, updateUserRole } from '@/lib/db';
+import { deleteUser, updateUserPassword, updateUserRole, publishAgentEvent } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +27,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   }
   const { id } = await params;
   await deleteUser(id);
+  // User deletion cascades through agent_access. Invalidate the runner's
+  // access cache so any cached "allow" for this user is dropped immediately.
+  await publishAgentEvent({ type: 'user-access-changed', userId: id }).catch(() => {});
   return new NextResponse(null, { status: 204 });
 }
 
@@ -54,6 +57,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` }, { status: 400 });
     }
     await updateUserRole(id, role);
+    // Role change can flip access (admin → viewer, etc.). Flush so the cached
+    // boolean doesn't keep an old admin alive.
+    await publishAgentEvent({ type: 'user-access-changed', userId: id }).catch(() => {});
   }
 
   if (password !== undefined) {

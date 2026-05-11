@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
-import { getAgentWriteUsers, grantAgentAccess, revokeAgentWrite, getAllUsers, userCanWriteAgent, userCanReadAgent } from '@/lib/db';
+import { getAgentWriteUsers, grantAgentAccess, revokeAgentWrite, getAllUsers, userCanWriteAgent, userCanReadAgent, publishAgentEvent } from '@/lib/db';
 import type { AgentAccessLevel } from '@/lib/db';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -42,6 +42,9 @@ export async function POST(
   // Support both new accessLevel param and legacy canWrite boolean
   const level: AgentAccessLevel = accessLevel ?? (canWrite ? 'edit' : 'view');
   await grantAgentAccess(id, userId, level);
+  // Invalidate the runner's per-(agent, sender) userCanTrigger cache. Targeted
+  // to this agent — other agents' cache entries are unaffected.
+  await publishAgentEvent({ type: 'user-access-changed', agentId: id, userId }).catch(() => {});
   return new NextResponse(null, { status: 204 });
 }
 
@@ -55,5 +58,6 @@ export async function DELETE(
   const { userId } = await req.json().catch(() => ({}));
   if (!userId) return NextResponse.json({ error: 'userId required' }, { status: 400 });
   await revokeAgentWrite(id, userId);
+  await publishAgentEvent({ type: 'user-access-changed', agentId: id, userId }).catch(() => {});
   return new NextResponse(null, { status: 204 });
 }

@@ -1050,6 +1050,23 @@ export class AgentRunner {
             logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
           );
           break;
+        case 'user-access-changed':
+          // Web tier mutated agent_access / users — flush the runner's
+          // per-(agent, sender) userCanTrigger cache. Best-effort import so
+          // unit tests that don't load the cache module aren't affected.
+          import('./access-cache').then(({ flushUserAccessCache }) =>
+            flushUserAccessCache({ slackUserId: event.slackUserId, agentId: event.agentId, userId: event.userId })
+          ).catch((err) =>
+            logger.warn('Failed to flush user access cache', { error: (err as Error).message })
+          );
+          break;
+        case 'env-vars-changed':
+          // Web tier wrote env_vars — drop the decrypted snapshot cache so
+          // the next agent start sees fresh values.
+          import('./db').then(({ flushEnvVarsCache }) => flushEnvVarsCache()).catch((err) =>
+            logger.warn('Failed to flush env-vars cache', { error: (err as Error).message })
+          );
+          break;
       }
     });
 
@@ -1212,6 +1229,16 @@ export class AgentRunner {
                 logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
               );
               break;
+            case 'user-access-changed': {
+              const { flushUserAccessCache } = await import('./access-cache');
+              flushUserAccessCache({ slackUserId: event.slackUserId, agentId: event.agentId, userId: event.userId });
+              break;
+            }
+            case 'env-vars-changed': {
+              const { flushEnvVarsCache } = await import('./db');
+              flushEnvVarsCache();
+              break;
+            }
             default: {
               // Handle mcp-auth, analyze-memories, and other custom events
               const raw = event as any;

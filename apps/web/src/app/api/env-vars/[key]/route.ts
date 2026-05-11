@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError } from '@/lib/api-error';
-import { setEnvVar, updateEnvVarDescription, deleteEnvVar, getEnvVarCreatedBy } from '@/lib/db';
+import { setEnvVar, updateEnvVarDescription, deleteEnvVar, getEnvVarCreatedBy, publishAgentEvent } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 
@@ -43,7 +43,9 @@ export async function PUT(
     const body = (await request.json()) as { value?: string; description?: string };
     if (body.value !== undefined) {
       await setEnvVar(key, body.value, body.description, owner ?? session?.username ?? 'admin');
+      await publishAgentEvent({ type: 'env-vars-changed' }).catch(() => {});
     } else if (body.description !== undefined) {
+      // Description-only updates don't change the decrypted value — no flush.
       await updateEnvVarDescription(key, body.description);
     } else {
       return NextResponse.json({ error: 'value or description required' }, { status: 400 });
@@ -79,6 +81,7 @@ export async function DELETE(
       }
     }
     await deleteEnvVar(key);
+    await publishAgentEvent({ type: 'env-vars-changed' }).catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError('env-vars/[key]', err);
