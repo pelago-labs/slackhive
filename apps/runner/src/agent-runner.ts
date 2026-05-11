@@ -30,6 +30,7 @@ import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
 import { JobScheduler } from './job-scheduler';
+import { markShuttingDown } from './shutdown-signal';
 import {
   getAllAgents,
   getAgentById,
@@ -1247,6 +1248,10 @@ export class AgentRunner {
   private registerShutdownHandlers(): void {
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, shutting down gracefully...`);
+      // Set BEFORE this.stop() so any in-flight MessageHandler aborts that
+      // fire during shutdown leave their activity rows as `in_progress`.
+      // The next process's sweep will pick them up and auto-replay them.
+      markShuttingDown();
       await this.stop();
       process.exit(0);
     };
