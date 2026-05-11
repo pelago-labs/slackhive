@@ -610,7 +610,7 @@ function GroupEditor({
           disabled={!canEdit}
           onChange={v => patchDraft({ verbose: v })}
           title="Detailed answers for this audience"
-          subtitle="Force in-depth, example-rich final replies for members of this audience. This is about answer depth — separate from the agent-level Verbose flag, which controls live progress narration during work."
+          subtitle="Override the agent-level Verbose setting for members of this audience: deliver a full, example-rich final reply and skip the agent's live progress narration. Use when a cohort wants the complete answer in one go, not running commentary."
         />
 
         {/* Footer */}
@@ -924,7 +924,7 @@ function CreateGroupModal({ agentId, onClose, onCreated }: { agentId: string; on
             checked={verbose}
             onChange={setVerbose}
             title="Detailed answers for this audience"
-            subtitle="Force in-depth, example-rich final replies for members of this audience. Separate from the agent-level Verbose flag, which narrates progress."
+            subtitle="Override the agent-level Verbose setting for members: full, example-rich final reply, skip the agent's live progress narration."
           />
           {error && <div style={{ color: 'var(--red)', fontSize: 13 }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>

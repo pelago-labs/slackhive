@@ -523,12 +523,12 @@ export class MessageHandler {
           const isVerbose = row.verbose === 1 || row.verbose === true;
           const directives: string[] = [];
           if (isVerbose) {
-            // Audience-level "verbose" = depth of the FINAL answer for this
-            // cohort. Distinct from `agent.verbose`, which adds a CLAUDE.md
-            // "share your direction" directive about progress narration during
-            // work. The two compose: agent.verbose narrates the work
-            // in-flight; audience.verbose makes the final reply richer.
-            directives.push('DETAILED ANSWER — for members of this audience, write the final reply in depth: include examples, reasoning, and relevant context. Do not condense into a short summary. This concerns answer depth, not progress narration.');
+            // Audience-level verbose = an EXPLICIT OVERRIDE of the agent's
+            // verbosity for this cohort. When set, the audience wants a full,
+            // detailed final reply and does NOT want the agent's CLAUDE.md
+            // "share your direction" progress narration alongside it. Skip the
+            // running commentary; deliver the answer.
+            directives.push('OVERRIDE — for this audience, write a detailed, example-rich final reply with full reasoning and context. Skip any agent-level "share your direction" progress narration; this cohort wants the complete answer in one go, not running commentary.');
           }
           const txt = row.instructions.trim();
           if (txt) directives.push(txt);
@@ -538,7 +538,10 @@ export class MessageHandler {
         }
         if (lines.length) {
           groupNames = ` · groups: ${names.join(', ')}`;
-          audienceBlock = `[Audience guidance for this sender]\n${lines.join('\n')}\n\n`;
+          // Header makes the override semantics explicit so the model treats
+          // these as authoritative for this message — they win over any
+          // conflicting style rules in the agent's CLAUDE.md.
+          audienceBlock = `[Audience guidance for this sender — these rules OVERRIDE the agent's default style for this message]\n${lines.join('\n')}\n\n`;
         }
       }
     } catch {

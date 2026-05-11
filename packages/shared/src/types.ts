@@ -334,17 +334,20 @@ export interface AgentGroup {
   /** Lower = applied first when concatenating multi-group senders. */
   priority: number;
   /**
-   * When true, a "DETAILED ANSWER" directive is prepended to this group's
-   * instructions in the audience block, forcing the model to write in-depth,
-   * example-rich final replies for members of this audience.
+   * When true, the audience block emits an explicit OVERRIDE directive that
+   * tells the model: for messages from members of this audience, write a
+   * detailed, example-rich final reply with full reasoning AND skip the
+   * agent-level "share your direction" progress narration (from
+   * `agent.verbose === true`'s CLAUDE.md directive). Audience rules win.
    *
-   * Intentionally distinct from `Agent.verbose`, which is about progress
-   * narration during work (an `agent.verbose === true` agent gets a
-   * "share your direction" directive baked into its CLAUDE.md). The two
-   * compose: agent.verbose narrates the work in flight; audience.verbose
-   * makes the final reply for this cohort richer. The DB column kept its
-   * `verbose` name for migration simplicity; the UI surfaces it as
-   * "Detailed answers for this audience".
+   * Designed as an override (not a compose) because operators set this when
+   * they want a specific cohort to get the *complete answer in one go*
+   * rather than a running commentary — e.g. "exec audience wants the full
+   * report, not progress updates".
+   *
+   * The DB column kept its `verbose` name for migration simplicity; the UI
+   * surfaces it as "Detailed answers for this audience" and the row badge
+   * reads `detailed`.
    */
   verbose: boolean;
   /** Number of users in this group. Populated by list endpoints; absent on writes. */
