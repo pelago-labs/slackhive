@@ -34,13 +34,24 @@ import { logger } from './logger';
 const MAX_INLINED_MEMORY_BYTES = 32 * 1024;
 
 /**
- * Injected when `agent.verbose` is true. Sonnet 4.6 routes reasoning into
- * `thinking` blocks which subscription OAuth strips server-side, leaving
- * verbose mode with nothing to display. Asking the model to share its
- * *direction* (not every tool) gives the user a sense of where things are
- * going without flooding the thread.
+ * Verbose narration directive. Injected into the per-message user turn by
+ * `message-handler.ts → buildPrompt` when the resolved verbose state for the
+ * current sender is true. The resolution honours audience overrides:
+ *
+ *   resolved verbose = highest-priority matching group's verbose
+ *                    ?? agent.verbose
+ *
+ * Previously baked into CLAUDE.md at compile time, which made the directive
+ * apply to every sender regardless of audience opt-out. Moved to per-message
+ * injection so audience.verbose can truly override agent.verbose per cohort
+ * without needing a "suppress" counter-directive.
+ *
+ * Sonnet 4.6 routes reasoning into `thinking` blocks which subscription OAuth
+ * strips server-side, leaving verbose mode with nothing to display. Asking
+ * the model to share its *direction* (not every tool) gives the user a sense
+ * of where things are going without flooding the thread.
  */
-const VERBOSE_NARRATION_DIRECTIVE = `# Share your direction (verbose mode)
+export const VERBOSE_NARRATION_DIRECTIVE = `# Share your direction (verbose mode)
 
 When you start working on something or change direction, share one short sentence about where you're heading — what you're investigating, what approach you're taking, what you're about to verify. Not every tool call needs narration; just the *direction* the work is taking.
 
@@ -603,10 +614,9 @@ function buildClaudeMd(
     sections.push(claudeMd.trim());
   }
 
-  // 2b. Verbose narration directive — only when agent.verbose is on.
-  if (agent.verbose === true) {
-    sections.push(VERBOSE_NARRATION_DIRECTIVE);
-  }
+  // 2b. (Verbose narration directive moved out — it now lives in the
+  //      per-message user turn so audience.verbose can override it per
+  //      sender. See message-handler.ts → buildPrompt.)
 
   // 3. Platform formatting rules (provided by adapter, or fallback to Slack)
   sections.push(formattingRules ?? SLACK_FORMATTING_SECTION);

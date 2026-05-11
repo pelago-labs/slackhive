@@ -316,6 +316,46 @@ export interface Restriction {
 }
 
 /**
+ * An audience group attached to a single agent. Members of the group receive
+ * an extra block of natural-language guidance prepended to the agent's normal
+ * prompt at message time. Used to make one agent answer differently to
+ * different cohorts (marketing, leadership, etc.) without forking the agent.
+ *
+ * Multi-group senders get every group's instructions concatenated in
+ * `priority` order (lower priority value = applied first).
+ */
+export interface AgentGroup {
+  id: string;
+  agentId: string;
+  name: string;
+  description: string | null;
+  /** Free-text instructions appended to the agent prompt for members. */
+  instructions: string;
+  /** Lower = applied first when concatenating multi-group senders. */
+  priority: number;
+  /**
+   * Audience-level verbose override.
+   *
+   * - `true`  → audience block emits "VERBOSE — write a detailed,
+   *             example-rich final reply, skip progress narration." This
+   *             overrides the agent's verbose setting for members.
+   * - `false` → audience block emits nothing about verbose. The agent's own
+   *             `verbose` setting applies unchanged.
+   */
+  verbose: boolean;
+  /** Number of users in this group. Populated by list endpoints; absent on writes. */
+  memberCount?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AgentGroupMember {
+  groupId: string;
+  userId: string;
+  createdAt: Date;
+}
+
+/**
  * A memory entry for an agent.
  *
  * Memory is the primary mechanism by which agents learn from interactions.
