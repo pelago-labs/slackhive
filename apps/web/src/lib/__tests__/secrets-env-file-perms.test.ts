@@ -22,6 +22,13 @@ import * as path from 'path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { assertEnvFileLockedDown, _resetEnvFilePermsCheckForTests } from '../secrets';
 
+// Next.js declares process.env.NODE_ENV as read-only via its TS overrides
+// (`'development' | 'production' | 'test'`), so direct assignment fails
+// `tsc --noEmit` even though Vitest mutates it at runtime without complaint.
+// Re-typing process.env as a plain string-map for these tests sidesteps the
+// declaration without using `as any` everywhere.
+const env = process.env as Record<string, string | undefined>;
+
 describe('assertEnvFileLockedDown', () => {
   let tmpDir: string;
   let envPath: string;
@@ -32,24 +39,24 @@ describe('assertEnvFileLockedDown', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slackhive-env-perms-test-'));
     envPath = path.join(tmpDir, '.env');
-    originalNodeEnv = process.env.NODE_ENV;
-    originalCi = process.env.CI;
-    originalSlackhiveEnvFile = process.env.SLACKHIVE_ENV_FILE;
+    originalNodeEnv = env.NODE_ENV;
+    originalCi = env.CI;
+    originalSlackhiveEnvFile = env.SLACKHIVE_ENV_FILE;
     // Force non-dev / non-test mode so the check actually runs.
-    process.env.NODE_ENV = 'production';
-    delete process.env.CI;
-    process.env.SLACKHIVE_ENV_FILE = envPath;
+    env.NODE_ENV = 'production';
+    delete env.CI;
+    env.SLACKHIVE_ENV_FILE = envPath;
     _resetEnvFilePermsCheckForTests();
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = originalNodeEnv;
-    if (originalCi === undefined) delete process.env.CI;
-    else process.env.CI = originalCi;
-    if (originalSlackhiveEnvFile === undefined) delete process.env.SLACKHIVE_ENV_FILE;
-    else process.env.SLACKHIVE_ENV_FILE = originalSlackhiveEnvFile;
+    if (originalNodeEnv === undefined) delete env.NODE_ENV;
+    else env.NODE_ENV = originalNodeEnv;
+    if (originalCi === undefined) delete env.CI;
+    else env.CI = originalCi;
+    if (originalSlackhiveEnvFile === undefined) delete env.SLACKHIVE_ENV_FILE;
+    else env.SLACKHIVE_ENV_FILE = originalSlackhiveEnvFile;
     _resetEnvFilePermsCheckForTests();
   });
 
@@ -85,16 +92,16 @@ describe('assertEnvFileLockedDown', () => {
   });
 
   it('skips the check in development mode (allows local hacking without chmod)', () => {
-    process.env.NODE_ENV = 'development';
-    delete process.env.CI;
+    env.NODE_ENV = 'development';
+    delete env.CI;
     fs.writeFileSync(envPath, 'AUTH_SECRET=x\n');
     fs.chmodSync(envPath, 0o644);
     expect(() => assertEnvFileLockedDown()).not.toThrow();
   });
 
   it('skips the check when NODE_ENV=test so vitest noise does not couple to host mode', () => {
-    process.env.NODE_ENV = 'test';
-    delete process.env.CI;
+    env.NODE_ENV = 'test';
+    delete env.CI;
     fs.writeFileSync(envPath, 'AUTH_SECRET=x\n');
     fs.chmodSync(envPath, 0o644);
     expect(() => assertEnvFileLockedDown()).not.toThrow();
