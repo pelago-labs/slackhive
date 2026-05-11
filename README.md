@@ -23,6 +23,12 @@
 
 <img src="https://raw.githubusercontent.com/pelago-labs/slackhive/main/docs/images/slack-ai-agent-team-dashboard-with-avatars.png" alt="SlackHive dashboard" style="border-radius: 12px;" />
 
+<br /><br />
+
+<sub><b>What it looks like in Slack</b> — a SlackHive agent collaborating with the team in a real channel: daily report, follow-up questions, metric correction, and an inline PR — all in the same thread.</sub>
+
+<img src="https://raw.githubusercontent.com/pelago-labs/slackhive/main/docs/images/slackhive-in-action-growth-analytics.png" alt="SlackHive agent collaborating in a Slack growth-analytics channel: daily growth report, follow-up questions, and an inline metric correction with a PR" style="border-radius: 12px;" />
+
 </div>
 
 ---
