@@ -56,18 +56,26 @@ export function setCachedUserCanTrigger(agentId: string, slackUserId: string, al
 /**
  * Invalidate cache entries.
  *
- * - `opts.slackUserId`: drop every entry for that Slack user (any agent).
- *   The cache key suffix is the slack user id, so this is a fast `deleteWhere`.
- * - `opts.agentId`: drop every entry for that agent (any sender). Used when an
- *   agent is deleted or its access surface changes wholesale.
- * - `opts.userId` (DB id, not Slack id): we don't know the slack mapping here,
- *   so this is a coarse `clear()` — correct but throws away unrelated entries.
- *   Acceptable cost given user mutations are rare.
+ * Precedence (most-targeted first):
+ * - `opts.agentId` + `opts.slackUserId`: drop the single (agent, sender)
+ *   entry. Single Map.delete, O(1). Used for agent_access grant/revoke,
+ *   where we know exactly which key to invalidate.
+ * - `opts.slackUserId` alone: drop every entry for that Slack user (any
+ *   agent). User-level mutation (role change, user delete).
+ * - `opts.agentId` alone: drop every entry for that agent (any sender).
+ *   Agent delete, or a grant where the user has no Slack mapping yet.
+ * - `opts.userId` (DB id, not Slack id): coarse `clear()` — can't resolve
+ *   slack id from here. Acceptable cost: only fires for admin-created
+ *   users without a Slack mapping, who can't have cache entries anyway.
  * - No args: `clear()`.
  */
 export function flushUserAccessCache(opts?: { slackUserId?: string; agentId?: string; userId?: string }): void {
   if (!cachesEnabled()) return;
   if (!opts) { cache.clear(); return; }
+  if (opts.agentId && opts.slackUserId) {
+    cache.delete(`${opts.agentId}:${opts.slackUserId}`);
+    return;
+  }
   if (opts.slackUserId) {
     cache.deleteWhere(k => k.endsWith(`:${opts.slackUserId}`));
     return;

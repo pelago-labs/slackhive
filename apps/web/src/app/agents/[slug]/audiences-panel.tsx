@@ -16,8 +16,9 @@ interface BasicUser {
   username: string;
   role: string;
   source?: 'admin' | 'creator' | 'access';
-  /** Effective access level on this specific agent. Shown on the picker. */
-  accessLevel?: 'admin' | 'owner' | 'edit' | 'view' | 'trigger';
+  /** Effective access level on this specific agent. Always populated by the
+   *  server; the audience picker renders the colour-coded pill from this. */
+  accessLevel: 'admin' | 'owner' | 'edit' | 'view' | 'trigger';
 }
 interface Member { userId: string; username: string }
 
@@ -742,8 +743,8 @@ function GroupEditor({
                 <Avatar name={u.username} size={28} />
                 <span style={{ flex: 1, fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{u.username}</span>
                 {/* Effective access on this agent — admin/owner/edit/view/trigger.
-                    Pre-PR users without accessLevel still render via the source fallback. */}
-                <AccessLevelPill level={u.accessLevel ?? (u.source === 'admin' ? 'admin' : u.source === 'creator' ? 'owner' : 'trigger')} />
+                    listAgentEligibleUsers always populates accessLevel. */}
+                <AccessLevelPill level={u.accessLevel} />
                 <span style={{
                   width: 18, height: 18, borderRadius: 5,
                   border: selected ? '1px solid var(--accent)' : '1px solid var(--border-2)',

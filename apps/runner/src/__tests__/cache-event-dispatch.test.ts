@@ -57,6 +57,21 @@ describe('dispatchCacheEvent', () => {
     expect(getCachedUserCanTrigger('agent-B', 'U_DROP')).toBeUndefined();
   });
 
+  it('user-access-changed with BOTH agentId and slackUserId drops exactly one entry', () => {
+    // The combined-key path is what grant/revoke routes hit. Other agents'
+    // cache for the same user must NOT be touched — a grant on agent A
+    // shouldn't invalidate the user's cache on agents B, C, D.
+    setCachedUserCanTrigger('agent-A', 'U_X', true);
+    setCachedUserCanTrigger('agent-B', 'U_X', true);
+    setCachedUserCanTrigger('agent-A', 'U_Y', true);
+
+    dispatchCacheEvent({ type: 'user-access-changed', agentId: 'agent-A', slackUserId: 'U_X' } as AgentEvent);
+
+    expect(getCachedUserCanTrigger('agent-A', 'U_X')).toBeUndefined();
+    expect(getCachedUserCanTrigger('agent-B', 'U_X')).toBe(true);
+    expect(getCachedUserCanTrigger('agent-A', 'U_Y')).toBe(true);
+  });
+
   it('user-access-changed with agentId drops just that agent\'s entries', () => {
     setCachedUserCanTrigger('agent-A', 'U_X', true);
     setCachedUserCanTrigger('agent-A', 'U_Y', true);

@@ -27,11 +27,14 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   }
   const { id } = await params;
   // Resolve the Slack mapping BEFORE deleting (after delete the row is gone).
-  // Targeted slackUserId flush drops just this user's cache entries instead
-  // of clearing the whole cache.
+  // Without a Slack id the runner can't have any cached `userCanTrigger`
+  // entry for this user (cache is keyed by slack_user_id), so the publish
+  // would just be a coarse-clear no-op. Skip it.
   const slackUserId = await getUserSlackIdById(id).catch(() => null);
   await deleteUser(id);
-  await publishAgentEvent({ type: 'user-access-changed', userId: id, slackUserId: slackUserId ?? undefined }).catch(() => {});
+  if (slackUserId) {
+    await publishAgentEvent({ type: 'user-access-changed', userId: id, slackUserId }).catch(() => {});
+  }
   return new NextResponse(null, { status: 204 });
 }
 
@@ -61,9 +64,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await updateUserRole(id, role);
     // Role change can flip access (admin → viewer, etc.). Targeted flush via
     // slackUserId so role changes for one user don't nuke the cache for the
-    // whole workspace.
+    // whole workspace. Admin-created users without a Slack mapping can't
+    // have cached entries — skip the publish entirely for those.
     const slackUserId = await getUserSlackIdById(id).catch(() => null);
-    await publishAgentEvent({ type: 'user-access-changed', userId: id, slackUserId: slackUserId ?? undefined }).catch(() => {});
+    if (slackUserId) {
+      await publishAgentEvent({ type: 'user-access-changed', userId: id, slackUserId }).catch(() => {});
+    }
   }
 
   if (password !== undefined) {

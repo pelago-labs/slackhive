@@ -14,6 +14,7 @@ import {
   listAgentEligibleUsers,
   parseAgentGroupsConflict,
   setGroupMembers,
+  getUserSlackIdById,
 } from '@/lib/db';
 
 const mockQuery = vi.fn<(sql: string, params?: unknown[]) => Promise<DbResult>>();
@@ -94,6 +95,32 @@ describe('listAgentEligibleUsers', () => {
     // can distinguish trigger-only users from view/edit collaborators.
     expect(sql).toContain('aa.access_level');
     expect(sql).toContain('MAX(access_level)');
+  });
+});
+
+// ─── getUserSlackIdById ──────────────────────────────────────────────────────
+
+describe('getUserSlackIdById', () => {
+  it('returns the slack_user_id for a known user', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ slack_user_id: 'U_ABC' }], rowCount: 1 });
+    expect(await getUserSlackIdById('user-1')).toBe('U_ABC');
+  });
+
+  it('returns null when the user does not exist', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    expect(await getUserSlackIdById('missing')).toBeNull();
+  });
+
+  it('returns null when the user has no Slack mapping (admin-created user)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ slack_user_id: null }], rowCount: 1 });
+    expect(await getUserSlackIdById('user-2')).toBeNull();
+  });
+
+  it('passes the user id as the only parameter', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await getUserSlackIdById('user-3');
+    const [, params] = mockQuery.mock.calls[0];
+    expect(params).toEqual(['user-3']);
   });
 });
 
