@@ -64,4 +64,21 @@ describe('compile-claude-md source content', () => {
     // And it must point the /wiki skill at knowledge/sources/ for raw lookups.
     expect(src).toContain('knowledge/sources/');
   });
+
+  it('defines a verbose-only narration directive', () => {
+    // Sonnet 4.6 routes reasoning into thinking blocks which subscription
+    // OAuth strips server-side, leaving verbose mode silent. The directive
+    // exists so the model emits text blocks for direction-level updates.
+    expect(src).toContain('VERBOSE_NARRATION_DIRECTIVE');
+    expect(src).toContain('Share your direction');
+    // Body must explicitly say not every tool call needs narration so we
+    // don't regress into the per-tool chatter version.
+    expect(src).toMatch(/Not every tool call needs narration/);
+  });
+
+  it('injects the verbose directive only when agent.verbose === true', () => {
+    // The strict equality check matters: undefined/null/0 must NOT inject.
+    // If this regex stops matching, the gate has been weakened.
+    expect(src).toMatch(/if\s*\(\s*agent\.verbose\s*===\s*true\s*\)\s*\{\s*\n\s*sections\.push\(\s*VERBOSE_NARRATION_DIRECTIVE\s*\)\s*;\s*\n\s*\}/);
+  });
 });

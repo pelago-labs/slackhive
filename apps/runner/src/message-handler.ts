@@ -25,6 +25,7 @@ import {
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
+import { isShuttingDown } from './shutdown-signal';
 import { getKnownAgentsByBotId } from './agent-registry';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
@@ -333,7 +334,13 @@ export class MessageHandler {
         this.log.debug('Request aborted', { sessionKey });
         if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':stop_button:').catch(() => {});
         await this.swapReaction(channelId, messageId, sessionKey, 'stop_button');
-        if (recorder) await this.closeActivity(recorder.activityId, 'error', 'aborted');
+        // Graceful shutdown aborts every in-flight call. If we close the
+        // activity here, the next process's sweepStaleActivities won't see
+        // it (sweep only looks at status='in_progress') and auto-replay
+        // skips the work. Leave it in_progress so the next boot picks it up.
+        if (recorder && !isShuttingDown()) {
+          await this.closeActivity(recorder.activityId, 'error', 'aborted');
+        }
       } else {
         this.log.error('Error streaming Claude response', { sessionKey, error: error?.message });
         const errText = error?.message?.startsWith('AUTH_EXPIRED:')
