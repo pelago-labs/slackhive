@@ -523,12 +523,10 @@ export class MessageHandler {
           const isVerbose = row.verbose === 1 || row.verbose === true;
           const directives: string[] = [];
           if (isVerbose) {
-            // Audience-level verbose = an EXPLICIT OVERRIDE of the agent's
-            // verbosity for this cohort. When set, the audience wants a full,
-            // detailed final reply and does NOT want the agent's CLAUDE.md
-            // "share your direction" progress narration alongside it. Skip the
-            // running commentary; deliver the answer.
-            directives.push('OVERRIDE — for this audience, write a detailed, example-rich final reply with full reasoning and context. Skip any agent-level "share your direction" progress narration; this cohort wants the complete answer in one go, not running commentary.');
+            // Simple rule: audience.verbose=true → emit one VERBOSE override
+            // line. audience.verbose=false → emit nothing about verbose (the
+            // agent's defaults apply unchanged).
+            directives.push('VERBOSE — write a detailed, example-rich final reply for this audience. Skip progress narration; deliver the complete answer in one go.');
           }
           const txt = row.instructions.trim();
           if (txt) directives.push(txt);
@@ -538,10 +536,9 @@ export class MessageHandler {
         }
         if (lines.length) {
           groupNames = ` · groups: ${names.join(', ')}`;
-          // Header makes the override semantics explicit so the model treats
-          // these as authoritative for this message — they win over any
-          // conflicting style rules in the agent's CLAUDE.md.
-          audienceBlock = `[Audience guidance for this sender — these rules OVERRIDE the agent's default style for this message]\n${lines.join('\n')}\n\n`;
+          // Header marks the block as an explicit override of the agent's
+          // defaults for this message — short, no prose.
+          audienceBlock = `[Audience override for this sender]\n${lines.join('\n')}\n\n`;
         }
       }
     } catch {

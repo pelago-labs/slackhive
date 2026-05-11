@@ -299,7 +299,7 @@ function GroupRow({
             </span>
           )}
         </span>
-        {group.verbose && <Pill tone="accent">detailed</Pill>}
+        {group.verbose && <Pill tone="accent">verbose</Pill>}
         <Pill tone="muted">priority {group.priority}</Pill>
         <Pill tone="muted">{group.memberCount ?? 0} {group.memberCount === 1 ? 'member' : 'members'}</Pill>
       </button>
@@ -609,8 +609,8 @@ function GroupEditor({
           checked={!!draft.verbose}
           disabled={!canEdit}
           onChange={v => patchDraft({ verbose: v })}
-          title="Detailed answers for this audience"
-          subtitle="Override the agent-level Verbose setting for members of this audience: deliver a full, example-rich final reply and skip the agent's live progress narration. Use when a cohort wants the complete answer in one go, not running commentary."
+          title="Verbose for this audience"
+          subtitle="ON: members get a detailed, example-rich final reply (overrides agent default). OFF: agent defaults apply unchanged."
         />
 
         {/* Footer */}
@@ -923,8 +923,8 @@ function CreateGroupModal({ agentId, onClose, onCreated }: { agentId: string; on
           <ToggleRow
             checked={verbose}
             onChange={setVerbose}
-            title="Detailed answers for this audience"
-            subtitle="Override the agent-level Verbose setting for members: full, example-rich final reply, skip the agent's live progress narration."
+            title="Verbose for this audience"
+            subtitle="ON: members get a detailed final reply (overrides agent default). OFF: agent defaults apply."
           />
           {error && <div style={{ color: 'var(--red)', fontSize: 13 }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
