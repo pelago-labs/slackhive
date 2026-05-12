@@ -1063,15 +1063,24 @@ export async function saveBotHandle(agentId: string, handle: string): Promise<vo
   );
 }
 
-export async function upsertSlackUser(slackUserId: string, email: string, name: string): Promise<{ id: string; username: string; role: string }> {
+export async function upsertSlackUser(
+  slackUserId: string,
+  email: string | null,
+  name: string,
+): Promise<{ id: string; username: string; role: string }> {
   const existing = await getUserBySlackId(slackUserId);
   if (existing) return existing;
 
   const id = randomUUID();
-  const username = name || email;
+  // username falls back to email-or-slackId so we never store an empty string;
+  // slack_email stays NULL when Slack didn't return one (no users:read.email
+  // scope, app/bot user, or guest with hidden email). NULL is the correct
+  // "unknown email" signal — earlier callers passed the display name as email,
+  // which broke domain filtering and email-based dedup.
+  const username = name || email || slackUserId;
   const r = await (await db()).query(
     'INSERT INTO users (id, username, password_hash, role, slack_user_id, slack_email) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, role',
-    [id, username, null, 'viewer', slackUserId, email]
+    [id, username, null, 'viewer', slackUserId, email],
   );
   const row = r.rows[0];
   return { id: row.id as string, username: row.username as string, role: row.role as string };
