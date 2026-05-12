@@ -29,7 +29,23 @@ Enables web search and fetch - the agent can look up current information or read
 
 ### Shell Access
 
-Enables terminal commands for the agent. Dangerous commands are auto-blocked. Useful for agents that need to run git operations, inspect files, or work with a local codebase.
+Enables terminal commands for the agent via the Bash tool. When enabled, the agent's shell is sandboxed to its own workdir — it cannot access the host filesystem outside that directory.
+
+The following are **always denied**, regardless of the agent's instructions:
+
+- Host secrets and credential files (`.env`, SSH keys, cloud credentials)
+- System CLIs that can affect the host: `gh`, `aws`, `kubectl`, `gcloud`, `heroku`, `terraform`, `docker`, `helm`
+- Global package installs (`npm install -g`, `pip install` outside a virtualenv, `brew install`, `apt`, `yum`)
+- Destructive commands: `rm -rf /`, `dd`, `mkfs`, `shutdown`, and similar
+
+The following are **allowed**:
+
+- Source control: `git` (clone, pull, push, diff, log, etc.)
+- Package managers scoped to the workdir: `npm install`, `pip install -r requirements.txt`, `go get`
+- Build and test: `npm run`, `make`, `go test`, `go build`, `pytest`, `cargo test`
+- Standard file inspection: `ls`, `cat`, `grep`, `find`, `jq`
+
+Useful for agents that need to run git operations, execute tests, or build artifacts in a local codebase. Leave off for agents that only need to read data or call APIs via MCP.
 
 ## Always on
 

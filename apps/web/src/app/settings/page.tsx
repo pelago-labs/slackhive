@@ -85,6 +85,7 @@ function GeneralTab() {
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
   const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
+  const [openToWorkspace, setOpenToWorkspace] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -97,6 +98,7 @@ function GeneralTab() {
         if (s.logoUrl !== undefined && s.logoUrl !== '') setLogoUrl(s.logoUrl);
         if (s.dashboardTitle) setDashboardTitle(s.dashboardTitle);
         if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
+        setOpenToWorkspace(s.openToWorkspace === 'true');
       })
       .catch(() => {});
   }, []);
@@ -167,6 +169,41 @@ function GeneralTab() {
           onChange={v => { setCoachModel(v); save(COACH_MODEL_SETTING_KEY, v); }}
           hint="Model used by Coach to generate prompts and skills. Not the model your agents run on."
         />
+      </Section>
+
+      <Section title="Access Control">
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+              When <strong>on</strong>, any Slack workspace member can trigger agents — no user import or access grant needed.{' '}
+              When <strong>off</strong>, only users added to SlackHive with a Trigger (or higher) access grant can interact with the bot.
+            </div>
+            {!openToWorkspace && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, borderLeft: '3px solid var(--border-2)' }}>
+                Restricted mode is active. Users not in SlackHive, or without an access grant, will be told to ask an admin for access.
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              const next = !openToWorkspace;
+              setOpenToWorkspace(next);
+              save('openToWorkspace', String(next));
+            }}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none', flexShrink: 0, marginTop: 2,
+              background: openToWorkspace ? '#3b82f6' : 'var(--border-2)',
+              cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: 3, left: openToWorkspace ? 23 : 3,
+              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
+              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+          </button>
+        </div>
       </Section>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>

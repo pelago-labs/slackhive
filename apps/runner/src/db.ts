@@ -641,6 +641,12 @@ export async function updateWikiSourceStatus(
   await getDb().query(`UPDATE wiki_sources SET ${sets.join(', ')} WHERE id = $${i}`, vals);
 }
 
+/** Read a single setting by key. Returns null if not set. */
+export async function getSetting(key: string): Promise<string | null> {
+  const r = await getDb().query('SELECT value FROM settings WHERE key = $1', [key]);
+  return r.rows.length > 0 ? (r.rows[0] as { value: string }).value : null;
+}
+
 /** Write a result to the settings table with the exact key (no prefix). */
 export async function setResult(key: string, value: string): Promise<void> {
   await getDb().query(

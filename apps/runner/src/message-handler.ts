@@ -22,6 +22,7 @@ import {
   recordActivityUsage,
   getDb,
 } from '@slackhive/shared';
+import { getSetting } from './db';
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
@@ -131,7 +132,8 @@ export class MessageHandler {
     const isAgentTraffic = hasBotMarker && (await this.isAuthorizedAgentTraffic(userId));
     if (msg.platform !== 'test' && !isAgentTraffic && !(await this.userCanTrigger(userId))) {
       this.log.info('Denying message — user has no access to this agent', { userId, hasBotMarker });
-      await this.adapter.postMessage(channelId, "You don't have access to this agent.", threadId).catch(() => {});
+      const reason = await this.accessDenialReason(userId);
+      await this.adapter.postMessage(channelId, reason, threadId).catch(() => {});
       return;
     }
 
@@ -460,6 +462,10 @@ export class MessageHandler {
 
   /** Uncached access check — the original 2-query body, kept for the cache miss path. */
   private async computeUserCanTrigger(slackUserId: string): Promise<boolean> {
+    // Platform-level "open to workspace" setting — any Slack member can trigger.
+    const openToWorkspace = await getSetting('openToWorkspace');
+    if (openToWorkspace === 'true') return true;
+
     const db = getDb();
     const userRow = await db.query(
       `SELECT u.role, u.username FROM users u WHERE u.slack_user_id = $1`,
@@ -478,6 +484,25 @@ export class MessageHandler {
       [this.agent.id, username]
     );
     return access.rows.length > 0;
+  }
+
+  /**
+   * Returns a human-readable denial reason for a Slack user who failed the
+   * access check. Used to send a one-time reply so users understand why the
+   * bot is silent rather than assuming it is broken.
+   */
+  private async accessDenialReason(slackUserId: string): Promise<string> {
+    const db = getDb();
+    const userRow = await db.query(
+      `SELECT username FROM users u WHERE u.slack_user_id = $1`,
+      [slackUserId]
+    );
+    if (!userRow.rows.length) {
+      // This Slack identity has no SlackHive account at all.
+      return "You don't have access to this agent. Ask an admin to grant you access in SlackHive — you'll need to be added as a user first.";
+    }
+    // Account exists but this agent hasn't been granted to them.
+    return "You don't have access to this agent. Ask an admin to grant you Trigger (or higher) access to it in SlackHive.";
   }
 
   /**
