@@ -115,6 +115,26 @@ Imported users start with the **viewer** role and no agent access — assign rol
 3. Use the role dropdown to select a new role
 4. Changes take effect on the user's next page load
 
+## Audiences
+
+Each agent can have one or more **audiences** — named user groups that the agent treats differently. An audience entry defines:
+
+- A **name** for the group (e.g. "Engineering", "Sales", "Support")
+- A **prompt override** that customizes the agent's behavior and tone for that group — written by you and polished by AI before saving
+
+When a Slack user interacts with an agent, the agent checks which audience (if any) they belong to and applies the matching prompt override on top of the base system prompt.
+
+<img src="/images/audiences.png" alt="Audience configuration panel showing name, priority, instructions, and member list" style={{borderRadius: "12px", marginBottom: "24px"}} />
+
+**Access control:** Configuring an agent's audiences requires **editor access to that specific agent** — a global editor role alone is not sufficient. Admins and superadmins can always manage audiences for any agent.
+
+To set up audiences:
+
+1. Open the agent → **Instructions** tab → **Audience** section
+2. Click **Add Audience**
+3. Enter the group name and describe the behavior/tone you want
+4. Save — SlackHive polishes the prompt override and stores it
+
 ## Per-agent access grants
 
 Agents are invisible to editors and viewers until an admin grants access. There are three access levels:
