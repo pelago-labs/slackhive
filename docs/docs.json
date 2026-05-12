@@ -62,6 +62,7 @@
               "agents/knowledge-base",
               "agents/memory",
               "agents/tools",
+              "agents/audiences",
               "agents/testing",
               "agents/boss-agents"
             ]

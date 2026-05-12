@@ -1,0 +1,40 @@
+---
+title: "Audiences"
+description: "Customize how an agent responds to different user groups with per-audience prompt overrides."
+---
+
+Each agent can have one or more **audiences** — named user groups that the agent treats differently. Use audiences when the same agent serves multiple teams who need different tone, depth, or focus.
+
+<img src="/images/audiences.png" alt="Audience configuration panel showing name, priority, instructions, and member list" style={{borderRadius: "12px", marginBottom: "24px"}} />
+
+## How it works
+
+Each audience entry defines:
+
+- A **name** for the group (e.g. "Engineering", "Sales", "Support")
+- A **priority** — lower number applies first when a user belongs to multiple audiences
+- An **instructions** block that is appended to the agent's base system prompt for members of this group — written by you and polished by AI before saving
+- An optional **verbose** override — overrides the agent's default verbose setting for members of this audience
+
+When a Slack user messages the agent, SlackHive checks which audience (if any) they belong to and applies the matching prompt override on top of the base system prompt.
+
+## Setting up audiences
+
+1. Open the agent → **Instructions** tab → **Audience** section
+2. Click **New Audience**
+3. Give the audience a name and priority
+4. Write the instructions (tone, focus, constraints for this group)
+5. Click **Polish with AI** to have Claude refine the wording, then **Save**
+6. Add members from the right-hand panel
+
+## Priority
+
+If a user belongs to multiple audiences, the one with the **lowest priority number** wins. Use this to create a catch-all audience at a high number (e.g. 100) and more specific overrides at lower numbers (e.g. 10).
+
+## Access control
+
+Configuring an agent's audiences requires **editor access to that specific agent** — a global editor role alone is not sufficient. Admins and superadmins can always manage audiences for any agent.
+
+## Verbose override
+
+Each audience has its own verbose toggle. When set, it overrides the agent-level verbose setting for members of that audience. This lets you give one group streaming step-by-step output and another group clean final-answer-only responses from the same agent.
