@@ -44,8 +44,8 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
   // Test is read-only against the MCP definition (spawns the server, runs an MCP
   // handshake, then kills it — no DB mutation). Any editor / admin / superadmin
   // can trigger it from the MCPs settings page regardless of who owns the row;
-  // viewers stay blocked. Editors not being the owner used to 403 here, which
-  // made the "Test connection" button useless for collaborators.
+  // viewers stay blocked. Non-owner editors used to 403 here, which made the
+  // "Test connection" button useless for collaborators.
   const denied = guardAdmin(req);
   if (denied) return denied;
 
