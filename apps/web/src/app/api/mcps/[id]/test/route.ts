@@ -21,8 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getMcpServerById, getEnvVarValues } from '@/lib/db';
-import { guardAuth } from '@/lib/api-guard';
-import { getSessionFromRequest } from '@/lib/auth';
+import { guardAdmin } from '@/lib/api-guard';
 import { spawn } from 'child_process';
 import { writeFile, unlink, mkdir, access } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -42,20 +41,18 @@ const TIMEOUT_MS = 30_000;
  * @returns {Promise<NextResponse>} { ok: true, message } or { ok: false, error }
  */
 export async function POST(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
-  const denied = guardAuth(req);
+  // Test is read-only against the MCP definition (spawns the server, runs an MCP
+  // handshake, then kills it — no DB mutation). Any editor / admin / superadmin
+  // can trigger it from the MCPs settings page regardless of who owns the row;
+  // viewers stay blocked. Editors not being the owner used to 403 here, which
+  // made the "Test connection" button useless for collaborators.
+  const denied = guardAdmin(req);
   if (denied) return denied;
 
   const { id } = await params;
   const server = await getMcpServerById(id);
   if (!server) {
     return NextResponse.json({ error: 'MCP server not found' }, { status: 404 });
-  }
-
-  // Only the MCP owner or admin/superadmin can run a test
-  const session = getSessionFromRequest(req);
-  const isAdmin = session?.role === 'admin' || session?.role === 'superadmin';
-  if (!isAdmin && server.createdBy !== session?.username) {
-    return NextResponse.json({ error: 'Only the MCP owner or an admin can test this server' }, { status: 403 });
   }
 
   try {
