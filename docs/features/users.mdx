@@ -135,6 +135,24 @@ To set up audiences:
 3. Enter the group name and describe the behavior/tone you want
 4. Save — SlackHive polishes the prompt override and stores it
 
+## Open to Workspace
+
+By default, any Slack workspace member can trigger agents — no user import or access grant needed. This is the easiest way to get started.
+
+To restrict access to specific users, turn off **Open to Workspace** in **Settings → General → Access Control**. Once restricted:
+
+1. Go to **Settings → Users → Import from Slack** and import your team
+2. Grant each user a **Trigger**, **View**, or **Edit** access level on the agents they should be able to use
+
+Users who message the bot without access will receive a clear explanation:
+- **Not imported into SlackHive:** "You don't have access to this agent. Ask an admin to grant you access in SlackHive — you'll need to be added as a user first."
+- **Imported but not granted:** "You don't have access to this agent. Ask an admin to grant you Trigger (or higher) access to it in SlackHive."
+
+| Setting | Who can trigger agents |
+|---|---|
+| **On** (default) | Any Slack workspace member |
+| **Off** | Only imported users with a Trigger, View, or Edit grant |
+
 ## Per-agent access grants
 
 Agents are invisible to editors and viewers until an admin grants access. There are three access levels:

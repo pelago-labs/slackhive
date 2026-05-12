@@ -463,8 +463,9 @@ export class MessageHandler {
   /** Uncached access check — the original 2-query body, kept for the cache miss path. */
   private async computeUserCanTrigger(slackUserId: string): Promise<boolean> {
     // Platform-level "open to workspace" setting — any Slack member can trigger.
+    // Default is open (true) when the setting has never been saved.
     const openToWorkspace = await getSetting('openToWorkspace');
-    if (openToWorkspace === 'true') return true;
+    if (openToWorkspace !== 'false') return true;
 
     const db = getDb();
     const userRow = await db.query(

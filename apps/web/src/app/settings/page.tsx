@@ -85,7 +85,7 @@ function GeneralTab() {
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
   const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
-  const [openToWorkspace, setOpenToWorkspace] = useState(false);
+  const [openToWorkspace, setOpenToWorkspace] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -98,7 +98,7 @@ function GeneralTab() {
         if (s.logoUrl !== undefined && s.logoUrl !== '') setLogoUrl(s.logoUrl);
         if (s.dashboardTitle) setDashboardTitle(s.dashboardTitle);
         if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
-        setOpenToWorkspace(s.openToWorkspace === 'true');
+        setOpenToWorkspace(s.openToWorkspace !== 'false');
       })
       .catch(() => {});
   }, []);
@@ -176,12 +176,12 @@ function GeneralTab() {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-              When <strong>on</strong>, any Slack workspace member can trigger agents — no user import or access grant needed.{' '}
-              When <strong>off</strong>, only users added to SlackHive with a Trigger (or higher) access grant can interact with the bot.
+              When <strong>on</strong> (default), any Slack workspace member can trigger agents — no user import needed.{' '}
+              Turn <strong>off</strong> to restrict access to specific users. To use per-user restrictions, first import your team via <strong>Settings → Users → Import from Slack</strong>, then grant access to individuals.
             </div>
             {!openToWorkspace && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, borderLeft: '3px solid var(--border-2)' }}>
-                Restricted mode is active. Users not in SlackHive, or without an access grant, will be told to ask an admin for access.
+                Restricted mode active — only imported Slack users with a Trigger (or higher) grant can interact with the bot. Others will be told to ask an admin for access.
               </div>
             )}
           </div>
