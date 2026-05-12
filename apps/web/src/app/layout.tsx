@@ -16,6 +16,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
           document.documentElement.setAttribute('data-theme',t)})()
         `}} />
+        {/*
+          ChunkLoadError auto-recovery for stale tabs after a deploy.
+          When a user keeps a tab open across a redeploy and then triggers a
+          dynamic import (route navigation, lazy panel), the browser fetches
+          the OLD content-hashed chunk which now 404s. Catch that one error
+          class and reload — once per tab via sessionStorage to avoid loops.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function(){
+            function isChunkErr(e){var m=(e&&(e.message||(e.reason&&e.reason.message)))||'';
+              return /ChunkLoadError|Loading chunk \\\\d+ failed|Loading CSS chunk/.test(m);}
+            function recover(e){if(!isChunkErr(e))return;
+              if(sessionStorage.getItem('slackhive-chunk-reloaded'))return;
+              sessionStorage.setItem('slackhive-chunk-reloaded','1');
+              location.reload();}
+            window.addEventListener('error',recover);
+            window.addEventListener('unhandledrejection',recover);
+          })()
+        `}} />
       </head>
       <body style={{ margin: 0 }}>
         <LayoutShell>{children}</LayoutShell>
