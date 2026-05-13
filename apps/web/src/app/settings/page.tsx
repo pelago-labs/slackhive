@@ -176,18 +176,21 @@ function GeneralTab() {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-              When <strong>on</strong> (default), any Slack workspace member can trigger agents — no user import needed.{' '}
-              Turn <strong>off</strong> to restrict access to specific users. To use per-user restrictions, first import your team via <strong>Settings → Users → Import from Slack</strong>, then grant access to individuals.
+              {openToWorkspace
+                ? <>Any Slack workspace member can message the bot — no account setup needed. Turn off to restrict access to specific imported users with a Trigger grant.</>
+                : <>Only imported users with <strong>Trigger</strong> access can use the bot. Others get a message asking them to contact an admin. Import teammates and assign access in <strong>Users</strong>.</>
+              }
             </div>
             {!openToWorkspace && (
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, borderLeft: '3px solid var(--border-2)' }}>
-                Restricted mode active — only imported Slack users with a Trigger (or higher) grant can interact with the bot. Others will be told to ask an admin for access.
+              <div style={{ fontSize: 12, marginTop: 8, padding: '7px 10px', background: 'rgba(234,179,8,0.08)', borderRadius: 6, borderLeft: '3px solid #ca8a04', color: 'var(--muted)', lineHeight: 1.5 }}>
+                <strong style={{ color: '#ca8a04' }}>Restricted mode active.</strong> Turn on to allow all workspace members to trigger agents again.
               </div>
             )}
           </div>
           <button
             onClick={() => {
               const next = !openToWorkspace;
+              if (!next && !window.confirm('Turning off Open to Workspace will immediately restrict bot access to only imported users with a Trigger grant. Anyone else will be blocked. Continue?')) return;
               setOpenToWorkspace(next);
               save('openToWorkspace', String(next));
             }}
