@@ -85,6 +85,7 @@ function GeneralTab() {
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
   const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
+  const [openToWorkspace, setOpenToWorkspace] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -97,6 +98,7 @@ function GeneralTab() {
         if (s.logoUrl !== undefined && s.logoUrl !== '') setLogoUrl(s.logoUrl);
         if (s.dashboardTitle) setDashboardTitle(s.dashboardTitle);
         if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
+        setOpenToWorkspace(s.openToWorkspace !== 'false');
       })
       .catch(() => {});
   }, []);
@@ -169,6 +171,44 @@ function GeneralTab() {
         />
       </Section>
 
+      <Section title="Access Control">
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+              {openToWorkspace
+                ? <>Any Slack workspace member can message the bot — no account setup needed. Turn off to restrict access to specific imported users with a Trigger grant.</>
+                : <>Only imported users with <strong>Trigger</strong> access can use the bot. Others get a message asking them to contact an admin. Import teammates and assign access in <strong>Users</strong>.</>
+              }
+            </div>
+            {!openToWorkspace && (
+              <div style={{ fontSize: 12, marginTop: 8, padding: '7px 10px', background: 'rgba(234,179,8,0.08)', borderRadius: 6, borderLeft: '3px solid #ca8a04', color: 'var(--muted)', lineHeight: 1.5 }}>
+                <strong style={{ color: '#ca8a04' }}>Restricted mode active.</strong> Turn on to allow all workspace members to trigger agents again.
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              const next = !openToWorkspace;
+              if (!next && !window.confirm('Turning off Open to Workspace will immediately restrict bot access to only imported users with a Trigger grant. Anyone else will be blocked. Continue?')) return;
+              setOpenToWorkspace(next);
+              save('openToWorkspace', String(next));
+            }}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none', flexShrink: 0, marginTop: 2,
+              background: openToWorkspace ? '#3b82f6' : 'var(--border-2)',
+              cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: 3, left: openToWorkspace ? 23 : 3,
+              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
+              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+          </button>
+        </div>
+      </Section>
+
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
         <PrimaryBtn onClick={saveAll} loading={saving}>Save All</PrimaryBtn>
       </div>
@@ -204,6 +244,8 @@ function UsersTab() {
   const [resetting, setResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
 
+  const [openToWorkspace, setOpenToWorkspaceLocal] = useState(true);
+
   // Slack import
   const [importToken, setImportToken] = useState('');
   const [importLoading, setImportLoading] = useState(false);
@@ -227,6 +269,7 @@ function UsersTab() {
   useEffect(() => {
     fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
       if (s.slack_import_bot_token) setImportToken(s.slack_import_bot_token);
+      setOpenToWorkspaceLocal(s.openToWorkspace !== 'false');
     }).catch(() => {});
   }, []);
 
@@ -640,6 +683,12 @@ function UsersTab() {
                   fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: 4,
                 }}>&times;</button>
               </div>
+              {/* Open-to-workspace hint */}
+              {openToWorkspace && (
+                <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(59,130,246,0.08)', borderRadius: 6, borderLeft: '3px solid #3b82f6', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  <strong style={{ color: '#3b82f6' }}>Open to Workspace is on</strong> — any Slack workspace member can already trigger agents. Grants here control <strong>SlackHive dashboard access</strong> only (View / Edit). Existing grants are preserved and will apply automatically when you turn restriction on.
+                </div>
+              )}
               {/* Legend */}
               <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
                 {[

@@ -115,25 +115,23 @@ Imported users start with the **viewer** role and no agent access — assign rol
 3. Use the role dropdown to select a new role
 4. Changes take effect on the user's next page load
 
-## Audiences
+## Open to Workspace
 
-Each agent can have one or more **audiences** — named user groups that the agent treats differently. An audience entry defines:
+By default, any Slack workspace member can trigger agents — no user import or access grant needed. This is the easiest way to get started.
 
-- A **name** for the group (e.g. "Engineering", "Sales", "Support")
-- A **prompt override** that customizes the agent's behavior and tone for that group — written by you and polished by AI before saving
+To restrict access to specific users, turn off **Open to Workspace** in **Settings → General → Access Control**. Once restricted:
 
-When a Slack user interacts with an agent, the agent checks which audience (if any) they belong to and applies the matching prompt override on top of the base system prompt.
+1. Go to **Settings → Users → Import from Slack** and import your team
+2. Grant each user a **Trigger**, **View**, or **Edit** access level on the agents they should be able to use
 
-<img src="/images/audiences.png" alt="Audience configuration panel showing name, priority, instructions, and member list" style={{borderRadius: "12px", marginBottom: "24px"}} />
+Users who message the bot without access will receive a clear explanation:
+- **Not imported into SlackHive:** "You don't have access to this agent. Ask an admin to grant you access in SlackHive — you'll need to be added as a user first."
+- **Imported but not granted:** "You don't have access to this agent. Ask an admin to grant you Trigger (or higher) access to it in SlackHive."
 
-**Access control:** Configuring an agent's audiences requires **editor access to that specific agent** — a global editor role alone is not sufficient. Admins and superadmins can always manage audiences for any agent.
-
-To set up audiences:
-
-1. Open the agent → **Instructions** tab → **Audience** section
-2. Click **Add Audience**
-3. Enter the group name and describe the behavior/tone you want
-4. Save — SlackHive polishes the prompt override and stores it
+| Setting | Who can trigger agents |
+|---|---|
+| **On** (default) | Any Slack workspace member |
+| **Off** | Only imported users with a Trigger, View, or Edit grant |
 
 ## Per-agent access grants
 
