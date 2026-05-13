@@ -24,7 +24,7 @@ import {
   type PlatformAdapter,
   type DbAdapter,
 } from '@slackhive/shared';
-import { MessageHandler } from '../message-handler';
+import { MessageHandler, _resetOpenToWorkspaceCache } from '../message-handler';
 import type { ClaudeHandler } from '../claude-handler';
 import { _resetAccessCache, flushUserAccessCache } from '../access-cache';
 
@@ -138,18 +138,26 @@ async function grantAccess(agentId: string, userId: string, level = 'edit'): Pro
 
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
-beforeEach(() => {
+beforeEach(async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'user-access-cache-'));
   dbPath = path.join(tmpDir, 'data.db');
   countingAdapter = wrapWithCounter(createSqliteAdapter(dbPath));
   setDb(countingAdapter);
   _resetAccessCache();
+  _resetOpenToWorkspaceCache();
+  // These tests exercise the per-user access-check path, so restrict the platform.
+  await getDb().query(
+    `INSERT INTO settings (key, value) VALUES ('openToWorkspace', 'false')
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [],
+  );
 });
 
 afterEach(async () => {
   await closeDb();
   fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
   _resetAccessCache();
+  _resetOpenToWorkspaceCache();
   vi.restoreAllMocks();
 });
 
@@ -185,10 +193,11 @@ describe('userCanTrigger LRU', () => {
     await handler.handleMessage(makeMsg('U_VIEWER'));
     const secondCallQueries = countingAdapter.queryCount;
 
-    // Non-admin path: 1 users-by-slack-id + 1 agents/agent_access UNION = 2
-    // queries saved on the cached call. Other handler work (audience lookup,
-    // session bookkeeping) is identical between the two messages.
-    expect(firstCallQueries - secondCallQueries).toBe(2);
+    // Non-admin path: 1 getSetting(openToWorkspace) + 1 users-by-slack-id +
+    // 1 agents/agent_access UNION = 3 queries saved on the cached call
+    // (cache hits skip computeUserCanTrigger entirely; getSetting is also
+    // skipped because it lives inside computeUserCanTrigger).
+    expect(firstCallQueries - secondCallQueries).toBe(3);
   });
 
   it('admin senders save EXACTLY 1 query on the cached call (early-return path)', async () => {
@@ -204,9 +213,9 @@ describe('userCanTrigger LRU', () => {
     await handler.handleMessage(makeMsg('U_ADMIN'));
     const secondCallQueries = countingAdapter.queryCount;
 
-    // Admin path: only the users-by-slack-id lookup runs (the UNION is
-    // skipped via early return). Cache hit saves exactly that one query.
-    expect(firstCallQueries - secondCallQueries).toBe(1);
+    // Admin path: 1 getSetting(openToWorkspace) + 1 users-by-slack-id = 2
+    // queries saved on cache hit (UNION skipped via admin early-return).
+    expect(firstCallQueries - secondCallQueries).toBe(2);
   });
 
   it('flushUserAccessCache by slackUserId re-arms the cache for the next message', async () => {
@@ -241,6 +250,6 @@ describe('userCanTrigger LRU', () => {
     await handler.handleMessage(makeMsg('U_A')); // primes U_A as allowed
     await handler.handleMessage(makeMsg('U_B')); // must still be denied
     const posts = adapter.postMessage.mock.calls.map(c => c[1] as string);
-    expect(posts).toContain("You don't have access to this agent.");
+    expect(posts.some(p => p.includes("don't have access to this agent"))).toBe(true);
   });
 });

@@ -241,6 +241,8 @@ function UsersTab() {
   const [resetting, setResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
 
+  const [openToWorkspace, setOpenToWorkspaceLocal] = useState(true);
+
   // Slack import
   const [importToken, setImportToken] = useState('');
   const [importLoading, setImportLoading] = useState(false);
@@ -264,6 +266,7 @@ function UsersTab() {
   useEffect(() => {
     fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
       if (s.slack_import_bot_token) setImportToken(s.slack_import_bot_token);
+      setOpenToWorkspaceLocal(s.openToWorkspace !== 'false');
     }).catch(() => {});
   }, []);
 
@@ -677,6 +680,12 @@ function UsersTab() {
                   fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: 4,
                 }}>&times;</button>
               </div>
+              {/* Open-to-workspace hint */}
+              {openToWorkspace && (
+                <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(59,130,246,0.08)', borderRadius: 6, borderLeft: '3px solid #3b82f6', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  <strong style={{ color: '#3b82f6' }}>Open to Workspace is on</strong> — any Slack workspace member can already trigger agents. Grants here control <strong>SlackHive dashboard access</strong> only (View / Edit). Existing grants are preserved and will apply automatically when you turn restriction on.
+                </div>
+              )}
               {/* Legend */}
               <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
                 {[

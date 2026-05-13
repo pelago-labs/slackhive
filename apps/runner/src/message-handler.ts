@@ -23,6 +23,24 @@ import {
   getDb,
 } from '@slackhive/shared';
 import { getSetting } from './db';
+
+// Cache the openToWorkspace setting for 60s to avoid a DB hit on every message.
+let _openToWorkspaceCache: { value: boolean; expiresAt: number } | null = null;
+async function isOpenToWorkspace(): Promise<boolean> {
+  const now = Date.now();
+  if (_openToWorkspaceCache && now < _openToWorkspaceCache.expiresAt) {
+    return _openToWorkspaceCache.value;
+  }
+  try {
+    const raw = await getSetting('openToWorkspace');
+    const value = raw !== 'false'; // null (not set) → true (open by default)
+    _openToWorkspaceCache = { value, expiresAt: now + 60_000 };
+    return value;
+  } catch {
+    return true; // if DB unavailable, default open
+  }
+}
+export function _resetOpenToWorkspaceCache() { _openToWorkspaceCache = null; }
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
@@ -463,9 +481,8 @@ export class MessageHandler {
   /** Uncached access check — the original 2-query body, kept for the cache miss path. */
   private async computeUserCanTrigger(slackUserId: string): Promise<boolean> {
     // Platform-level "open to workspace" setting — any Slack member can trigger.
-    // Default is open (true) when the setting has never been saved.
-    const openToWorkspace = await getSetting('openToWorkspace');
-    if (openToWorkspace !== 'false') return true;
+    // Default is open (true) when the setting has never been saved. Cached 60s.
+    if (await isOpenToWorkspace()) return true;
 
     const db = getDb();
     const userRow = await db.query(
@@ -493,17 +510,19 @@ export class MessageHandler {
    * bot is silent rather than assuming it is broken.
    */
   private async accessDenialReason(slackUserId: string): Promise<string> {
-    const db = getDb();
-    const userRow = await db.query(
-      `SELECT username FROM users u WHERE u.slack_user_id = $1`,
-      [slackUserId]
-    );
-    if (!userRow.rows.length) {
-      // This Slack identity has no SlackHive account at all.
-      return "You don't have access to this agent. Ask an admin to grant you access in SlackHive — you'll need to be added as a user first.";
+    try {
+      const db = getDb();
+      const userRow = await db.query(
+        `SELECT username FROM users u WHERE u.slack_user_id = $1`,
+        [slackUserId]
+      );
+      if (!userRow.rows.length) {
+        return "You don't have access to this agent. Ask an admin to grant you access in SlackHive — you'll need to be added as a user first.";
+      }
+      return "You don't have access to this agent. Ask an admin to grant you Trigger (or higher) access to it in SlackHive.";
+    } catch {
+      return "You don't have access to this agent.";
     }
-    // Account exists but this agent hasn't been granted to them.
-    return "You don't have access to this agent. Ask an admin to grant you Trigger (or higher) access to it in SlackHive.";
   }
 
   /**

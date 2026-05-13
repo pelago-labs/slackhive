@@ -34,7 +34,7 @@ import {
   type IncomingMessage,
   type PlatformAdapter,
 } from '@slackhive/shared';
-import { MessageHandler } from '../message-handler';
+import { MessageHandler, _resetOpenToWorkspaceCache } from '../message-handler';
 import type { ClaudeHandler } from '../claude-handler';
 import { _resetAccessCache } from '../access-cache';
 
@@ -174,6 +174,7 @@ beforeEach(() => {
   dbPath = path.join(tmpDir, 'data.db');
   setDb(createSqliteAdapter(dbPath));
   _resetAccessCache();
+  _resetOpenToWorkspaceCache();
 });
 
 afterEach(async () => {
