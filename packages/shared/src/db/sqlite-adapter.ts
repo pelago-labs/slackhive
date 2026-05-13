@@ -609,7 +609,6 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   if (!agentCols.includes('tags')) {
     db.exec("ALTER TABLE agents ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
   }
-
   const userCols = (db.pragma('table_info(users)') as { name: string }[]).map(c => c.name);
   if (!userCols.includes('slack_user_id')) {
     db.exec('ALTER TABLE users ADD COLUMN slack_user_id TEXT');
