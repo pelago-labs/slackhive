@@ -614,6 +614,7 @@ export class MessageHandler {
 
     // Fetch thread context via adapter
     let threadContext = '';
+    const threadFiles: FileAttachment[] = [];
     if (threadId) {
       try {
         const messages = await this.adapter.getThreadMessages(channelId, threadId, 20);
@@ -633,6 +634,7 @@ export class MessageHandler {
               speaker = `${name} (${m.userId})`;
             }
             contextLines.push(`${speaker}: ${m.text}`);
+            if (m.files) threadFiles.push(...m.files);
           }
 
           let context = contextLines.join('\n');
@@ -667,8 +669,8 @@ export class MessageHandler {
       }
     }
 
-    // Download files via adapter — direct attachments + any from linked messages
-    const allFiles = [...(files ?? []), ...resolvedFiles];
+    // Download files via adapter — direct attachments + files from thread messages + any from linked messages
+    const allFiles = [...(files ?? []), ...threadFiles, ...resolvedFiles];
     const textChunks: string[] = [];
     const binaryBlocks: ContentBlockParam[] = [];
 
