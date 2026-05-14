@@ -106,7 +106,7 @@ export class SlackAdapter implements PlatformAdapter {
     } catch (err) {
       const raw = (err as Error).message;
       const friendly = /invalid_auth|not_authed|token_revoked/i.test(raw)
-        ? 'Slack bot token is invalid or revoked. Paste fresh bot and app tokens in Settings → Platform Integrations.'
+        ? 'Slack bot token is invalid or revoked. Update the Bot Token in the agent\'s Slack Credentials section.'
         : /missing_scope/i.test(raw)
           ? 'Slack app is missing required OAuth scopes. Reinstall the app with the scopes listed in Settings.'
           : `Slack auth failed: ${raw}`;
