@@ -43,13 +43,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const slackUsers = await fetchSlackUsers(token);
 
     const d = getDb();
-    const existing = await d.query('SELECT slack_user_id, slack_email, username FROM users');
+    const existing = await d.query('SELECT slack_user_id, slack_email FROM users');
     const existingSlackIds = new Set(existing.rows.map(r => r.slack_user_id as string).filter(Boolean));
-    const existingEmails = new Set(existing.rows.map(r => (r.slack_email || r.username) as string).filter(Boolean));
+    // Email-only dedup — fallback to username here previously matched display names
+    // against Slack emails (always false), polluting the equivalence class with no benefit.
+    const existingEmails = new Set(
+      existing.rows
+        .map(r => r.slack_email as string | null)
+        .filter((e): e is string => !!e && e.includes('@'))
+    );
 
     const members = slackUsers.map(u => ({
       ...u,
-      onboarded: existingSlackIds.has(u.id) || (u.email ? existingEmails.has(u.email) : false),
+      onboarded: existingSlackIds.has(u.id) || (!!u.email && existingEmails.has(u.email)),
     }));
 
     return NextResponse.json({ members });
@@ -68,7 +74,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'No users provided' }, { status: 400 });
     }
 
-    await Promise.all(body.users.map(u => upsertSlackUser(u.id, u.email || u.name, u.name)));
+    // Pass real email or null — never the display name. The prior `u.email || u.name`
+    // fallback caused 88 of 91 production rows to have the user's display name
+    // sitting in the slack_email column, breaking dedup, lookups, and any audit
+    // that filters by email domain.
+    await Promise.all(body.users.map(u => upsertSlackUser(u.id, u.email || null, u.name)));
 
     return NextResponse.json({ onboarded: body.users.length });
   } catch (err) {
