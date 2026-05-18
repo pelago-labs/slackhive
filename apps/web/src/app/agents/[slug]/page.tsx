@@ -132,11 +132,12 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         }
         if (role === 'admin' || role === 'superadmin') {
           setCanEdit(true);
+          setAgent(found);
           // Admins/superadmins can see Slack tokens — fetch detail endpoint
           fetch(`/api/agents/${found.id}`)
             .then(r => r.json())
             .then((detail: Agent) => setAgent(detail))
-            .catch(() => setAgent(found));
+            .catch(() => {});
         } else if (role === 'editor' || role === 'viewer') {
           setAgent(found);
           fetch(`/api/agents/${found.id}/access`)
@@ -150,7 +151,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               setViewOnly(readOnly);
               if (readOnly) setTab(t => (t === 'logs' || t === 'history') ? 'overview' : t);
               if (writable) {
-                // Editors with write access can also see tokens
+                // Editors with write access can also see tokens — update in background
                 fetch(`/api/agents/${found.id}`)
                   .then(r => r.json())
                   .then((detail: Agent) => setAgent(detail))

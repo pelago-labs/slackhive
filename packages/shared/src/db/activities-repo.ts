@@ -389,17 +389,16 @@ export async function listTasks(
   // has_active: 1 if any activity is in_progress
   // latest_status: status of the most recent activity by started_at
   const { rows } = await db.query(
-    `WITH agg AS (
-       SELECT
-         task_id,
-         MAX(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS has_active,
-         MAX(started_at) AS latest_started_at,
-         (SELECT a2.status FROM activities a2
-           WHERE a2.task_id = a.task_id
-           ORDER BY a2.started_at DESC LIMIT 1) AS latest_status
+    `WITH ranked AS (
+       SELECT task_id, status,
+              MAX(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) OVER (PARTITION BY task_id) AS has_active,
+              ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY started_at DESC, id DESC) AS rn
        FROM activities a
        ${cteWhereSql}
-       GROUP BY task_id
+     ),
+     agg AS (
+       SELECT task_id, has_active, status AS latest_status
+       FROM ranked WHERE rn = 1
      )
      SELECT t.*
        FROM tasks t

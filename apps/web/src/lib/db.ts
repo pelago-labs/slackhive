@@ -238,7 +238,9 @@ function rowToMemory(row: Record<string, unknown>): Memory {
  */
 export async function getAllAgents(): Promise<Agent[]> {
   const d = await db();
-  const r = await d.query('SELECT * FROM agents ORDER BY is_boss DESC, name ASC');
+  const r = await d.query(`SELECT id, slug, name, persona, description, model, status, enabled,
+    is_boss, verbose, reports_to, tags, created_by, created_at, updated_at,
+    last_error, runner_id, last_heartbeat FROM agents ORDER BY is_boss DESC, name ASC`);
   const agents = r.rows.map(rowToAgent);
 
   // Bulk load platform credentials for all agents
@@ -982,7 +984,7 @@ export async function getAllUsers(): Promise<Array<{ id: string; username: strin
            COUNT(aa.agent_id) AS agent_count
     FROM users u
     LEFT JOIN agent_access aa ON aa.user_id = u.id
-    GROUP BY u.id
+    GROUP BY u.id, u.username, u.role, u.created_at, u.slack_user_id
     ORDER BY u.created_at
   `);
   return r.rows.map(row => ({
