@@ -1,0 +1,19 @@
+checks:
+  - primitive: substring
+    target: final_reply
+    contains_from: must_contain
+
+cases:
+  - id: T001
+    status: approved
+    approved_by: tester
+    approved_at: 2026-05-20
+    question: Say hello
+    must_contain:
+      - "hello"
+
+  - id: T002
+    status: proposed
+    question: Say goodbye
+    must_contain:
+      - "bye"

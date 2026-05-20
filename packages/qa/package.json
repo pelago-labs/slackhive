@@ -8,9 +8,19 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
-    "typescript": "^5.3.0"
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^4.1.2",
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.2"
   }
 }

@@ -14,6 +14,7 @@ export type ClaudeMdData = {
   triggers: string[];
   mcpReferences: string[];
   skillReferences: string[];
+  wikiReferences: string[];
 };
 
 export type Skill = {
