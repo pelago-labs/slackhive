@@ -4,7 +4,8 @@ A fixture agent seeded with violations for each QA00N check, used in unit tests.
 
 ## Step 0 — Detect Trigger
 
-- **Trigger pattern `bad hello`** → run the bad flow.
+- **Trigger pattern `bad hello`** → run the bad flow (QA001 seed below).
+- **Trigger pattern `bad hello world`** → run the extended bad flow (QA003 seed: prefix overlap with above).
 - This agent references `mcp__undeclared-tool__do-thing` which is NOT declared in mcps.yaml (QA001 seed).
 
 ## More Seeds

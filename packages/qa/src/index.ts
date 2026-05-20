@@ -9,5 +9,7 @@ export {
 } from './loader';
 export { runQA001 } from './healthcheck/qa001-mcp-coverage';
 export { runQA002 } from './healthcheck/qa002-cross-refs';
+export { runQA003 } from './healthcheck/qa003-trigger-conflicts';
+export { runQA004 } from './healthcheck/qa004-skill-overlap';
 export { runQA005 } from './healthcheck/qa005-persona-hygiene';
 export { runQA006 } from './healthcheck/qa006-tool-prefix';
