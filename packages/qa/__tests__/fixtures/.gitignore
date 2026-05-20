@@ -1,0 +1,5 @@
+# Re-include CLAUDE.md files in test fixtures. Root .gitignore excludes
+# CLAUDE.md globally (it's used by Claude Code in the repo root), but the
+# QA framework's test fixtures need their own CLAUDE.md files to validate
+# the loader and healthcheck checks against realistic agent directory shapes.
+!CLAUDE.md
