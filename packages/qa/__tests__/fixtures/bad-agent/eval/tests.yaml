@@ -1,0 +1,20 @@
+# Bad-corpus fixture: deliberately mis-shaped for QA009 testing.
+
+checks:
+  - primitive: not_a_real_primitive       # QA009: invalid primitive
+    target: not_a_real_target             # QA009: invalid target
+    contains_from: nonexistent_field      # QA009: field not on any case
+    rubric: ./does-not-exist.md           # QA009: rubric file missing
+
+  - primitive: substring
+    target: final_reply
+    contains_from: must_contain           # OK — present on case
+
+cases:
+  - id: B001
+    status: approved
+    approved_by: tester
+    approved_at: 2026-05-20
+    question: bad case for shape tests
+    must_contain:
+      - "anything"

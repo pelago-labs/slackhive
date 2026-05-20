@@ -13,3 +13,6 @@ export { runQA003 } from './healthcheck/qa003-trigger-conflicts';
 export { runQA004 } from './healthcheck/qa004-skill-overlap';
 export { runQA005 } from './healthcheck/qa005-persona-hygiene';
 export { runQA006 } from './healthcheck/qa006-tool-prefix';
+export { runQA007 } from './healthcheck/qa007-wiki-coverage';
+export { runQA008 } from './healthcheck/qa008-test-coverage';
+export { runQA009 } from './healthcheck/qa009-corpus-shape';

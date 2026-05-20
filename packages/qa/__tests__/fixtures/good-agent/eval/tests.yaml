@@ -8,7 +8,7 @@ cases:
     status: approved
     approved_by: tester
     approved_at: 2026-05-20
-    question: Say hello
+    question: Use the test-skill to say hello world
     must_contain:
       - "hello"
 
