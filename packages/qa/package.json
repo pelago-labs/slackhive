@@ -6,6 +6,9 @@
   "description": "QA framework for Claude Code agents on slackhive: static healthcheck + composable regression eval",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "slackhive-qa": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

@@ -12,6 +12,12 @@ export type LoadAgentOptions = LoadCorpusOptions;
 export type LoadAgentResult = {
   config: AgentConfig;
   corpus: Corpus | null;
+  /**
+   * Set when an `eval/tests.yaml` file exists but failed to parse (malformed
+   * YAML, wrong top-level shape, etc.). The aggregator surfaces this as a
+   * QA009 issue rather than aborting the whole healthcheck run.
+   */
+  corpusError?: string;
 };
 
 export function loadAgent(agentDir: string, opts: LoadAgentOptions = {}): LoadAgentResult {
@@ -24,7 +30,14 @@ export function loadAgent(agentDir: string, opts: LoadAgentOptions = {}): LoadAg
   const skills = loadSkills(dir);
   const wikiEntities = loadWikiEntities(dir);
   const mcps = loadMcpServerNames(dir);
-  const corpus = loadCorpus(dir, opts);
+
+  let corpus: Corpus | null = null;
+  let corpusError: string | undefined;
+  try {
+    corpus = loadCorpus(dir, opts);
+  } catch (err) {
+    corpusError = err instanceof Error ? err.message : String(err);
+  }
 
   const config: AgentConfig = {
     dir,
@@ -34,7 +47,7 @@ export function loadAgent(agentDir: string, opts: LoadAgentOptions = {}): LoadAg
     mcps,
   };
 
-  return { config, corpus };
+  return { config, corpus, corpusError };
 }
 
 export { loadCorpus, type LoadCorpusOptions } from './corpus';

@@ -16,3 +16,10 @@ export { runQA006 } from './healthcheck/qa006-tool-prefix';
 export { runQA007 } from './healthcheck/qa007-wiki-coverage';
 export { runQA008 } from './healthcheck/qa008-test-coverage';
 export { runQA009 } from './healthcheck/qa009-corpus-shape';
+export { runHealthcheck } from './healthcheck';
+export {
+  reportEslintStyle,
+  reportJson,
+  summarize,
+  type Summary,
+} from './healthcheck/reporter';
