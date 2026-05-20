@@ -7,3 +7,4 @@ export {
   type LoadAgentResult,
   type LoadCorpusOptions,
 } from './loader';
+export { runQA001 } from './healthcheck/qa001-mcp-coverage';

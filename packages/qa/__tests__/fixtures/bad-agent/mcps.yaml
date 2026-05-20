@@ -1,0 +1,7 @@
+# Bad agent fixture: declares ONE server. Skills/CLAUDE.md reference others
+# that are not declared — seeded violation for QA001.
+
+- name: notion
+  type: stdio
+  description: Notion (the only declared server here)
+  enabled: true
