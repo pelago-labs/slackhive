@@ -506,6 +506,53 @@ CREATE INDEX IF NOT EXISTS idx_activities_agent        ON activities(agent_id, s
 CREATE INDEX IF NOT EXISTS idx_activities_started      ON activities(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activities_in_progress  ON activities(status) WHERE status = 'in_progress';
 CREATE INDEX IF NOT EXISTS idx_tool_calls_activity     ON tool_calls(activity_id, started_at);
+
+-- Evals (Tier 2 regression eval — see docs/evals/T2-PLAN.md)
+CREATE TABLE IF NOT EXISTS eval_cases (
+  id            TEXT PRIMARY KEY,
+  agent_id      TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  status        TEXT NOT NULL DEFAULT 'proposed'
+                       CHECK (status IN ('approved', 'proposed')),
+  question      TEXT NOT NULL,
+  checks        TEXT NOT NULL,           -- JSON array of CheckConfig
+  approved_by   TEXT,
+  approved_at   TEXT,
+  created_by    TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS eval_runs (
+  id            TEXT PRIMARY KEY,
+  agent_id      TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  triggered_by  TEXT NOT NULL,
+  started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at   TEXT,
+  status        TEXT NOT NULL DEFAULT 'running'
+                       CHECK (status IN ('running', 'done', 'cancelled', 'error')),
+  pass_count    INTEGER NOT NULL DEFAULT 0,
+  fail_count    INTEGER NOT NULL DEFAULT 0,
+  suspect_count INTEGER NOT NULL DEFAULT 0,
+  infra_count   INTEGER NOT NULL DEFAULT 0,
+  total_ms      INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS eval_run_results (
+  id              TEXT PRIMARY KEY,
+  run_id          TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+  case_id         TEXT NOT NULL REFERENCES eval_cases(id) ON DELETE CASCADE,
+  verdict         TEXT NOT NULL CHECK (verdict IN ('PASS', 'FAIL', 'SUSPECT', 'INFRA')),
+  time_ms         INTEGER NOT NULL,
+  final_reply     TEXT,
+  tool_calls      TEXT,                  -- JSON array of ToolCallTrace
+  check_results   TEXT NOT NULL,         -- JSON array of CheckResult
+  judge_reasoning TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_eval_cases_agent_status ON eval_cases(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_agent_started ON eval_runs(agent_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_eval_run_results_run    ON eval_run_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_run_results_case   ON eval_run_results(case_id);
 `;
 
 // =============================================================================

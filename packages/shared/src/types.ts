@@ -990,3 +990,129 @@ export interface ActivityFilter {
    */
   accessibleAgentIds?: string[];
 }
+
+// =============================================================================
+// Evals (Tier 2 regression eval — see docs/evals/V1-DESIGN.md + T2-PLAN.md)
+// =============================================================================
+
+/**
+ * Outcome of a single check or case.
+ *
+ * - `PASS`     — all checks clean
+ * - `FAIL`     — any deterministic check failed OR judge says diverged
+ * - `SUSPECT`  — judge selector empty / judge flagged uncertain
+ * - `INFRA`    — tool errored, runner died, /test unreachable (not the agent's fault)
+ */
+export type Verdict = 'PASS' | 'FAIL' | 'SUSPECT' | 'INFRA';
+
+/**
+ * One check configuration, stored as JSON in `eval_cases.checks`.
+ * Discriminated by `primitive`; only fields relevant to that primitive
+ * are populated.
+ */
+export type CheckConfig =
+  | {
+      primitive: 'substring';
+      target: 'final_reply';
+      must_contain?: string[];
+      must_not_contain?: string[];
+    }
+  | {
+      primitive: 'tool_called';
+      must_call?: string[];
+      must_not_call?: string[];
+    }
+  | {
+      primitive: 'llm_judge';
+      target: 'final_reply';
+      rubric: string;
+      groundtruth?: string;
+    };
+
+/**
+ * Per-check evaluation result. One per `CheckConfig` in a case.
+ * Persisted as part of `eval_run_results.check_results` JSON.
+ */
+export interface CheckResult {
+  primitive: CheckConfig['primitive'];
+  verdict: Verdict;
+  message?: string;
+}
+
+/**
+ * One tool call from the agent's response, captured by the SSE runner.
+ * Persisted as part of `eval_run_results.tool_calls` JSON.
+ */
+export interface ToolCallTrace {
+  toolId: string;
+  input: Record<string, unknown>;
+}
+
+/**
+ * A test case — a question + the checks its response must satisfy.
+ * Human-curated, lives in `eval_cases` table.
+ */
+export interface EvalCase {
+  id: string;
+  agentId: string;
+  status: 'approved' | 'proposed';
+  question: string;
+  checks: CheckConfig[];
+  approvedBy?: string;
+  approvedAt?: Date;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * A single execution of an agent's approved cases.
+ * Lives in `eval_runs` table. Counts roll up across `eval_run_results`.
+ */
+export interface EvalRun {
+  id: string;
+  agentId: string;
+  triggeredBy: string;
+  startedAt: Date;
+  finishedAt?: Date;
+  status: 'running' | 'done' | 'cancelled' | 'error';
+  passCount: number;
+  failCount: number;
+  suspectCount: number;
+  infraCount: number;
+  totalMs?: number;
+}
+
+/**
+ * Result of running one case within one run.
+ * Lives in `eval_run_results` table.
+ */
+export interface EvalRunResult {
+  id: string;
+  runId: string;
+  caseId: string;
+  verdict: Verdict;
+  timeMs: number;
+  finalReply?: string;
+  toolCalls?: ToolCallTrace[];
+  checkResults: CheckResult[];
+  judgeReasoning?: string;
+}
+
+/**
+ * Request body for POST /api/agents/[id]/evals/cases.
+ */
+export interface CreateEvalCaseRequest {
+  question: string;
+  checks: CheckConfig[];
+  status?: 'approved' | 'proposed';
+}
+
+/**
+ * Request body for PATCH /api/agents/[id]/evals/cases/[caseId].
+ */
+export interface UpdateEvalCaseRequest {
+  question?: string;
+  checks?: CheckConfig[];
+  status?: 'approved' | 'proposed';
+}
