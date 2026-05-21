@@ -34,6 +34,10 @@ import type {
   CreateWikiFolderRequest,
   UpdateWikiFolderRequest,
   CreateWikiSourceRequest,
+  EvalCase,
+  CheckConfig,
+  CreateEvalCaseRequest,
+  UpdateEvalCaseRequest,
 } from '@slackhive/shared';
 import { getDb, initDb, encrypt, decrypt, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 import { getEncryptionKey } from './secrets';
@@ -1720,4 +1724,139 @@ export async function unassignWikiFolder(agentId: string, folderId: string): Pro
     'DELETE FROM agent_wiki_folders WHERE agent_id = $1 AND folder_id = $2',
     [agentId, folderId],
   );
+}
+
+// =============================================================================
+// Eval cases (Tier 2)
+// =============================================================================
+
+function rowToEvalCase(row: Record<string, unknown>): EvalCase {
+  const approvedAtRaw = row.approved_at ?? row.approvedAt;
+  return {
+    id: row.id as string,
+    agentId: (row.agent_id ?? row.agentId) as string,
+    status: row.status as EvalCase['status'],
+    question: row.question as string,
+    checks: JSON.parse(row.checks as string) as CheckConfig[],
+    approvedBy: (row.approved_by ?? row.approvedBy) as string | undefined,
+    approvedAt: approvedAtRaw ? new Date(approvedAtRaw as string) : undefined,
+    createdBy: (row.created_by ?? row.createdBy) as string,
+    createdAt: new Date((row.created_at ?? row.createdAt) as string),
+    updatedAt: new Date((row.updated_at ?? row.updatedAt) as string),
+  };
+}
+
+/**
+ * Lists eval cases for an agent, optionally filtered by status.
+ * Default order: oldest first (creation order = stable IDs in UI).
+ */
+export async function getEvalCases(
+  agentId: string,
+  opts: { status?: 'approved' | 'proposed' } = {},
+): Promise<EvalCase[]> {
+  const filters: string[] = ['agent_id = $1'];
+  const params: unknown[] = [agentId];
+  if (opts.status) {
+    filters.push(`status = $${params.length + 1}`);
+    params.push(opts.status);
+  }
+  const r = await (await db()).query(
+    `SELECT * FROM eval_cases WHERE ${filters.join(' AND ')} ORDER BY created_at ASC`,
+    params,
+  );
+  return r.rows.map(rowToEvalCase);
+}
+
+export async function getEvalCase(id: string): Promise<EvalCase | null> {
+  const r = await (await db()).query('SELECT * FROM eval_cases WHERE id = $1', [id]);
+  return r.rows[0] ? rowToEvalCase(r.rows[0]) : null;
+}
+
+/**
+ * Creates a new eval case. If `status` is `approved`, the approver is
+ * the same as the creator and `approved_at` is set to now.
+ */
+export async function createEvalCase(
+  agentId: string,
+  req: CreateEvalCaseRequest,
+  createdBy: string,
+): Promise<EvalCase> {
+  const id = randomUUID();
+  const status = req.status ?? 'proposed';
+  const approvedBy = status === 'approved' ? createdBy : null;
+  const approvedAt = status === 'approved' ? new Date().toISOString() : null;
+  const r = await (await db()).query(
+    `INSERT INTO eval_cases (id, agent_id, status, question, checks, approved_by, approved_at, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [
+      id,
+      agentId,
+      status,
+      req.question,
+      JSON.stringify(req.checks),
+      approvedBy,
+      approvedAt,
+      createdBy,
+    ],
+  );
+  return rowToEvalCase(r.rows[0]);
+}
+
+/**
+ * Patches an eval case. Toggling `status` between `proposed` and `approved`
+ * automatically updates `approved_by` / `approved_at`.
+ *
+ * Returns null if no case with that id.
+ */
+export async function updateEvalCase(
+  id: string,
+  patch: UpdateEvalCaseRequest,
+  currentUser: string,
+): Promise<EvalCase | null> {
+  const existing = await getEvalCase(id);
+  if (!existing) return null;
+
+  let approvedBy: string | null = existing.approvedBy ?? null;
+  let approvedAt: string | null = existing.approvedAt
+    ? existing.approvedAt.toISOString()
+    : null;
+  if (patch.status === 'approved' && existing.status === 'proposed') {
+    approvedBy = currentUser;
+    approvedAt = new Date().toISOString();
+  } else if (patch.status === 'proposed' && existing.status === 'approved') {
+    approvedBy = null;
+    approvedAt = null;
+  }
+
+  const r = await (await db()).query(
+    `UPDATE eval_cases
+     SET question = COALESCE($2, question),
+         checks = COALESCE($3, checks),
+         status = COALESCE($4, status),
+         approved_by = $5,
+         approved_at = $6,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING *`,
+    [
+      id,
+      patch.question ?? null,
+      patch.checks ? JSON.stringify(patch.checks) : null,
+      patch.status ?? null,
+      approvedBy,
+      approvedAt,
+    ],
+  );
+  return r.rows[0] ? rowToEvalCase(r.rows[0]) : null;
+}
+
+/**
+ * Hard-deletes an eval case. Returns false if no case with that id.
+ * Cascade clears any `eval_run_results` rows referencing it.
+ */
+export async function deleteEvalCase(id: string): Promise<boolean> {
+  const existing = await getEvalCase(id);
+  if (!existing) return false;
+  await (await db()).query('DELETE FROM eval_cases WHERE id = $1', [id]);
+  return true;
 }
