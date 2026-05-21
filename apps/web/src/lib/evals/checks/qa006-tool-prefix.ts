@@ -1,25 +1,30 @@
-import { join } from 'node:path';
-import type { AgentConfig, HealthcheckIssue } from '../types';
+/**
+ * @fileoverview QA006 — Tool prefix correctness.
+ *
+ * Catches bare hyphenated tool references where the qualified form
+ * (`mcp__<server>__<tool>`) also appears somewhere in the agent. If
+ * the qualified form is used in some places but a bare form leaks
+ * into others, the bare ones are likely authoring mistakes.
+ *
+ * Limitation: only catches tool names that contain a hyphen, since
+ * single-word names (e.g. `query`, `search`) are indistinguishable
+ * from normal prose.
+ *
+ * @module web/lib/evals/checks/qa006-tool-prefix
+ */
+
+import type { CheckContext, HealthcheckIssue } from '../types';
 
 const QUALIFIED_FULL = /\bmcp__[a-z][a-z0-9_-]*__[a-z_][a-z0-9_-]*\b/g;
 const HYPHENATED_WORD = /\b([a-z][a-z0-9]*-[a-z][a-z0-9-]*)\b/g;
 
-/**
- * QA006 — Tool prefix correctness.
- *
- * Catches bare hyphenated tool references where the qualified form
- * (`mcp__<server>__<tool>`) also appears somewhere in the agent. If
- * the qualified form is used in some places but the bare form leaks into
- * others, the bare ones are likely authoring mistakes.
- *
- * Limitation: only catches tool names that contain a hyphen, since
- * single-word names (e.g. `query`, `search`) are indistinguishable from
- * normal prose.
- */
-export function runQA006(config: AgentConfig): HealthcheckIssue[] {
-  const files = [
-    { relPath: 'CLAUDE.md', raw: config.claudeMd.raw },
-    ...config.skills.map((s) => ({ relPath: `skills/${s.path}`, raw: s.raw })),
+export function runQA006(ctx: CheckContext): HealthcheckIssue[] {
+  const files: Array<{ file: string; raw: string }> = [
+    { file: 'CLAUDE.md', raw: ctx.parsedClaudeMd.raw },
+    ...ctx.skills.map((s) => ({
+      file: `skills/${s.category}/${s.filename}`,
+      raw: s.content,
+    })),
   ];
 
   // Collect hyphenated tool names from all qualified refs across the agent.
@@ -35,7 +40,7 @@ export function runQA006(config: AgentConfig): HealthcheckIssue[] {
   if (knownTools.size === 0) return [];
 
   const issues: HealthcheckIssue[] = [];
-  for (const { relPath, raw } of files) {
+  for (const { file, raw } of files) {
     const lines = raw.split('\n');
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -56,7 +61,7 @@ export function runQA006(config: AgentConfig): HealthcheckIssue[] {
         issues.push({
           code: 'QA006',
           severity: 'error',
-          file: join(config.dir, relPath),
+          file,
           line: i + 1,
           message: `Bare tool reference "${tool}" should be qualified with the mcp__<server>__ prefix`,
         });

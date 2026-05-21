@@ -1,6 +1,0 @@
-# Test MCP config used in loader fixtures.
-
-- name: notion
-  type: stdio
-  description: Notion fetcher (fake)
-  enabled: true

@@ -1,14 +1,16 @@
-import { join } from 'node:path';
-import type { AgentConfig, HealthcheckIssue } from '../types';
-
 /**
- * QA005 — Persona hygiene.
+ * @fileoverview QA005 — Persona hygiene.
  *
- * Scans CLAUDE.md and every skill for banned patterns that indicate either
- * dangerous instructions (force-push, --no-verify, rm -rf), prompt-injection
- * markers (ignore previous/prior), system-override attempts, or
- * sycophantic directives (always agree).
+ * Scans `claudeMd` and every skill for banned patterns that indicate
+ * dangerous instructions (force-push, --no-verify, rm -rf),
+ * prompt-injection markers (ignore previous/prior), system-override
+ * attempts, or sycophantic directives (always agree).
+ *
+ * @module web/lib/evals/checks/qa005-persona-hygiene
  */
+
+import type { CheckContext, HealthcheckIssue } from '../types';
+
 const BANNED: Array<{ pattern: RegExp; description: string }> = [
   { pattern: /\bforce[ -]push\b/i, description: 'force-push (risky git operation)' },
   { pattern: /--no-verify\b/i, description: '--no-verify (skips git hooks)' },
@@ -18,18 +20,18 @@ const BANNED: Array<{ pattern: RegExp; description: string }> = [
   { pattern: /\balways agree\b/i, description: 'always-agree directive' },
 ];
 
-export function runQA005(config: AgentConfig): HealthcheckIssue[] {
+export function runQA005(ctx: CheckContext): HealthcheckIssue[] {
   const issues: HealthcheckIssue[] = [];
 
-  const files = [
-    { absPath: join(config.dir, 'CLAUDE.md'), raw: config.claudeMd.raw },
-    ...config.skills.map((s) => ({
-      absPath: join(config.dir, 'skills', s.path),
-      raw: s.raw,
+  const files: Array<{ file: string; raw: string }> = [
+    { file: 'CLAUDE.md', raw: ctx.parsedClaudeMd.raw },
+    ...ctx.skills.map((s) => ({
+      file: `skills/${s.category}/${s.filename}`,
+      raw: s.content,
     })),
   ];
 
-  for (const { absPath, raw } of files) {
+  for (const { file, raw } of files) {
     const lines = raw.split('\n');
     for (let i = 0; i < lines.length; i++) {
       for (const { pattern, description } of BANNED) {
@@ -38,7 +40,7 @@ export function runQA005(config: AgentConfig): HealthcheckIssue[] {
           issues.push({
             code: 'QA005',
             severity: 'error',
-            file: absPath,
+            file,
             line: i + 1,
             message: `Banned pattern: ${description} — matched "${m[0]}"`,
           });
