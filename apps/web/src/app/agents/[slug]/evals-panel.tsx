@@ -22,8 +22,10 @@ import {
   ChevronRight,
   HelpCircle,
   Loader2,
+  Plus,
   RotateCcw,
 } from 'lucide-react';
+import { EvalsCasesDrawer } from './evals-cases-drawer';
 
 interface Issue {
   code: string;
@@ -61,6 +63,25 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
   const [hoveredHelp, setHoveredHelp] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerStartInNew, setDrawerStartInNew] = useState(false);
+  const [caseCounts, setCaseCounts] = useState({ total: 0, approved: 0, proposed: 0 });
+
+  const fetchCaseCounts = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/agents/${agent.id}/evals/cases`);
+      if (!r.ok) return;
+      const cases = (await r.json()) as Array<{ status: 'approved' | 'proposed' }>;
+      const approved = cases.filter((c) => c.status === 'approved').length;
+      setCaseCounts({ total: cases.length, approved, proposed: cases.length - approved });
+    } catch {
+      // silent — count is informational only
+    }
+  }, [agent.id]);
+
+  useEffect(() => {
+    fetchCaseCounts();
+  }, [fetchCaseCounts]);
 
   const fetchHealthcheck = useCallback(async () => {
     setLoading(true);
@@ -347,37 +368,108 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
         )}
       </section>
 
-      {/* ── Tier 2 placeholder ────────────────────────────── */}
+      {/* ── Tier 2 ────────────────────────────────────────── */}
       <section style={{ marginTop: 32 }}>
-        <header style={{ marginBottom: 14 }}>
+        <header style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>
             Tier 2 · Regression eval
           </div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            Define test cases · run them to catch behavioral regressions.
+          </div>
         </header>
+
+        {/* Test cases sub-section */}
+        <div
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            background: 'var(--surface)',
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 14,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Test cases</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              {caseCounts.total === 0
+                ? 'No cases yet'
+                : `${caseCounts.total} case${caseCounts.total === 1 ? '' : 's'} · ${caseCounts.approved} approved · ${caseCounts.proposed} proposed`}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => {
+                setDrawerStartInNew(true);
+                setDrawerOpen(true);
+              }}
+              style={{
+                background: 'var(--accent)',
+                color: 'var(--accent-fg)',
+                border: 'none',
+                borderRadius: 6,
+                padding: '7px 12px',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontFamily: 'inherit',
+              }}
+            >
+              <Plus size={14} /> Add case
+            </button>
+            <button
+              onClick={() => {
+                setDrawerStartInNew(false);
+                setDrawerOpen(true);
+              }}
+              style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border-2)',
+                borderRadius: 6,
+                padding: '7px 12px',
+                fontSize: 13,
+                cursor: 'pointer',
+                color: 'var(--text)',
+                fontFamily: 'inherit',
+              }}
+            >
+              Manage cases
+            </button>
+          </div>
+        </div>
+
+        {/* Regression run placeholder */}
         <div
           style={{
             border: '1px dashed var(--border-2)',
             borderRadius: 10,
-            padding: '32px 24px',
+            padding: '24px 20px',
             background: 'var(--surface)',
             textAlign: 'center',
           }}
         >
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 500,
-              color: 'var(--text-2)',
-              marginBottom: 6,
-            }}
-          >
-            Coming soon
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', marginBottom: 6 }}>
+            Run regression — coming soon
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Regression eval runner (SSE-based, with LLM judge) + test case CRUD ship in v1.5.
+            Once cases are approved, the regression runner (SSE + LLM judge) will execute them and stream PASS/FAIL/SUSPECT verdicts here.
           </div>
         </div>
       </section>
+
+      <EvalsCasesDrawer
+        agent={agent}
+        open={drawerOpen}
+        startInNew={drawerStartInNew}
+        onClose={() => setDrawerOpen(false)}
+        onCasesChanged={fetchCaseCounts}
+      />
     </div>
   );
 }
