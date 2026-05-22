@@ -29,7 +29,7 @@ import {
   DEFAULT_EVAL_JUDGE_MODEL,
   EVAL_JUDGE_MODEL_SETTING_KEY,
 } from '@slackhive/shared';
-import { getEvalCases, getSetting } from '@/lib/db';
+import { getSetting } from '@/lib/db';
 import { evaluateStaticCheck } from './check-primitives';
 import { callJudge } from './judge';
 import { cleanupCaseSession, runCase, type Trace } from './run-case';
@@ -202,34 +202,3 @@ export function caseExecutionToRunResult(
   };
 }
 
-export interface RegressionSummary {
-  passCount: number;
-  failCount: number;
-  suspectCount: number;
-  infraCount: number;
-}
-
-export function summarize(executions: CaseExecution[]): RegressionSummary {
-  return {
-    passCount: executions.filter((e) => e.verdict === 'PASS').length,
-    failCount: executions.filter((e) => e.verdict === 'FAIL').length,
-    suspectCount: executions.filter((e) => e.verdict === 'SUSPECT').length,
-    infraCount: executions.filter((e) => e.verdict === 'INFRA').length,
-  };
-}
-
-/**
- * Top-level: runs all approved cases for an agent sequentially.
- *
- * Does NOT persist anything yet — that's the API route's job (T5).
- * Caller is responsible for creating the eval_runs row, calling this,
- * inserting eval_run_results, and updating the run with the summary.
- */
-export async function runApprovedCases(agentId: string): Promise<CaseExecution[]> {
-  const cases = await getEvalCases(agentId, { status: 'approved' });
-  const out: CaseExecution[] = [];
-  for (const c of cases) {
-    out.push(await executeCase(c));
-  }
-  return out;
-}

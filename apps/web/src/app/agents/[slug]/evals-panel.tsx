@@ -673,9 +673,24 @@ function RunSubtitle({
   }
   const when = relativeTime(latest.run.startedAt);
   if (latest.run.status === 'running') {
+    const { passCount, failCount, suspectCount, infraCount } = latest.run;
+    const done = passCount + failCount + suspectCount + infraCount;
+    // approvedCount is the current count; if the user added cases during a run
+    // it'll be slightly off. For v1 this is acceptable.
+    const total = Math.max(approvedCount, done + 1);
+    const partial = [
+      passCount > 0 && `${passCount} PASS`,
+      failCount > 0 && `${failCount} FAIL`,
+      suspectCount > 0 && `${suspectCount} SUSPECT`,
+      infraCount > 0 && `${infraCount} INFRA`,
+    ]
+      .filter(Boolean)
+      .join(' · ');
     return (
       <div style={subStyle}>
-        Running · started {when} by {latest.run.triggeredBy}
+        Running case {done + 1} of {total}
+        {partial && ` · ${partial}`}
+        {' '}· started {when}
         {historyLink}
       </div>
     );

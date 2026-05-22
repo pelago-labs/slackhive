@@ -20,13 +20,14 @@ import {
   failEvalRun,
   finalizeEvalRun,
   getAgentById,
+  getEvalCases,
   getEvalRuns,
   insertEvalRunResult,
+  updateEvalRunProgress,
 } from '@/lib/db';
 import {
   caseExecutionToRunResult,
-  runApprovedCases,
-  summarize,
+  executeCase,
 } from '@/lib/evals/run-regression';
 
 export const dynamic = 'force-dynamic';
@@ -68,21 +69,36 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
 
     const run = await createEvalRun(id, session.username);
 
-    // Fire-and-forget — orchestrator runs in the background.
-    // The HTTP response returns immediately with the running run id.
+    // Fire-and-forget — orchestrator runs in the background, persisting
+    // results + updating counts after each case so the UI can poll
+    // and show partial progress.
     void (async () => {
       try {
-        const executions = await runApprovedCases(id);
-        for (const exec of executions) {
+        const cases = await getEvalCases(id, { status: 'approved' });
+        const counts = { passCount: 0, failCount: 0, suspectCount: 0, infraCount: 0 };
+        let totalMs = 0;
+
+        for (const c of cases) {
+          const exec = await executeCase(c);
+          totalMs += exec.timeMs;
+          if (exec.verdict === 'PASS') counts.passCount++;
+          else if (exec.verdict === 'FAIL') counts.failCount++;
+          else if (exec.verdict === 'SUSPECT') counts.suspectCount++;
+          else if (exec.verdict === 'INFRA') counts.infraCount++;
+
           try {
             await insertEvalRunResult(caseExecutionToRunResult(exec, run.id));
           } catch (insertErr) {
             console.error('[evals:run] insertEvalRunResult failed', insertErr);
           }
+          try {
+            await updateEvalRunProgress(run.id, counts);
+          } catch (progressErr) {
+            console.error('[evals:run] updateEvalRunProgress failed', progressErr);
+          }
         }
-        const summary = summarize(executions);
-        const totalMs = executions.reduce((acc, e) => acc + e.timeMs, 0);
-        await finalizeEvalRun(run.id, summary, totalMs);
+
+        await finalizeEvalRun(run.id, counts, totalMs);
       } catch (err) {
         console.error('[evals:run] orchestrator failed', err);
         try {

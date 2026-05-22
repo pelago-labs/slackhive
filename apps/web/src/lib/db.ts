@@ -1963,6 +1963,26 @@ export async function createEvalRun(agentId: string, triggeredBy: string): Promi
 }
 
 /**
+ * Increments the counts on a running eval_runs row without changing
+ * status / finished_at. Called per-case by the orchestrator so the UI
+ * can show partial progress while a run is in flight.
+ */
+export async function updateEvalRunProgress(
+  runId: string,
+  counts: { passCount: number; failCount: number; suspectCount: number; infraCount: number },
+): Promise<void> {
+  await (await db()).query(
+    `UPDATE eval_runs
+       SET pass_count = $2,
+           fail_count = $3,
+           suspect_count = $4,
+           infra_count = $5
+     WHERE id = $1`,
+    [runId, counts.passCount, counts.failCount, counts.suspectCount, counts.infraCount],
+  );
+}
+
+/**
  * Marks a run done with the final counts and total elapsed time.
  */
 export async function finalizeEvalRun(
