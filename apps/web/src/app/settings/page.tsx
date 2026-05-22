@@ -10,7 +10,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { KeyRound } from 'lucide-react';
-import { MODELS, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from '@slackhive/shared';
+import {
+  MODELS,
+  DEFAULT_COACH_MODEL,
+  COACH_MODEL_SETTING_KEY,
+  DEFAULT_EVAL_JUDGE_MODEL,
+  EVAL_JUDGE_MODEL_SETTING_KEY,
+} from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 
@@ -37,6 +43,7 @@ const DEFAULTS: Record<string, string> = {
   logoUrl: '',
   dashboardTitle: 'Welcome to SlackHive',
   [COACH_MODEL_SETTING_KEY]: DEFAULT_COACH_MODEL,
+  [EVAL_JUDGE_MODEL_SETTING_KEY]: DEFAULT_EVAL_JUDGE_MODEL,
 };
 
 /**
@@ -85,6 +92,7 @@ function GeneralTab() {
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
   const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
+  const [evalJudgeModel, setEvalJudgeModel] = useState(DEFAULTS[EVAL_JUDGE_MODEL_SETTING_KEY]);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -97,6 +105,7 @@ function GeneralTab() {
         if (s.logoUrl !== undefined && s.logoUrl !== '') setLogoUrl(s.logoUrl);
         if (s.dashboardTitle) setDashboardTitle(s.dashboardTitle);
         if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
+        if (s[EVAL_JUDGE_MODEL_SETTING_KEY]) setEvalJudgeModel(s[EVAL_JUDGE_MODEL_SETTING_KEY]);
       })
       .catch(() => {});
   }, []);
@@ -122,6 +131,7 @@ function GeneralTab() {
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'logoUrl', value: logoUrl }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'dashboardTitle', value: dashboardTitle }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: COACH_MODEL_SETTING_KEY, value: coachModel }) }),
+        fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: EVAL_JUDGE_MODEL_SETTING_KEY, value: evalJudgeModel }) }),
       ]);
       setToast('All settings saved');
       setTimeout(() => setToast(''), 2000);
@@ -166,6 +176,13 @@ function GeneralTab() {
           options={MODELS}
           onChange={v => { setCoachModel(v); save(COACH_MODEL_SETTING_KEY, v); }}
           hint="Model used by Coach to generate prompts and skills. Not the model your agents run on."
+        />
+        <SelectField
+          label="Evals Judge Model"
+          value={evalJudgeModel}
+          options={MODELS}
+          onChange={v => { setEvalJudgeModel(v); save(EVAL_JUDGE_MODEL_SETTING_KEY, v); }}
+          hint="Model used by the Tier 2 regression evals to judge agent responses against rubrics. Called once per case per run — Haiku keeps cost low; switch to Sonnet/Opus if rubrics need deeper judgment."
         />
       </Section>
 
