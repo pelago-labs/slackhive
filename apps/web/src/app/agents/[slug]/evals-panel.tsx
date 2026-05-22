@@ -451,66 +451,72 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
           </div>
         </header>
 
-        {/* Test cases sub-section */}
+        {/* Unified card: cases header (thin top row) + regression run body */}
         <div
           style={{
             border: '1px solid var(--border)',
             borderRadius: 10,
             background: 'var(--surface)',
             padding: '14px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 14,
           }}
         >
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>Test cases</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {caseCounts.total === 0
-                ? 'No cases yet'
-                : `${caseCounts.total} case${caseCounts.total === 1 ? '' : 's'} · ${caseCounts.approved} approved · ${caseCounts.proposed} proposed`}
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              setDrawerStartInNew(caseCounts.total === 0);
-              setDrawerOpen(true);
-            }}
+          {/* Top row — cases summary + Manage cases */}
+          <div
             style={{
-              background: 'var(--accent)',
-              color: 'var(--accent-fg)',
-              border: 'none',
-              borderRadius: 6,
-              padding: '7px 14px',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer',
-              display: 'inline-flex',
+              display: 'flex',
               alignItems: 'center',
-              gap: 6,
-              fontFamily: 'inherit',
+              justifyContent: 'space-between',
+              gap: 14,
+              paddingBottom: 12,
+              borderBottom: '1px solid var(--border)',
+              marginBottom: 14,
             }}
           >
-            {caseCounts.total === 0 ? (
-              <>
-                <Plus size={14} /> Add your first case
-              </>
-            ) : (
-              'Manage cases'
-            )}
-          </button>
-        </div>
+            <div style={{ fontSize: 13 }}>
+              {caseCounts.total === 0 ? (
+                <span style={{ color: 'var(--muted)' }}>No cases yet</span>
+              ) : (
+                <>
+                  <strong>
+                    {caseCounts.total} case{caseCounts.total === 1 ? '' : 's'}
+                  </strong>
+                  <span style={{ color: 'var(--muted)' }}>
+                    {' · '}
+                    {caseCounts.approved} approved · {caseCounts.proposed} proposed
+                  </span>
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setDrawerStartInNew(caseCounts.total === 0);
+                setDrawerOpen(true);
+              }}
+              style={{
+                background: 'var(--surface)',
+                color: 'var(--text)',
+                border: '1px solid var(--border-2)',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: 13,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {caseCounts.total === 0 ? (
+                <>
+                  <Plus size={14} /> Add your first case
+                </>
+              ) : (
+                'Manage cases'
+              )}
+            </button>
+          </div>
 
-        {/* Run regression card */}
-        <div
-          style={{
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            background: 'var(--surface)',
-            padding: '14px 16px',
-          }}
-        >
           <div
             style={{
               display: 'flex',
@@ -521,8 +527,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>Run regression</div>
-              <RunSubtitle
+              <RunHeader
                 latest={latest}
                 approvedCount={caseCounts.approved}
                 onShowHistory={() => setHistoryOpen(true)}
@@ -632,7 +637,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
 
 // ─── Tier 2 sub-components ────────────────────────────────────────────────────
 
-function RunSubtitle({
+function RunHeader({
   latest,
   approvedCount,
   onShowHistory,
@@ -641,6 +646,7 @@ function RunSubtitle({
   approvedCount: number;
   onShowHistory: () => void;
 }) {
+  const titleStyle: React.CSSProperties = { fontSize: 14, fontWeight: 600 };
   const subStyle: React.CSSProperties = { fontSize: 12, color: 'var(--muted)', marginTop: 2 };
   const historyLink = (
     <button
@@ -664,19 +670,23 @@ function RunSubtitle({
   );
 
   if (!latest) {
-    if (approvedCount === 0) {
-      return (
-        <div style={subStyle}>Add and approve test cases above before running.</div>
-      );
-    }
-    return <div style={subStyle}>No runs yet. Click Run regression to start.</div>;
+    return (
+      <>
+        <div style={titleStyle}>Run regression</div>
+        <div style={subStyle}>
+          {approvedCount === 0
+            ? 'Add and approve test cases above before running.'
+            : 'No runs yet. Click Run regression to start.'}
+        </div>
+      </>
+    );
   }
+
   const when = relativeTime(latest.run.startedAt);
+
   if (latest.run.status === 'running') {
     const { passCount, failCount, suspectCount, infraCount } = latest.run;
     const done = passCount + failCount + suspectCount + infraCount;
-    // approvedCount is the current count; if the user added cases during a run
-    // it'll be slightly off. For v1 this is acceptable.
     const total = Math.max(approvedCount, done + 1);
     const partial = [
       passCount > 0 && `${passCount} PASS`,
@@ -687,29 +697,47 @@ function RunSubtitle({
       .filter(Boolean)
       .join(' · ');
     return (
-      <div style={subStyle}>
-        Running case {done + 1} of {total}
-        {partial && ` · ${partial}`}
-        {' '}· started {when}
-        {historyLink}
-      </div>
+      <>
+        <div style={titleStyle}>
+          Running case {done + 1} of {total}
+        </div>
+        <div style={subStyle}>
+          {partial && partial + ' · '}started {when}
+          {historyLink}
+        </div>
+      </>
     );
   }
+
   if (latest.run.status === 'error') {
     return (
-      <div style={{ ...subStyle, color: 'var(--red)' }}>
-        Last run errored · started {when}. Click to retry.
-        {historyLink}
-      </div>
+      <>
+        <div style={{ ...titleStyle, color: 'var(--red)' }}>Last run errored</div>
+        <div style={subStyle}>
+          Started {when}. Click Run regression to retry.
+          {historyLink}
+        </div>
+      </>
     );
   }
+
+  // done
+  const total =
+    latest.run.passCount +
+    latest.run.failCount +
+    latest.run.suspectCount +
+    latest.run.infraCount;
   return (
-    <div style={subStyle}>
-      Last run · {when} by {latest.run.triggeredBy} ·{' '}
-      {latest.run.passCount + latest.run.failCount + latest.run.suspectCount + latest.run.infraCount}{' '}
-      cases
-      {historyLink}
-    </div>
+    <>
+      <div style={titleStyle}>
+        Last run · {when} by {latest.run.triggeredBy}
+      </div>
+      <div style={subStyle}>
+        {total} case{total === 1 ? '' : 's'}
+        {latest.run.totalMs != null && ` · ${(latest.run.totalMs / 1000).toFixed(1)}s`}
+        {historyLink}
+      </div>
+    </>
   );
 }
 
