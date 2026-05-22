@@ -26,7 +26,7 @@ import type {
   McpServer,
   UpdateEvalCaseRequest,
 } from '@slackhive/shared';
-import { Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Loader2, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { Portal } from '@/lib/portal';
 
 // ─── UI-facing check kinds ────────────────────────────────────────────────────
@@ -99,6 +99,7 @@ export function EvalsCasesDrawer({
   const [cases, setCases] = useState<EvalCase[]>([]);
   const [mcps, setMcps] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -113,6 +114,25 @@ export function EvalsCasesDrawer({
       setLoading(false);
     }
   }, [agent.id]);
+
+  const handleSuggest = useCallback(async () => {
+    if (suggesting) return;
+    setSuggesting(true);
+    try {
+      const res = await fetch(`/api/agents/${agent.id}/evals/suggest-cases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 3 }),
+      });
+      if (!res.ok) throw new Error(`Suggest failed: ${res.status}`);
+      await refresh();
+      onCasesChanged?.();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSuggesting(false);
+    }
+  }, [agent.id, suggesting, refresh, onCasesChanged]);
 
   useEffect(() => {
     if (!open) return;
@@ -200,7 +220,9 @@ export function EvalsCasesDrawer({
             <ListView
               cases={cases}
               loading={loading}
+              suggesting={suggesting}
               onNew={() => setMode({ kind: 'new' })}
+              onSuggest={handleSuggest}
               onEdit={(id) => setMode({ kind: 'edit', caseId: id })}
               onDelete={async (id) => {
                 if (!confirm('Delete this case? This cannot be undone.')) return;
@@ -241,13 +263,17 @@ export function EvalsCasesDrawer({
 function ListView({
   cases,
   loading,
+  suggesting,
   onNew,
+  onSuggest,
   onEdit,
   onDelete,
 }: {
   cases: EvalCase[];
   loading: boolean;
+  suggesting: boolean;
   onNew: () => void;
+  onSuggest: () => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
@@ -261,31 +287,62 @@ function ListView({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: 12,
           marginBottom: 14,
         }}
       >
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', minWidth: 0 }}>
           {loading ? 'Loading…' : `${cases.length} cases · ${approvedCount} approved · ${proposedCount} proposed`}
         </div>
-        <button
-          onClick={onNew}
-          style={{
-            background: 'var(--accent)',
-            color: 'var(--accent-fg)',
-            border: 'none',
-            borderRadius: 6,
-            padding: '6px 12px',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            fontFamily: 'inherit',
-          }}
-        >
-          <Plus size={14} /> Add case
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={onSuggest}
+            disabled={suggesting}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border-2)',
+              borderRadius: 6,
+              padding: '6px 12px',
+              fontSize: 13,
+              cursor: suggesting ? 'not-allowed' : 'pointer',
+              color: 'var(--text)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontFamily: 'inherit',
+              opacity: suggesting ? 0.7 : 1,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {suggesting ? (
+              <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+            ) : (
+              <Sparkles size={14} />
+            )}
+            {suggesting ? 'Generating…' : 'Suggest 3 more'}
+          </button>
+          <button
+            onClick={onNew}
+            disabled={suggesting}
+            style={{
+              background: 'var(--accent)',
+              color: 'var(--accent-fg)',
+              border: 'none',
+              borderRadius: 6,
+              padding: '6px 12px',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: suggesting ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontFamily: 'inherit',
+              opacity: suggesting ? 0.5 : 1,
+            }}
+          >
+            <Plus size={14} /> Add
+          </button>
+        </div>
       </div>
 
       {cases.length === 0 && !loading && (

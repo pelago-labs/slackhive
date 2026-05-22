@@ -753,6 +753,27 @@ export class AgentRunner {
         return;
       }
 
+      // Tier 2 case suggestion — one-shot LLM generation of N proposed cases.
+      if (req.method === 'POST' && req.url === '/suggest-cases') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { handleSuggestCases } = await import('./suggest-cases-handler-server');
+            await handleSuggestCases(body, res);
+          } catch (err) {
+            logger.error('Suggest-cases error', { error: (err as Error).message });
+            if (!res.headersSent) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            } else {
+              res.end();
+            }
+          }
+        });
+        return;
+      }
+
       // Tier 2 eval judge — one-shot JSON in, JSON out, no SSE.
       if (req.method === 'POST' && req.url === '/judge') {
         let body = '';
