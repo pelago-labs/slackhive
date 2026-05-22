@@ -160,7 +160,7 @@ function buildSuggestPrompt(req: SuggestCasesRequest): string {
     '',
     '# Your task',
     '',
-    `Design exactly ${req.count} test cases. Each case must have:`,
+    `Design exactly ${req.count} test ${req.count === 1 ? 'case' : 'cases'}. Each case must have:`,
     '- A `question`: the literal Slack message a user would send (1-2 sentences).',
     '- A `checks` array with 1-3 checks. Cases that exercise different aspects of the agent are more valuable.',
     '',
