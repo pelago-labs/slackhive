@@ -309,7 +309,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                     onClick={() => hasIssues && toggleCheck(meta.code)}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '24px 80px 1fr auto 20px',
+                      gridTemplateColumns: '24px 1fr auto 20px',
                       gap: 14,
                       alignItems: 'center',
                       padding: '11px 14px',
@@ -319,16 +319,6 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                     }}
                   >
                     <StatusIcon status={status} loading={loading} />
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 12,
-                        color: 'var(--muted)',
-                        fontWeight: 500,
-                      }}
-                    >
-                      {meta.code}
-                    </span>
                     <span style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       {meta.name}
                       <span
