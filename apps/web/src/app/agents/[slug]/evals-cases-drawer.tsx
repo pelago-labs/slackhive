@@ -455,14 +455,23 @@ function ListView({
               onClick={() => onEdit(c.id)}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr auto 28px 28px',
+                gridTemplateColumns: '20px 1fr auto 28px 28px',
                 gap: 10,
                 alignItems: 'center',
                 padding: '10px 14px',
                 cursor: 'pointer',
                 borderBottom: idx < cases.length - 1 ? '1px solid var(--border)' : 'none',
+                background: selected.has(c.id) ? 'var(--surface-2)' : 'transparent',
               }}
             >
+              <input
+                type="checkbox"
+                checked={selected.has(c.id)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => onToggleSelected(c.id)}
+                aria-label="Select case"
+                style={{ cursor: 'pointer', margin: 0 }}
+              />
               <div style={{ overflow: 'hidden' }}>
                 <div
                   style={{
