@@ -99,8 +99,8 @@ export function EvalsCasesDrawer({
   const [cases, setCases] = useState<EvalCase[]>([]);
   const [mcps, setMcps] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(false);
-  const [suggesting, setSuggesting] = useState(false);
-  const [suggestMessage, setSuggestMessage] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -116,31 +116,55 @@ export function EvalsCasesDrawer({
     }
   }, [agent.id]);
 
-  const handleSuggest = useCallback(async () => {
-    if (suggesting) return;
-    setSuggesting(true);
-    setSuggestMessage(null);
+  const handleBulkDelete = useCallback(async () => {
+    if (selected.size === 0 || bulkDeleting) return;
+    if (
+      !confirm(
+        `Delete ${selected.size} case${selected.size === 1 ? '' : 's'}? This cannot be undone.`,
+      )
+    )
+      return;
+    setBulkDeleting(true);
     try {
-      const res = await fetch(`/api/agents/${agent.id}/evals/suggest-cases`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: 3 }),
-      });
-      if (!res.ok) throw new Error(`Suggest failed: ${res.status}`);
-      const body = (await res.json()) as { created: unknown[] };
+      await Promise.all(
+        [...selected].map((id) =>
+          fetch(`/api/agents/${agent.id}/evals/cases/${id}`, { method: 'DELETE' }),
+        ),
+      );
+      setSelected(new Set());
       await refresh();
       onCasesChanged?.();
-      if (body.created.length === 0) {
-        setSuggestMessage(
-          "Couldn't generate valid cases — try giving the agent a richer CLAUDE.md or linking MCP servers.",
-        );
-      }
-    } catch (err) {
-      setSuggestMessage(err instanceof Error ? err.message : String(err));
     } finally {
-      setSuggesting(false);
+      setBulkDeleting(false);
     }
-  }, [agent.id, suggesting, refresh, onCasesChanged]);
+  }, [agent.id, selected, bulkDeleting, refresh, onCasesChanged]);
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  // Drop selection if cases change underneath us (e.g., after generate or refresh).
+  useEffect(() => {
+    if (selected.size === 0) return;
+    const live = new Set(cases.map((c) => c.id));
+    let pruned = false;
+    const next = new Set<string>();
+    for (const id of selected) {
+      if (live.has(id)) next.add(id);
+      else pruned = true;
+    }
+    if (pruned) setSelected(next);
+  }, [cases, selected]);
+
 
   useEffect(() => {
     if (!open) return;
@@ -228,11 +252,13 @@ export function EvalsCasesDrawer({
             <ListView
               cases={cases}
               loading={loading}
-              suggesting={suggesting}
-              suggestMessage={suggestMessage}
-              onDismissSuggestMessage={() => setSuggestMessage(null)}
+              selected={selected}
+              bulkDeleting={bulkDeleting}
+              onToggleSelected={toggleSelected}
+              onSelectAll={() => setSelected(new Set(cases.map((c) => c.id)))}
+              onClearSelection={clearSelection}
+              onBulkDelete={handleBulkDelete}
               onNew={() => setMode({ kind: 'new' })}
-              onSuggest={handleSuggest}
               onEdit={(id) => setMode({ kind: 'edit', caseId: id })}
               onDelete={async (id) => {
                 if (!confirm('Delete this case? This cannot be undone.')) return;
@@ -273,26 +299,32 @@ export function EvalsCasesDrawer({
 function ListView({
   cases,
   loading,
-  suggesting,
-  suggestMessage,
-  onDismissSuggestMessage,
+  selected,
+  bulkDeleting,
+  onToggleSelected,
+  onSelectAll,
+  onClearSelection,
+  onBulkDelete,
   onNew,
-  onSuggest,
   onEdit,
   onDelete,
 }: {
   cases: EvalCase[];
   loading: boolean;
-  suggesting: boolean;
-  suggestMessage: string | null;
-  onDismissSuggestMessage: () => void;
+  selected: Set<string>;
+  bulkDeleting: boolean;
+  onToggleSelected: (id: string) => void;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
+  onBulkDelete: () => void;
   onNew: () => void;
-  onSuggest: () => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
   const approvedCount = cases.filter((c) => c.status === 'approved').length;
   const proposedCount = cases.length - approvedCount;
+  const allSelected = cases.length > 0 && selected.size === cases.length;
+  const inSelectionMode = selected.size > 0;
 
   return (
     <>
@@ -305,94 +337,97 @@ function ListView({
           marginBottom: 14,
         }}
       >
-        <div style={{ fontSize: 12, color: 'var(--muted)', minWidth: 0 }}>
-          {loading ? 'Loading…' : `${cases.length} cases · ${approvedCount} approved · ${proposedCount} proposed`}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={onSuggest}
-            disabled={suggesting}
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border-2)',
-              borderRadius: 6,
-              padding: '6px 12px',
-              fontSize: 13,
-              cursor: suggesting ? 'not-allowed' : 'pointer',
-              color: 'var(--text)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              fontFamily: 'inherit',
-              opacity: suggesting ? 0.7 : 1,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {suggesting ? (
-              <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
-            ) : (
-              <Sparkles size={14} />
-            )}
-            {suggesting ? 'Generating…' : 'Suggest 3 more'}
-          </button>
-          <button
-            onClick={onNew}
-            disabled={suggesting}
-            style={{
-              background: 'var(--accent)',
-              color: 'var(--accent-fg)',
-              border: 'none',
-              borderRadius: 6,
-              padding: '6px 12px',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: suggesting ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              fontFamily: 'inherit',
-              opacity: suggesting ? 0.5 : 1,
-            }}
-          >
-            <Plus size={14} /> Add
-          </button>
-        </div>
+        {inSelectionMode ? (
+          <>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>
+              {selected.size} of {cases.length} selected
+              {!allSelected && (
+                <button
+                  onClick={onSelectAll}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--blue)',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    padding: 0,
+                    marginLeft: 10,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Select all
+                </button>
+              )}
+              <button
+                onClick={onClearSelection}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--muted)',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  padding: 0,
+                  marginLeft: 10,
+                  fontFamily: 'inherit',
+                }}
+              >
+                Clear
+              </button>
+            </div>
+            <button
+              onClick={onBulkDelete}
+              disabled={bulkDeleting}
+              style={{
+                background: 'var(--red-soft-bg, #fef2f2)',
+                color: 'var(--red)',
+                border: '1px solid var(--red-soft-border, #fecaca)',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: bulkDeleting ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontFamily: 'inherit',
+                opacity: bulkDeleting ? 0.6 : 1,
+              }}
+            >
+              {bulkDeleting ? (
+                <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} />
+              ) : (
+                <Trash2 size={13} />
+              )}
+              Delete selected
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--muted)', minWidth: 0 }}>
+              {loading ? 'Loading…' : `${cases.length} cases · ${approvedCount} approved · ${proposedCount} proposed`}
+            </div>
+            <button
+              onClick={onNew}
+              style={{
+                background: 'var(--accent)',
+                color: 'var(--accent-fg)',
+                border: 'none',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontFamily: 'inherit',
+              }}
+            >
+              <Plus size={14} /> Add
+            </button>
+          </>
+        )}
       </div>
-
-      {suggestMessage && (
-        <div
-          style={{
-            padding: '10px 14px',
-            background: 'var(--amber-soft-bg, #fffbeb)',
-            border: '1px solid var(--amber-soft-border, #fde68a)',
-            borderRadius: 8,
-            color: 'var(--amber)',
-            fontSize: 13,
-            marginBottom: 14,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            gap: 12,
-          }}
-        >
-          <span>{suggestMessage}</span>
-          <button
-            onClick={onDismissSuggestMessage}
-            aria-label="Dismiss"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--amber)',
-              cursor: 'pointer',
-              padding: 0,
-              fontSize: 16,
-              lineHeight: 1,
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )}
 
       {cases.length === 0 && !loading && (
         <div
@@ -535,6 +570,38 @@ function FormView({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoFilling, setAutoFilling] = useState(false);
+  const [autoFillNote, setAutoFillNote] = useState<string | null>(null);
+
+  async function autoFill() {
+    if (autoFilling) return;
+    setAutoFilling(true);
+    setAutoFillNote(null);
+    try {
+      const res = await fetch(`/api/agents/${agent.id}/evals/suggest-cases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 1 }),
+      });
+      if (!res.ok) throw new Error(`Generate failed: ${res.status}`);
+      const body = (await res.json()) as {
+        suggestions: Array<{ question: string; checks: CheckConfig[] }>;
+      };
+      const draft = body.suggestions[0];
+      if (!draft) {
+        setAutoFillNote(
+          "Couldn't generate a valid case — try giving the agent a richer CLAUDE.md or linking MCP servers, then try again.",
+        );
+        return;
+      }
+      setQuestion(draft.question);
+      setChecks(draft.checks);
+    } catch (err) {
+      setAutoFillNote(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAutoFilling(false);
+    }
+  }
 
   function updateCheck(idx: number, next: CheckConfig) {
     setChecks((prev) => prev.map((c, i) => (i === idx ? next : c)));
@@ -592,6 +659,64 @@ function FormView({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {!existing && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+            padding: '10px 12px',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            background: 'var(--surface-2)',
+          }}
+        >
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            Need a starting point? Auto-fill from this agent's context.
+          </div>
+          <button
+            onClick={autoFill}
+            disabled={autoFilling}
+            style={{
+              background: 'var(--surface)',
+              color: 'var(--text)',
+              border: '1px solid var(--border-2)',
+              borderRadius: 6,
+              padding: '6px 10px',
+              fontSize: 12,
+              cursor: autoFilling ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontFamily: 'inherit',
+              whiteSpace: 'nowrap',
+              opacity: autoFilling ? 0.7 : 1,
+            }}
+          >
+            {autoFilling ? (
+              <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} />
+            ) : (
+              <Sparkles size={13} />
+            )}
+            {autoFilling ? 'Generating…' : 'Auto-fill'}
+          </button>
+        </div>
+      )}
+      {autoFillNote && !existing && (
+        <div
+          style={{
+            padding: '8px 12px',
+            background: 'var(--amber-soft-bg, #fffbeb)',
+            border: '1px solid var(--amber-soft-border, #fde68a)',
+            borderRadius: 6,
+            color: 'var(--amber)',
+            fontSize: 12,
+          }}
+        >
+          {autoFillNote}
+        </div>
+      )}
       <Field label="Question" hint="The Slack message a user would send to the agent.">
         <textarea
           rows={2}

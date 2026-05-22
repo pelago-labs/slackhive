@@ -25,7 +25,6 @@ import {
   Play,
   Plus,
   RotateCcw,
-  Sparkles,
 } from 'lucide-react';
 import { EvalsCasesDrawer } from './evals-cases-drawer';
 import { EvalsRunsDrawer } from './evals-runs-drawer';
@@ -79,37 +78,6 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerStartInNew, setDrawerStartInNew] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [suggesting, setSuggesting] = useState(false);
-  const [suggestMessage, setSuggestMessage] = useState<string | null>(null);
-
-  async function handleSuggestCases() {
-    if (suggesting) return;
-    setSuggesting(true);
-    setSuggestMessage(null);
-    try {
-      const res = await fetch(`/api/agents/${agent.id}/evals/suggest-cases`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: 3 }),
-      });
-      if (!res.ok) throw new Error(`Suggest failed: ${res.status}`);
-      const body = (await res.json()) as { created: unknown[] };
-      await fetchCases();
-      if (body.created.length === 0) {
-        setSuggestMessage(
-          "Couldn't generate valid cases — try giving the agent a richer CLAUDE.md or linking MCP servers.",
-        );
-      } else {
-        // Auto-open Manage drawer so user sees what was generated.
-        setDrawerStartInNew(false);
-        setDrawerOpen(true);
-      }
-    } catch (err) {
-      setSuggestMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSuggesting(false);
-    }
-  }
   const [cases, setCases] = useState<EvalCase[]>([]);
   const [latest, setLatest] = useState<RunWithResults | null>(null);
   const [startingRun, setStartingRun] = useState(false);
@@ -515,137 +483,35 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                 : `${caseCounts.total} case${caseCounts.total === 1 ? '' : 's'} · ${caseCounts.approved} approved · ${caseCounts.proposed} proposed`}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {caseCounts.total === 0 ? (
-              <>
-                <button
-                  onClick={handleSuggestCases}
-                  disabled={suggesting}
-                  style={{
-                    background: 'var(--accent)',
-                    color: 'var(--accent-fg)',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '7px 14px',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: suggesting ? 'not-allowed' : 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontFamily: 'inherit',
-                    opacity: suggesting ? 0.7 : 1,
-                  }}
-                >
-                  {suggesting ? (
-                    <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
-                  ) : (
-                    <Sparkles size={14} />
-                  )}
-                  {suggesting ? 'Generating…' : 'Suggest cases'}
-                </button>
-                <button
-                  onClick={() => {
-                    setDrawerStartInNew(true);
-                    setDrawerOpen(true);
-                  }}
-                  disabled={suggesting}
-                  style={{
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border-2)',
-                    borderRadius: 6,
-                    padding: '7px 12px',
-                    fontSize: 13,
-                    cursor: suggesting ? 'not-allowed' : 'pointer',
-                    color: 'var(--text)',
-                    fontFamily: 'inherit',
-                    opacity: suggesting ? 0.5 : 1,
-                  }}
-                >
-                  + Add manually
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => {
-                    setDrawerStartInNew(true);
-                    setDrawerOpen(true);
-                  }}
-                  style={{
-                    background: 'var(--accent)',
-                    color: 'var(--accent-fg)',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '7px 12px',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  <Plus size={14} /> Add case
-                </button>
-                <button
-                  onClick={() => {
-                    setDrawerStartInNew(false);
-                    setDrawerOpen(true);
-                  }}
-                  style={{
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border-2)',
-                    borderRadius: 6,
-                    padding: '7px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    color: 'var(--text)',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  Manage cases
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {suggestMessage && (
-          <div
+          <button
+            onClick={() => {
+              setDrawerStartInNew(caseCounts.total === 0);
+              setDrawerOpen(true);
+            }}
             style={{
-              padding: '10px 14px',
-              background: 'var(--amber-soft-bg, #fffbeb)',
-              border: '1px solid var(--amber-soft-border, #fde68a)',
-              borderRadius: 8,
-              color: 'var(--amber)',
+              background: 'var(--accent)',
+              color: 'var(--accent-fg)',
+              border: 'none',
+              borderRadius: 6,
+              padding: '7px 14px',
               fontSize: 13,
-              marginBottom: 14,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start',
-              gap: 12,
+              fontWeight: 500,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontFamily: 'inherit',
             }}
           >
-            <span>{suggestMessage}</span>
-            <button
-              onClick={() => setSuggestMessage(null)}
-              aria-label="Dismiss"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--amber)',
-                cursor: 'pointer',
-                padding: 0,
-                fontSize: 16,
-                lineHeight: 1,
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
+            {caseCounts.total === 0 ? (
+              <>
+                <Plus size={14} /> Add your first case
+              </>
+            ) : (
+              'Manage cases'
+            )}
+          </button>
+        </div>
 
         {/* Run regression card */}
         <div
