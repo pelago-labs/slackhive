@@ -115,18 +115,3 @@ function checkToolCalled(
   return { primitive: 'tool_called', verdict: 'FAIL', message: parts.join('; ') };
 }
 
-/**
- * Stub judge result returned when the runner /judge endpoint isn't wired
- * up yet (T3b). The orchestrator hands every llm_judge through this and
- * surfaces SUSPECT verdicts in the UI until the real judge ships.
- *
- * Will be replaced in T3b with a real Anthropic-backed implementation
- * routed through the runner.
- */
-export function stubJudge(): CheckResult {
-  return {
-    primitive: 'llm_judge',
-    verdict: 'SUSPECT',
-    message: 'LLM judge not yet implemented (T3b pending — runner /judge endpoint).',
-  };
-}

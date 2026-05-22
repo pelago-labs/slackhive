@@ -27,6 +27,7 @@ import type {
   UpdateEvalCaseRequest,
 } from '@slackhive/shared';
 import { Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Portal } from '@/lib/portal';
 
 // ─── UI-facing check kinds ────────────────────────────────────────────────────
 
@@ -142,14 +143,12 @@ export function EvalsCasesDrawer({
           : 'Edit case';
 
   return (
-    <>
+    <Portal>
       <div
         onClick={onClose}
         style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(15, 23, 42, 0.45)',
-          backdropFilter: 'blur(2px)',
           zIndex: 100,
         }}
       />
@@ -233,7 +232,7 @@ export function EvalsCasesDrawer({
           )}
         </div>
       </aside>
-    </>
+    </Portal>
   );
 }
 

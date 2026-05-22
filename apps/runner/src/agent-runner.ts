@@ -753,6 +753,27 @@ export class AgentRunner {
         return;
       }
 
+      // Tier 2 eval judge — one-shot JSON in, JSON out, no SSE.
+      if (req.method === 'POST' && req.url === '/judge') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { handleJudge } = await import('./judge-handler-server');
+            await handleJudge(body, res);
+          } catch (err) {
+            logger.error('Judge error', { error: (err as Error).message });
+            if (!res.headersSent) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            } else {
+              res.end();
+            }
+          }
+        });
+        return;
+      }
+
       // Test-mode turn — SSE preview of the agent's runtime.
       if (req.url === '/test' && (req.method === 'POST' || req.method === 'DELETE')) {
         let body = '';

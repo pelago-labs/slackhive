@@ -18,14 +18,20 @@
 
 import { randomUUID } from 'crypto';
 import type {
+  CheckConfig,
   CheckResult,
   EvalCase,
   EvalRun,
   EvalRunResult,
   Verdict,
 } from '@slackhive/shared';
-import { getEvalCases } from '@/lib/db';
-import { evaluateStaticCheck, stubJudge } from './check-primitives';
+import {
+  DEFAULT_EVAL_JUDGE_MODEL,
+  EVAL_JUDGE_MODEL_SETTING_KEY,
+} from '@slackhive/shared';
+import { getEvalCases, getSetting } from '@/lib/db';
+import { evaluateStaticCheck } from './check-primitives';
+import { callJudge } from './judge';
 import { cleanupCaseSession, runCase, type Trace } from './run-case';
 
 const VERDICT_WORST_ORDER: Verdict[] = ['INFRA', 'FAIL', 'SUSPECT', 'PASS'];
@@ -106,6 +112,13 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
     (r) => r && (r.verdict === 'FAIL' || r.verdict === 'INFRA'),
   );
 
+  // Load judge model only if we'll actually need it.
+  let judgeModel: string | null = null;
+  if (judgeIndices.length > 0 && !anyStaticFailed) {
+    judgeModel =
+      (await getSetting(EVAL_JUDGE_MODEL_SETTING_KEY)) ?? DEFAULT_EVAL_JUDGE_MODEL;
+  }
+
   for (const i of judgeIndices) {
     if (anyStaticFailed) {
       // Skip the judge — would just burn API calls when the case is already FAIL
@@ -114,8 +127,37 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
         verdict: 'SUSPECT',
         message: 'Skipped — a static check already failed.',
       };
-    } else {
-      staticResults[i] = stubJudge();
+      continue;
+    }
+    if (!trace.finalReply) {
+      // Empty-selector rule for llm_judge: SUSPECT.
+      staticResults[i] = {
+        primitive: 'llm_judge',
+        verdict: 'SUSPECT',
+        message: 'Agent produced no reply for the judge to evaluate.',
+      };
+      continue;
+    }
+    const check = caseRow.checks[i] as Extract<CheckConfig, { primitive: 'llm_judge' }>;
+    try {
+      const judgeResult = await callJudge({
+        rubric: check.rubric,
+        question: caseRow.question,
+        finalReply: trace.finalReply,
+        groundtruth: check.groundtruth,
+        model: judgeModel!,
+      });
+      staticResults[i] = {
+        primitive: 'llm_judge',
+        verdict: judgeResult.verdict,
+        message: judgeResult.reasoning,
+      };
+    } catch (err) {
+      staticResults[i] = {
+        primitive: 'llm_judge',
+        verdict: 'INFRA',
+        message: `Judge call failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
   }
 
