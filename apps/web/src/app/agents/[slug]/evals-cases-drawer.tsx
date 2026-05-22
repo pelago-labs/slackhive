@@ -100,6 +100,7 @@ export function EvalsCasesDrawer({
   const [mcps, setMcps] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
+  const [suggestMessage, setSuggestMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -118,6 +119,7 @@ export function EvalsCasesDrawer({
   const handleSuggest = useCallback(async () => {
     if (suggesting) return;
     setSuggesting(true);
+    setSuggestMessage(null);
     try {
       const res = await fetch(`/api/agents/${agent.id}/evals/suggest-cases`, {
         method: 'POST',
@@ -125,10 +127,16 @@ export function EvalsCasesDrawer({
         body: JSON.stringify({ count: 3 }),
       });
       if (!res.ok) throw new Error(`Suggest failed: ${res.status}`);
+      const body = (await res.json()) as { created: unknown[] };
       await refresh();
       onCasesChanged?.();
+      if (body.created.length === 0) {
+        setSuggestMessage(
+          "Couldn't generate valid cases — try giving the agent a richer CLAUDE.md or linking MCP servers.",
+        );
+      }
     } catch (err) {
-      console.error(err);
+      setSuggestMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setSuggesting(false);
     }
@@ -221,6 +229,8 @@ export function EvalsCasesDrawer({
               cases={cases}
               loading={loading}
               suggesting={suggesting}
+              suggestMessage={suggestMessage}
+              onDismissSuggestMessage={() => setSuggestMessage(null)}
               onNew={() => setMode({ kind: 'new' })}
               onSuggest={handleSuggest}
               onEdit={(id) => setMode({ kind: 'edit', caseId: id })}
@@ -264,6 +274,8 @@ function ListView({
   cases,
   loading,
   suggesting,
+  suggestMessage,
+  onDismissSuggestMessage,
   onNew,
   onSuggest,
   onEdit,
@@ -272,6 +284,8 @@ function ListView({
   cases: EvalCase[];
   loading: boolean;
   suggesting: boolean;
+  suggestMessage: string | null;
+  onDismissSuggestMessage: () => void;
   onNew: () => void;
   onSuggest: () => void;
   onEdit: (id: string) => void;
@@ -344,6 +358,41 @@ function ListView({
           </button>
         </div>
       </div>
+
+      {suggestMessage && (
+        <div
+          style={{
+            padding: '10px 14px',
+            background: 'var(--amber-soft-bg, #fffbeb)',
+            border: '1px solid var(--amber-soft-border, #fde68a)',
+            borderRadius: 8,
+            color: 'var(--amber)',
+            fontSize: 13,
+            marginBottom: 14,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: 12,
+          }}
+        >
+          <span>{suggestMessage}</span>
+          <button
+            onClick={onDismissSuggestMessage}
+            aria-label="Dismiss"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--amber)',
+              cursor: 'pointer',
+              padding: 0,
+              fontSize: 16,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {cases.length === 0 && !loading && (
         <div

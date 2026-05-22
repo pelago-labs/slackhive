@@ -80,10 +80,12 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
   const [drawerStartInNew, setDrawerStartInNew] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
+  const [suggestMessage, setSuggestMessage] = useState<string | null>(null);
 
   async function handleSuggestCases() {
     if (suggesting) return;
     setSuggesting(true);
+    setSuggestMessage(null);
     try {
       const res = await fetch(`/api/agents/${agent.id}/evals/suggest-cases`, {
         method: 'POST',
@@ -91,12 +93,19 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
         body: JSON.stringify({ count: 3 }),
       });
       if (!res.ok) throw new Error(`Suggest failed: ${res.status}`);
+      const body = (await res.json()) as { created: unknown[] };
       await fetchCases();
-      // Auto-open Manage drawer so user sees what was generated.
-      setDrawerStartInNew(false);
-      setDrawerOpen(true);
+      if (body.created.length === 0) {
+        setSuggestMessage(
+          "Couldn't generate valid cases — try giving the agent a richer CLAUDE.md or linking MCP servers.",
+        );
+      } else {
+        // Auto-open Manage drawer so user sees what was generated.
+        setDrawerStartInNew(false);
+        setDrawerOpen(true);
+      }
     } catch (err) {
-      console.error(err);
+      setSuggestMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setSuggesting(false);
     }
@@ -602,6 +611,41 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
             )}
           </div>
         </div>
+
+        {suggestMessage && (
+          <div
+            style={{
+              padding: '10px 14px',
+              background: 'var(--amber-soft-bg, #fffbeb)',
+              border: '1px solid var(--amber-soft-border, #fde68a)',
+              borderRadius: 8,
+              color: 'var(--amber)',
+              fontSize: 13,
+              marginBottom: 14,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: 12,
+            }}
+          >
+            <span>{suggestMessage}</span>
+            <button
+              onClick={() => setSuggestMessage(null)}
+              aria-label="Dismiss"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--amber)',
+                cursor: 'pointer',
+                padding: 0,
+                fontSize: 16,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Run regression card */}
         <div
