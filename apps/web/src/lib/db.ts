@@ -127,7 +127,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
 const STALE_HEARTBEAT_MS = 45_000;
 
 /**
- * SQLite's `datetime('now')` returns naive UTC like `"2026-04-20 00:51:59"`.
+ * SQLite's `now()` returns naive UTC like `"2026-04-20 00:51:59"`.
  * `new Date(str)` parses that as LOCAL time, so in UTC+N every fresh
  * heartbeat looks N hours old. Normalize to ISO-with-Z before parsing.
  */
@@ -1645,7 +1645,7 @@ export async function updateWikiFolder(id: string, req: UpdateWikiFolderRequest)
   if (req.name !== undefined) { sets.push(`name = $${i++}`); vals.push(req.name); }
   if (req.description !== undefined) { sets.push(`description = $${i++}`); vals.push(req.description); }
   if (!sets.length) return getWikiFolder(id);
-  sets.push(`updated_at = datetime('now')`);
+  sets.push(`updated_at = now()`);
   vals.push(id);
   await (await db()).query(`UPDATE wiki_folders SET ${sets.join(', ')} WHERE id = $${i}`, vals);
   return getWikiFolder(id);
@@ -1734,6 +1734,24 @@ export async function unassignWikiFolder(agentId: string, folderId: string): Pro
 // Eval cases (Tier 2)
 // =============================================================================
 
+/** Coerce DB date column to ISO string regardless of driver shape (Date or string). */
+function toIsoString(v: unknown): string {
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+
+/** Safe JSON parse — corrupted rows shouldn't crash the whole endpoint. */
+function safeJsonParse<T>(raw: unknown, fallback: T, context: string): T {
+  if (raw == null) return fallback;
+  if (typeof raw !== 'string') return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    console.error(`[db] ${context} JSON parse failed`, err);
+    return fallback;
+  }
+}
+
 function rowToEvalCase(row: Record<string, unknown>): EvalCase {
   const approvedAtRaw = row.approved_at ?? row.approvedAt;
   return {
@@ -1741,12 +1759,12 @@ function rowToEvalCase(row: Record<string, unknown>): EvalCase {
     agentId: (row.agent_id ?? row.agentId) as string,
     status: row.status as EvalCase['status'],
     question: row.question as string,
-    checks: JSON.parse(row.checks as string) as CheckConfig[],
+    checks: safeJsonParse<CheckConfig[]>(row.checks, [], 'eval_cases.checks'),
     approvedBy: (row.approved_by ?? row.approvedBy) as string | undefined,
-    approvedAt: approvedAtRaw ? new Date(approvedAtRaw as string) : undefined,
+    approvedAt: approvedAtRaw ? toIsoString(approvedAtRaw) : undefined,
     createdBy: (row.created_by ?? row.createdBy) as string,
-    createdAt: new Date((row.created_at ?? row.createdAt) as string),
-    updatedAt: new Date((row.updated_at ?? row.updatedAt) as string),
+    createdAt: toIsoString(row.created_at ?? row.createdAt),
+    updatedAt: toIsoString(row.updated_at ?? row.updatedAt),
   };
 }
 
@@ -1807,8 +1825,10 @@ export async function createEvalCase(
 }
 
 /**
- * Patches an eval case. Toggling `status` between `proposed` and `approved`
- * automatically updates `approved_by` / `approved_at`.
+ * Patches an eval case in a single atomic UPDATE. Toggling `status`
+ * between `proposed` and `approved` automatically sets/clears
+ * `approved_by` / `approved_at` based on the OLD row's status (no
+ * separate read+write — no race).
  *
  * Returns null if no case with that id.
  */
@@ -1817,28 +1837,26 @@ export async function updateEvalCase(
   patch: UpdateEvalCaseRequest,
   currentUser: string,
 ): Promise<EvalCase | null> {
-  const existing = await getEvalCase(id);
-  if (!existing) return null;
-
-  let approvedBy: string | null = existing.approvedBy ?? null;
-  let approvedAt: string | null = existing.approvedAt
-    ? existing.approvedAt.toISOString()
-    : null;
-  if (patch.status === 'approved' && existing.status === 'proposed') {
-    approvedBy = currentUser;
-    approvedAt = new Date().toISOString();
-  } else if (patch.status === 'proposed' && existing.status === 'approved') {
-    approvedBy = null;
-    approvedAt = null;
-  }
-
+  // CASE expressions read the OLD column values (status), so the
+  // "transition from approved to proposed" check is evaluated on the
+  // pre-update row even though we're computing the new status in the
+  // same statement via COALESCE.
+  const newStatusSql = `COALESCE($4, status)`;
   const r = await (await db()).query(
     `UPDATE eval_cases
      SET question = COALESCE($2, question),
          checks = COALESCE($3, checks),
-         status = COALESCE($4, status),
-         approved_by = $5,
-         approved_at = $6,
+         status = ${newStatusSql},
+         approved_by = CASE
+           WHEN ${newStatusSql} = 'approved' AND status <> 'approved' THEN $5
+           WHEN ${newStatusSql} = 'proposed' AND status =  'approved' THEN NULL
+           ELSE approved_by
+         END,
+         approved_at = CASE
+           WHEN ${newStatusSql} = 'approved' AND status <> 'approved' THEN now()
+           WHEN ${newStatusSql} = 'proposed' AND status =  'approved' THEN NULL
+           ELSE approved_at
+         END,
          updated_at = now()
      WHERE id = $1
      RETURNING *`,
@@ -1847,8 +1865,7 @@ export async function updateEvalCase(
       patch.question ?? null,
       patch.checks ? JSON.stringify(patch.checks) : null,
       patch.status ?? null,
-      approvedBy,
-      approvedAt,
+      currentUser,
     ],
   );
   return r.rows[0] ? rowToEvalCase(r.rows[0]) : null;
@@ -1875,8 +1892,8 @@ function rowToEvalRun(row: Record<string, unknown>): EvalRun {
     id: row.id as string,
     agentId: (row.agent_id ?? row.agentId) as string,
     triggeredBy: (row.triggered_by ?? row.triggeredBy) as string,
-    startedAt: new Date((row.started_at ?? row.startedAt) as string),
-    finishedAt: finishedRaw ? new Date(finishedRaw as string) : undefined,
+    startedAt: toIsoString(row.started_at ?? row.startedAt),
+    finishedAt: finishedRaw ? toIsoString(finishedRaw) : undefined,
     status: row.status as EvalRun['status'],
     passCount: Number(row.pass_count ?? row.passCount ?? 0),
     failCount: Number(row.fail_count ?? row.failCount ?? 0),
@@ -1887,7 +1904,6 @@ function rowToEvalRun(row: Record<string, unknown>): EvalRun {
 }
 
 function rowToEvalRunResult(row: Record<string, unknown>): EvalRunResult {
-  const toolCallsRaw = row.tool_calls ?? row.toolCalls;
   return {
     id: row.id as string,
     runId: (row.run_id ?? row.runId) as string,
@@ -1895,8 +1911,16 @@ function rowToEvalRunResult(row: Record<string, unknown>): EvalRunResult {
     verdict: row.verdict as EvalRunResult['verdict'],
     timeMs: Number(row.time_ms ?? row.timeMs ?? 0),
     finalReply: (row.final_reply ?? row.finalReply) as string | undefined,
-    toolCalls: toolCallsRaw ? (JSON.parse(toolCallsRaw as string) as ToolCallTrace[]) : undefined,
-    checkResults: JSON.parse((row.check_results ?? row.checkResults) as string) as CheckResult[],
+    toolCalls: safeJsonParse<ToolCallTrace[] | undefined>(
+      row.tool_calls ?? row.toolCalls,
+      undefined,
+      'eval_run_results.tool_calls',
+    ),
+    checkResults: safeJsonParse<CheckResult[]>(
+      row.check_results ?? row.checkResults,
+      [],
+      'eval_run_results.check_results',
+    ),
     judgeReasoning: (row.judge_reasoning ?? row.judgeReasoning) as string | undefined,
   };
 }

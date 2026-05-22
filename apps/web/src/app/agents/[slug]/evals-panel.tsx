@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { EvalsCasesDrawer } from './evals-cases-drawer';
 import { EvalsRunsDrawer } from './evals-runs-drawer';
+import { relativeTime } from '@/lib/evals/format';
 
 type RunWithResults = { run: EvalRun; results: EvalRunResult[] };
 
@@ -1049,13 +1050,3 @@ function describeSummary(data: HealthcheckResult | null): string {
   return `${parts.join(', ')} across 7 checks`;
 }
 
-function relativeTime(d: Date | string | number): string {
-  // API responses come back JSON-serialized — Dates become ISO strings.
-  // TS lies; coerce at the boundary.
-  const date = d instanceof Date ? d : new Date(d);
-  const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (diffSec < 5) return 'just now';
-  if (diffSec < 60) return `${diffSec}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min ago`;
-  return `${Math.floor(diffSec / 3600)} hr ago`;
-}

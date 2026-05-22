@@ -47,6 +47,20 @@ function worst(verdicts: Verdict[]): Verdict {
   return lowest;
 }
 
+/**
+ * Produces one INFRA CheckResult per check in the case, with the right
+ * `primitive` label for each. Used when the runner failed before any
+ * check could actually evaluate — preserves honest per-check labeling
+ * in the UI.
+ */
+function infraResultsForChecks(checks: CheckConfig[], message: string): CheckResult[] {
+  return checks.map((c) => ({
+    primitive: c.primitive,
+    verdict: 'INFRA' as const,
+    message,
+  }));
+}
+
 export interface CaseExecution {
   case: EvalCase;
   trace: Trace;
@@ -70,9 +84,7 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
     return {
       case: caseRow,
       trace: { finalReply: '', toolCalls: [], errored: true, errorMessage: message },
-      results: [
-        { primitive: 'substring', verdict: 'INFRA', message: `Runner failed: ${message}` },
-      ],
+      results: infraResultsForChecks(caseRow.checks, `Runner failed: ${message}`),
       verdict: 'INFRA',
       timeMs: Date.now() - startedAt,
     };
@@ -84,32 +96,29 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
     return {
       case: caseRow,
       trace,
-      results: [
-        { primitive: 'substring', verdict: 'INFRA', message: trace.errorMessage ?? 'Runner error' },
-      ],
+      results: infraResultsForChecks(caseRow.checks, trace.errorMessage ?? 'Runner error'),
       verdict: 'INFRA',
       timeMs: Date.now() - startedAt,
     };
   }
 
-  // Phase 1 — static checks
-  const staticResults: CheckResult[] = [];
+  // Phase 1 — static checks. Judge slots are `null` until phase 2 fills them.
+  const results: (CheckResult | null)[] = [];
   const judgeIndices: number[] = [];
   for (let i = 0; i < caseRow.checks.length; i++) {
     const check = caseRow.checks[i];
     const result = evaluateStaticCheck(check, trace);
     if (result === null) {
-      // llm_judge — defer
       judgeIndices.push(i);
-      staticResults.push({} as CheckResult); // placeholder; filled in phase 2
+      results.push(null);
     } else {
-      staticResults.push(result);
+      results.push(result);
     }
   }
 
   // Phase 2 — judges (skipped if any static FAILed; "static FAIL beats judge PASS")
-  const anyStaticFailed = staticResults.some(
-    (r) => r && (r.verdict === 'FAIL' || r.verdict === 'INFRA'),
+  const anyStaticFailed = results.some(
+    (r) => r !== null && (r.verdict === 'FAIL' || r.verdict === 'INFRA'),
   );
 
   // Load judge model only if we'll actually need it.
@@ -122,7 +131,7 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
   for (const i of judgeIndices) {
     if (anyStaticFailed) {
       // Skip the judge — would just burn API calls when the case is already FAIL
-      staticResults[i] = {
+      results[i] = {
         primitive: 'llm_judge',
         verdict: 'SUSPECT',
         message: 'Skipped — a static check already failed.',
@@ -131,7 +140,7 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
     }
     if (!trace.finalReply) {
       // Empty-selector rule for llm_judge: SUSPECT.
-      staticResults[i] = {
+      results[i] = {
         primitive: 'llm_judge',
         verdict: 'SUSPECT',
         message: 'Agent produced no reply for the judge to evaluate.',
@@ -147,13 +156,13 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
         groundtruth: check.groundtruth,
         model: judgeModel!,
       });
-      staticResults[i] = {
+      results[i] = {
         primitive: 'llm_judge',
         verdict: judgeResult.verdict,
         message: judgeResult.reasoning,
       };
     } catch (err) {
-      staticResults[i] = {
+      results[i] = {
         primitive: 'llm_judge',
         verdict: 'INFRA',
         message: `Judge call failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -161,11 +170,13 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
     }
   }
 
+  // All slots are filled now; assert non-null.
+  const filledResults = results as CheckResult[];
   return {
     case: caseRow,
     trace,
-    results: staticResults,
-    verdict: worst(staticResults.map((r) => r.verdict)),
+    results: filledResults,
+    verdict: worst(filledResults.map((r) => r.verdict)),
     timeMs: Date.now() - startedAt,
   };
 }

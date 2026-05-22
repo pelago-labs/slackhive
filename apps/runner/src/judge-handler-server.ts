@@ -20,6 +20,7 @@
 
 import type { ServerResponse } from 'http';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { Verdict } from '@slackhive/shared';
 import { logger } from './logger';
 
 interface JudgeRequest {
@@ -30,10 +31,15 @@ interface JudgeRequest {
   model: string;
 }
 
-type Verdict = 'PASS' | 'FAIL' | 'SUSPECT';
+/**
+ * Judge's verdict is always one of PASS / FAIL / SUSPECT.
+ * INFRA is reserved for orchestrator-level failures (judge call threw,
+ * runner unreachable, etc) and is set by the caller, never returned here.
+ */
+type JudgeVerdict = Exclude<Verdict, 'INFRA'>;
 
 interface JudgeResponse {
-  verdict: Verdict;
+  verdict: JudgeVerdict;
   reasoning: string;
 }
 

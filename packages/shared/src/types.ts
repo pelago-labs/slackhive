@@ -1051,6 +1051,11 @@ export interface ToolCallTrace {
 /**
  * A test case — a question + the checks its response must satisfy.
  * Human-curated, lives in `eval_cases` table.
+ *
+ * Date fields are ISO 8601 strings (not Date objects). This is the
+ * cross-driver / over-the-wire representation; consumers that need
+ * Date math should `new Date(...)` locally. Mirrors what JSON
+ * serialization already produces.
  */
 export interface EvalCase {
   id: string;
@@ -1059,22 +1064,24 @@ export interface EvalCase {
   question: string;
   checks: CheckConfig[];
   approvedBy?: string;
-  approvedAt?: Date;
+  approvedAt?: string;
   createdBy: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /**
  * A single execution of an agent's approved cases.
  * Lives in `eval_runs` table. Counts roll up across `eval_run_results`.
+ *
+ * Date fields are ISO 8601 strings — see {@link EvalCase} note.
  */
 export interface EvalRun {
   id: string;
   agentId: string;
   triggeredBy: string;
-  startedAt: Date;
-  finishedAt?: Date;
+  startedAt: string;
+  finishedAt?: string;
   status: 'running' | 'done' | 'cancelled' | 'error';
   passCount: number;
   failCount: number;
@@ -1115,4 +1122,29 @@ export interface UpdateEvalCaseRequest {
   question?: string;
   checks?: CheckConfig[];
   status?: 'approved' | 'proposed';
+}
+
+// =============================================================================
+// Suggest-cases wire shapes (boundary between runner and web)
+// =============================================================================
+
+/**
+ * One check in the user-facing vocabulary, as produced by the LLM and
+ * returned by the runner's /suggest-cases endpoint. The web side
+ * validates and translates these into framework {@link CheckConfig}
+ * shapes before persisting.
+ */
+export type SuggestedCheck =
+  | { type: 'substring_contain'; phrases: string[] }
+  | { type: 'substring_not_contain'; phrases: string[] }
+  | { type: 'tool_called'; tools: string[] }
+  | { type: 'tool_not_called'; tools: string[] }
+  | { type: 'llm_judge'; rubric: string; groundtruth?: string };
+
+/**
+ * One generated test case from the LLM, before validation/translation.
+ */
+export interface SuggestedCaseWire {
+  question: string;
+  checks: SuggestedCheck[];
 }

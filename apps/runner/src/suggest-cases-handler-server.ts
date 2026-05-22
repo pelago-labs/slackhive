@@ -18,6 +18,7 @@
 
 import type { ServerResponse } from 'http';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { SuggestedCaseWire } from '@slackhive/shared';
 import { logger } from './logger';
 
 interface SuggestCasesRequest {
@@ -34,21 +35,8 @@ interface SuggestCasesRequest {
   model: string;
 }
 
-/** Wire shape returned to the web. Web validates + maps to CheckConfig. */
-type WireCheck =
-  | { type: 'substring_contain'; phrases: string[] }
-  | { type: 'substring_not_contain'; phrases: string[] }
-  | { type: 'tool_called'; tools: string[] }
-  | { type: 'tool_not_called'; tools: string[] }
-  | { type: 'llm_judge'; rubric: string; groundtruth?: string };
-
-interface WireCase {
-  question: string;
-  checks: WireCheck[];
-}
-
 interface SuggestCasesResponse {
-  cases: WireCase[];
+  cases: SuggestedCaseWire[];
 }
 
 export async function handleSuggestCases(
@@ -205,7 +193,7 @@ function parseSuggestOutput(text: string): SuggestCasesResponse {
     const obj = JSON.parse(json) as { cases?: unknown };
     if (!Array.isArray(obj.cases)) return { cases: [] };
     // Trust the wire shape; the web side validates against MCP/check rules.
-    return { cases: obj.cases as WireCase[] };
+    return { cases: obj.cases as SuggestedCaseWire[] };
   } catch (err) {
     logger.warn('Suggest-cases JSON parse failed', { error: (err as Error).message });
     return { cases: [] };

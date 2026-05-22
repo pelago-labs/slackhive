@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Agent, EvalRun } from '@slackhive/shared';
 import { Loader2, X } from 'lucide-react';
 import { Portal } from '@/lib/portal';
+import { relativeTime } from '@/lib/evals/format';
 
 const HISTORY_LIMIT = 30;
 
@@ -267,12 +268,3 @@ function Pill({ count, color, bg }: { count: number; color: string; bg: string }
   );
 }
 
-function relativeTime(d: Date | string | number): string {
-  const date = d instanceof Date ? d : new Date(d);
-  const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (diffSec < 5) return 'just now';
-  if (diffSec < 60) return `${diffSec}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} hr ago`;
-  return `${Math.floor(diffSec / 86400)} days ago`;
-}

@@ -10,7 +10,11 @@
  * @module web/lib/evals/suggest-cases
  */
 
-import type { CheckConfig } from '@slackhive/shared';
+import type {
+  CheckConfig,
+  SuggestedCaseWire,
+  SuggestedCheck,
+} from '@slackhive/shared';
 
 function runnerBase(): string {
   const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
@@ -31,18 +35,6 @@ interface SuggestRunnerRequest {
   model: string;
 }
 
-type WireCheck =
-  | { type: 'substring_contain'; phrases: string[] }
-  | { type: 'substring_not_contain'; phrases: string[] }
-  | { type: 'tool_called'; tools: string[] }
-  | { type: 'tool_not_called'; tools: string[] }
-  | { type: 'llm_judge'; rubric: string; groundtruth?: string };
-
-interface WireCase {
-  question: string;
-  checks: WireCheck[];
-}
-
 /** A suggested case after validation + translation. Ready to persist. */
 export interface SuggestedCase {
   question: string;
@@ -52,7 +44,7 @@ export interface SuggestedCase {
 /**
  * POSTs to runner /suggest-cases. Returns raw wire cases; caller validates.
  */
-async function callRunner(req: SuggestRunnerRequest): Promise<WireCase[]> {
+async function callRunner(req: SuggestRunnerRequest): Promise<SuggestedCaseWire[]> {
   const res = await fetch(`${runnerBase()}/suggest-cases`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -62,7 +54,7 @@ async function callRunner(req: SuggestRunnerRequest): Promise<WireCase[]> {
     const text = await res.text().catch(() => '');
     throw new Error(`Runner /suggest-cases responded ${res.status} ${res.statusText}: ${text}`);
   }
-  const body = (await res.json()) as { cases?: WireCase[] };
+  const body = (await res.json()) as { cases?: SuggestedCaseWire[] };
   return Array.isArray(body.cases) ? body.cases : [];
 }
 
@@ -71,7 +63,7 @@ async function callRunner(req: SuggestRunnerRequest): Promise<WireCase[]> {
  * Returns `null` if the case should be dropped silently.
  */
 function validateAndTranslate(
-  raw: WireCase,
+  raw: SuggestedCaseWire,
   validMcpToolPrefixes: Set<string>,
 ): SuggestedCase | null {
   if (typeof raw.question !== 'string' || raw.question.trim() === '') return null;
@@ -89,7 +81,7 @@ function validateAndTranslate(
 }
 
 function translateCheck(
-  raw: WireCheck,
+  raw: SuggestedCheck,
   validMcpToolPrefixes: Set<string>,
 ): CheckConfig | null {
   if (!raw || typeof raw !== 'object' || !('type' in raw)) return null;
@@ -121,13 +113,16 @@ function translateCheck(
   if (raw.type === 'llm_judge') {
     const rubric = typeof raw.rubric === 'string' ? raw.rubric.trim() : '';
     if (rubric === '') return null;
-    const out: CheckConfig = { primitive: 'llm_judge', target: 'final_reply', rubric };
     const groundtruth =
       typeof raw.groundtruth === 'string' && raw.groundtruth.trim()
         ? raw.groundtruth.trim()
         : undefined;
-    if (groundtruth) (out as { groundtruth?: string }).groundtruth = groundtruth;
-    return out;
+    return {
+      primitive: 'llm_judge',
+      target: 'final_reply',
+      rubric,
+      ...(groundtruth ? { groundtruth } : {}),
+    };
   }
   return null;
 }
