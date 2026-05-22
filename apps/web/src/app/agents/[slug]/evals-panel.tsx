@@ -27,6 +27,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { EvalsCasesDrawer } from './evals-cases-drawer';
+import { EvalsRunsDrawer } from './evals-runs-drawer';
 
 type RunWithResults = { run: EvalRun; results: EvalRunResult[] };
 
@@ -75,6 +76,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
   const [hoveredHelp, setHoveredHelp] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerStartInNew, setDrawerStartInNew] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [cases, setCases] = useState<EvalCase[]>([]);
   const [latest, setLatest] = useState<RunWithResults | null>(null);
   const [startingRun, setStartingRun] = useState(false);
@@ -544,7 +546,11 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
           >
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Run regression</div>
-              <RunSubtitle latest={latest} approvedCount={caseCounts.approved} />
+              <RunSubtitle
+                latest={latest}
+                approvedCount={caseCounts.approved}
+                onShowHistory={() => setHistoryOpen(true)}
+              />
             </div>
             <button
               onClick={startRun}
@@ -636,6 +642,14 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
         onClose={() => setDrawerOpen(false)}
         onCasesChanged={fetchCases}
       />
+
+      <EvalsRunsDrawer
+        agent={agent}
+        open={historyOpen}
+        currentRunId={latest?.run.id ?? null}
+        onClose={() => setHistoryOpen(false)}
+        onRunSelected={(runId) => loadRunDetail(runId)}
+      />
     </div>
   );
 }
@@ -645,11 +659,34 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
 function RunSubtitle({
   latest,
   approvedCount,
+  onShowHistory,
 }: {
   latest: RunWithResults | null;
   approvedCount: number;
+  onShowHistory: () => void;
 }) {
   const subStyle: React.CSSProperties = { fontSize: 12, color: 'var(--muted)', marginTop: 2 };
+  const historyLink = (
+    <button
+      onClick={onShowHistory}
+      style={{
+        background: 'transparent',
+        border: 'none',
+        color: 'var(--blue)',
+        fontSize: 12,
+        cursor: 'pointer',
+        padding: 0,
+        marginLeft: 6,
+        textDecoration: 'none',
+        fontFamily: 'inherit',
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+      onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+    >
+      View history ▸
+    </button>
+  );
+
   if (!latest) {
     if (approvedCount === 0) {
       return (
@@ -660,19 +697,27 @@ function RunSubtitle({
   }
   const when = relativeTime(latest.run.startedAt);
   if (latest.run.status === 'running') {
-    return <div style={subStyle}>Running · started {when} by {latest.run.triggeredBy}</div>;
+    return (
+      <div style={subStyle}>
+        Running · started {when} by {latest.run.triggeredBy}
+        {historyLink}
+      </div>
+    );
   }
   if (latest.run.status === 'error') {
     return (
       <div style={{ ...subStyle, color: 'var(--red)' }}>
         Last run errored · started {when}. Click to retry.
+        {historyLink}
       </div>
     );
   }
   return (
     <div style={subStyle}>
       Last run · {when} by {latest.run.triggeredBy} ·{' '}
-      {latest.run.passCount + latest.run.failCount + latest.run.suspectCount + latest.run.infraCount} cases
+      {latest.run.passCount + latest.run.failCount + latest.run.suspectCount + latest.run.infraCount}{' '}
+      cases
+      {historyLink}
     </div>
   );
 }
