@@ -36,8 +36,12 @@ import type {
   CreateWikiSourceRequest,
   EvalCase,
   CheckConfig,
+  CheckResult,
   CreateEvalCaseRequest,
   UpdateEvalCaseRequest,
+  EvalRun,
+  EvalRunResult,
+  ToolCallTrace,
 } from '@slackhive/shared';
 import { getDb, initDb, encrypt, decrypt, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 import { getEncryptionKey } from './secrets';
@@ -1859,4 +1863,130 @@ export async function deleteEvalCase(id: string): Promise<boolean> {
   if (!existing) return false;
   await (await db()).query('DELETE FROM eval_cases WHERE id = $1', [id]);
   return true;
+}
+
+// =============================================================================
+// Eval runs + results (Tier 2)
+// =============================================================================
+
+function rowToEvalRun(row: Record<string, unknown>): EvalRun {
+  const finishedRaw = row.finished_at ?? row.finishedAt;
+  return {
+    id: row.id as string,
+    agentId: (row.agent_id ?? row.agentId) as string,
+    triggeredBy: (row.triggered_by ?? row.triggeredBy) as string,
+    startedAt: new Date((row.started_at ?? row.startedAt) as string),
+    finishedAt: finishedRaw ? new Date(finishedRaw as string) : undefined,
+    status: row.status as EvalRun['status'],
+    passCount: Number(row.pass_count ?? row.passCount ?? 0),
+    failCount: Number(row.fail_count ?? row.failCount ?? 0),
+    suspectCount: Number(row.suspect_count ?? row.suspectCount ?? 0),
+    infraCount: Number(row.infra_count ?? row.infraCount ?? 0),
+    totalMs: row.total_ms != null ? Number(row.total_ms) : undefined,
+  };
+}
+
+function rowToEvalRunResult(row: Record<string, unknown>): EvalRunResult {
+  const toolCallsRaw = row.tool_calls ?? row.toolCalls;
+  return {
+    id: row.id as string,
+    runId: (row.run_id ?? row.runId) as string,
+    caseId: (row.case_id ?? row.caseId) as string,
+    verdict: row.verdict as EvalRunResult['verdict'],
+    timeMs: Number(row.time_ms ?? row.timeMs ?? 0),
+    finalReply: (row.final_reply ?? row.finalReply) as string | undefined,
+    toolCalls: toolCallsRaw ? (JSON.parse(toolCallsRaw as string) as ToolCallTrace[]) : undefined,
+    checkResults: JSON.parse((row.check_results ?? row.checkResults) as string) as CheckResult[],
+    judgeReasoning: (row.judge_reasoning ?? row.judgeReasoning) as string | undefined,
+  };
+}
+
+/**
+ * Creates a new `eval_runs` row in `running` state. The orchestrator
+ * is expected to call finalizeEvalRun or failEvalRun once cases complete.
+ */
+export async function createEvalRun(agentId: string, triggeredBy: string): Promise<EvalRun> {
+  const id = randomUUID();
+  const r = await (await db()).query(
+    `INSERT INTO eval_runs (id, agent_id, triggered_by, status)
+     VALUES ($1, $2, $3, 'running')
+     RETURNING *`,
+    [id, agentId, triggeredBy],
+  );
+  return rowToEvalRun(r.rows[0]);
+}
+
+/**
+ * Marks a run done with the final counts and total elapsed time.
+ */
+export async function finalizeEvalRun(
+  runId: string,
+  counts: { passCount: number; failCount: number; suspectCount: number; infraCount: number },
+  totalMs: number,
+): Promise<void> {
+  await (await db()).query(
+    `UPDATE eval_runs
+     SET status = 'done',
+         finished_at = now(),
+         pass_count = $2,
+         fail_count = $3,
+         suspect_count = $4,
+         infra_count = $5,
+         total_ms = $6
+     WHERE id = $1`,
+    [runId, counts.passCount, counts.failCount, counts.suspectCount, counts.infraCount, totalMs],
+  );
+}
+
+/**
+ * Marks a run errored (orchestrator threw, runner unreachable, etc).
+ */
+export async function failEvalRun(runId: string): Promise<void> {
+  await (await db()).query(
+    `UPDATE eval_runs SET status = 'error', finished_at = now() WHERE id = $1`,
+    [runId],
+  );
+}
+
+/**
+ * Inserts a per-case result row. JSON columns are stringified here.
+ */
+export async function insertEvalRunResult(result: EvalRunResult): Promise<void> {
+  await (await db()).query(
+    `INSERT INTO eval_run_results
+       (id, run_id, case_id, verdict, time_ms, final_reply, tool_calls, check_results, judge_reasoning)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      result.id,
+      result.runId,
+      result.caseId,
+      result.verdict,
+      result.timeMs,
+      result.finalReply ?? null,
+      result.toolCalls ? JSON.stringify(result.toolCalls) : null,
+      JSON.stringify(result.checkResults),
+      result.judgeReasoning ?? null,
+    ],
+  );
+}
+
+export async function getEvalRun(runId: string): Promise<EvalRun | null> {
+  const r = await (await db()).query('SELECT * FROM eval_runs WHERE id = $1', [runId]);
+  return r.rows[0] ? rowToEvalRun(r.rows[0]) : null;
+}
+
+export async function getEvalRuns(agentId: string, limit = 10): Promise<EvalRun[]> {
+  const r = await (await db()).query(
+    `SELECT * FROM eval_runs WHERE agent_id = $1 ORDER BY started_at DESC LIMIT $2`,
+    [agentId, limit],
+  );
+  return r.rows.map(rowToEvalRun);
+}
+
+export async function getEvalRunResults(runId: string): Promise<EvalRunResult[]> {
+  const r = await (await db()).query(
+    `SELECT * FROM eval_run_results WHERE run_id = $1`,
+    [runId],
+  );
+  return r.rows.map(rowToEvalRunResult);
 }

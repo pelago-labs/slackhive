@@ -12,8 +12,8 @@
  *
  * @module web/app/agents/[slug]/evals-panel
  */
-import { useCallback, useEffect, useState } from 'react';
-import type { Agent } from '@slackhive/shared';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Agent, EvalCase, EvalRun, EvalRunResult } from '@slackhive/shared';
 import {
   AlertCircle,
   AlertTriangle,
@@ -22,10 +22,20 @@ import {
   ChevronRight,
   HelpCircle,
   Loader2,
+  Play,
   Plus,
   RotateCcw,
 } from 'lucide-react';
 import { EvalsCasesDrawer } from './evals-cases-drawer';
+
+type RunWithResults = { run: EvalRun; results: EvalRunResult[] };
+
+const VERDICT_COLOR: Record<EvalRunResult['verdict'], { fg: string; bg: string }> = {
+  PASS:    { fg: 'var(--green)', bg: '#dcfce7' },
+  FAIL:    { fg: 'var(--red)',   bg: '#fee2e2' },
+  SUSPECT: { fg: 'var(--amber)', bg: '#fef3c7' },
+  INFRA:   { fg: 'var(--muted)', bg: 'var(--surface-2)' },
+};
 
 interface Issue {
   code: string;
@@ -65,23 +75,93 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
   const [hoveredHelp, setHoveredHelp] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerStartInNew, setDrawerStartInNew] = useState(false);
-  const [caseCounts, setCaseCounts] = useState({ total: 0, approved: 0, proposed: 0 });
+  const [cases, setCases] = useState<EvalCase[]>([]);
+  const [latest, setLatest] = useState<RunWithResults | null>(null);
+  const [startingRun, setStartingRun] = useState(false);
+  const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchCaseCounts = useCallback(async () => {
+  const caseCounts = {
+    total: cases.length,
+    approved: cases.filter((c) => c.status === 'approved').length,
+    proposed: cases.filter((c) => c.status === 'proposed').length,
+  };
+
+  const fetchCases = useCallback(async () => {
     try {
       const r = await fetch(`/api/agents/${agent.id}/evals/cases`);
-      if (!r.ok) return;
-      const cases = (await r.json()) as Array<{ status: 'approved' | 'proposed' }>;
-      const approved = cases.filter((c) => c.status === 'approved').length;
-      setCaseCounts({ total: cases.length, approved, proposed: cases.length - approved });
+      if (r.ok) setCases((await r.json()) as EvalCase[]);
     } catch {
-      // silent — count is informational only
+      // silent — informational only
     }
   }, [agent.id]);
 
+  const loadRunDetail = useCallback(
+    async (runId: string) => {
+      try {
+        const r = await fetch(`/api/agents/${agent.id}/evals/runs/${runId}`);
+        if (r.ok) setLatest((await r.json()) as RunWithResults);
+      } catch {
+        // silent
+      }
+    },
+    [agent.id],
+  );
+
+  const fetchLatestRun = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/agents/${agent.id}/evals/runs?limit=1`);
+      if (!r.ok) return;
+      const runs = (await r.json()) as EvalRun[];
+      if (runs.length === 0) {
+        setLatest(null);
+        return;
+      }
+      await loadRunDetail(runs[0].id);
+    } catch {
+      // silent
+    }
+  }, [agent.id, loadRunDetail]);
+
   useEffect(() => {
-    fetchCaseCounts();
-  }, [fetchCaseCounts]);
+    fetchCases();
+    fetchLatestRun();
+  }, [fetchCases, fetchLatestRun]);
+
+  // Poll while a run is in flight. setInterval is fine here — DB queries
+  // are cheap and the page only mounts on the Evals tab.
+  useEffect(() => {
+    if (latest?.run.status !== 'running') {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+    const runId = latest.run.id;
+    pollRef.current = setInterval(() => loadRunDetail(runId), 2000);
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [latest?.run.status, latest?.run.id, loadRunDetail]);
+
+  async function startRun() {
+    if (startingRun) return;
+    setStartingRun(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}/evals/runs`, { method: 'POST' });
+      if (!r.ok) throw new Error(`Run failed to start: ${r.status}`);
+      const run = (await r.json()) as EvalRun;
+      await loadRunDetail(run.id);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setStartingRun(false);
+    }
+  }
 
   const fetchHealthcheck = useCallback(async () => {
     setLoading(true);
@@ -444,22 +524,108 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
           </div>
         </div>
 
-        {/* Regression run placeholder */}
+        {/* Run regression card */}
         <div
           style={{
-            border: '1px dashed var(--border-2)',
+            border: '1px solid var(--border)',
             borderRadius: 10,
-            padding: '24px 20px',
             background: 'var(--surface)',
-            textAlign: 'center',
+            padding: '14px 16px',
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', marginBottom: 6 }}>
-            Run regression — coming soon
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 14,
+              marginBottom: latest?.run.status === 'done' ? 14 : 0,
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Run regression</div>
+              <RunSubtitle latest={latest} approvedCount={caseCounts.approved} />
+            </div>
+            <button
+              onClick={startRun}
+              disabled={
+                startingRun ||
+                latest?.run.status === 'running' ||
+                caseCounts.approved === 0
+              }
+              style={{
+                background:
+                  caseCounts.approved === 0 || latest?.run.status === 'running'
+                    ? 'var(--surface-2)'
+                    : 'var(--accent)',
+                color:
+                  caseCounts.approved === 0 || latest?.run.status === 'running'
+                    ? 'var(--muted)'
+                    : 'var(--accent-fg)',
+                border: '1px solid var(--border-2)',
+                borderRadius: 6,
+                padding: '7px 12px',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor:
+                  startingRun ||
+                  latest?.run.status === 'running' ||
+                  caseCounts.approved === 0
+                    ? 'not-allowed'
+                    : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {latest?.run.status === 'running' || startingRun ? (
+                <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+              ) : (
+                <Play size={13} />
+              )}
+              Run regression
+            </button>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Once cases are approved, the regression runner (SSE + LLM judge) will execute them and stream PASS/FAIL/SUSPECT verdicts here.
-          </div>
+
+          {latest?.run.status === 'done' && (
+            <>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gap: 8,
+                }}
+              >
+                <StatCard label="PASS" value={String(latest.run.passCount)} color="var(--green)" />
+                <StatCard label="FAIL" value={String(latest.run.failCount)} color="var(--red)" />
+                <StatCard
+                  label="SUSPECT"
+                  value={String(latest.run.suspectCount)}
+                  color="var(--amber)"
+                />
+                <StatCard
+                  label="Total time"
+                  value={
+                    latest.run.totalMs != null ? `${(latest.run.totalMs / 1000).toFixed(1)}s` : '—'
+                  }
+                  color="var(--muted)"
+                />
+              </div>
+
+              {latest.results.some((r) => r.verdict !== 'PASS') && (
+                <FailuresList
+                  results={latest.results.filter((r) => r.verdict !== 'PASS')}
+                  cases={cases}
+                  expandedId={expandedResultId}
+                  onToggle={(id) =>
+                    setExpandedResultId(expandedResultId === id ? null : id)
+                  }
+                />
+              )}
+            </>
+          )}
         </div>
       </section>
 
@@ -468,8 +634,236 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
         open={drawerOpen}
         startInNew={drawerStartInNew}
         onClose={() => setDrawerOpen(false)}
-        onCasesChanged={fetchCaseCounts}
+        onCasesChanged={fetchCases}
       />
+    </div>
+  );
+}
+
+// ─── Tier 2 sub-components ────────────────────────────────────────────────────
+
+function RunSubtitle({
+  latest,
+  approvedCount,
+}: {
+  latest: RunWithResults | null;
+  approvedCount: number;
+}) {
+  const subStyle: React.CSSProperties = { fontSize: 12, color: 'var(--muted)', marginTop: 2 };
+  if (!latest) {
+    if (approvedCount === 0) {
+      return (
+        <div style={subStyle}>Add and approve test cases above before running.</div>
+      );
+    }
+    return <div style={subStyle}>No runs yet. Click Run regression to start.</div>;
+  }
+  const when = relativeTime(latest.run.startedAt);
+  if (latest.run.status === 'running') {
+    return <div style={subStyle}>Running · started {when} by {latest.run.triggeredBy}</div>;
+  }
+  if (latest.run.status === 'error') {
+    return (
+      <div style={{ ...subStyle, color: 'var(--red)' }}>
+        Last run errored · started {when}. Click to retry.
+      </div>
+    );
+  }
+  return (
+    <div style={subStyle}>
+      Last run · {when} by {latest.run.triggeredBy} ·{' '}
+      {latest.run.passCount + latest.run.failCount + latest.run.suspectCount + latest.run.infraCount} cases
+    </div>
+  );
+}
+
+function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div
+      style={{
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        padding: '10px 12px',
+      }}
+    >
+      <div style={{ fontSize: 20, fontWeight: 600, color, lineHeight: 1.1 }}>{value}</div>
+      <div
+        style={{
+          fontSize: 10,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+          color: 'var(--muted)',
+          marginTop: 4,
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function FailuresList({
+  results,
+  cases,
+  expandedId,
+  onToggle,
+}: {
+  results: EvalRunResult[];
+  cases: EvalCase[];
+  expandedId: string | null;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div
+        style={{
+          fontSize: 11,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          color: 'var(--muted)',
+          fontWeight: 600,
+          marginBottom: 6,
+        }}
+      >
+        Failures &amp; suspects · click to inspect
+      </div>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 8 }}>
+        {results.map((r, idx) => {
+          const caseRow = cases.find((c) => c.id === r.caseId);
+          const palette = VERDICT_COLOR[r.verdict];
+          const isOpen = expandedId === r.id;
+          const isLast = idx === results.length - 1;
+          return (
+            <div key={r.id}>
+              <div
+                onClick={() => onToggle(r.id)}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto 14px',
+                  gap: 10,
+                  alignItems: 'center',
+                  padding: '9px 12px',
+                  cursor: 'pointer',
+                  borderBottom:
+                    isLast && !isOpen ? 'none' : '1px solid var(--border)',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 13,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {caseRow?.question ?? `Case ${r.caseId.slice(0, 8)}`}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: '2px 8px',
+                    borderRadius: 10,
+                    background: palette.bg,
+                    color: palette.fg,
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  {r.verdict}
+                </span>
+                <span style={{ color: 'var(--subtle)', display: 'flex' }}>
+                  {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </span>
+              </div>
+              {isOpen && (
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    background: 'var(--surface-2)',
+                    borderBottom: isLast ? 'none' : '1px solid var(--border)',
+                    fontSize: 12,
+                  }}
+                >
+                  {r.checkResults.map((cr, ci) => (
+                    <div
+                      key={ci}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '90px 70px 1fr',
+                        gap: 8,
+                        padding: '4px 0',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      <span style={{ color: 'var(--muted)' }}>{cr.primitive}</span>
+                      <span style={{ color: VERDICT_COLOR[cr.verdict].fg, fontWeight: 600 }}>
+                        {cr.verdict}
+                      </span>
+                      <span style={{ color: 'var(--text-2)' }}>{cr.message ?? '—'}</span>
+                    </div>
+                  ))}
+                  {r.finalReply && (
+                    <div style={{ marginTop: 10 }}>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          color: 'var(--muted)',
+                          fontWeight: 600,
+                          marginBottom: 4,
+                        }}
+                      >
+                        Final reply
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontFamily: 'var(--font-mono)',
+                          background: 'var(--surface)',
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          border: '1px solid var(--border)',
+                          maxHeight: 180,
+                          overflow: 'auto',
+                          whiteSpace: 'pre-wrap',
+                        }}
+                      >
+                        {r.finalReply}
+                      </div>
+                    </div>
+                  )}
+                  {r.toolCalls && r.toolCalls.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          color: 'var(--muted)',
+                          fontWeight: 600,
+                          marginBottom: 4,
+                        }}
+                      >
+                        Tool calls ({r.toolCalls.length})
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                        {r.toolCalls.map((tc, ti) => (
+                          <div key={ti} style={{ color: 'var(--text-2)', padding: '2px 0' }}>
+                            {tc.toolId}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
