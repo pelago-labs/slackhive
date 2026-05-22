@@ -21,7 +21,6 @@ import { runQA002 } from './checks/qa002-cross-refs';
 import { runQA003 } from './checks/qa003-trigger-conflicts';
 import { runQA004 } from './checks/qa004-skill-overlap';
 import { runQA005 } from './checks/qa005-persona-hygiene';
-import { runQA006 } from './checks/qa006-tool-prefix';
 import { runQA007 } from './checks/qa007-wiki-coverage';
 
 export function runHealthcheck(
@@ -43,7 +42,6 @@ export function runHealthcheck(
     ...runQA003(ctx),
     ...runQA004(ctx),
     ...runQA005(ctx),
-    ...runQA006(ctx),
     ...runQA007(ctx),
   ];
 

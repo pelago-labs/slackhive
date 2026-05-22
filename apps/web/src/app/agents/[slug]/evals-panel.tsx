@@ -60,7 +60,6 @@ const CHECKS_META: Array<{ code: string; name: string; help: string }> = [
   { code: 'QA003', name: 'Trigger conflicts', help: 'Flags duplicate or prefix-overlapping Step 0 trigger phrases.' },
   { code: 'QA004', name: 'Skill overlap',     help: 'Flags skill pairs with ≥70% description overlap (Jaccard similarity).' },
   { code: 'QA005', name: 'Persona hygiene',   help: 'Flags banned patterns: force-push, rm -rf, prompt-injection markers, always-agree.' },
-  { code: 'QA006', name: 'Tool prefix',       help: 'Flags bare hyphenated tool names that should use the mcp__ prefix.' },
   { code: 'QA007', name: 'Wiki coverage',     help: 'Flags wiki entities not referenced anywhere — possibly orphaned.' },
 ];
 
@@ -951,12 +950,12 @@ function StatusIcon({
 function describeSummary(data: HealthcheckResult | null): string {
   if (!data) return 'Loading…';
   const { summary } = data;
-  if (summary.total === 0) return 'All 7 checks passed';
+  if (summary.total === 0) return 'All 6 checks passed';
   const parts: string[] = [];
   if (summary.errors > 0)
     parts.push(`${summary.errors} error${summary.errors === 1 ? '' : 's'}`);
   if (summary.warnings > 0)
     parts.push(`${summary.warnings} warning${summary.warnings === 1 ? '' : 's'}`);
-  return `${parts.join(', ')} across 7 checks`;
+  return `${parts.join(', ')} across 6 checks`;
 }
 
