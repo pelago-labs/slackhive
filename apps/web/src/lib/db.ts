@@ -1734,10 +1734,32 @@ export async function unassignWikiFolder(agentId: string, folderId: string): Pro
 // Eval cases (Tier 2)
 // =============================================================================
 
-/** Coerce DB date column to ISO string regardless of driver shape (Date or string). */
+/**
+ * Coerce DB date column to a proper ISO 8601 string (with `Z`).
+ *
+ * SQLite's `datetime('now')` returns `"YYYY-MM-DD HH:MM:SS"` — UTC time
+ * but with no timezone marker. Naively passing that into `new Date(s)`
+ * makes JS interpret it as LOCAL time, which shifts it by the runtime's
+ * timezone offset (e.g. +8h on Taipei). That breaks every relative-time
+ * UI and our stale-run detector. Normalize at the boundary so everything
+ * downstream sees ISO+Z.
+ *
+ * Postgres returns Date objects via `pg` driver — handle that too.
+ */
 function toIsoString(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
-  return String(v);
+  const s = String(v);
+  // Already ISO-with-Z or with explicit offset → trust it.
+  if (s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
+  // SQLite `YYYY-MM-DD HH:MM:SS` (UTC, no marker) — convert.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+    return s.replace(' ', 'T') + 'Z';
+  }
+  // Bare ISO without Z — coerce to UTC.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(s)) {
+    return s.endsWith('Z') ? s : s + 'Z';
+  }
+  return s;
 }
 
 /** Safe JSON parse — corrupted rows shouldn't crash the whole endpoint. */
