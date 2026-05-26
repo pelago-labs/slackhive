@@ -457,9 +457,19 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
             border: '1px solid var(--border)',
             borderRadius: 10,
             background: 'var(--surface)',
-            padding: '14px 16px',
+            overflow: 'hidden',
           }}
         >
+          {latest?.run.status === 'running' && (
+            <RunProgressBar
+              passCount={latest.run.passCount}
+              failCount={latest.run.failCount}
+              suspectCount={latest.run.suspectCount}
+              infraCount={latest.run.infraCount}
+              approvedCount={caseCounts.approved}
+            />
+          )}
+          <div style={{ padding: '14px 16px' }}>
           {/* Top row — cases summary + Manage cases */}
           <div
             style={{
@@ -613,6 +623,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
               )}
             </>
           )}
+          </div>
         </div>
       </section>
 
@@ -636,6 +647,42 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
 }
 
 // ─── Tier 2 sub-components ────────────────────────────────────────────────────
+
+function RunProgressBar({
+  passCount,
+  failCount,
+  suspectCount,
+  infraCount,
+  approvedCount,
+}: {
+  passCount: number;
+  failCount: number;
+  suspectCount: number;
+  infraCount: number;
+  approvedCount: number;
+}) {
+  const done = passCount + failCount + suspectCount + infraCount;
+  const total = Math.max(approvedCount, done + 1);
+  const percent = Math.min(100, (done / total) * 100);
+  return (
+    <div style={{ height: 4, background: 'var(--surface-2)' }}>
+      <div
+        style={{
+          height: '100%',
+          width: `${percent}%`,
+          backgroundColor: 'var(--blue)',
+          // Shimmer overlay slides across the filled portion so the bar
+          // visibly moves even between case completions.
+          backgroundImage:
+            'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%)',
+          backgroundSize: '200% 100%',
+          animation: 'shimmer-slide 1.6s linear infinite',
+          transition: 'width 0.3s ease',
+        }}
+      />
+    </div>
+  );
+}
 
 function RunHeader({
   latest,
