@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { EvalsCasesDrawer } from './evals-cases-drawer';
 import { EvalsRunsDrawer } from './evals-runs-drawer';
-import { relativeTime } from '@/lib/evals/format';
+import { elapsedMmSs, relativeTime } from '@/lib/evals/format';
 
 type RunWithResults = { run: EvalRun; results: EvalRunResult[] };
 
@@ -57,7 +57,6 @@ type CheckStatus = 'clean' | 'warn' | 'fail';
 const CHECKS_META: Array<{ code: string; name: string; help: string }> = [
   { code: 'QA001', name: 'MCP coverage',      help: 'Flags `mcp__server__tool` refs whose server isn\'t linked to this agent.' },
   { code: 'QA002', name: 'Cross-refs',        help: 'Flags markdown links to skills or wiki entities that don\'t exist.' },
-  { code: 'QA003', name: 'Trigger conflicts', help: 'Flags duplicate or prefix-overlapping Step 0 trigger phrases.' },
   { code: 'QA004', name: 'Skill overlap',     help: 'Flags skill pairs with ≥70% description overlap (Jaccard similarity).' },
   { code: 'QA005', name: 'Persona hygiene',   help: 'Flags banned patterns: force-push, rm -rf, prompt-injection markers, always-agree.' },
   { code: 'QA007', name: 'Wiki coverage',     help: 'Flags wiki entities not referenced anywhere — possibly orphaned.' },
@@ -462,11 +461,10 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
         >
           {latest?.run.status === 'running' && (
             <RunProgressBar
+              approvedCases={cases.filter((c) => c.status === 'approved')}
+              results={latest.results}
               passCount={latest.run.passCount}
-              failCount={latest.run.failCount}
-              suspectCount={latest.run.suspectCount}
-              infraCount={latest.run.infraCount}
-              approvedCount={caseCounts.approved}
+              startedAt={latest.run.startedAt}
             />
           )}
           <div style={{ padding: '14px 16px' }}>
@@ -591,7 +589,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gridTemplateColumns: `repeat(${latest.run.infraCount > 0 ? 5 : 4}, 1fr)`,
                   gap: 8,
                 }}
               >
@@ -602,6 +600,13 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                   value={String(latest.run.suspectCount)}
                   color="var(--amber)"
                 />
+                {latest.run.infraCount > 0 && (
+                  <InfraStatCard
+                    count={latest.run.infraCount}
+                    onRetry={startRun}
+                    disabled={startingRun}
+                  />
+                )}
                 <StatCard
                   label="Total time"
                   value={
@@ -648,38 +653,153 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
 
 // ─── Tier 2 sub-components ────────────────────────────────────────────────────
 
+// Segment color palette by verdict — matches FailuresList pills but used
+// here to fill the segment background fully (not soft-bg).
+const SEGMENT_COLOR: Record<EvalRunResult['verdict'], string> = {
+  PASS: 'var(--green)',
+  FAIL: 'var(--red)',
+  SUSPECT: 'var(--amber)',
+  INFRA: 'var(--subtle)',
+};
+
+/**
+ * Segmented progress bar — one segment per approved case, sitting at the
+ * top of the Tier 2 card while a run is in progress. Each segment shows
+ * the live state of that case:
+ *   - pending: outlined empty
+ *   - running: outlined with an indeterminate sweep animation
+ *   - completed: filled with the verdict color (PASS green, FAIL red,
+ *     SUSPECT amber, INFRA gray)
+ *
+ * Doubles as a verdict heatmap once the run finishes — though only
+ * rendered while status === 'running'.
+ *
+ * The label row below the segments ticks every second so elapsed time
+ * stays current between the 2-second poll interval.
+ */
 function RunProgressBar({
+  approvedCases,
+  results,
   passCount,
-  failCount,
-  suspectCount,
-  infraCount,
-  approvedCount,
+  startedAt,
 }: {
+  approvedCases: EvalCase[];
+  results: EvalRunResult[];
   passCount: number;
-  failCount: number;
-  suspectCount: number;
-  infraCount: number;
-  approvedCount: number;
+  startedAt: Date | string;
 }) {
-  const done = passCount + failCount + suspectCount + infraCount;
-  const total = Math.max(approvedCount, done + 1);
-  const percent = Math.min(100, (done / total) * 100);
+  // Tick every second so the M:SS elapsed counter stays smooth even
+  // though the parent only polls every 2s.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Map each approved case (creation order) to its current state. Cases
+  // run sequentially in creation order; the first case without a result
+  // is the one currently executing.
+  const resultByCaseId = new Map(results.map((r) => [r.caseId, r]));
+  let runningFound = false;
+  const segments = approvedCases.map((c) => {
+    const result = resultByCaseId.get(c.id);
+    if (result) return { state: 'done' as const, verdict: result.verdict };
+    if (!runningFound) {
+      runningFound = true;
+      return { state: 'running' as const };
+    }
+    return { state: 'pending' as const };
+  });
+
+  const total = approvedCases.length;
+  const done = results.length;
+  const currentIdx = done; // 0-based index of the currently-running case
+  const elapsed = elapsedMmSs(startedAt);
+
   return (
-    <div style={{ height: 4, background: 'var(--surface-2)' }}>
+    <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--border)' }}>
       <div
         style={{
-          height: '100%',
-          width: `${percent}%`,
-          backgroundColor: 'var(--blue)',
-          // Shimmer overlay slides across the filled portion so the bar
-          // visibly moves even between case completions.
-          backgroundImage:
-            'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%)',
-          backgroundSize: '200% 100%',
-          animation: 'shimmer-slide 1.6s linear infinite',
-          transition: 'width 0.3s ease',
+          display: 'grid',
+          gridAutoFlow: 'column',
+          gridAutoColumns: '1fr',
+          gap: 4,
         }}
-      />
+      >
+        {segments.map((seg, i) => {
+          if (seg.state === 'done') {
+            const color = SEGMENT_COLOR[seg.verdict];
+            return (
+              <div
+                key={i}
+                style={{
+                  height: 8,
+                  borderRadius: 4,
+                  background: color,
+                  border: `1px solid ${color}`,
+                }}
+              />
+            );
+          }
+          if (seg.state === 'running') {
+            return (
+              <div
+                key={i}
+                style={{
+                  height: 8,
+                  borderRadius: 4,
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--blue)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background:
+                      'linear-gradient(90deg, transparent 0%, var(--blue) 40%, var(--blue) 60%, transparent 100%)',
+                    animation: 'indeterm-sweep 1.4s ease-in-out infinite',
+                    transformOrigin: 'left center',
+                  }}
+                />
+              </div>
+            );
+          }
+          return (
+            <div
+              key={i}
+              style={{
+                height: 8,
+                borderRadius: 4,
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+              }}
+            />
+          );
+        })}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          fontSize: 11,
+          color: 'var(--muted)',
+          marginTop: 6,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        <span>
+          {done >= total
+            ? 'Wrapping up…'
+            : `Case ${Math.min(currentIdx + 1, total)} of ${total} · running`}
+        </span>
+        <span>
+          {passCount > 0 ? `${passCount} PASS · ` : ''}
+          {elapsed} elapsed
+        </span>
+      </div>
     </div>
   );
 }
@@ -815,6 +935,75 @@ function StatCard({ label, value, color }: { label: string; value: string; color
   );
 }
 
+/**
+ * INFRA tile that doubles as a Retry button. Only rendered when
+ * infraCount > 0 — see Option D in tier2-infra-display.html. INFRA is the
+ * one verdict the user can act on (the agent didn't fail; the runner did),
+ * so the count and the verb live in the same place. Retry currently
+ * triggers a full regression rerun via the same handler as the main
+ * "Run regression" button.
+ */
+function InfraStatCard({
+  count,
+  onRetry,
+  disabled,
+}: {
+  count: number;
+  onRetry: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      disabled={disabled}
+      style={{
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border-2)',
+        borderRadius: 8,
+        padding: '10px 12px',
+        textAlign: 'left',
+        font: 'inherit',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        transition: 'background 0.12s ease, border-color 0.12s ease',
+      }}
+      onMouseOver={(e) => {
+        if (!disabled) e.currentTarget.style.background = 'var(--surface-3)';
+      }}
+      onMouseOut={(e) => {
+        if (!disabled) e.currentTarget.style.background = 'var(--surface-2)';
+      }}
+    >
+      <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.1 }}>
+        {count}
+      </div>
+      <div
+        style={{
+          fontSize: 10,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+          color: 'var(--muted)',
+          marginTop: 4,
+          fontWeight: 600,
+        }}
+      >
+        Infra error
+      </div>
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--blue)',
+          marginTop: 6,
+          fontWeight: 500,
+        }}
+      >
+        Retry ▸
+      </div>
+    </button>
+  );
+}
+
 function FailuresList({
   results,
   cases,
@@ -826,6 +1015,7 @@ function FailuresList({
   expandedId: string | null;
   onToggle: (id: string) => void;
 }) {
+  const hasInfra = results.some((r) => r.verdict === 'INFRA');
   return (
     <div style={{ marginTop: 14 }}>
       <div
@@ -838,7 +1028,7 @@ function FailuresList({
           marginBottom: 6,
         }}
       >
-        Failures &amp; suspects · click to inspect
+        {hasInfra ? 'Failures, suspects & errors' : 'Failures & suspects'} · click to inspect
       </div>
       <div style={{ border: '1px solid var(--border)', borderRadius: 8 }}>
         {results.map((r, idx) => {

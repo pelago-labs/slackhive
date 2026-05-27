@@ -19,24 +19,10 @@ import type { ParsedClaudeMd } from './types';
 export function parseClaudeMd(raw: string): ParsedClaudeMd {
   return {
     raw,
-    triggers: extractStep0Triggers(raw),
     mcpReferences: extractMcpRefs(raw),
     skillReferences: extractMarkdownLinkPaths(raw, 'skills'),
     wikiReferences: extractMarkdownLinkPaths(raw, 'wiki'),
   };
-}
-
-function extractStep0Triggers(raw: string): string[] {
-  const match = raw.match(/##\s+Step\s+0[^\n]*\n([\s\S]*?)(?=\n##\s+|$)/i);
-  if (!match) return [];
-  const patterns = [...match[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-  // Strip backtick-quoted strings that are clearly not user-facing triggers:
-  // file paths, MCP tool ids, file extensions. Real triggers are natural-
-  // language phrases.
-  const filtered = patterns.filter(
-    (p) => !p.includes('/') && !p.startsWith('mcp__') && !p.endsWith('.md'),
-  );
-  return filtered;
 }
 
 function extractMcpRefs(raw: string): string[] {

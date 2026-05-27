@@ -18,7 +18,6 @@ import { parseClaudeMd } from './parse-claude-md';
 import type { CheckContext, HealthcheckResult } from './types';
 import { runQA001 } from './checks/qa001-mcp-coverage';
 import { runQA002 } from './checks/qa002-cross-refs';
-import { runQA003 } from './checks/qa003-trigger-conflicts';
 import { runQA004 } from './checks/qa004-skill-overlap';
 import { runQA005 } from './checks/qa005-persona-hygiene';
 import { runQA007 } from './checks/qa007-wiki-coverage';
@@ -39,7 +38,6 @@ export function runHealthcheck(
   const issues = [
     ...runQA001(ctx),
     ...runQA002(ctx),
-    ...runQA003(ctx),
     ...runQA004(ctx),
     ...runQA005(ctx),
     ...runQA007(ctx),

@@ -127,6 +127,13 @@ body {
   100% { background-position:  200% 0; }
 }
 
+/* ─── Indeterminate sweep (for "in-progress" segment of a segmented progress bar) ─ */
+@keyframes indeterm-sweep {
+  0%   { transform: translateX(-30%) scaleX(0.25); }
+  50%  { transform: translateX(60%)  scaleX(0.55); }
+  100% { transform: translateX(180%) scaleX(0.25); }
+}
+
 /* ─── Dot pulse ─────────────────────────────────────────────────────────────── */
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }

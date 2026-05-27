@@ -56,8 +56,6 @@ export type HealthcheckResult = {
 export type ParsedClaudeMd = {
   /** The original raw markdown, untouched. */
   raw: string;
-  /** Step 0 trigger patterns (e.g., backticked terms). */
-  triggers: string[];
   /** Distinct `mcp__<server>__<tool>` references found in the markdown. */
   mcpReferences: string[];
   /** Skill markdown link paths (e.g., `skills/00-core/workflow.md`). */
