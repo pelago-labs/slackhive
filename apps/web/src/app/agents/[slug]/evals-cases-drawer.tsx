@@ -190,9 +190,7 @@ export function EvalsCasesDrawer({
       ? 'Manage test cases'
       : mode.kind === 'new'
         ? 'New test case'
-        : editingCase
-          ? `Edit ${editingCase.id.slice(0, 8)}`
-          : 'Edit case';
+        : 'Edit test case';
 
   return (
     <Portal>
