@@ -31,6 +31,7 @@ interface SuggestRunnerRequest {
   skills: Array<{ category: string; filename: string; content: string }>;
   wikiSources: Array<{ name: string; content?: string }>;
   mcps: Array<{ name: string; description?: string }>;
+  existingQuestions: string[];
   count: number;
   model: string;
 }
@@ -157,6 +158,7 @@ export async function suggestCases(input: {
   skills: SuggestRunnerRequest['skills'];
   wikiSources: SuggestRunnerRequest['wikiSources'];
   mcps: SuggestRunnerRequest['mcps'];
+  existingQuestions: string[];
   count: number;
   model: string;
 }): Promise<SuggestedCase[]> {

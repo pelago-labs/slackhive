@@ -31,6 +31,7 @@ interface SuggestCasesRequest {
   skills: Array<{ category: string; filename: string; content: string }>;
   wikiSources: Array<{ name: string; content?: string }>;
   mcps: Array<{ name: string; description?: string }>;
+  existingQuestions?: string[];
   count: number;
   model: string;
 }
@@ -118,6 +119,13 @@ function buildSuggestPrompt(req: SuggestCasesRequest): string {
         .join('\n')
     : '_(no linked MCPs)_';
 
+  const existing = (req.existingQuestions ?? []).filter(
+    (q) => typeof q === 'string' && q.trim() !== '',
+  );
+  const existingBlock = existing.length
+    ? existing.map((q) => `- ${truncate(q, 240)}`).join('\n')
+    : '';
+
   return [
     'You are designing test cases for an AI agent that runs in Slack.',
     'Generate test cases that exercise the agent against realistic Slack user inputs.',
@@ -140,6 +148,29 @@ function buildSuggestPrompt(req: SuggestCasesRequest): string {
     mcpsBlock,
     'Tool name format: mcp__<server>__<tool>',
     'When using tool_called / tool_not_called, ONLY reference tools from servers listed above.',
+    '',
+    existingBlock
+      ? `## Existing cases (${existing.length}) — these angles are TAKEN`
+      : '',
+    existingBlock,
+    existingBlock
+      ? [
+          'The new case MUST come from a genuinely different territory than every case above. Be strict about what "different" means:',
+          '',
+          'COUNTS AS THE SAME ANGLE (reject — do not generate this):',
+          '- Same metric/topic with different parameters (different country, region, date range, time window, user segment, currency).',
+          '  Example: existing "What\'s our GMV last 30 days by country?" → "What\'s our GMV for Japan last 7 days?" is the SAME angle. So is any other GMV-by-X question.',
+          '- Same intent with different phrasing (both asking for a top-N ranking, both asking for a comparison, both asking for a definition).',
+          '- Same edge case rephrased.',
+          '',
+          'COUNTS AS A DIFFERENT ANGLE (good — pick one of these):',
+          '- A different metric / object / behavior (e.g., if existing is about GMV, try sessions, refunds, funnel conversion, cohort retention, a categorical dimension breakdown, or a non-numeric question).',
+          '- A different question shape: ambiguity / clarification / refusal / abuse / missing context / impossible request / format constraint / conflicting instructions / multi-step reasoning / "what does this term mean".',
+          '- A different agent behavior to exercise (e.g., a question that should trigger a tool that hasn\'t been exercised yet, or one that should NOT trigger any tool).',
+          '',
+          'If you find yourself parameterizing an existing question — STOP and pick from a different family entirely. The whole point is to broaden coverage, not deepen one topic.',
+        ].join('\n')
+      : '',
     '',
     '# Available check types',
     '',

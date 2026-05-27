@@ -274,6 +274,13 @@ export function EvalsCasesDrawer({
               mcps={mcps}
               existing={mode.kind === 'edit' ? editingCase! : null}
               onCancel={() => setMode({ kind: 'list' })}
+              onAutoFilled={async () => {
+                // Auto-fill persisted a proposed case server-side. Refresh
+                // the list so it shows up even if the user navigates away
+                // before promoting it.
+                await refresh();
+                onCasesChanged?.();
+              }}
               onSaved={async () => {
                 await refresh();
                 onCasesChanged?.();
@@ -560,6 +567,7 @@ function FormView({
   mcps,
   existing,
   onCancel,
+  onAutoFilled,
   onSaved,
   onArchive,
 }: {
@@ -567,6 +575,7 @@ function FormView({
   mcps: McpServer[];
   existing: EvalCase | null;
   onCancel: () => void;
+  onAutoFilled: () => void | Promise<void>;
   onSaved: () => void;
   onArchive: (id: string) => void;
 }) {
@@ -577,6 +586,9 @@ function FormView({
   const [status, setStatus] = useState<'approved' | 'proposed'>(
     existing?.status ?? 'approved',
   );
+  // When Auto-fill persists a proposed case, we hold its id so Save can
+  // PATCH (promote) instead of POST (create duplicate).
+  const [autoFilledCaseId, setAutoFilledCaseId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoFilling, setAutoFilling] = useState(false);
@@ -584,18 +596,25 @@ function FormView({
 
   async function autoFill() {
     if (autoFilling) return;
+    // If the user clicks Auto-fill again before saving, delete the
+    // previous proposed draft so we don't leave orphans behind.
+    const previousId = autoFilledCaseId;
     setAutoFilling(true);
     setAutoFillNote(null);
     try {
+      if (previousId) {
+        await fetch(`/api/agents/${agent.id}/evals/cases/${previousId}`, {
+          method: 'DELETE',
+        }).catch(() => null);
+        setAutoFilledCaseId(null);
+      }
       const res = await fetch(`/api/agents/${agent.id}/evals/suggest-cases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: 1 }),
       });
       if (!res.ok) throw new Error(`Generate failed: ${res.status}`);
-      const body = (await res.json()) as {
-        suggestions: Array<{ question: string; checks: CheckConfig[] }>;
-      };
+      const body = (await res.json()) as { suggestions: EvalCase[] };
       const draft = body.suggestions[0];
       if (!draft) {
         setAutoFillNote(
@@ -605,6 +624,8 @@ function FormView({
       }
       setQuestion(draft.question);
       setChecks(draft.checks);
+      setAutoFilledCaseId(draft.id);
+      await onAutoFilled();
     } catch (err) {
       setAutoFillNote(err instanceof Error ? err.message : String(err));
     } finally {
@@ -639,9 +660,13 @@ function FormView({
     setSubmitting(true);
     try {
       let res: Response;
-      if (existing) {
+      // If Auto-fill already persisted a proposed case, promote it via
+      // PATCH instead of POSTing a new one (which would leave the
+      // proposed draft as a duplicate in the list).
+      const promoteId = existing?.id ?? autoFilledCaseId;
+      if (promoteId) {
         const body: UpdateEvalCaseRequest = { question, checks: cleaned, status };
-        res = await fetch(`/api/agents/${agent.id}/evals/cases/${existing.id}`, {
+        res = await fetch(`/api/agents/${agent.id}/evals/cases/${promoteId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
