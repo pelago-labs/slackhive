@@ -22,6 +22,7 @@ import type {
   SlackCredentials,
 } from '@slackhive/shared';
 import { agentLogger } from '../logger';
+import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
 
 // =============================================================================
@@ -105,7 +106,7 @@ export class SlackAdapter implements PlatformAdapter {
     } catch (err) {
       const raw = (err as Error).message;
       const friendly = /invalid_auth|not_authed|token_revoked/i.test(raw)
-        ? 'Slack bot token is invalid or revoked. Paste fresh bot and app tokens in Settings → Platform Integrations.'
+        ? 'Slack bot token is invalid or revoked. Update the Bot Token in the agent\'s Slack Credentials section.'
         : /missing_scope/i.test(raw)
           ? 'Slack app is missing required OAuth scopes. Reinstall the app with the scopes listed in Settings.'
           : `Slack auth failed: ${raw}`;
@@ -141,7 +142,12 @@ export class SlackAdapter implements PlatformAdapter {
         text: fullText,
         isDM: false,
         files: allFiles.length > 0 ? allFiles : undefined,
-        raw: { client, messageTs: event.ts },
+        raw: {
+          client,
+          messageTs: event.ts,
+          bot_id: (event as any).bot_id,
+          app_id: (event as any).app_id,
+        },
       });
     });
 
@@ -163,7 +169,12 @@ export class SlackAdapter implements PlatformAdapter {
         text: fullText,
         isDM: true,
         files: allFiles.length > 0 ? allFiles : undefined,
-        raw: { client, messageTs: msg.ts },
+        raw: {
+          client,
+          messageTs: msg.ts,
+          bot_id: msg.bot_id,
+          app_id: msg.app_id,
+        },
       });
     });
 
@@ -324,34 +335,9 @@ export class SlackAdapter implements PlatformAdapter {
   // ─── Formatting ────────────────────────────────────────────────────
 
   getFormattingRules(): string {
-    return `# Slack Formatting
-
-You are responding in Slack. Follow these rules for every message:
-
-**Text formatting:**
-- Bold: \`*bold*\` — NOT \`**bold**\`
-- Italic: \`_italic_\` — NOT \`*italic*\`
-- Section headers: \`*Header Text*\` on its own line — NOT \`#\`, \`##\`, \`###\`
-- Inline code: \`` + '`' + `code\`` + '`' + `
-- Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
-- Lists: \`- item\` or \`1. item\`
-- Links: \`<url|text>\`
-- Horizontal rules: just a blank line — NOT \`---\` or \`***\`
-- Blockquotes: use plain text or \`_italic_\` — NOT \`>\`
-
-**Tables — use standard Markdown pipe format:**
-- Every row MUST start and end with \`|\`
-- Always include a separator row: \`|---|---|---|\`
-- Do NOT wrap tables in code blocks
-
-Good:
-\`\`\`
-| Name | Count |
-|---|---|
-| Alpha | 42 |
-\`\`\`
-
-**Never use:** \`## headings\`, \`**double asterisks**\`, \`> blockquotes\`, \`---\` rules`;
+    // Single source of truth lives in compile-claude-md.SLACK_FORMATTING_SECTION
+    // — keeps the production-adapter path and the no-adapter fallback identical.
+    return SLACK_FORMATTING_SECTION;
   }
 
   formatMarkdown(md: string): string {

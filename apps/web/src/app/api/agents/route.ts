@@ -19,6 +19,7 @@ import {
   applyLiveStatus,
   listAccessibleAgentIds,
   listWritableAgentIds,
+  getMcpServerById,
 } from '@/lib/db';
 import type { CreateAgentRequest } from '@slackhive/shared';
 import { SKILL_TEMPLATES } from '@/lib/skill-templates';
@@ -82,8 +83,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Create the agent record, tracking who created it
     const session = getSessionFromRequest(request);
+
+    // MCP ownership check — same policy as PUT /api/agents/[id]/mcps:
+    // editors can only assign MCPs they own; admins/superadmins bypass. Without
+    // this an editor could attach another editor's private MCP to a freshly
+    // created agent and silently use its credentials. Rejected with 403 so the
+    // user sees the violation explicitly rather than a silent drop.
+    const isAdmin = session?.role === 'admin' || session?.role === 'superadmin';
+    if (!isAdmin && body.mcpServerIds?.length) {
+      const mcps = await Promise.all(body.mcpServerIds.map(mid => getMcpServerById(mid)));
+      const unauthorized = mcps.find(m => m && m.createdBy !== session?.username);
+      if (unauthorized) {
+        return NextResponse.json(
+          { error: `Only the MCP owner or an admin can assign "${unauthorized.name}"` },
+          { status: 403 },
+        );
+      }
+    }
+
+    // Create the agent record, tracking who created it
     const agent = await createAgent(body, session?.username ?? 'system');
 
     // Assign MCPs if provided

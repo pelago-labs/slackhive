@@ -18,7 +18,7 @@ import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKMessage, type SDKUserMessage, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 import type { Agent, McpServer, McpServerConfig, McpServerType, McpStdioConfig, Permission } from '@slackhive/shared';
 import {
@@ -35,6 +35,250 @@ const SESSION_MAX_AGE_MS = 30 * 60 * 1_000;
 const SESSION_CLEANUP_INTERVAL_MS = 10 * 60 * 1_000;
 const COOPERATIVE_SHUTDOWN_GRACE_MS = 1_000;
 const FORCE_KILL_GRACE_MS = 2_000;
+
+/**
+ * Platform-wide deny list applied whenever an agent has any Bash permission.
+ *
+ * This is **defense-in-depth, not a hard boundary.** Patterns match the
+ * literal command string the model emits, so a determined model can bypass
+ * via runtime expansion (`$HOME`, `$(whoami)`), relative paths after `cd`,
+ * or interpreter-mediated reads (e.g. `python3 -c "open('/home/admin/.aws/credentials').read()"`
+ * with `Bash(python3 *)` in the allow baseline). True isolation requires
+ * per-agent OS users or containers — see the platform isolation issue.
+ *
+ * What this catches:
+ *   - Host CLIs that auto-load identity from local config (gh, aws, kubectl, …)
+ *   - Direct DB access (could read SlackHive's own data.db)
+ *   - Reads of host secret paths (~/.ssh, ~/.aws, ~/.config/gh, etc.) when the
+ *     model uses the literal tilde or absolute /home/admin form
+ *   - Process / sys introspection (/proc, /sys — env vars, mounts)
+ *   - Global package installs that escape the per-session scope
+ *   - Cross-clone into other agents' or system paths
+ *   - Shell-escape commands that defeat glob pattern matching (eval, bash -c)
+ *   - Cross-agent reads under the agents tree (existing rule, kept)
+ *   - Already-banned destructive ops (rm, chmod, sudo, kill, curl, wget)
+ *
+ * The SDK applies deny patterns ahead of allow patterns, so an operator
+ * granting `Bash(pip install *)` cannot accidentally re-enable
+ * `Bash(pip install --user *)` here.
+ *
+ * @param {string} agentsBaseDir - Parent directory containing all agent workdirs.
+ * @returns {string[]} Bash(pattern) strings to add to settings.permissions.deny.
+ */
+export function buildBashDenyBaseline(agentsBaseDir: string): string[] {
+  return [
+    // Host CLIs that auto-load identity from local config
+    'Bash(gh *)', 'Bash(aws *)', 'Bash(kubectl *)', 'Bash(ssh *)',
+    'Bash(scp *)', 'Bash(rsync *)', 'Bash(helm *)', 'Bash(terraform *)',
+    'Bash(docker *)', 'Bash(doctl *)', 'Bash(gcloud *)', 'Bash(az *)',
+
+    // Direct DB access (could read SlackHive's own data.db or any DB the host can reach)
+    'Bash(sqlite3 *)', 'Bash(psql *)', 'Bash(mysql *)', 'Bash(mongosh *)', 'Bash(redis-cli *)',
+
+    // Host-secret file reads — match any command touching these paths.
+    'Bash(* ~/.config/*)', 'Bash(* ~/.aws/*)', 'Bash(* ~/.ssh/*)',
+    'Bash(* ~/.kube/*)', 'Bash(* ~/.npmrc*)', 'Bash(* ~/.netrc*)',
+    'Bash(* /home/admin/.ssh/*)', 'Bash(* /home/admin/.aws/*)',
+    'Bash(* /home/admin/.config/*)', 'Bash(* /home/admin/.kube/*)',
+
+    // Env file reads (covers .env, .env.local, etc.) and env-var dumps.
+    // `Bash(env*)` (not `Bash(env)`) catches `env | grep AUTH_SECRET`, `env -0`, etc.
+    'Bash(cat *.env*)', 'Bash(* .env*)', 'Bash(env*)', 'Bash(printenv*)',
+
+    // Process / sys introspection — these expose env vars, mounts, kernel state
+    'Bash(* /proc/*)', 'Bash(* /sys/*)',
+
+    // Global package installs (escape per-session scope)
+    'Bash(npm install -g *)', 'Bash(npm install*-g*)',
+    'Bash(npm i -g *)', 'Bash(npm i*-g*)',
+    'Bash(yarn global *)', 'Bash(pnpm add -g *)', 'Bash(pnpm i -g *)',
+    'Bash(pip install --user *)', 'Bash(pip3 install --user *)',
+    'Bash(pip install*--user*)', 'Bash(pip3 install*--user*)',
+    'Bash(pip install -t /home/*)', 'Bash(pip install -t /usr/*)',
+    'Bash(pip3 install -t /home/*)', 'Bash(pip3 install -t /usr/*)',
+    'Bash(uv tool install *)',
+
+    // Cross-clone into other agents' or system paths
+    'Bash(git clone * /home/*)', 'Bash(git clone * /etc/*)', 'Bash(git clone * /usr/*)',
+    `Bash(git clone * ${agentsBaseDir}/*)`,
+
+    // `go install` writes to $GOPATH/bin (~/go/bin) outside the session scope —
+    // belt-and-suspenders alongside the narrowed go-subcommand allow list below.
+    'Bash(go install *)',
+
+    // Shell-escape — these embed arbitrary commands inside a string and defeat
+    // glob pattern matching. Without this an agent could route any blocked
+    // command via `bash -c "<blocked>"`.
+    'Bash(eval *)', 'Bash(bash -c *)', 'Bash(sh -c *)', 'Bash(zsh -c *)',
+    'Bash(* | bash)', 'Bash(* | sh)',
+
+    // Cross-agent reads under the agents tree (existing rules preserved)
+    `Bash(cat ${agentsBaseDir}/*)`, `Bash(ls ${agentsBaseDir}/*)`,
+    `Bash(find ${agentsBaseDir}/*)`, `Bash(grep * ${agentsBaseDir}/*)`,
+    `Bash(python3 ${agentsBaseDir}/*)`, `Bash(python3 -m pytest ${agentsBaseDir}/*)`,
+    `Bash(pytest ${agentsBaseDir}/*)`, `Bash(git -C ${agentsBaseDir}/*)`,
+    `Bash(git log ${agentsBaseDir}/*)`,
+
+    // Destructive ops + network exfil (existing rules preserved)
+    'Bash(rm *)', 'Bash(chmod *)', 'Bash(sudo *)', 'Bash(kill *)',
+    'Bash(curl *)', 'Bash(wget *)',
+  ];
+}
+
+/**
+ * Platform-wide allow baseline for common dev / test / read commands operating
+ * inside the agent's own session scope. Operator-specified Bash patterns are
+ * layered on top of this so existing per-agent permissions still work; the
+ * baseline just ensures every Bash-enabled agent has a safe minimum even when
+ * the operator hasn't enumerated patterns (e.g. plain "Bash" in allowed_tools).
+ *
+ * Commands here write to cwd (= sessionWorkDir) by default — the deny baseline
+ * blocks the scope-escape variants (`-g`, `--user`, etc.).
+ *
+ * @param {string} workDir - Agent's compile-time workdir (CLAUDE.md, knowledge/, …).
+ * @param {string} sessionWorkDir - Per-session cwd for this thread.
+ * @returns {string[]} Bash(pattern) strings to add to settings.permissions.allow.
+ */
+export function buildBashAllowBaseline(workDir: string, sessionWorkDir: string): string[] {
+  return [
+    // Read-only file ops within agent scope
+    `Bash(ls ${sessionWorkDir}/*)`, `Bash(ls ${sessionWorkDir})`,
+    `Bash(cat ${sessionWorkDir}/*)`, `Bash(find ${sessionWorkDir}/*)`,
+    `Bash(grep * ${sessionWorkDir}/*)`, `Bash(head ${sessionWorkDir}/*)`,
+    `Bash(tail ${sessionWorkDir}/*)`,
+    `Bash(ls ${workDir}/*)`, `Bash(cat ${workDir}/*)`,
+    `Bash(grep * ${workDir}/*)`, `Bash(find ${workDir}/*)`,
+
+    // Trivially safe utilities
+    'Bash(echo *)', 'Bash(pwd)', 'Bash(date)', 'Bash(whoami)',
+    'Bash(true)', 'Bash(false)', 'Bash(jq *)', 'Bash(yq *)',
+    'Bash(wc *)', 'Bash(sort *)', 'Bash(uniq *)', 'Bash(cut *)',
+
+    // Git — clone into cwd, status, log, diff, branch ops. The deny list
+    // blocks `git clone * /home/*` so cross-host clones can't slip through.
+    'Bash(git clone *)', 'Bash(git status)', 'Bash(git log *)', 'Bash(git diff *)',
+    'Bash(git show *)', 'Bash(git branch *)', 'Bash(git checkout *)',
+    'Bash(git fetch *)', 'Bash(git pull *)', 'Bash(git add *)', 'Bash(git commit *)',
+    'Bash(git push *)',
+
+    // Node ecosystem — installs go to ./node_modules, deny blocks -g.
+    'Bash(npm install *)', 'Bash(npm install)', 'Bash(npm test *)', 'Bash(npm test)',
+    'Bash(npm run *)', 'Bash(npm exec *)', 'Bash(npm ci)',
+    'Bash(npx *)', 'Bash(yarn *)', 'Bash(pnpm *)',
+    'Bash(node *)', 'Bash(ts-node *)', 'Bash(tsx *)',
+
+    // Python ecosystem — installs go to active venv or ./.venv, deny blocks --user / -t /home.
+    'Bash(python3 *)', 'Bash(python *)',
+    'Bash(pip install *)', 'Bash(pip3 install *)',
+    'Bash(pip *)', 'Bash(pip3 *)', 'Bash(uv *)',
+
+    // Test runners — these read/write within the project under cwd.
+    'Bash(pytest *)', 'Bash(pytest)', 'Bash(python3 -m pytest *)',
+    'Bash(vitest *)', 'Bash(npx vitest *)',
+    'Bash(jest *)', 'Bash(npx jest *)',
+
+    // Go — narrowed to subcommands that write/read in cwd. `go install` writes
+    // to ~/go/bin (outside scope) and is explicitly denied above.
+    'Bash(go test *)', 'Bash(go build *)', 'Bash(go run *)',
+    'Bash(go mod *)', 'Bash(go vet *)', 'Bash(go fmt *)',
+
+    // Make — Makefile lives in cwd, so the agent can only invoke targets the
+    // operator's own Makefile defines. `make install` would only write outside
+    // scope if such a target exists in the cloned repo's Makefile.
+    'Bash(make *)',
+  ];
+}
+
+/**
+ * Decides whether a Read / Write / Edit tool call against `filePath` is
+ * inside the agent's scope (workDir or sessionWorkDir). Same threat model
+ * as the Bash baseline above: the SDK Read tool, by default, can read any
+ * file the host OS user can read — including `~/.config/gh/hosts.yml`,
+ * `~/.aws/credentials`, `/proc/<runner-pid>/environ`, the slackhive .env,
+ * and the slackhive data.db.
+ *
+ * Policy:
+ *   - Allow paths inside the agent's own workDir or sessionWorkDir.
+ *     This covers wiki, knowledge sources, slash commands, CLAUDE.md,
+ *     per-session memory, scratch files. Wiki access stays working — the
+ *     wiki is materialized to `${workDir}/knowledge/wiki/` at compile time.
+ *   - Deny everything else. There's no legitimate workflow today where an
+ *     agent needs to read a host file outside its own scope; coordination
+ *     happens via Slack and MCPs, not shared host files.
+ *
+ * Same defense-in-depth caveat as the Bash baseline: a determined model
+ * with the Bash tool can still bypass via interpreter escapes (python -c,
+ * node -e). True isolation needs per-agent OS users / containers.
+ *
+ * @param filePath The file path the model wants to read/write/edit.
+ * @param workDir Agent's compile-time workdir.
+ * @param sessionWorkDir Per-session cwd.
+ * @returns `null` if allowed, or a string explaining why it was denied.
+ */
+export function checkPathInAgentScope(
+  filePath: string | undefined,
+  workDir: string,
+  sessionWorkDir: string,
+): string | null {
+  if (!filePath || typeof filePath !== 'string') {
+    // Unknown shape — be conservative and deny so the model has to retry
+    // with a properly-formed call rather than slipping through.
+    return 'no file path provided';
+  }
+  // Resolve relative paths against sessionWorkDir (cwd) and to absolute.
+  const abs = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(sessionWorkDir, filePath);
+
+  const inWorkDir = abs === workDir || abs.startsWith(workDir + path.sep);
+  const inSession = abs === sessionWorkDir || abs.startsWith(sessionWorkDir + path.sep);
+  if (inWorkDir || inSession) return null;
+
+  return `path is outside agent scope (workDir=${workDir}, sessionWorkDir=${sessionWorkDir}): ${abs}`;
+}
+
+/**
+ * Builds a PreToolUse hook callback that blocks Read / Write / Edit calls
+ * outside the agent's scope. Registered into the SDK's hooks system so it
+ * fires regardless of `permissionMode` (which would otherwise auto-accept
+ * file ops under `acceptEdits`).
+ *
+ * Returns `{ decision: 'block', ... }` to deny, or no-op to allow.
+ *
+ * @param workDir Agent's compile-time workdir.
+ * @param sessionWorkDir Per-session cwd.
+ * @param logger Optional logger for emitting deny events (helps audit who tried what).
+ */
+export function buildPreToolUsePathScopeHook(
+  workDir: string,
+  sessionWorkDir: string,
+  logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void },
+): HookCallback {
+  const SCOPED_TOOLS = new Set(['Read', 'Write', 'Edit', 'NotebookEdit']);
+  return async (input) => {
+    if (input.hook_event_name !== 'PreToolUse') return {};
+    const pre = input as PreToolUseHookInput;
+    if (!SCOPED_TOOLS.has(pre.tool_name)) return {};
+
+    const toolInput = (pre.tool_input ?? {}) as { file_path?: string; notebook_path?: string };
+    const filePath = toolInput.file_path ?? toolInput.notebook_path;
+    const denyReason = checkPathInAgentScope(filePath, workDir, sessionWorkDir);
+    if (!denyReason) return {};
+
+    logger?.warn('Tool path-scope deny', {
+      tool: pre.tool_name,
+      filePath,
+      reason: denyReason,
+    });
+    return {
+      decision: 'block',
+      reason: denyReason,
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: denyReason,
+      },
+    };
+  };
+}
 
 export class ClaudeHandler {
   private readonly agent: Agent;
@@ -531,6 +775,20 @@ export class ClaudeHandler {
       settingSources: ['project'],
       cwd: sessionWorkDir,
       abortController: abortController ?? new AbortController(),
+      // Whitelist the agent's compile-time workDir so Read/Write of CLAUDE.md,
+      // knowledge/wiki/, knowledge/sources/, and .claude/commands/ never trip
+      // the path-scope hook below. cwd (sessionWorkDir) is implicitly allowed.
+      additionalDirectories: [this.workDir],
+      // PreToolUse hook is the actual enforcement: blocks Read/Write/Edit on
+      // any path outside workDir + sessionWorkDir. Fires regardless of
+      // permissionMode (which would otherwise auto-accept under 'acceptEdits').
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [buildPreToolUsePathScopeHook(this.workDir, sessionWorkDir, this.log)],
+          },
+        ],
+      },
     };
 
     const rawAllowed: string[] = this.permissions?.allowedTools?.length
@@ -547,15 +805,27 @@ export class ClaudeHandler {
     const hasWiki = fs.existsSync(path.join(this.workDir, 'knowledge', 'wiki'));
     if (hasWiki) alwaysAllowed.push('Grep');
 
-    // Separate Bash(pattern) rules from plain tool names.
-    // e.g. "Bash(git *)" is a permission rule, "Bash" is a plain tool name.
+    // Separate Bash(pattern) rules from plain "Bash" / other tool names.
+    // e.g. "Bash(git *)" is a permission rule, plain "Bash" is the tool name.
     const bashRules = rawAllowed.filter((t) => t.startsWith('Bash('));
-    const plainTools = rawAllowed.filter((t) => !t.startsWith('Bash('));
+    const hasPlainBash = rawAllowed.includes('Bash');
+    const plainTools = rawAllowed.filter((t) => !t.startsWith('Bash(') && t !== 'Bash');
+    const hasAnyBash = bashRules.length > 0 || hasPlainBash;
 
-    // If there are Bash rules, add plain "Bash" to the tool list so the model can see/use it,
-    // but scope auto-execution via options.permissions.allow patterns.
-    const hasBashRules = bashRules.length > 0;
-    const baseTools = hasBashRules ? [...plainTools, 'Bash'] : plainTools;
+    // Plain "Bash" with no patterns used to mean "auto-execute any command" — that
+    // gave agents host-wide reach (gh CLI, ~/.aws, ~/.ssh, sqlite3 against
+    // SlackHive's own DB). It's now silently auto-scoped to the agent's
+    // workdir + sessionWorkDir via the platform baseline below; the warning
+    // tells operators to migrate to explicit Bash(pattern) rules.
+    if (hasPlainBash) {
+      this.log.warn(
+        'Plain "Bash" permission found in allowed_tools — auto-scoping to agent workdir. ' +
+          'Migrate to explicit Bash(pattern) rules in the agent permissions UI.',
+        { agent: this.agent.slug },
+      );
+    }
+
+    const baseTools = hasAnyBash ? [...plainTools, 'Bash'] : plainTools;
 
     const availableTools = [...new Set([...alwaysAllowed, ...baseTools, ...mcpToolPrefixes])].filter(
       (tool) => !denied.includes(tool)
@@ -568,21 +838,22 @@ export class ClaudeHandler {
 
     // Bash(pattern) rules go into settings.permissions.allow — this is the only place
     // the SDK supports command-level scoping (not in allowedTools/tools).
-    if (hasBashRules) {
-      // Resolve the actual agents base directory (works in both Docker and native mode)
+    //
+    // The platform always applies a deny baseline + allow baseline whenever ANY
+    // Bash access is granted (whether plain "Bash" or with operator patterns).
+    // Operator patterns are layered on top of the allow baseline; deny baseline
+    // wins over both, so an operator can't accidentally re-enable a host-secret
+    // read by writing a permissive `Bash(pip install *)` rule.
+    if (hasAnyBash) {
       const agentsBaseDir = path.dirname(this.workDir); // e.g. /tmp/agents or ~/.slackhive/agents
-      // Block access to ALL agent namespaces, then allow back this agent's own via the allow list
       const bashDeny = [
         ...denied,
-        'Bash(rm *)', 'Bash(curl *)', 'Bash(wget *)', 'Bash(chmod *)', 'Bash(sudo *)', 'Bash(kill *)',
-        `Bash(cat ${agentsBaseDir}/*)`, `Bash(ls ${agentsBaseDir}/*)`,
-        `Bash(find ${agentsBaseDir}/*)`, `Bash(grep * ${agentsBaseDir}/*)`,
-        `Bash(python3 ${agentsBaseDir}/*)`, `Bash(python3 -m pytest ${agentsBaseDir}/*)`,
-        `Bash(pytest ${agentsBaseDir}/*)`, `Bash(git clone * ${agentsBaseDir}/*)`,
-        `Bash(git -C ${agentsBaseDir}/*)`, `Bash(git log ${agentsBaseDir}/*)`,
+        ...buildBashDenyBaseline(agentsBaseDir),
       ];
-      // Re-allow this agent's own namespace — substitute {agent} placeholder with actual slug.
-      const bashAllow = bashRules.map(r => r.replace(/\{agent\}/g, this.agent.slug));
+      // Operator patterns: substitute {agent} placeholder with actual slug.
+      const operatorAllow = bashRules.map(r => r.replace(/\{agent\}/g, this.agent.slug));
+      const baselineAllow = buildBashAllowBaseline(this.workDir, sessionWorkDir);
+      const bashAllow = [...new Set([...baselineAllow, ...operatorAllow])];
       options.settings = {
         permissions: {
           allow: bashAllow,

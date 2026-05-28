@@ -80,8 +80,18 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       }
     }
 
-    const skill = await upsertSkill(id, body.category, body.filename, body.content, body.sortOrder ?? 0);
+    const skill = await upsertSkill(
+      id, body.category, body.filename, body.content,
+      body.sortOrder ?? 0,
+      body.description,
+    );
     await publishAgentEvent({ type: 'reload', agentId: id });
+    // Background fill: ask the runner to summarize when no description exists.
+    // Fire-and-forget — the user's save returns immediately; the description
+    // appears after the Sonnet call completes.
+    if (skill.description === null) {
+      await publishAgentEvent({ type: 'skill-saved', agentId: id, skillId: skill.id });
+    }
     return NextResponse.json(skill, { status: 201 });
   } catch (err) {
     return apiError('agents/[id]/skills', err);

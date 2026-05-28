@@ -22,8 +22,9 @@ import { FilesChanged, type FileChange } from './diff-view';
 import { CoachPanel } from './coach-panel';
 import { TestPanel } from './test-panel';
 import { EvalsPanel } from './evals-panel';
+import { AudiencesPanel } from './audiences-panel';
 
-type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'logs' | 'history' | 'evals';
+type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'logs' | 'history' | 'evals';
 
 interface AgentExportPayload {
   version: number;
@@ -39,7 +40,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'overview',      label: 'Overview'      },
   { id: 'instructions',  label: 'Instructions'  },
   { id: 'tools',         label: 'Tools'         },
-  { id: 'knowledge',     label: 'Wiki'           },
+  { id: 'knowledge',     label: 'Wiki'          },
+  { id: 'audiences',     label: 'Audiences'     },
   { id: 'logs',          label: 'Logs'          },
   { id: 'history',       label: 'History'       },
   { id: 'evals',         label: 'Evals'         },
@@ -132,11 +134,12 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         }
         if (role === 'admin' || role === 'superadmin') {
           setCanEdit(true);
+          setAgent(found);
           // Admins/superadmins can see Slack tokens — fetch detail endpoint
           fetch(`/api/agents/${found.id}`)
             .then(r => r.json())
             .then((detail: Agent) => setAgent(detail))
-            .catch(() => setAgent(found));
+            .catch(() => {});
         } else if (role === 'editor' || role === 'viewer') {
           setAgent(found);
           fetch(`/api/agents/${found.id}/access`)
@@ -150,7 +153,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               setViewOnly(readOnly);
               if (readOnly) setTab(t => (t === 'logs' || t === 'history') ? 'overview' : t);
               if (writable) {
-                // Editors with write access can also see tokens
+                // Editors with write access can also see tokens — update in background
                 fetch(`/api/agents/${found.id}`)
                   .then(r => r.json())
                   .then((detail: Agent) => setAgent(detail))
@@ -380,10 +383,11 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} onOpenCoach={() => setCoachOpen(true)} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} username={username} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
+        {tab === 'audiences'     && <AudiencesPanel    agentId={agent.id} canEdit={canEdit} />}
         {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
@@ -405,7 +409,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null; onOpenCoach?: () => void }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null; username: string; onOpenCoach?: () => void }) {
   const [form, setForm] = useState({
     name:               agent.name,
     description:        agent.description ?? '',
@@ -499,6 +503,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
   };
 
   const isAdmin = role === 'admin' || role === 'superadmin';
+  const canDelete = isAdmin || agent.createdBy === username;
 
   return (
     <div style={{ maxWidth: 640 }} className="fade-up">
@@ -736,7 +741,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, onOpenCoach }:
       )}
 
       {/* ── Danger Zone ── */}
-      {isAdmin && (
+      {canDelete && (
         <div style={{
           marginTop: 40, borderTop: '1px solid var(--red-soft-border)', paddingTop: 28,
         }}>
@@ -1153,16 +1158,39 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
 // ─── Skills ───────────────────────────────────────────────────────────────────
 
 function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription }: { agentId: string; canEdit: boolean; agentName: string; agentPersona: string; agentDescription: string }) {
-  const [skills, setSkills]     = useState<Skill[]>([]);
-  const [selected, setSelected] = useState<Skill | null>(null);
-  const [content, setContent]   = useState('');
-  const [saving, setSaving]     = useState(false);
-  const [msg, setMsg]           = useState('');
-  const [showNew, setShowNew]   = useState(false);
-  const [newSkill, setNewSkill] = useState({ category: '', filename: '', content: '' });
+  const [skills, setSkills]         = useState<Skill[]>([]);
+  const [selected, setSelected]     = useState<Skill | null>(null);
+  const [content, setContent]       = useState('');
+  const [description, setDescription] = useState('');
+  const [descModal, setDescModal]   = useState(false);
+  const [descDraft, setDescDraft]   = useState('');
+  // Description value at the moment Regenerate was clicked. We only end the
+  // loader when polling brings in a description that differs from this — the
+  // old code ended on any truthy description, so the spinner flickered off
+  // before the runner had even started summarizing.
+  const [regenBaseline, setRegenBaseline] = useState<string | null>(null);
+  const [saving, setSaving]         = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [msg, setMsg]               = useState('');
+  const [showNew, setShowNew]       = useState(false);
+  const [newSkill, setNewSkill]     = useState({ category: '', filename: '', content: '' });
 
   const load = () =>
-    fetch(`/api/agents/${agentId}/skills`).then(r => r.json()).then(setSkills);
+    fetch(`/api/agents/${agentId}/skills`).then(r => r.json()).then((next: Skill[]) => {
+      setSkills(next);
+      // Keep the selected skill's description in sync if the runner just
+      // filled it in via summarize. Without this, the input shows the stale
+      // value from the moment the user clicked into the file.
+      setSelected(prev => {
+        if (!prev || prev.id === '__identity__') return prev;
+        const fresh = next.find(s => s.id === prev.id);
+        if (fresh && fresh.description !== prev.description) {
+          setDescription(fresh.description ?? '');
+          return fresh;
+        }
+        return prev;
+      });
+    });
 
   useEffect(() => { load(); }, [agentId]);
 
@@ -1173,16 +1201,82 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     return () => window.removeEventListener('slackhive:instructions-refresh', h);
   }, [agentId]);
 
-  const select = (s: Skill) => { setSelected(s); setContent(s.content); };
+  // Light polling so a freshly-saved or regenerating skill picks up the
+  // description the runner just summarized. Polls while the selected skill
+  // has no description OR a regenerate is in flight; stops once filled.
+  useEffect(() => {
+    if (!selected || selected.id === '__identity__') return;
+    if (selected.description && !regenerating) return;
+    const t = setInterval(load, 1_500);
+    return () => clearInterval(t);
+  }, [selected?.id, selected?.description, regenerating]);
+
+  // When polling brings in a fresh description that's actually new (not the
+  // pre-click value), end the regenerating state and seed the modal draft.
+  useEffect(() => {
+    if (!regenerating) return;
+    if (!selected?.description) return;
+    if (selected.description === regenBaseline) return; // still old value
+    setRegenerating(false);
+    setRegenBaseline(null);
+    if (descModal) setDescDraft(selected.description);
+  }, [selected?.description, regenerating, regenBaseline, descModal]);
+
+  const select = (s: Skill) => {
+    setSelected(s);
+    setContent(s.content);
+    setDescription(s.description ?? '');
+    setDescModal(false);
+  };
+
+  const openDescModal = () => {
+    setDescDraft(description);
+    setDescModal(true);
+  };
 
   const save = async () => {
     if (!selected) return;
     setSaving(true);
+    // Content-only save. Description has its own PATCH path so a content edit
+    // never wipes a description the runner just summarized.
     await fetch(`/api/agents/${agentId}/skills`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: selected.category, filename: selected.filename, content, sortOrder: selected.sortOrder }),
+      body: JSON.stringify({
+        category: selected.category, filename: selected.filename,
+        content, sortOrder: selected.sortOrder,
+      }),
     });
     setSaving(false); setMsg('Saved'); setTimeout(() => setMsg(''), 2000); load();
+  };
+
+  const regenerate = async () => {
+    if (!selected || selected.id === '__identity__') return;
+    // Snapshot the current description so the polling effect can tell when
+    // the runner has actually written a NEW value (vs just seeing the old
+    // one on the next poll tick).
+    setRegenBaseline(selected.description ?? '');
+    setRegenerating(true);
+    // Modal stays OPEN so the user has somewhere to watch the spinner and
+    // can review the new draft before saving it. The second effect below
+    // populates descDraft once the runner writes back.
+    await fetch(`/api/agents/${agentId}/skills/${selected.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ regenerate: true }),
+    });
+    // Polling keeps `regenerating` true until the new description arrives.
+  };
+
+  const saveDescription = async () => {
+    if (!selected || selected.id === '__identity__') return;
+    const trimmed = descDraft.trim();
+    await fetch(`/api/agents/${agentId}/skills/${selected.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: trimmed === '' ? null : trimmed }),
+    });
+    setDescription(trimmed);
+    setDescModal(false);
+    setMsg('Saved'); setTimeout(() => setMsg(''), 1500);
+    load();
   };
 
   const remove = async (s: Skill) => {
@@ -1209,6 +1303,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
     filename: 'identity.md',
     sortOrder: -1,
     content: [`# ${agentName}`, agentPersona, agentDescription].filter(Boolean).join('\n\n'),
+    description: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -1321,15 +1416,51 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '10px 16px', borderBottom: '1px solid var(--border)',
-              background: 'var(--surface-2)',
+              background: 'var(--surface-2)', gap: 12,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
                   {selected.category}/{selected.filename}
                 </span>
                 {isIdentity && <span style={{ fontSize: 10, color: 'var(--subtle)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3 }}>read-only · edit in Overview</span>}
+                {!isIdentity && (
+                  <button
+                    onClick={openDescModal}
+                    disabled={!canEdit && !description}
+                    title={
+                      regenerating ? 'Regenerating with AI…'
+                        : description ? description
+                        : (canEdit ? 'Add a "when to use" description' : 'No description')
+                    }
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      fontSize: 10, fontWeight: 500, letterSpacing: '0.04em',
+                      textTransform: 'uppercase', fontFamily: 'var(--font-sans)',
+                      background: 'var(--surface-3)', color: 'var(--muted)',
+                      border: 'none', borderRadius: 3,
+                      padding: '2px 8px', cursor: canEdit ? 'pointer' : 'default',
+                      flexShrink: 0,
+                    }}
+                    onMouseEnter={e => { if (canEdit) (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+                    onMouseLeave={e => { if (canEdit) (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+                  >
+                    {regenerating && (
+                      <span
+                        aria-label="Regenerating"
+                        style={{
+                          width: 8, height: 8, flexShrink: 0,
+                          border: '1.5px solid var(--border-2)',
+                          borderTopColor: 'var(--text)',
+                          borderRadius: '50%',
+                          animation: 'spin 0.8s linear infinite',
+                        }}
+                      />
+                    )}
+                    desc
+                  </button>
+                )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                 {msg && <span style={{ fontSize: 11.5, color: '#16a34a' }}>{msg}</span>}
                 {canEdit && !isIdentity && <button
                   onClick={save} disabled={saving}
@@ -1380,6 +1511,49 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
           </div>
         </Modal>
       )}
+
+      {/* Edit description modal */}
+      {descModal && selected && (
+        <Modal title={`Edit description — ${selected.filename}`} onClose={() => setDescModal(false)}>
+          <div style={{ position: 'relative' }}>
+            <TextArea
+              label="Description"
+              value={descDraft}
+              onChange={setDescDraft}
+              rows={3}
+              hint='Frame as a "when to use" trigger so the agent picks the right /command. e.g. "Use when filing a Notion bug ticket from a Slack investigation".'
+            />
+            {regenerating && (
+              <div style={{
+                position: 'absolute', inset: '24px 0 32px 0',
+                background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)',
+                borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                color: 'var(--text)', fontSize: 13, fontWeight: 500,
+                pointerEvents: 'none',
+              }}>
+                <span
+                  aria-label="Regenerating"
+                  style={{
+                    width: 14, height: 14, flexShrink: 0,
+                    border: '2px solid var(--border-2)',
+                    borderTopColor: 'var(--text)',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite',
+                  }}
+                />
+                Regenerating with AI…
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4, justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <PrimaryBtn onClick={saveDescription}>Save</PrimaryBtn>
+              <GhostBtn onClick={() => setDescModal(false)}>Cancel</GhostBtn>
+            </div>
+            <GhostBtn onClick={regenerate}>{regenerating ? 'Regenerating…' : 'Regenerate with AI'}</GhostBtn>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1413,14 +1587,29 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
   const [saving, setSaving]   = useState(false);
   const [msg, setMsg]         = useState('');
+  // Tracks the initial fetch so the empty-state ("No MCP servers yet")
+  // doesn't flash before the data arrives. Without this, /api/mcps round-trip
+  // latency reads as "the feature is broken".
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
     Promise.all([
-      fetch('/api/mcps').then(r => r.json()),
-      fetch(`/api/agents/${agentId}/mcps`).then(r => r.json()),
+      fetch('/api/mcps').then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
+      fetch(`/api/agents/${agentId}/mcps`).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
     ]).then(([a, b]: [McpServer[], McpServer[]]) => {
+      if (cancelled) return;
       setAll(a); setAssigned(new Set(b.map(m => m.id)));
+    }).catch(err => {
+      if (cancelled) return;
+      setLoadError(err instanceof Error ? err.message : String(err));
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
     });
+    return () => { cancelled = true; };
   }, [agentId]);
 
   const toggle = (id: string) =>
@@ -1442,7 +1631,15 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
         Select MCP servers from the platform catalog to enable for this agent.
       </p>
       <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
-        {all.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading apps…
+          </div>
+        ) : loadError ? (
+          <div style={{ padding: '16px 20px', color: 'var(--red)', fontSize: 13, background: 'var(--red-soft-bg)' }}>
+            Couldn't load MCP servers: {loadError}
+          </div>
+        ) : all.length === 0 ? (
           <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
             No MCP servers yet.{' '}
             <Link href="/settings/mcps" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Add some →</Link>
@@ -1510,15 +1707,25 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
   const [denied,  setDenied]  = useState<string[]>([]);
   const [saving,  setSaving]  = useState(false);
   const [msg,     setMsg]     = useState('');
+  // Without a loading flag, the toggles render in their "off" state during
+  // the round-trip and then flip on once data arrives — looks like the
+  // setting is being changed under the user's feet.
+  const [loading, setLoading] = useState(true);
 
   const internetOn = INTERNET_TOOLS.every(t => allowed.includes(t));
   const shellOn = SHELL_TOOLS.some(t => allowed.includes(t));
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     fetch(`/api/agents/${agentId}/permissions`).then(r => r.json()).then((p: Permission) => {
+      if (cancelled) return;
       setAllowed(p.allowedTools ?? []);
       setDenied(p.deniedTools ?? []);
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
     });
+    return () => { cancelled = true; };
   }, [agentId]);
 
   const save = async (newAllowed: string[], newDenied: string[]) => {
@@ -1538,6 +1745,18 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
     setAllowed(next);
     save(next, denied);
   };
+
+  if (loading) {
+    return (
+      <div style={{
+        maxWidth: 500, padding: '20px 22px',
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+        display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13,
+      }}>
+        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading capabilities…
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 500 }}>
@@ -1618,8 +1837,15 @@ const MEM_TYPE_STYLE: Record<string, { bg: string; color: string }> = {
 function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
 
-  const load = () => fetch(`/api/agents/${agentId}/memories`).then(r => r.json()).then(setMemories);
+  const load = () => {
+    setLoading(true);
+    return fetch(`/api/agents/${agentId}/memories`)
+      .then(r => r.json())
+      .then(setMemories)
+      .finally(() => setLoading(false));
+  };
   useEffect(() => { load(); }, [agentId]);
 
   const remove = async (id: string, name: string) => {
@@ -1634,6 +1860,19 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
   const grouped = memories.reduce<Record<string, Memory[]>>((acc, m) => {
     (acc[m.type] ??= []).push(m); return acc;
   }, {});
+
+  if (loading) {
+    return (
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, padding: '24px 20px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        color: 'var(--muted)', fontSize: 13,
+      }}>
+        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading memories…
+      </div>
+    );
+  }
 
   if (memories.length === 0) {
     return (
@@ -1915,7 +2154,7 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
                     padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
                     cursor: saving ? 'default' : 'pointer', border: 'none',
                     background: f.assigned ? 'var(--accent)' : 'var(--surface-2)',
-                    color: f.assigned ? '#fff' : 'var(--text)',
+                    color: f.assigned ? 'var(--accent-fg)' : 'var(--text)',
                     opacity: saving ? 0.6 : 1, transition: 'background 0.15s, color 0.15s',
                     flexShrink: 0,
                   }}

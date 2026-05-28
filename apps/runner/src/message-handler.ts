@@ -22,9 +22,32 @@ import {
   recordActivityUsage,
   getDb,
 } from '@slackhive/shared';
+import { getSetting } from './db';
+
+// Cache the openToWorkspace setting for 60s to avoid a DB hit on every message.
+let _openToWorkspaceCache: { value: boolean; expiresAt: number } | null = null;
+async function isOpenToWorkspace(): Promise<boolean> {
+  const now = Date.now();
+  if (_openToWorkspaceCache && now < _openToWorkspaceCache.expiresAt) {
+    return _openToWorkspaceCache.value;
+  }
+  try {
+    const raw = await getSetting('openToWorkspace');
+    const value = raw !== 'false'; // null (not set) → true (open by default)
+    _openToWorkspaceCache = { value, expiresAt: now + 60_000 };
+    return value;
+  } catch {
+    return true; // if DB unavailable, default open
+  }
+}
+export function _resetOpenToWorkspaceCache() { _openToWorkspaceCache = null; }
 import type { ClaudeHandler } from './claude-handler';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
+import { isShuttingDown } from './shutdown-signal';
+import { VERBOSE_NARRATION_DIRECTIVE } from './compile-claude-md';
+import { getKnownAgentsByBotId } from './agent-registry';
+import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -69,6 +92,39 @@ export class MessageHandler {
   }
 
   /**
+   * Returns true when `senderUserId` is the bot user of a SlackHive agent
+   * AND that agent has a boss/reportee relationship with this agent — i.e.
+   *   - this agent reports to the sender (boss → specialist), or
+   *   - the sender reports to this agent (specialist replying to its boss).
+   *
+   * Peer-to-peer agent traffic (two specialists messaging each other) is
+   * denied; the SlackHive hierarchy doesn't permit it, and allowing it
+   * would let any agent that knows this agent's mention trigger it.
+   *
+   * The known-agents map is a workspace-wide singleton (see agent-registry.ts);
+   * N MessageHandler instances share one cache instead of each maintaining
+   * a redundant copy. Returns false on lookup failure (fail-closed).
+   */
+  private async isAuthorizedAgentTraffic(senderUserId: string): Promise<boolean> {
+    let known: Map<string, Agent>;
+    try {
+      known = await getKnownAgentsByBotId();
+    } catch (err) {
+      this.log.warn('Failed to refresh known agent bot map', { error: (err as Error).message });
+      return false;
+    }
+    const senderAgent = known.get(senderUserId);
+    if (!senderAgent) return false; // not a SlackHive agent at all
+    const myReportsTo = this.agent.reportsTo ?? [];
+    const senderReportsTo = senderAgent.reportsTo ?? [];
+    // (a) boss → specialist: I report to the sender.
+    if (myReportsTo.includes(senderAgent.id)) return true;
+    // (b) specialist → boss: sender reports to me.
+    if (senderReportsTo.includes(this.agent.id)) return true;
+    return false;
+  }
+
+  /**
    * Handle an incoming message from any platform.
    * This is the core message flow — platform-agnostic.
    */
@@ -81,11 +137,21 @@ export class MessageHandler {
     // Check channel restrictions
     if (this.isChannelRestricted(channelId)) return;
 
-    // Check user access — only users with trigger/view/edit grant (or admins/creators) may interact
-    // Test platform bypasses this check (test users are synthetic)
-    if (msg.platform !== 'test' && !(await this.userCanTrigger(userId))) {
-      this.log.info('Denying message — user has no access to this agent', { userId });
-      await this.adapter.postMessage(channelId, "You don't have access to this agent.", threadId).catch(() => {});
+    // Check user access — only users with trigger/view/edit grant (or admins/creators) may interact.
+    // Bypasses:
+    //   - Test platform (synthetic users).
+    //   - Authorized boss/reportee agent traffic. The sender must have a
+    //     `bot_id`/`app_id` on the raw Slack event AND be a SlackHive agent
+    //     in a boss/reportee relationship with this agent (this.reportsTo
+    //     ∋ sender OR sender.reportsTo ∋ this). Peer-to-peer agent traffic
+    //     and 3rd-party bots (PagerDuty, GitHub, etc.) still go through
+    //     the per-user gate, which they fail.
+    const hasBotMarker = Boolean((msg.raw as any)?.bot_id ?? (msg.raw as any)?.app_id);
+    const isAgentTraffic = hasBotMarker && (await this.isAuthorizedAgentTraffic(userId));
+    if (msg.platform !== 'test' && !isAgentTraffic && !(await this.userCanTrigger(userId))) {
+      this.log.info('Denying message — user has no access to this agent', { userId, hasBotMarker });
+      const reason = await this.accessDenialReason(userId);
+      await this.adapter.postMessage(channelId, reason, threadId).catch(() => {});
       return;
     }
 
@@ -137,6 +203,18 @@ export class MessageHandler {
           const hasToolUse = content.some((b: any) => b.type === 'tool_use');
 
           const textContent = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+          // Modern Sonnet/Opus emit reasoning prose as `thinking` blocks (not
+          // `text`) when ThinkingConfig is `adaptive` (the SDK default). The
+          // old code only filtered `type === 'text'`, so verbose mode silently
+          // stopped showing intermediate prose. Surfaced here for verbose
+          // posting only — never folded into `textContent` because
+          // `lastAssistantText` (the non-verbose fallback) should remain the
+          // model's actual output, not its scratch reasoning. `redacted_thinking`
+          // blocks are encrypted bytes by design — skip them.
+          const thinkingContent = content
+            .filter((b: any) => b.type === 'thinking')
+            .map((b: any) => b.thinking ?? '')
+            .join('');
           if (textContent) lastAssistantText = textContent;
 
           if (hasToolUse) {
@@ -162,18 +240,32 @@ export class MessageHandler {
             if (statusMsgId && toolStatus) {
               await this.adapter.updateMessage(channelId, statusMsgId, toolStatus).catch(() => {});
             }
-            // In verbose mode, also post reasoning text that arrives alongside tool_use blocks
-            if (textContent && this.agent.verbose) {
-              if (!textContent.includes('authentication_error') && !textContent.includes('Failed to authenticate')) {
-                sentMessages.push(textContent);
-                await this.postFormattedMessage(channelId, threadId, textContent);
+            // Verbose mode: post reasoning (thinking) and any text that arrived
+            // alongside the tool_use blocks. Italicize thinking so it reads as
+            // "model's reasoning" vs the model's actual output.
+            if (this.agent.verbose) {
+              const isAuth = (s: string) => s.includes('authentication_error') || s.includes('Failed to authenticate');
+              const safeText = textContent && !isAuth(textContent) ? textContent : '';
+              const verbosePost = [
+                thinkingContent.trim() ? `_${thinkingContent.trim()}_` : '',
+                safeText,
+              ].filter(Boolean).join('\n\n');
+              if (verbosePost) {
+                if (safeText) sentMessages.push(safeText);
+                await this.postFormattedMessage(channelId, threadId, verbosePost);
               }
             }
-          } else if (textContent) {
-            if (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate')) continue;
+          } else if (textContent || thinkingContent) {
+            if (textContent && (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate'))) continue;
             if (this.agent.verbose) {
-              sentMessages.push(textContent);
-              await this.postFormattedMessage(channelId, threadId, textContent);
+              const verbosePost = [
+                thinkingContent.trim() ? `_${thinkingContent.trim()}_` : '',
+                textContent,
+              ].filter(Boolean).join('\n\n');
+              if (verbosePost) {
+                if (textContent) sentMessages.push(textContent);
+                await this.postFormattedMessage(channelId, threadId, verbosePost);
+              }
             }
             // non-verbose: lastAssistantText already updated above; fallback posts it at end
           }
@@ -235,6 +327,18 @@ export class MessageHandler {
         }
       }
 
+      // If abort fired during the stream, fall through to the catch handler
+      // so the activity is marked 'error/aborted' and Slack reaction shows
+      // :stop_button:. Without this throw the success path below runs and
+      // we'd post a "No response generated" fallback + mark the cancelled
+      // message as 'done'. The SDK's query() generator returns silently when
+      // the consumer breaks on signal.aborted instead of throwing AbortError,
+      // which is why our existing catch never fired for interrupted runs.
+      if (abortController.signal.aborted) {
+        const err: Error & { name: string } = Object.assign(new Error('aborted'), { name: 'AbortError' });
+        throw err;
+      }
+
       // Fallback if no messages were sent
       if (sentMessages.length === 0) {
         const fallback = lastAssistantText ?? lastToolResultText ?? '_No response generated._';
@@ -252,7 +356,13 @@ export class MessageHandler {
         this.log.debug('Request aborted', { sessionKey });
         if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':stop_button:').catch(() => {});
         await this.swapReaction(channelId, messageId, sessionKey, 'stop_button');
-        if (recorder) await this.closeActivity(recorder.activityId, 'error', 'aborted');
+        // Graceful shutdown aborts every in-flight call. If we close the
+        // activity here, the next process's sweepStaleActivities won't see
+        // it (sweep only looks at status='in_progress') and auto-replay
+        // skips the work. Leave it in_progress so the next boot picks it up.
+        if (recorder && !isShuttingDown()) {
+          await this.closeActivity(recorder.activityId, 'error', 'aborted');
+        }
       } else {
         this.log.error('Error streaming Claude response', { sessionKey, error: error?.message });
         const errText = error?.message?.startsWith('AUTH_EXPIRED:')
@@ -357,6 +467,23 @@ export class MessageHandler {
   }
 
   private async userCanTrigger(slackUserId: string): Promise<boolean> {
+    // Per-(agent, sender) cache hit short-circuits the 2-query hot path. Cache
+    // is invalidated by access-grant / user-mutation events from the web tier;
+    // 60s TTL bounds staleness even if an event is dropped.
+    const cached = getCachedUserCanTrigger(this.agent.id, slackUserId);
+    if (cached !== undefined) return cached;
+
+    const allowed = await this.computeUserCanTrigger(slackUserId);
+    setCachedUserCanTrigger(this.agent.id, slackUserId, allowed);
+    return allowed;
+  }
+
+  /** Uncached access check — the original 2-query body, kept for the cache miss path. */
+  private async computeUserCanTrigger(slackUserId: string): Promise<boolean> {
+    // Platform-level "open to workspace" setting — any Slack member can trigger.
+    // Default is open (true) when the setting has never been saved. Cached 60s.
+    if (await isOpenToWorkspace()) return true;
+
     const db = getDb();
     const userRow = await db.query(
       `SELECT u.role, u.username FROM users u WHERE u.slack_user_id = $1`,
@@ -375,6 +502,27 @@ export class MessageHandler {
       [this.agent.id, username]
     );
     return access.rows.length > 0;
+  }
+
+  /**
+   * Returns a human-readable denial reason for a Slack user who failed the
+   * access check. Used to send a one-time reply so users understand why the
+   * bot is silent rather than assuming it is broken.
+   */
+  private async accessDenialReason(slackUserId: string): Promise<string> {
+    try {
+      const db = getDb();
+      const userRow = await db.query(
+        `SELECT username FROM users u WHERE u.slack_user_id = $1`,
+        [slackUserId]
+      );
+      if (!userRow.rows.length) {
+        return "You don't have access to this agent. Ask an admin to grant you access in SlackHive — you'll need to be added as a user first.";
+      }
+      return "You don't have access to this agent. Ask an admin to grant you Trigger (or higher) access to it in SlackHive.";
+    } catch {
+      return "You don't have access to this agent.";
+    }
   }
 
   /**
@@ -398,10 +546,75 @@ export class MessageHandler {
     try {
       senderName = await this.adapter.getUserDisplayName(userId);
     } catch { /* fall back to userId */ }
-    const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}]\n\n`;
+
+    // Audience groups + verbose resolution.
+    //
+    // Verbose state is resolved here, per-sender, rather than baked into
+    // CLAUDE.md at compile time. Why: a bake-time directive in CLAUDE.md
+    // applies to every sender — there's no way an audience could opt out
+    // for its members. Computing the state here and injecting the
+    // VERBOSE_NARRATION_DIRECTIVE only when resolved=true means audience
+    // verbose truly overrides agent verbose per cohort.
+    //
+    // Resolution:
+    //   resolved = highest-priority matching group's verbose (priority ASC,
+    //              name ASC) when the sender is in any group; otherwise
+    //              agent.verbose.
+    //
+    // SELECT DISTINCT defends against the (theoretical) case of two `users`
+    // rows sharing the same slack_user_id — duplicates would otherwise
+    // double up the audience bullets.
+    let audienceBlock = '';
+    let verboseBlock = '';
+    let groupNames = '';
+    let resolvedVerbose = this.agent.verbose === true;
+    try {
+      const db = getDb();
+      const r = await db.query(
+        `SELECT DISTINCT g.id, g.name, g.instructions, g.verbose, g.priority
+           FROM users u
+           JOIN agent_group_members m ON m.user_id = u.id
+           JOIN agent_groups g ON g.id = m.group_id
+          WHERE u.slack_user_id = $1
+            AND g.agent_id = $2
+          ORDER BY g.priority ASC, g.name ASC`,
+        [userId, this.agent.id]
+      );
+      if (r.rows.length) {
+        // Audience wins for verbose — highest-priority matching group's value.
+        const top = r.rows[0] as { verbose: number | boolean };
+        resolvedVerbose = top.verbose === 1 || top.verbose === true;
+
+        const lines: string[] = [];
+        const names: string[] = [];
+        for (const row of r.rows as { name: string; instructions: string }[]) {
+          // Strip framing metacharacters so an audience name can't break out
+          // of the senderHeader / audienceBlock format and inject fake
+          // directives. (CR/LF, '[' / ']' close-brackets, '·' separator.)
+          const safeName = row.name.replace(/[\r\n\[\]·]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'audience';
+          names.push(safeName);
+          const txt = row.instructions.trim();
+          if (txt) lines.push(`- (${safeName}) ${txt}`);
+        }
+        groupNames = ` · groups: ${names.join(', ')}`;
+        if (lines.length) {
+          audienceBlock = `[Audience guidance for this sender]\n${lines.join('\n')}\n\n`;
+        }
+      }
+    } catch {
+      // Audience lookup is best-effort — never block message handling.
+      // resolvedVerbose stays at agent.verbose; no audience block.
+    }
+
+    if (resolvedVerbose) {
+      verboseBlock = `${VERBOSE_NARRATION_DIRECTIVE}\n\n`;
+    }
+
+    const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}${groupNames}]\n\n`;
 
     // Fetch thread context via adapter
     let threadContext = '';
+    const threadFiles: FileAttachment[] = [];
     if (threadId) {
       try {
         const messages = await this.adapter.getThreadMessages(channelId, threadId, 20);
@@ -421,6 +634,7 @@ export class MessageHandler {
               speaker = `${name} (${m.userId})`;
             }
             contextLines.push(`${speaker}: ${m.text}`);
+            if (m.files) threadFiles.push(...m.files);
           }
 
           let context = contextLines.join('\n');
@@ -455,8 +669,8 @@ export class MessageHandler {
       }
     }
 
-    // Download files via adapter — direct attachments + any from linked messages
-    const allFiles = [...(files ?? []), ...resolvedFiles];
+    // Download files via adapter — direct attachments + files from thread messages + any from linked messages
+    const allFiles = [...(files ?? []), ...threadFiles, ...resolvedFiles];
     const textChunks: string[] = [];
     const binaryBlocks: ContentBlockParam[] = [];
 
@@ -494,7 +708,7 @@ export class MessageHandler {
     }
 
     const allTextChunks = [...linkedChunks, ...textChunks];
-    const textPrompt = `${senderHeader}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
+    const textPrompt = `${senderHeader}${verboseBlock}${audienceBlock}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
 
     if (binaryBlocks.length > 0) {
       const blocks: ContentBlockParam[] = [];

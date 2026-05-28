@@ -15,7 +15,7 @@ import path from 'path';
 import { getAgentById, updateAgent, deleteAgent, publishAgentEvent, applyLiveStatus, userCanWriteAgent } from '@/lib/db';
 import type { UpdateAgentRequest } from '@slackhive/shared';
 import { regenerateBossRegistry } from '@/lib/boss-registry';
-import { guardAgentWrite, guardUserAdmin } from '@/lib/api-guard';
+import { guardAgentWrite, guardAgentDelete } from '@/lib/api-guard';
 import { getSessionFromRequest } from '@/lib/auth';
 import { toAgentPublic } from '@/lib/agent-public';
 
@@ -87,7 +87,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
 export async function DELETE(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const denied = guardUserAdmin(req);
+    const denied = await guardAgentDelete(req, id);
     if (denied) return denied;
     const agent = await getAgentById(id);
     await publishAgentEvent({ type: 'stop', agentId: id });
@@ -95,6 +95,11 @@ export async function DELETE(req: NextRequest, { params }: RouteParams): Promise
     if (agent?.slug) {
       await rm(path.join(AGENTS_TMP_DIR, agent.slug), { recursive: true, force: true });
     }
+    // Drop the runner's per-(agent, sender) userCanTrigger entries for this
+    // agent. Without this, a brief 60s window can leave cached "allow" for
+    // an agent that no longer exists. Targeted to the agent, so other
+    // agents' cache is untouched.
+    await publishAgentEvent({ type: 'user-access-changed', agentId: id }).catch(() => {});
     await regenerateBossRegistry().catch(() => {});
     return new NextResponse(null, { status: 204 });
   } catch (err) {

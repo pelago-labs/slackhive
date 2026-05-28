@@ -13,11 +13,12 @@ import type { SessionPayload } from '@/lib/auth';
 
 vi.mock('@/lib/db', () => ({
   userCanWriteAgent: vi.fn(),
+  userCanDeleteAgent: vi.fn(),
   getUserByUsername: vi.fn(),
 }));
 
-import { guardAdmin, guardAgentWrite, guardUserAdmin } from '@/lib/api-guard';
-import { userCanWriteAgent } from '@/lib/db';
+import { guardAdmin, guardAgentWrite, guardAgentDelete, guardUserAdmin } from '@/lib/api-guard';
+import { userCanWriteAgent, userCanDeleteAgent } from '@/lib/db';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -132,6 +133,39 @@ describe('guardAgentWrite', () => {
     const req = makeRequest({ username: 'alice', role: 'editor' });
     await guardAgentWrite(req, 'specific-agent-uuid');
     expect(userCanWriteAgent).toHaveBeenCalledWith('specific-agent-uuid', 'alice', 'editor');
+  });
+});
+
+// ─── guardAgentDelete ─────────────────────────────────────────────────────────
+//
+// Stricter than guardAgentWrite: only the agent's creator OR an admin/
+// superadmin can delete. Editor-grant collaborators can still edit but
+// cannot delete (delete is irreversible).
+
+describe('guardAgentDelete', () => {
+  beforeEach(() => {
+    vi.mocked(userCanDeleteAgent).mockReset();
+  });
+
+  it('returns 401 when no session cookie', async () => {
+    const res = await guardAgentDelete(makeRequest(), 'agent-1');
+    expect(res?.status).toBe(401);
+    expect(userCanDeleteAgent).not.toHaveBeenCalled();
+  });
+
+  it('delegates to userCanDeleteAgent and allows when it returns true', async () => {
+    vi.mocked(userCanDeleteAgent).mockResolvedValue(true);
+    const req = makeRequest({ username: 'alice', role: 'editor' });
+    const res = await guardAgentDelete(req, 'agent-1');
+    expect(res).toBeNull();
+    expect(userCanDeleteAgent).toHaveBeenCalledWith('agent-1', 'alice', 'editor');
+  });
+
+  it('returns 403 when userCanDeleteAgent returns false', async () => {
+    vi.mocked(userCanDeleteAgent).mockResolvedValue(false);
+    const req = makeRequest({ username: 'editor-grant', role: 'editor' });
+    const res = await guardAgentDelete(req, 'agent-1');
+    expect(res?.status).toBe(403);
   });
 });
 

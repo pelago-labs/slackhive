@@ -30,6 +30,7 @@ import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
 import { JobScheduler } from './job-scheduler';
+import { markShuttingDown } from './shutdown-signal';
 import {
   getAllAgents,
   getAgentById,
@@ -44,20 +45,211 @@ import {
   setResult,
   getPlatformIntegration,
   updateWikiSourceStatus,
+  getSkillById,
+  updateSkillDescription,
+  getSkillsMissingDescription,
 } from './db';
+import { summarizeSkill } from './summarize-skill';
 import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
 import { ClaudeHandler } from './claude-handler';
 import { MemoryWatcher } from './memory-watcher';
 import { logger } from './logger';
+import { dispatchCacheEvent } from './access-cache';
 
 /**
  * Represents a fully initialized running agent.
  * All resources owned by a running agent are held here for cleanup.
  */
+
+/**
+ * Files-changed summary between two commits on a wiki source repo. Returned
+ * by `readRepoContent` when an incremental diff was successfully computed
+ * against `lastSha`. Empty arrays mean no files of that kind changed.
+ */
+export interface RepoDiff {
+  added: string[];
+  modified: string[];
+  deleted: string[];
+  renamed: Array<{ from: string; to: string }>;
+}
+
+/**
+ * Parse the output of `git diff --name-status -M base..HEAD`. Tab-separated.
+ * Status codes: A=added, M=modified, D=deleted, R<score>=rename old→new,
+ * C<score>=copy (treated as add), T=type change (treated as modified).
+ */
+export function parseDiffNameStatus(out: string): RepoDiff {
+  const diff: RepoDiff = { added: [], modified: [], deleted: [], renamed: [] };
+  for (const line of out.split('\n')) {
+    if (!line.trim()) continue;
+    const parts = line.split('\t');
+    const status = parts[0];
+    if (status === 'A') diff.added.push(parts[1]);
+    else if (status === 'M') diff.modified.push(parts[1]);
+    else if (status === 'D') diff.deleted.push(parts[1]);
+    else if (status === 'T') diff.modified.push(parts[1]);
+    else if (status.startsWith('R') && parts.length >= 3) diff.renamed.push({ from: parts[1], to: parts[2] });
+    else if (status.startsWith('C') && parts.length >= 3) diff.added.push(parts[2]);
+  }
+  return diff;
+}
+
+/**
+ * Build a diff-focused content block for Claude on incremental wiki re-syncs.
+ * Always include a small README excerpt for orientation, then sections for
+ * added/modified/renamed file bodies and bare path lists for deleted files.
+ *
+ * Pure function — read/fileBlock/budgetSection are passed in by the caller
+ * (readRepoContent) so the shared snapshot-mode budget bookkeeping stays
+ * consistent. Exported so unit tests can exercise the section composition
+ * directly with stubbed file readers, without spinning up an AgentRunner.
+ */
+export function buildDiffFocusedRepoContent(
+  tmpDir: string,
+  diff: RepoDiff,
+  src: Record<string, unknown>,
+  lastSha: string,
+  currentSha: string,
+  branch: string,
+  read: (p: string, max?: number) => string,
+  fileBlock: (relPath: string, content: string) => string,
+  budgetSection: (title: string, content: string) => string,
+): string {
+  const path = require('path') as typeof import('path');
+  const sections: string[] = [];
+  sections.push(
+    `# Repository: ${src.name as string} (incremental diff)\n` +
+    `Branch: ${branch} | URL: ${src.repo_url as string}\n` +
+    `Range: ${lastSha.slice(0, 7)}..${currentSha.slice(0, 7)}\n` +
+    `Files changed — added: ${diff.added.length}, modified: ${diff.modified.length}, ` +
+    `deleted: ${diff.deleted.length}, renamed: ${diff.renamed.length}`
+  );
+
+  // Always provide README context — even small diffs are easier for Claude
+  // to interpret with a one-paragraph reminder of what this repo is about.
+  let readme = '';
+  for (const f of ['README.md', 'readme.md', 'README.rst', 'README']) {
+    const c = read(path.join(tmpDir, f), 4_000);
+    if (c) { readme = c; break; }
+  }
+  if (readme) sections.push(budgetSection('README (for context)', readme));
+
+  // Deleted files — paths only. Claude uses these to mark articles that
+  // referenced them for cleanup. No need to ship the (now-gone) content.
+  if (diff.deleted.length) {
+    sections.push(budgetSection(
+      'Deleted files (mark articles that referenced these for removal)',
+      diff.deleted.map(p => `- ${p}`).join('\n'),
+    ));
+  }
+
+  // Renamed files — show the from→to mapping so Claude can update path
+  // references in existing articles, and include the new file content.
+  if (diff.renamed.length) {
+    sections.push(budgetSection(
+      'Renamed files (update article references from old → new path)',
+      diff.renamed.map(r => `- ${r.from} → ${r.to}`).join('\n'),
+    ));
+  }
+
+  // Added files — full content.
+  if (diff.added.length) {
+    let added = '';
+    for (const p of diff.added) {
+      const c = read(path.join(tmpDir, p));
+      if (c) added += fileBlock(p, c);
+    }
+    if (added) sections.push(budgetSection('Added files (NEW)', added));
+  }
+
+  // Modified files — full content. Claude already has the existing wiki
+  // article catalog from the prompt's "Existing wiki" section so it can
+  // update articles in place rather than recreate.
+  if (diff.modified.length) {
+    let modified = '';
+    for (const p of diff.modified) {
+      const c = read(path.join(tmpDir, p));
+      if (c) modified += fileBlock(p, c);
+    }
+    if (modified) sections.push(budgetSection('Modified files (UPDATED)', modified));
+  }
+
+  // Renamed file new content.
+  if (diff.renamed.length) {
+    let renamed = '';
+    for (const r of diff.renamed) {
+      const c = read(path.join(tmpDir, r.to));
+      if (c) renamed += fileBlock(`${r.to} (renamed from ${r.from})`, c);
+    }
+    if (renamed) sections.push(budgetSection('Renamed files (new content)', renamed));
+  }
+
+  return sections.filter(s => s.trim()).join('\n');
+}
+
+/**
+ * Wiki source manifest entry. Mirrors the in-file shape used by
+ * buildWikiFolderSources's manifest.json; promoted to a named type for
+ * the extracted helpers to share.
+ */
+export interface SourceManifest {
+  [sourceName: string]: { created: string[]; updated: string[] };
+}
+
+/**
+ * Process the `removed` field from a Claude wiki response. Validates each
+ * path stays inside `wikiDir`, unlinks the article, and trims the entry from
+ * the source manifest so subsequent syncs see an honest catalog. Skipped
+ * silently for non-string entries.
+ *
+ * Pure side-effects on the filesystem and the (mutable) manifest argument —
+ * extracted so unit tests can exercise traversal protection + manifest
+ * cleanup without spinning up the full wiki build flow.
+ */
+export function processRemovedArticles(
+  wikiDir: string,
+  sourceSlug: string,
+  sourceName: string,
+  removedRaw: unknown[],
+  manifest: SourceManifest,
+  log: { info: (m: string, ctx?: object) => void; warn: (m: string, ctx?: object) => void },
+): void {
+  const fs = require('fs') as typeof import('fs');
+  const path = require('path') as typeof import('path');
+  // Confine deletes to THIS source's subdirectory. Without the slug-scoped
+  // prefix, a path like '../other-source/secret.md' would (after the
+  // sourceSlug-prefix nudge below) resolve to a sibling source's article
+  // and delete it. Only protecting against escaping wikiDir entirely is
+  // insufficient — that lets one source's response trash another's.
+  const sourceRoot = path.join(wikiDir, sourceSlug) + path.sep;
+  for (const removedPathRaw of removedRaw) {
+    if (typeof removedPathRaw !== 'string') continue;
+    const removedPath = removedPathRaw.startsWith(`${sourceSlug}/`) ? removedPathRaw : `${sourceSlug}/${removedPathRaw}`;
+    const p = path.resolve(wikiDir, removedPath);
+    if (!p.startsWith(sourceRoot)) {
+      log.warn('[wiki] Skipping remove path outside source slug', { path: removedPath, sourceSlug });
+      continue;
+    }
+    try {
+      if (fs.existsSync(p)) {
+        fs.unlinkSync(p);
+        log.info('[wiki] Removed article (source file deleted)', { path: removedPath });
+        if (manifest[sourceName]) {
+          manifest[sourceName].created = (manifest[sourceName].created ?? []).filter(p => p !== removedPath);
+          manifest[sourceName].updated = (manifest[sourceName].updated ?? []).filter(p => p !== removedPath);
+        }
+      }
+    } catch (err) {
+      log.warn('[wiki] Failed to remove article', { path: removedPath, error: (err as Error).message });
+    }
+  }
+}
+
 interface RunningAgent {
   agent: Agent;
   adapter: PlatformAdapter;
   claudeHandler: ClaudeHandler;
+  messageHandler: MessageHandler;
   memoryWatcher: MemoryWatcher;
 }
 
@@ -208,6 +400,9 @@ export class AgentRunner {
   /** Interval handle for the heartbeat loop — cleared on stop(). */
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
+  /** Interval handle for the periodic stale-activity sweep — cleared on stop(). */
+  private sweepTimer: NodeJS.Timeout | null = null;
+
   constructor() {
     this.jobScheduler = new JobScheduler((agentId: string) => this.getRunningAgent(agentId));
   }
@@ -218,6 +413,135 @@ export class AgentRunner {
   getRunningAgent(agentId: string): { adapter: PlatformAdapter; claudeHandler: import('./claude-handler').ClaudeHandler } | undefined {
     const ra = this.runningAgents.get(agentId);
     return ra ? { adapter: ra.adapter, claudeHandler: ra.claudeHandler } : undefined;
+  }
+
+  /**
+   * Re-runs an activity by reconstructing its original Slack-side message and
+   * handing it to the live MessageHandler — the same path a fresh @mention
+   * would take. Used to recover from interrupted activities (e.g. an agent
+   * that was wedged and reaped, or a turn lost to a runner restart).
+   *
+   * The Claude session is keyed by (user, channel, thread) and persisted, so
+   * the agent resumes with the full prior context. A new activity row is
+   * created for the retry; the old errored row is left in place for history.
+   */
+  async replayActivity(activityId: string): Promise<{ ok: boolean; error?: string }> {
+    if (!activityId) return { ok: false, error: 'activityId required' };
+
+    const { getDb } = await import('@slackhive/shared');
+    const { rows } = await getDb().query(
+      `SELECT a.message_ref, a.message_preview, a.initiator_user_id, a.platform,
+              a.agent_id, t.channel_id, t.thread_ts
+         FROM activities a LEFT JOIN tasks t ON t.id = a.task_id
+        WHERE a.id = $1`,
+      [activityId],
+    );
+    if (rows.length === 0) return { ok: false, error: 'activity not found' };
+    const r = rows[0] as Record<string, string | null>;
+
+    if (!r.initiator_user_id || !r.channel_id || !r.message_preview) {
+      return { ok: false, error: 'activity missing replay fields (channel/user/text)' };
+    }
+
+    const running = this.runningAgents.get(r.agent_id as string);
+    if (!running) return { ok: false, error: 'agent not running' };
+
+    const platform = (r.platform ?? 'slack') as string;
+    const msg = {
+      id: r.message_ref ?? `replay-${activityId}`,
+      platform,
+      userId: r.initiator_user_id,
+      channelId: r.channel_id,
+      threadId: r.thread_ts ?? undefined,
+      text: r.message_preview,
+      // Slack DM channels are prefixed 'D'; everything else is a channel/group.
+      isDM: platform === 'slack' && r.channel_id.startsWith('D'),
+      raw: { replay: true, originalActivityId: activityId },
+    };
+
+    logger.info('Replaying activity', { activityId, agent: running.agent.slug, channelId: msg.channelId, threadId: msg.threadId });
+    running.messageHandler.handleMessage(msg as any).catch((err) =>
+      logger.error('Replay handleMessage failed', { activityId, error: (err as Error).message }),
+    );
+    return { ok: true };
+  }
+
+  /**
+   * After a runner restart, walk the activities the sweep just marked as
+   * `Interrupted — runner restarted` and replay each one that's still
+   * relevant. Best-effort, sequential, with three safety gates:
+   *
+   *   1. **Age cap (30 min):** older interruptions are likely stale (user
+   *      moved on, system state has drifted), so don't pester the channel.
+   *   2. **Already-handled:** if a *newer* activity exists in the same task,
+   *      the user (or another runner) already engaged — skip.
+   *   3. **Crash-loop cap:** if the same task already has 3+ activities
+   *      auto-replayed within the last hour, give up; something is wrong
+   *      and we shouldn't keep burning tokens.
+   *
+   * On a successful kickoff, we tag the original row's `error` with
+   * `[auto-replayed]` so it's excluded from future cycles. Set
+   * `RUNNER_AUTO_REPLAY=0` in env to disable entirely.
+   */
+  private async autoReplaySweptActivities(activityIds: string[]): Promise<void> {
+    const { getDb } = await import('@slackhive/shared');
+    const db = getDb();
+    const cutoff = new Date(Date.now() - 30 * 60 * 1_000).toISOString().replace('T', ' ').slice(0, 19);
+    let attempted = 0;
+    let skipped = 0;
+
+    for (const id of activityIds) {
+      try {
+        const { rows } = await db.query(
+          `SELECT started_at, task_id FROM activities WHERE id = $1`,
+          [id],
+        );
+        if (rows.length === 0) { skipped++; continue; }
+        const { started_at, task_id } = rows[0] as Record<string, string>;
+
+        if (started_at < cutoff) {
+          logger.info('Auto-replay skip: too old', { activityId: id, started_at });
+          skipped++; continue;
+        }
+
+        const newer = await db.query(
+          `SELECT 1 FROM activities WHERE task_id = $1 AND id != $2 AND started_at >= $3 LIMIT 1`,
+          [task_id, id, started_at],
+        );
+        if (newer.rows.length > 0) {
+          logger.info('Auto-replay skip: newer activity exists', { activityId: id });
+          skipped++; continue;
+        }
+
+        const replays = await db.query(
+          `SELECT COUNT(*) AS n FROM activities
+            WHERE task_id = $1 AND started_at > datetime('now', '-1 hour')
+              AND error LIKE '%[auto-replayed]%'`,
+          [task_id],
+        );
+        if (Number((replays.rows[0] as Record<string, unknown>).n) >= 3) {
+          logger.warn('Auto-replay skip: crash-loop cap hit (3 replays/hour)', { taskId: task_id });
+          skipped++; continue;
+        }
+
+        const result = await this.replayActivity(id);
+        if (result.ok) {
+          attempted++;
+          await db.query(
+            `UPDATE activities SET error = COALESCE(error, '') || ' [auto-replayed]' WHERE id = $1`,
+            [id],
+          );
+        } else {
+          logger.warn('Auto-replay returned not-ok', { activityId: id, error: result.error });
+          skipped++;
+        }
+      } catch (err) {
+        logger.warn('Auto-replay failed', { activityId: id, error: (err as Error).message });
+        skipped++;
+      }
+    }
+
+    logger.info('Auto-replay sweep complete', { attempted, skipped, total: activityIds.length });
   }
 
   /**
@@ -234,9 +558,10 @@ export class AgentRunner {
 
     await this.connectEventBus();
     await this.cleanupStaleRequests();
+    let sweptActivityIds: string[] = [];
     try {
-      const swept = await sweepStaleActivities();
-      if (swept > 0) logger.info('Swept stale in-progress activities', { count: swept });
+      sweptActivityIds = await sweepStaleActivities();
+      if (sweptActivityIds.length > 0) logger.info('Swept stale in-progress activities', { count: sweptActivityIds.length });
     } catch (err) {
       logger.warn('Failed to sweep stale activities', { error: (err as Error).message });
     }
@@ -244,9 +569,22 @@ export class AgentRunner {
     await this.loadAllAgents();
     await this.jobScheduler.start();
     this.startHeartbeat();
+    this.startPeriodicSweep();
     this.registerShutdownHandlers();
 
+    // Background-fill any skill description that's still NULL — covers rows
+    // saved while the runner was down or where a previous summarize call
+    // crashed before completing. Fire-and-forget; safe to run after startup.
+    this.sweepMissingSkillDescriptions().catch((err) =>
+      logger.warn('Skill description sweep failed', { error: (err as Error).message })
+    );
+
     logger.info('AgentRunner started', { agents: this.runningAgents.size, runnerId: this.runnerId });
+
+    if (sweptActivityIds.length > 0 && process.env.RUNNER_AUTO_REPLAY !== '0') {
+      // Fire-and-forget — don't block boot on Slack round-trips.
+      void this.autoReplaySweptActivities(sweptActivityIds);
+    }
   }
 
   /**
@@ -265,6 +603,20 @@ export class AgentRunner {
     }, 15_000);
     // Don't keep the event loop alive just for the heartbeat.
     this.heartbeatTimer.unref?.();
+  }
+
+  /** Sweep in_progress activities that were orphaned mid-run (every 2h). */
+  private startPeriodicSweep(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(async () => {
+      try {
+        const swept = await sweepStaleActivities();
+        if (swept.length > 0) logger.info('Periodic sweep: marked stale activities as error', { count: swept.length });
+      } catch (err) {
+        logger.warn('Periodic sweep failed', { error: (err as Error).message });
+      }
+    }, 2 * 60 * 60 * 1000); // 2 hours
+    this.sweepTimer.unref?.();
   }
 
   /**
@@ -325,6 +677,7 @@ export class AgentRunner {
 
     // Stop heartbeat
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
 
     // Stop internal server
     if (this.internalServer) { this.internalServer.close(); this.internalServer = null; }
@@ -461,7 +814,7 @@ export class AgentRunner {
       agent.slackBotUserId = botUserId;
     }
 
-    this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, memoryWatcher });
+    this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, messageHandler, memoryWatcher });
     // Success — clear any leftover error message from a prior failed start.
     await updateAgentStatus(agent.id, 'running', null, this.runnerId);
 
@@ -712,6 +1065,17 @@ export class AgentRunner {
             logger.error('Failed to reload jobs', { error: (err as Error).message })
           );
           break;
+        case 'skill-saved':
+          this.summarizeSkillIfNeeded(event.agentId, event.skillId).catch((err) =>
+            logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
+          );
+          break;
+        case 'user-access-changed':
+        case 'env-vars-changed':
+          // Cache invalidation events — single dispatcher in access-cache.ts
+          // so the routing lives next to the caches it touches.
+          dispatchCacheEvent(event);
+          break;
       }
     });
 
@@ -817,6 +1181,68 @@ export class AgentRunner {
         return;
       }
 
+      // AI polish for audience-group instructions (single Claude turn, no SSE).
+      if (req.method === 'POST' && req.url === '/polish-audience-instructions') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const input = JSON.parse(body) as {
+              audienceName?: string;
+              audienceDescription?: string | null;
+              agentName?: string;
+              agentDescription?: string | null;
+              verbose?: boolean;
+              draft?: string;
+            };
+            if (!input.audienceName || !input.agentName) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'audienceName and agentName required' }));
+              return;
+            }
+            const { polishAudienceInstructions } = await import('./polish-audience-instructions');
+            const text = await polishAudienceInstructions({
+              audienceName: input.audienceName,
+              audienceDescription: input.audienceDescription ?? null,
+              agentName: input.agentName,
+              agentDescription: input.agentDescription ?? null,
+              verbose: !!input.verbose,
+              draft: input.draft ?? '',
+            });
+            if (text == null) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'polish failed' }));
+              return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ text }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: (err as Error).message }));
+          }
+        });
+        return;
+      }
+
+      // Replay an errored / interrupted activity by feeding its original
+      // message back through the live MessageHandler.
+      if (req.method === 'POST' && req.url === '/replay-activity') {
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { activityId } = JSON.parse(body) as { activityId?: string };
+            const result = await this.replayActivity(activityId ?? '');
+            res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
+          }
+        });
+        return;
+      }
+
       if (req.method !== 'POST') { res.writeHead(405); res.end(); return; }
 
       let body = '';
@@ -848,6 +1274,15 @@ export class AgentRunner {
               break;
             case 'reload-jobs':
               await this.jobScheduler.reload();
+              break;
+            case 'skill-saved':
+              this.summarizeSkillIfNeeded(event.agentId, event.skillId).catch((err) =>
+                logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
+              );
+              break;
+            case 'user-access-changed':
+            case 'env-vars-changed':
+              dispatchCacheEvent(event);
               break;
             default: {
               // Handle mcp-auth, analyze-memories, and other custom events
@@ -928,6 +1363,10 @@ export class AgentRunner {
   private registerShutdownHandlers(): void {
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, shutting down gracefully...`);
+      // Set BEFORE this.stop() so any in-flight MessageHandler aborts that
+      // fire during shutdown leave their activity rows as `in_progress`.
+      // The next process's sweep will pick them up and auto-replay them.
+      markShuttingDown();
       await this.stop();
       process.exit(0);
     };
@@ -960,10 +1399,28 @@ export class AgentRunner {
   // ─── Knowledge Wiki (Karpathy Incremental Ingest) ────────────────────────
 
   /**
-   * Reads a git repo into a content string for wiki compilation.
-   * Clones to temp dir, reads deeply, deletes clone.
+   * Reads a git repo for wiki compilation. Returns:
+   *   - `content`: the repo content as a single string for Claude.
+   *   - `currentSha`: HEAD SHA after clone (empty string if `git rev-parse`
+   *     fails for any reason).
+   *   - `diff`: when a `lastSha` was supplied AND it's reachable from HEAD via
+   *     incremental `git fetch --deepen`, the changed-files list against
+   *     that SHA. The `content` in this case is *focused* on the diff (only
+   *     changed/added/renamed file bodies + a small README context block,
+   *     not the whole repo) which dramatically reduces token cost on small
+   *     re-syncs. When the diff can't be computed (no `lastSha`, force-push,
+   *     branch swap, deepen failure), returns `diff: null` and a full
+   *     snapshot in `content` — same behavior as before.
+   *
+   * @param src The wiki_sources row for this source.
+   * @param lastSha Optional commit SHA from a prior successful sync. When
+   *   provided AND reachable, the function returns a diff-focused content
+   *   string. When omitted or unreachable, falls back to full snapshot.
    */
-  private async readRepoContent(src: Record<string, unknown>): Promise<string> {
+  private async readRepoContent(
+    src: Record<string, unknown>,
+    lastSha?: string | null,
+  ): Promise<{ content: string; currentSha: string; diff: RepoDiff | null }> {
     const fs = await import('fs');
     const path = await import('path');
     const { execSync } = await import('child_process');
@@ -1017,7 +1474,67 @@ export class AgentRunner {
       }
 
       const branch = (src.branch as string) || 'main';
-      execSync(`git clone --depth 1 --branch "${branch}" "${cloneUrl}" "${tmpDir}"`, { stdio: 'ignore', timeout: 120000 });
+      // Pre-flight: wipe tmpDir if a previous run was killed mid-clone (SIGTERM
+      // skips the finally cleanup). git clone refuses to write into a
+      // non-empty directory, so a stale dir would block this run forever.
+      // Use fs.rmSync (no shell) so no chance of metachar interpolation
+      // through the path even if src.id ever ceases to be a UUID.
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ok */ }
+      try {
+        // Capture stderr so a clone failure surfaces git's actual error
+        // ("Remote branch foo not found", auth failure, etc.) — previously
+        // the catch only got "Command failed: …" with no useful detail.
+        execSync(`git clone --depth 1 --branch "${branch}" "${cloneUrl}" "${tmpDir}"`, { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120000 });
+      } catch (err) {
+        // Redact the URL (it contains the PAT in basic-auth form). Re-throw
+        // a descriptive error so the upstream catch records the real reason.
+        const stderr = ((err as { stderr?: Buffer }).stderr?.toString() ?? '').trim();
+        const safeUrl = (src.repo_url as string) ?? '<unknown>';
+        const reason = stderr || (err as Error).message;
+        throw new Error(`git clone failed for ${src.name} (${safeUrl} @ ${branch}): ${reason}`);
+      }
+
+      // Capture HEAD SHA — always returned to the caller so it can persist
+      // last_synced_sha after a successful build. Never fails the function;
+      // we'd rather lose incremental optimisation than break the build.
+      let currentSha = '';
+      try {
+        currentSha = execSync(`git -C "${tmpDir}" rev-parse HEAD`, { encoding: 'utf-8', timeout: 10000 }).trim();
+      } catch (err) {
+        logger.warn('[wiki] Failed to read HEAD SHA — incremental sync disabled for this run', {
+          source: src.name as string, error: (err as Error).message,
+        });
+      }
+
+      // Try to compute a diff against `lastSha` so we can send Claude only
+      // the changed files. Bails out (returns null diff → falls back to
+      // full snapshot) on any failure path:
+      //   - lastSha not provided (first sync)
+      //   - lastSha == currentSha (no work — caller will short-circuit)
+      //   - branch was force-pushed, swapped, or rewritten (lastSha not
+      //     reachable from HEAD even after deepening)
+      //   - server doesn't allow `--deepen` fetches
+      let diff: RepoDiff | null = null;
+      if (lastSha && currentSha && lastSha !== currentSha) {
+        diff = await this.tryComputeRepoDiff(tmpDir, lastSha, branch, execSync);
+      }
+
+      // Diff-focused content path: dramatically smaller prompt for incremental
+      // syncs. Only the changed/added/renamed file bodies + a small README
+      // context block, plus an explicit deleted-files list so Claude can mark
+      // referencing articles for cleanup.
+      if (diff) {
+        const diffContent = this.buildDiffFocusedRepoContent(
+          tmpDir, diff, src, lastSha!, currentSha, branch, read, fileBlock, budgetSection,
+        );
+        logger.info('Repo diff read', {
+          source: src.name as string,
+          chars: diffContent.length,
+          added: diff.added.length, modified: diff.modified.length,
+          deleted: diff.deleted.length, renamed: diff.renamed.length,
+        });
+        return { content: diffContent, currentSha, diff };
+      }
 
       const sections: string[] = [];
       const header = `# Repository: ${src.name}\nBranch: ${branch} | URL: ${src.repo_url}`;
@@ -1285,11 +1802,73 @@ export class AgentRunner {
 
       const result = sections.filter(s => s.trim()).join('\n');
       logger.info('Repo content read', { source: src.name as string, chars: budgetUsed, capped: budgetUsed >= TOTAL_BUDGET });
-      return result;
+      return { content: result, currentSha, diff: null };
 
     } finally {
-      try { (await import('child_process')).execSync(`rm -rf "${tmpDir}"`, { stdio: 'ignore' }); } catch { /* ok */ }
+      // No-shell cleanup — see pre-flight rmSync above for rationale.
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ok */ }
     }
+  }
+
+  /**
+   * Try to compute a diff against `lastSha` by incrementally deepening the
+   * shallow clone until that commit becomes reachable. Returns parsed diff
+   * on success, `null` on any failure (force-push, branch swap, server
+   * rejection, lastSha never on this branch, etc.) so the caller falls back
+   * to the full snapshot path. Capped at 1000-commit deepening to avoid
+   * pulling massive history on long-lived repos.
+   */
+  private async tryComputeRepoDiff(
+    tmpDir: string,
+    lastSha: string,
+    branch: string,
+    execSync: typeof import('child_process').execSync,
+  ): Promise<RepoDiff | null> {
+    for (const depth of [50, 200, 1000]) {
+      try {
+        execSync(`git -C "${tmpDir}" fetch --deepen=${depth} origin "${branch}"`, {
+          stdio: ['ignore', 'ignore', 'pipe'], timeout: 60_000,
+        });
+      } catch {
+        continue;
+      }
+      try {
+        execSync(`git -C "${tmpDir}" cat-file -e "${lastSha}^{commit}"`, { stdio: 'ignore' });
+      } catch {
+        continue; // lastSha still not reachable, try deeper
+      }
+      // Reachable — compute the diff. -M turns on rename detection.
+      try {
+        const out = execSync(
+          `git -C "${tmpDir}" diff --name-status -M "${lastSha}..HEAD"`,
+          { encoding: 'utf-8', timeout: 30_000 },
+        );
+        return parseDiffNameStatus(out);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Build a diff-focused content block for Claude. See the free-function
+   * implementation in `buildDiffFocusedRepoContent` below — kept as a thin
+   * wrapper so the call site inside `readRepoContent` stays unchanged while
+   * the logic is independently testable from outside the AgentRunner class.
+   */
+  private buildDiffFocusedRepoContent(
+    tmpDir: string,
+    diff: RepoDiff,
+    src: Record<string, unknown>,
+    lastSha: string,
+    currentSha: string,
+    branch: string,
+    read: (p: string, max?: number) => string,
+    fileBlock: (relPath: string, content: string) => string,
+    budgetSection: (title: string, content: string) => string,
+  ): string {
+    return buildDiffFocusedRepoContent(tmpDir, diff, src, lastSha, currentSha, branch, read, fileBlock, budgetSection);
   }
 
   /** Parse JSON from Claude response, trying multiple strategies. */
@@ -1370,7 +1949,11 @@ export class AgentRunner {
       if (!content) throw new Error(`Source "${srcName}" has no content`);
     } else if (srcType === 'repo') {
       await updateStatus(`Cloning ${srcName}...`);
-      content = await this.readRepoContent(src);
+      // Older ingestSource path — no per-source last_synced_sha tracking
+      // here yet, so always pulls a full snapshot. Migrate this caller
+      // when/if we need diff-aware sync for direct knowledge_sources too.
+      const repoResult = await this.readRepoContent(src);
+      content = repoResult.content;
     }
 
     // 2. Read existing wiki state + manifest
@@ -1728,34 +2311,39 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         try { fs.rmSync(wikiDir, { recursive: true, force: true }); } catch { /* ok */ }
         fs.mkdirSync(wikiDir, { recursive: true });
         // Lock is at folderDir level (above wikiDir) so rmSync above doesn't touch it
-        // Only reset compiled/error/stale sources to pending — this is the one explicit user-triggered reset
+        // Reset every source in the folder back to a clean pending state:
+        // status, word_count, and last_synced. Without zeroing word_count and
+        // last_synced the UI keeps showing stale figures (e.g. "5,124 words ·
+        // synced 2d ago") even though the wiki on disk just got wiped.
         await getDb().query(
-          "UPDATE wiki_sources SET status = 'pending' WHERE folder_id = $1 AND status IN ('compiled', 'error', 'stale')",
+          "UPDATE wiki_sources SET status = 'pending', word_count = 0, last_synced = NULL WHERE folder_id = $1",
           [folderId],
         );
       }
 
       // Query sources with status directly
-      let pendingSources: Array<{ id: string; name: string; type: string; content: string | null; url: string | null; repoUrl: string | null; branch: string; patEnvRef: string | null; status: string }>;
+      let pendingSources: Array<{ id: string; name: string; type: string; content: string | null; url: string | null; repoUrl: string | null; branch: string; patEnvRef: string | null; status: string; lastSyncedSha: string | null }>;
       if (singleSourceId != null) {
         const r = await getDb().query(
-          'SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE id = $1 AND folder_id = $2',
+          'SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status, last_synced_sha FROM wiki_sources WHERE id = $1 AND folder_id = $2',
           [singleSourceId, folderId],
         );
         pendingSources = r.rows.map((row: any) => ({
           id: row.id, name: row.name, type: row.type, content: row.content ?? null,
           url: row.url ?? null, repoUrl: row.repo_url ?? null, branch: row.branch ?? 'main',
           patEnvRef: row.pat_env_ref ?? null, status: row.status,
+          lastSyncedSha: row.last_synced_sha ?? null,
         }));
       } else {
         const r = await getDb().query(
-          "SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status FROM wiki_sources WHERE folder_id = $1 AND status IN ('pending', 'stale', 'error') ORDER BY created_at ASC",
+          "SELECT id, name, type, content, url, repo_url, branch, pat_env_ref, status, last_synced_sha FROM wiki_sources WHERE folder_id = $1 AND status IN ('pending', 'stale', 'error') ORDER BY created_at ASC",
           [folderId],
         );
         pendingSources = r.rows.map((row: any) => ({
           id: row.id, name: row.name, type: row.type, content: row.content ?? null,
           url: row.url ?? null, repoUrl: row.repo_url ?? null, branch: row.branch ?? 'main',
           patEnvRef: row.pat_env_ref ?? null, status: row.status,
+          lastSyncedSha: row.last_synced_sha ?? null,
         }));
       }
 
@@ -1779,6 +2367,14 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
         };
         walk(wikiDir, '');
         return paths.length ? `Existing articles:\n${paths.join('\n')}` : '(empty — no wiki yet)';
+      };
+
+      // Read the current overview.md so Claude can extend it in-place rather
+      // than regenerating from scratch each source. Returns '' when missing.
+      const readExistingOverview = (): string => {
+        const overviewPath = path.join(wikiDir, 'overview.md');
+        try { return fs.existsSync(overviewPath) ? fs.readFileSync(overviewPath, 'utf-8') : ''; }
+        catch { return ''; }
       };
 
       const manifestPath = path.join(wikiDir, 'manifest.json');
@@ -1818,6 +2414,10 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
 
         try {
           let content = '';
+          // Set by the repo branch below; consumed when persisting last_synced_sha
+          // after a successful compile and when building the diff-mode prompt.
+          let sourceCurrentSha: string | null = null;
+          let sourceDiff: RepoDiff | null = null;
           if (src.type === 'file' || src.type === 'url') {
             content = src.content ?? '';
             if (!content && src.url) {
@@ -1831,9 +2431,37 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             if (!content) throw new Error(`Source "${src.name}" has no content`);
           } else if (src.type === 'repo') {
             await writeProgress({ status: 'building', folderId, step: `Cloning ${src.name}…`, sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length, articlesWritten: totalPages });
-            content = await this.readRepoContent({
-              repo_url: src.repoUrl, branch: src.branch, pat_env_ref: src.patEnvRef, name: src.name,
-            } as any);
+            // Pass src.id so each clone gets its own /tmp/slackhive-repo-<uuid>
+            // dir. Without this every repo clones into /tmp/slackhive-repo-undefined,
+            // which collides with any leftover dir from a SIGTERM-killed previous
+            // build and breaks the FIRST source's clone on every fresh restart.
+            // Pass src.lastSyncedSha so readRepoContent can return a diff-focused
+            // content slice on incremental re-syncs.
+            const repoResult = await this.readRepoContent({
+              id: src.id, repo_url: src.repoUrl, branch: src.branch, pat_env_ref: src.patEnvRef, name: src.name,
+            } as any, src.lastSyncedSha);
+            content = repoResult.content;
+            sourceCurrentSha = repoResult.currentSha;
+            sourceDiff = repoResult.diff;
+
+            // Short-circuit: HEAD hasn't moved since last sync. Skip Claude
+            // entirely, refresh last_synced timestamp, and move on. Massive
+            // win on no-op rebuilds — zero token spend.
+            if (
+              src.lastSyncedSha &&
+              sourceCurrentSha &&
+              src.lastSyncedSha === sourceCurrentSha &&
+              src.status === 'compiled'
+            ) {
+              logger.info('[wiki] Repo unchanged since last sync — skipping', {
+                source: src.name, sha: sourceCurrentSha.slice(0, 7),
+              });
+              await getDb().query(
+                'UPDATE wiki_sources SET last_synced = $1 WHERE id = $2',
+                [new Date().toISOString(), src.id],
+              );
+              continue; // jump to next source in the for loop
+            }
           }
 
           const existingWiki = readExistingWiki();
@@ -1892,11 +2520,22 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           const chunks: string[] = [];
           for (let off = 0; off < content.length; off += CHUNK_SIZE) chunks.push(content.slice(off, off + CHUNK_SIZE));
 
+          // When we have a diff (incremental sync), tell Claude that the
+          // source content is ONLY changed files, that any prior articles
+          // about untouched files should be left alone, and that articles
+          // for deleted/renamed files should be removed via the new
+          // `removed` field. This replaces the standard mode instruction
+          // for the first chunk only — subsequent chunks (rare in diff
+          // mode since diffs are small) keep the part-N message.
+          const incrementalInstruction = sourceDiff
+            ? `This is an INCREMENTAL re-sync of source "${src.name}". The content below is ONLY the files that changed since the last sync (added / modified / renamed) — NOT the whole repo. Articles about files that didn't change must be LEFT ALONE; do not regenerate or rewrite them. For each changed file: update the article that describes it (or create one if it's new). For deleted files (paths listed but no body), include the affected article paths in the new "removed" field so they're cleaned up.`
+            : null;
+
           for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
             const chunkContent = chunks[chunkIdx];
             const chunkLabel = chunks.length > 1 ? ` (part ${chunkIdx + 1}/${chunks.length})` : '';
             const chunkModeInstruction = chunkIdx === 0
-              ? modeInstruction
+              ? (incrementalInstruction ?? modeInstruction)
               : `This is PART ${chunkIdx + 1} of ${chunks.length} of source "${src.name}". Articles from earlier parts are already in the wiki. Add new articles for topics in this part not yet covered. Update existing articles where this part adds relevant info.`;
             const chunkStartedAt = new Date().toISOString();
             await writeProgress({
@@ -1907,8 +2546,39 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               articlesWritten: totalPages,
             });
             const currentWiki = readExistingWiki();
+            const currentOverview = readExistingOverview();
 
-            const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\nIMPORTANT: All file paths MUST be prefixed with \`${sourceSlug}/\`. Example: \`${sourceSlug}/concepts/auth.md\`. Never write a path without this prefix.${siblingBlock}\n\n## Existing wiki\n${currentWiki}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "${sourceSlug}/entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "${sourceSlug}/concepts/x.md", "title": "X", "content": "..." }],\n  ${chunkIdx === 0 && effectiveMode === 'first' ? '"overview": "# Overview\\n...",' : ''}\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
+            // Overview policy: refresh overview.md on the FIRST chunk of
+            // EVERY source so it grows to reflect the whole wiki, not just
+            // source #1. Multi-chunk single sources still only generate
+            // overview once (chunkIdx === 0), so cost stays bounded.
+            //
+            // Tell Claude the full set of sources that contribute to this
+            // wiki — past (from manifest) + current — so the overview can
+            // be a true high-level synthesis across all of them, not just
+            // a description of the source being ingested right now.
+            //
+            // Cap the existing overview at 4KB before injection so a runaway
+            // prior overview can't push the prompt over Claude's context
+            // limit when combined with a 100KB source chunk and large index.
+            const wantsOverview = chunkIdx === 0;
+            const MAX_OVERVIEW_PROMPT_BYTES = 4_000;
+            const overviewForPrompt = currentOverview.length > MAX_OVERVIEW_PROMPT_BYTES
+              ? currentOverview.slice(0, MAX_OVERVIEW_PROMPT_BYTES) + '\n…[truncated for prompt budget]'
+              : currentOverview;
+            const allSourceNames = [...new Set([...Object.keys(manifest), src.name])].sort();
+            const sourceListLine = `All sources in this wiki: ${allSourceNames.join(', ')}`;
+            const overviewInstruction = !wantsOverview ? '' : (overviewForPrompt
+              ? `\n\n## Overview update\noverview.md is the high-level intro to the ENTIRE wiki — it must summarize what every source contributes, not just this one. Extend the existing overview below to incorporate "${src.name}" alongside the coverage already there. Preserve structure; extend rather than replace. Keep it 3–5 paragraphs total.\n\n${sourceListLine}\n\nExisting overview:\n\n${overviewForPrompt}`
+              : `\n\n## Overview\nCreate overview.md — a brief 3–5 paragraph intro describing what this wiki covers across ALL sources at a high level. Lead with the highest-level domain, then summarize the major areas.\n\n${sourceListLine}`);
+            const overviewField = wantsOverview ? '\n  "overview": "# Overview\\n...",' : '';
+            // In diff mode, advertise the `removed` field so Claude can
+            // signal articles to delete (deleted/renamed source files).
+            // Snapshot mode never uses this — leave the field out so we
+            // don't accidentally invite spurious removals on first ingest.
+            const removedField = sourceDiff ? '\n  "removed": ["' + sourceSlug + '/path/to/article-to-delete.md"],' : '';
+
+            const prompt = `You are maintaining a knowledge wiki following the Karpathy LLM Wiki pattern.\n\n${chunkModeInstruction}\n\nCRITICAL: Return ONLY a JSON object. No text before or after.\n\nIMPORTANT: All file paths MUST be prefixed with \`${sourceSlug}/\`. Example: \`${sourceSlug}/concepts/auth.md\`. Never write a path without this prefix.${siblingBlock}\n\n## Existing wiki\n${currentWiki}${overviewInstruction}\n\n## Source: ${src.name} (${src.type})${chunkLabel}\n\n${chunkContent}\n\n## Article types\n${articleTypesList}\n\n## Rules\n- Cross-reference between articles\n- Every article: 200+ words, real substance\n- Preserve existing content in updated pages — add to it, do not replace\n\n## Return format\n\n{\n  "updated": [{ "path": "${sourceSlug}/entities/x.md", "title": "X", "content": "..." }],\n  "created": [{ "path": "${sourceSlug}/concepts/x.md", "title": "X", "content": "..." }],${removedField}${overviewField}\n  "logEntry": "## [${now}] ingest | ${src.name}${chunkLabel}\\n- ..."\n}`;
 
             let lastProgress = 0;
             const response = await this.callClaudeWithRetry(prompt, (chars) => {
@@ -1925,7 +2595,22 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
             });
 
             const parsed = this.parseWikiJson(response);
-            if (!parsed) throw new Error(`Could not parse Claude response for chunk ${chunkIdx + 1}`);
+            if (!parsed) {
+              // Diagnostic: log a head + tail snippet of the unparseable
+              // response so we can tell whether Claude returned prose, a
+              // refusal, was truncated mid-JSON, or hit a token cap. Without
+              // this the only signal was the bare error message and we'd
+              // have to add logging + re-trigger the build to learn anything.
+              const head = response.slice(0, 500);
+              const tail = response.length > 1000 ? response.slice(-500) : '';
+              logger.error('[wiki] Could not parse Claude response', {
+                folderId, source: src.name, chunkIdx,
+                responseLength: response.length,
+                responseHead: head,
+                responseTail: tail,
+              });
+              throw new Error(`Could not parse Claude response for chunk ${chunkIdx + 1} (response was ${response.length} chars; check log for head/tail)`);
+            }
 
             // Issue 9: warn if chunk produced no articles
             const chunkArticleCount = (parsed.created?.length ?? 0) + (parsed.updated?.length ?? 0);
@@ -1956,7 +2641,24 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
               sourceWords += wc;
               allIndexEntries.push({ path: articlePath, title: article.title ?? path.basename(articlePath, '.md') });
             }
-            if (parsed.overview && chunkIdx === 0) fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
+            // Diff-mode-only `removed` field — Claude is told to list articles
+            // tied to deleted/renamed source files. Extracted to a free
+            // function so it's independently testable (path-traversal
+            // protection + manifest trimming).
+            if (Array.isArray(parsed.removed)) {
+              processRemovedArticles(wikiDir, sourceSlug, src.name, parsed.removed, manifest as SourceManifest, logger);
+            }
+            // Sanity-check the returned overview before persisting: must be
+            // a non-trivial string (>= 50 chars). Guards against empty or
+            // pathologically short returns silently overwriting a
+            // perfectly-good prior overview.
+            if (chunkIdx === 0 && typeof parsed.overview === 'string' && parsed.overview.trim().length >= 50) {
+              fs.writeFileSync(path.join(wikiDir, 'overview.md'), parsed.overview, 'utf-8');
+            } else if (chunkIdx === 0 && parsed.overview) {
+              logger.warn('[wiki] Skipping overview write — return too short', {
+                folderId, source: src.name, length: String(parsed.overview).length,
+              });
+            }
             // Issue 1: do NOT write index.md here — we write it once after all sources finish
             if (parsed.logEntry) {
               const logPath = path.join(wikiDir, 'log.md');
@@ -1975,7 +2677,20 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           } // end chunk loop
 
           await updateWikiSourceStatus(src.id, 'compiled', sourceWords, new Date().toISOString());
-          logger.info('Wiki source compiled', { folderId, source: src.name });
+          // Persist HEAD SHA so the next sync can compute a diff against it.
+          // Skipped if rev-parse failed (sourceCurrentSha empty) — better to
+          // re-do a full snapshot next time than to write a wrong SHA.
+          if (sourceCurrentSha) {
+            await getDb().query(
+              'UPDATE wiki_sources SET last_synced_sha = $1 WHERE id = $2',
+              [sourceCurrentSha, src.id],
+            );
+          }
+          logger.info('Wiki source compiled', {
+            folderId, source: src.name,
+            sha: sourceCurrentSha ? sourceCurrentSha.slice(0, 7) : null,
+            mode: sourceDiff ? 'incremental' : 'snapshot',
+          });
         } catch (err) {
           const msg = sanitizeError((err as Error).message ?? String(err));
           logger.error('Wiki source build failed', { folderId, source: src.name, error: msg });
@@ -2009,6 +2724,93 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
     } finally {
       // Issue 4: always release the build lock
       try { fs.unlinkSync(lockPath); } catch { /* ok */ }
+    }
+  }
+
+  /**
+   * Summarize a single skill on demand: load it, call the summarizer with one
+   * retry on transient failure, write the description back, and trigger a
+   * lightweight reload so the new description appears in the agent's
+   * compiled CLAUDE.md skills index. No-ops if the skill already has a
+   * description (lets event re-deliveries be idempotent) or the agent isn't
+   * running on this runner.
+   */
+  private async summarizeSkillIfNeeded(agentId: string, skillId: string): Promise<void> {
+    const skill = await getSkillById(skillId);
+    if (!skill) return;
+    if (skill.description) return; // Already filled — nothing to do.
+    if (!this.runningAgents.has(agentId)) return; // Not our agent on this runner.
+
+    const description = await this.callSummarizerWithRetry(skill.filename, skill.content);
+    if (!description) return;
+
+    await updateSkillDescription(skillId, description);
+    logger.info('Skill description filled', {
+      agentId,
+      skillId,
+      filename: skill.filename,
+      description,
+    });
+
+    // Recompile CLAUDE.md so the new line appears in the skills index. Reload
+    // is safe (the running session resumes via cached session keys); it's
+    // also what every other config-touching mutation triggers.
+    await this.reloadAgent(agentId).catch((err) =>
+      logger.warn('Reload after skill summarize failed', { agentId, error: (err as Error).message })
+    );
+  }
+
+  /**
+   * One retry with a short backoff. Sonnet 4.6 is reliable enough that more
+   * aggressive retries would cost more than they save — the startup sweep
+   * catches anything that stays unfilled.
+   */
+  private async callSummarizerWithRetry(filename: string, content: string): Promise<string | null> {
+    const first = await summarizeSkill(filename, content);
+    if (first) return first;
+    await new Promise(r => setTimeout(r, 1_500));
+    return await summarizeSkill(filename, content);
+  }
+
+  /**
+   * Find every skill across the workspace whose description is still NULL
+   * and queue it for summarization. Throttled to one in-flight call at a
+   * time so a 50-skill backlog doesn't spike API usage.
+   */
+  private async sweepMissingSkillDescriptions(): Promise<void> {
+    const missing = await getSkillsMissingDescription();
+    if (missing.length === 0) return;
+    logger.info('Sweeping skills missing description', { count: missing.length });
+
+    let filled = 0;
+    for (const skill of missing) {
+      // Only summarize for agents this runner actually owns; another runner
+      // may pick up the rest. The skill-saved event handler does the same check.
+      if (!this.runningAgents.has(skill.agentId)) continue;
+      try {
+        const description = await this.callSummarizerWithRetry(skill.filename, skill.content);
+        if (description) {
+          await updateSkillDescription(skill.id, description);
+          filled++;
+        }
+      } catch (err) {
+        logger.warn('Sweep summarize failed', {
+          skillId: skill.id,
+          filename: skill.filename,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    if (filled > 0) {
+      logger.info('Skill description sweep complete', { filled, attempted: missing.length });
+      // Reload all touched agents so their CLAUDE.md picks up the new descriptions.
+      const touchedAgents = new Set(missing.map(s => s.agentId).filter(id => this.runningAgents.has(id)));
+      for (const agentId of touchedAgents) {
+        await this.reloadAgent(agentId).catch((err) =>
+          logger.warn('Sweep reload failed', { agentId, error: (err as Error).message })
+        );
+      }
     }
   }
 

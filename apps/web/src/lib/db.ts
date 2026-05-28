@@ -29,6 +29,7 @@ import type {
   SnapshotSkill,
   SnapshotTrigger,
   Restriction,
+  AgentGroup,
   WikiFolder,
   WikiSource,
   CreateWikiFolderRequest,
@@ -209,6 +210,7 @@ function rowToSkill(row: Record<string, unknown>): Skill {
     category: row.category as string,
     filename: row.filename as string,
     content: row.content as string,
+    description: (row.description as string | null) ?? null,
     sortOrder: row.sort_order as number,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -244,7 +246,9 @@ function rowToMemory(row: Record<string, unknown>): Memory {
  */
 export async function getAllAgents(): Promise<Agent[]> {
   const d = await db();
-  const r = await d.query('SELECT * FROM agents ORDER BY is_boss DESC, name ASC');
+  const r = await d.query(`SELECT id, slug, name, persona, description, model, status, enabled,
+    is_boss, verbose, reports_to, tags, created_by, created_at, updated_at,
+    last_error, runner_id, last_heartbeat FROM agents ORDER BY is_boss DESC, name ASC`);
   const agents = r.rows.map(rowToAgent);
 
   // Bulk load platform credentials for all agents
@@ -713,16 +717,26 @@ export async function upsertSkill(
   category: string,
   filename: string,
   content: string,
-  sortOrder = 0
+  sortOrder = 0,
+  description?: string | null,
 ): Promise<Skill> {
   const id = randomUUID();
+  // Description handling: on INSERT use the provided value (or NULL).
+  // On CONFLICT, preserve the existing description unless the caller
+  // explicitly provides one — content edits shouldn't wipe a description
+  // the runner summarizer (or user) put there. Snapshot restore passes the
+  // snapshotted description so it round-trips correctly.
   const r = await (await db()).query(
-    `INSERT INTO skills (id, agent_id, category, filename, content, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO skills (id, agent_id, category, filename, content, sort_order, description)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (agent_id, category, filename)
-     DO UPDATE SET content = EXCLUDED.content, sort_order = EXCLUDED.sort_order, updated_at = now()
+     DO UPDATE SET
+       content     = EXCLUDED.content,
+       sort_order  = EXCLUDED.sort_order,
+       description = COALESCE($7, skills.description),
+       updated_at  = now()
      RETURNING *`,
-    [id, agentId, category, filename, content, sortOrder]
+    [id, agentId, category, filename, content, sortOrder, description ?? null]
   );
   return rowToSkill(r.rows[0]);
 }
@@ -735,6 +749,33 @@ export async function upsertSkill(
  */
 export async function deleteSkill(id: string): Promise<void> {
   await (await db()).query('DELETE FROM skills WHERE id = $1', [id]);
+}
+
+/**
+ * Updates only the description of a skill. Used by the runner-side Haiku
+ * summarizer (background fill) and the UI Regenerate button. Does not bump
+ * `updated_at` because a description refresh is metadata, not a content edit —
+ * keeping `updated_at` stable means snapshot/diff tooling won't flag it.
+ *
+ * @param {string} skillId - Skill UUID.
+ * @param {string | null} description - New description (or null to clear).
+ * @returns {Promise<Skill | null>} Updated skill or null if not found.
+ */
+export async function updateSkillDescription(skillId: string, description: string | null): Promise<Skill | null> {
+  const r = await (await db()).query(
+    'UPDATE skills SET description = $1 WHERE id = $2 RETURNING *',
+    [description, skillId]
+  );
+  return r.rows[0] ? rowToSkill(r.rows[0]) : null;
+}
+
+/**
+ * Loads a single skill by ID. Used by the runner subscriber after a
+ * `skill-saved` event, since the event payload only carries IDs.
+ */
+export async function getSkillById(skillId: string): Promise<Skill | null> {
+  const r = await (await db()).query('SELECT * FROM skills WHERE id = $1', [skillId]);
+  return r.rows[0] ? rowToSkill(r.rows[0]) : null;
 }
 
 /**
@@ -951,7 +992,7 @@ export async function getAllUsers(): Promise<Array<{ id: string; username: strin
            COUNT(aa.agent_id) AS agent_count
     FROM users u
     LEFT JOIN agent_access aa ON aa.user_id = u.id
-    GROUP BY u.id
+    GROUP BY u.id, u.username, u.role, u.created_at, u.slack_user_id
     ORDER BY u.created_at
   `);
   return r.rows.map(row => ({
@@ -989,6 +1030,21 @@ export async function createUser(username: string, passwordHash: string, role: s
  */
 export async function deleteUser(id: string): Promise<void> {
   await (await db()).query('DELETE FROM users WHERE id = $1', [id]);
+}
+
+/**
+ * Returns the `slack_user_id` for a given DB user id, or `null` when the user
+ * has no Slack mapping (admin-created local user). Used by mutation routes
+ * that want to publish a targeted `user-access-changed` event so the runner
+ * can flush a single cache entry instead of clearing the whole cache.
+ */
+export async function getUserSlackIdById(id: string): Promise<string | null> {
+  const r = await (await db()).query(
+    'SELECT slack_user_id FROM users WHERE id = $1',
+    [id]
+  );
+  if (!r.rows.length) return null;
+  return (r.rows[0].slack_user_id as string | null) ?? null;
 }
 
 /**
@@ -1157,6 +1213,20 @@ export async function userCanWriteAgent(agentId: string, username: string, role:
   return r.rows.length > 0;
 }
 
+/**
+ * Returns true if a user can delete an agent. Stricter than write — only the
+ * creator or an admin/superadmin qualifies. Editor-grant collaborators can
+ * modify the agent but cannot remove it (delete is irreversible).
+ */
+export async function userCanDeleteAgent(agentId: string, username: string, role: string): Promise<boolean> {
+  if (role === 'admin' || role === 'superadmin') return true;
+  const r = await (await db()).query(
+    `SELECT 1 FROM agents WHERE id = $1 AND created_by = $2 LIMIT 1`,
+    [agentId, username]
+  );
+  return r.rows.length > 0;
+}
+
 
 /**
  * Returns agent IDs where the user has edit access (for job creation).
@@ -1193,6 +1263,241 @@ export async function listAccessibleAgentIds(
     [username],
   );
   return r.rows.map(row => row.id as string);
+}
+
+// =============================================================================
+// Agent groups (audience personalization)
+// =============================================================================
+
+/**
+ * Maps a SQLite UNIQUE-constraint error to a typed conflict descriptor that
+ * route handlers can return as a 409 with a `field`. Driver-agnostic in the
+ * sense that we match on table.column substrings — Postgres would need its
+ * own parser, which is fine because we only run on SQLite today.
+ *
+ * Returns null if the error is not a recognised conflict.
+ */
+export function parseAgentGroupsConflict(err: unknown): { field: 'priority' | 'name'; message: string } | null {
+  const msg = (err as Error)?.message ?? '';
+  if (/UNIQUE constraint failed:\s*agent_groups\.agent_id,\s*agent_groups\.priority/i.test(msg)) {
+    return { field: 'priority', message: 'Another audience already uses that priority. Pick a different number.' };
+  }
+  if (/UNIQUE constraint failed:\s*agent_groups\.agent_id,\s*agent_groups\.name/i.test(msg)) {
+    return { field: 'name', message: 'Another audience on this agent already has that name.' };
+  }
+  return null;
+}
+
+
+function rowToAgentGroup(row: Record<string, unknown>): AgentGroup {
+  return {
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    name: row.name as string,
+    description: (row.description as string | null) ?? null,
+    instructions: (row.instructions as string) ?? '',
+    priority: Number(row.priority ?? 100),
+    verbose: row.verbose === 1 || row.verbose === true,
+    memberCount: row.member_count == null ? undefined : Number(row.member_count),
+    createdAt: row.created_at as Date,
+    updatedAt: row.updated_at as Date,
+  };
+}
+
+/** All groups for an agent, ordered by priority then name. Includes member counts. */
+export async function listAgentGroups(agentId: string): Promise<AgentGroup[]> {
+  const r = await (await db()).query(
+    `SELECT g.*, (SELECT COUNT(*) FROM agent_group_members m WHERE m.group_id = g.id) AS member_count
+       FROM agent_groups g
+      WHERE g.agent_id = $1
+      ORDER BY g.priority ASC, g.name ASC`,
+    [agentId]
+  );
+  return r.rows.map(rowToAgentGroup);
+}
+
+export async function getAgentGroup(groupId: string): Promise<AgentGroup | null> {
+  const r = await (await db()).query(
+    `SELECT g.*, (SELECT COUNT(*) FROM agent_group_members m WHERE m.group_id = g.id) AS member_count
+       FROM agent_groups g
+      WHERE g.id = $1`,
+    [groupId]
+  );
+  return r.rows.length ? rowToAgentGroup(r.rows[0] as Record<string, unknown>) : null;
+}
+
+export async function createAgentGroup(input: {
+  agentId: string;
+  name: string;
+  description?: string | null;
+  instructions?: string;
+  priority?: number;
+  verbose?: boolean;
+}): Promise<AgentGroup> {
+  const id = randomUUID();
+  await (await db()).query(
+    `INSERT INTO agent_groups (id, agent_id, name, description, instructions, priority, verbose)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      id,
+      input.agentId,
+      input.name,
+      input.description ?? null,
+      input.instructions ?? '',
+      input.priority ?? 100,
+      input.verbose ? 1 : 0,
+    ]
+  );
+  const created = await getAgentGroup(id);
+  if (!created) throw new Error(`Group ${id} disappeared after insert`);
+  return created;
+}
+
+export async function updateAgentGroup(
+  groupId: string,
+  patch: { name?: string; description?: string | null; instructions?: string; priority?: number; verbose?: boolean }
+): Promise<AgentGroup | null> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  let n = 1;
+  if (patch.name !== undefined)         { sets.push(`name = $${n++}`);         params.push(patch.name); }
+  if (patch.description !== undefined)  { sets.push(`description = $${n++}`);  params.push(patch.description); }
+  if (patch.instructions !== undefined) { sets.push(`instructions = $${n++}`); params.push(patch.instructions); }
+  if (patch.priority !== undefined)     { sets.push(`priority = $${n++}`);     params.push(patch.priority); }
+  if (patch.verbose !== undefined)      { sets.push(`verbose = $${n++}`);      params.push(patch.verbose ? 1 : 0); }
+  if (sets.length === 0) return getAgentGroup(groupId);
+  sets.push(`updated_at = datetime('now')`);
+  params.push(groupId);
+  await (await db()).query(
+    `UPDATE agent_groups SET ${sets.join(', ')} WHERE id = $${n}`,
+    params
+  );
+  return getAgentGroup(groupId);
+}
+
+export async function deleteAgentGroup(groupId: string): Promise<void> {
+  await (await db()).query(`DELETE FROM agent_groups WHERE id = $1`, [groupId]);
+}
+
+/**
+ * Users who can at least *trigger* this agent (i.e. could receive a response
+ * from it via Slack). Used to filter the audience-membership picker so admins
+ * don't accidentally add a user who has no path to interact with the agent.
+ *
+ * Eligibility = admins/superadmins ∪ agent creator ∪ anyone with an
+ * `agent_access` row of any level. Mirrors the trigger logic in
+ * `apps/runner/src/message-handler.ts:userCanTrigger`.
+ */
+export type EligibleUserAccessLevel = 'admin' | 'owner' | 'edit' | 'view' | 'trigger';
+
+export interface EligibleUser {
+  id: string;
+  username: string;
+  role: string;
+  /** Why this user is eligible: 'admin' (role), 'creator' (agent owner), or 'access' (agent_access grant). */
+  source: 'admin' | 'creator' | 'access';
+  /**
+   * Effective access level on this specific agent, in user-friendly form:
+   * 'admin' (role-based), 'owner' (creator), or one of 'edit'/'view'/'trigger'
+   * (from agent_access.access_level). Used by the audience picker so it's
+   * obvious whether a member is a viewer with trigger-only Slack access vs
+   * an editor with full SlackHive write.
+   */
+  accessLevel: EligibleUserAccessLevel;
+}
+
+export async function listAgentEligibleUsers(agentId: string): Promise<EligibleUser[]> {
+  // NOTE: the SQLite adapter detects reads vs writes by checking whether the
+  // statement starts with "SELECT" — so we cannot use a leading CTE (`WITH …`)
+  // here. Use SELECT … FROM (UNION ALL) instead, with a numeric source rank
+  // (lower = stronger) that we MIN() to pick the best label per user.
+  //
+  // The third UNION arm carries the actual `agent_access.access_level` so
+  // the audience picker can distinguish trigger-only users from view/edit
+  // users (they all appear in the list, but their effective level differs).
+  const r = await (await db()).query(
+    `SELECT id, username, role,
+            MIN(source_rank) AS top_rank,
+            MAX(access_level) AS access_level
+       FROM (
+         SELECT u.id, u.username, u.role, 1 AS source_rank, NULL AS access_level
+           FROM users u
+          WHERE u.role IN ('admin', 'superadmin')
+         UNION ALL
+         SELECT u.id, u.username, u.role, 2 AS source_rank, NULL AS access_level
+           FROM users u
+           JOIN agents a ON a.created_by = u.username
+          WHERE a.id = $1
+         UNION ALL
+         SELECT u.id, u.username, u.role, 3 AS source_rank, aa.access_level
+           FROM users u
+           JOIN agent_access aa ON aa.user_id = u.id
+          WHERE aa.agent_id = $2
+       ) sub
+      GROUP BY id, username, role
+      ORDER BY username ASC`,
+    [agentId, agentId]
+  );
+  return r.rows.map(row => {
+    const rank = Number(row.top_rank);
+    const source: 'admin' | 'creator' | 'access' = rank === 1 ? 'admin' : rank === 2 ? 'creator' : 'access';
+    // For source=access, prefer the grant's `access_level`. MAX over the
+    // text values orders them lexicographically: 'view' > 'trigger' > 'edit'
+    // — not the access hierarchy we want. So if the user has multiple
+    // distinct grants on this agent (shouldn't happen, PK enforces unique),
+    // we pick whatever MAX returns; for the common single-row case it's
+    // exactly the grant's level.
+    let accessLevel: EligibleUserAccessLevel;
+    if (source === 'admin') accessLevel = 'admin';
+    else if (source === 'creator') accessLevel = 'owner';
+    else {
+      const raw = (row.access_level as string | null) ?? 'trigger';
+      accessLevel = (raw === 'edit' || raw === 'view' || raw === 'trigger') ? raw : 'trigger';
+    }
+    return {
+      id: row.id as string,
+      username: row.username as string,
+      role: row.role as string,
+      source,
+      accessLevel,
+    };
+  });
+}
+
+/** Members of a group as user rows (id + username). */
+export async function listGroupMembers(groupId: string): Promise<{ userId: string; username: string }[]> {
+  const r = await (await db()).query(
+    `SELECT u.id, u.username
+       FROM agent_group_members m
+       JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = $1
+      ORDER BY u.username ASC`,
+    [groupId]
+  );
+  return r.rows.map(row => ({ userId: row.id as string, username: row.username as string }));
+}
+
+/**
+ * Replaces the membership of a group with the given user IDs atomically.
+ *
+ * DELETE + single multi-row INSERT, wrapped in a transaction so a partial
+ * failure can't leave the group with the old rows deleted but the new rows
+ * not yet inserted. De-dupes input in JS so the multi-row INSERT can drop
+ * the per-row ON CONFLICT clause.
+ */
+export async function setGroupMembers(groupId: string, userIds: string[]): Promise<void> {
+  const conn = await db();
+  const unique = Array.from(new Set(userIds.filter(Boolean)));
+  await conn.transaction(async tx => {
+    await tx.query(`DELETE FROM agent_group_members WHERE group_id = $1`, [groupId]);
+    if (unique.length === 0) return;
+    // Build ($1, $2), ($1, $3), ... — group_id stays at $1, users at $2..$N.
+    const placeholders = unique.map((_, i) => `($1, $${i + 2})`).join(', ');
+    await tx.query(
+      `INSERT INTO agent_group_members (group_id, user_id) VALUES ${placeholders}`,
+      [groupId, ...unique]
+    );
+  });
 }
 
 // =============================================================================

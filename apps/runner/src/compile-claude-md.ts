@@ -33,6 +33,36 @@ import { logger } from './logger';
 /** Soft cap on inlined memory bytes in CLAUDE.md. Anything above this is truncated with a log. */
 const MAX_INLINED_MEMORY_BYTES = 32 * 1024;
 
+/**
+ * Verbose narration directive. Injected into the per-message user turn by
+ * `message-handler.ts → buildPrompt` when the resolved verbose state for the
+ * current sender is true. The resolution honours audience overrides:
+ *
+ *   resolved verbose = highest-priority matching group's verbose
+ *                    ?? agent.verbose
+ *
+ * Previously baked into CLAUDE.md at compile time, which made the directive
+ * apply to every sender regardless of audience opt-out. Moved to per-message
+ * injection so audience.verbose can truly override agent.verbose per cohort
+ * without needing a "suppress" counter-directive.
+ *
+ * Sonnet 4.6 routes reasoning into `thinking` blocks which subscription OAuth
+ * strips server-side, leaving verbose mode with nothing to display. Asking
+ * the model to share its *direction* (not every tool) gives the user a sense
+ * of where things are going without flooding the thread.
+ */
+export const VERBOSE_NARRATION_DIRECTIVE = `# Share your direction (verbose mode)
+
+When you start working on something or change direction, share one short sentence about where you're heading — what you're investigating, what approach you're taking, what you're about to verify. Not every tool call needs narration; just the *direction* the work is taking.
+
+Examples:
+
+- "Checking the bookings tables to find the right one for partner-level revenue."
+- "Going to look up the partner code in Notion before querying."
+- "Looks like the wiki is stale — verifying directly against Redshift."
+
+Plain language, one short sentence, no formatting. Skip it for trivial single-tool answers. The goal is to keep the user oriented, not to log every action.`;
+
 /** Platform knowledge directory — built wikis stored here per folder. */
 const KNOWLEDGE_DIR = path.join(
   process.env.HOME ?? process.env.USERPROFILE ?? '/tmp',
@@ -144,21 +174,29 @@ export async function writeFileSourcesToDisk(workDir: string, agentId: string): 
 /**
  * Slack formatting rules injected into every agent's CLAUDE.md.
  * Built-in at the framework level — not visible in the Skills tab.
+ *
+ * Single source of truth: also re-exported via slack-adapter.getFormattingRules()
+ * so the production path and the test/no-adapter fallback stay byte-identical.
+ *
+ * Example IDs in the Mentions block use obviously-fake placeholders
+ * (`U12345ABCDE`, `C12345ABCDE`) so the model can't blindly copy a real
+ * user/channel ID into a reply.
  */
-const SLACK_FORMATTING_SECTION = `# Slack Formatting
+export const SLACK_FORMATTING_SECTION = `# Slack Formatting
 
 You are responding in Slack. Follow these rules for every message:
 
 **Text formatting:**
 - Bold: \`*bold*\` — NOT \`**bold**\`
 - Italic: \`_italic_\` — NOT \`*italic*\`
+- Strikethrough: \`~text~\`
 - Section headers: \`*Header Text*\` on its own line — NOT \`#\`, \`##\`, \`###\`
 - Inline code: \`` + '`' + `code\`` + '`' + `
 - Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
 - Lists: \`- item\` or \`1. item\`
 - Links: \`<url|text>\`
+- Blockquotes: \`> text\` (one \`>\` per line for multi-line quotes)
 - Horizontal rules: just a blank line — NOT \`---\` or \`***\`
-- Blockquotes: use plain text or \`_italic_\` — NOT \`>\`
 
 **Tables — use standard Markdown pipe format:**
 - Every row MUST start and end with \`|\`
@@ -172,7 +210,12 @@ Good:
 | Alpha | 42 |
 \`\`\`
 
-**Never use:** \`## headings\`, \`**double asterisks**\`, \`> blockquotes\`, \`---\` rules`;
+**Mentions:**
+- Tag a user: \`<@USER_ID>\` (e.g. \`<@U12345ABCDE>\`) — only use IDs you've actually seen in this thread or earlier turns; never invent one
+- Reference a channel: \`<#CHANNEL_ID>\` (e.g. \`<#C12345ABCDE>\`), or with a custom label as \`<#CHANNEL_ID|display-name>\`
+- Plain \`@username\` will not notify or link — always use the angle-bracket form with the ID
+
+**Never use:** \`## headings\`, \`**double asterisks**\`, \`---\` rules`;
 
 
 /**
@@ -538,7 +581,12 @@ function buildSkillsIndexSection(skills: Skill[], hasWiki: boolean): string | nu
 
   for (const skill of skills) {
     const name = skill.filename.replace(/\.md$/, '');
-    lines.push(`- \`/${name}\``);
+    // Render the description when present so the model can pick the right
+    // command without loading the body. Falls back to name-only when the
+    // summarizer hasn't filled it in yet.
+    lines.push(skill.description
+      ? `- \`/${name}\` — ${skill.description}`
+      : `- \`/${name}\``);
   }
 
   return `# Available Skills
@@ -578,6 +626,10 @@ function buildClaudeMd(
   if (claudeMd?.trim()) {
     sections.push(claudeMd.trim());
   }
+
+  // 2b. (Verbose narration directive moved out — it now lives in the
+  //      per-message user turn so audience.verbose can override it per
+  //      sender. See message-handler.ts → buildPrompt.)
 
   // 3. Platform formatting rules (provided by adapter, or fallback to Slack)
   sections.push(formattingRules ?? SLACK_FORMATTING_SECTION);

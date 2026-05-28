@@ -321,97 +321,92 @@ export async function listTasks(
   cursor: string | null = null,
 ): Promise<TaskListResult> {
   const db = getDb();
-  const wheres: string[] = [];
-  const params: unknown[] = [];
 
-  // Column-specific filter against subqueries over `activities`.
-  // All three columns use the most-recent activity status to avoid tasks
-  // with old error/interrupt rows being permanently stuck or invisible.
-  // Priority: active (any in_progress) > errored (most-recent=error, no in_progress) > recent (most-recent=done).
-  if (column === 'active') {
-    wheres.push(`EXISTS (
-      SELECT 1 FROM activities a
-       WHERE a.task_id = tasks.id AND a.status = 'in_progress'
-    )`);
-  } else if (column === 'recent') {
-    wheres.push(`NOT EXISTS (
-      SELECT 1 FROM activities a
-       WHERE a.task_id = tasks.id AND a.status = 'in_progress'
-    )`);
-    wheres.push(`(
-      SELECT a.status FROM activities a
-       WHERE a.task_id = tasks.id
-       ORDER BY a.started_at DESC LIMIT 1
-    ) = 'done'`);
-  } else if (column === 'errored') {
-    // Most-recent activity is error, and no activity is currently in_progress
-    wheres.push(`NOT EXISTS (
-      SELECT 1 FROM activities a
-       WHERE a.task_id = tasks.id AND a.status = 'in_progress'
-    )`);
-    wheres.push(`(
-      SELECT a.status FROM activities a
-       WHERE a.task_id = tasks.id
-       ORDER BY a.started_at DESC LIMIT 1
-    ) = 'error'`);
+  if (filter.accessibleAgentIds !== undefined && filter.accessibleAgentIds.length === 0) {
+    return { tasks: [], nextCursor: null };
   }
+
+  // Build CTE params first (agent/access filters go into the CTE),
+  // then task-level params (user, since, cursor, limit).
+  const cteParams: unknown[] = [];
+  const taskWheres: string[] = [];
+  const taskParams: unknown[] = [];
+
+  // CTE filters — narrow activities before aggregation
+  const cteWheres: string[] = [];
 
   if (filter.agentId) {
-    wheres.push(`EXISTS (
-      SELECT 1 FROM activities a
-       WHERE a.task_id = tasks.id AND a.agent_id = $${params.length + 1}
-    )`);
-    params.push(filter.agentId);
-  }
-
-  if (filter.userId) {
-    wheres.push(`tasks.initiator_user_id = $${params.length + 1}`);
-    params.push(filter.userId);
-  }
-
-  if (filter.since) {
-    wheres.push(`tasks.last_activity_at >= $${params.length + 1}`);
-    params.push(filter.since);
+    cteWheres.push(`agent_id = $${cteParams.length + 1}`);
+    cteParams.push(filter.agentId);
   }
 
   if (filter.accessibleAgentIds !== undefined) {
-    if (filter.accessibleAgentIds.length === 0) {
-      // User can access no agents — short-circuit to empty.
-      return { tasks: [], nextCursor: null };
-    }
     const placeholders = filter.accessibleAgentIds
-      .map((_, i) => `$${params.length + 1 + i}`)
+      .map((_, i) => `$${cteParams.length + 1 + i}`)
       .join(', ');
-    wheres.push(`EXISTS (
-      SELECT 1 FROM activities a
-       WHERE a.task_id = tasks.id AND a.agent_id IN (${placeholders})
-    )`);
-    params.push(...filter.accessibleAgentIds);
+    cteWheres.push(`agent_id IN (${placeholders})`);
+    cteParams.push(...filter.accessibleAgentIds);
   }
 
+  const cteWhereSql = cteWheres.length ? `WHERE ${cteWheres.join(' AND ')}` : '';
+
+  // Task-level filters
+  if (filter.userId) {
+    taskWheres.push(`t.initiator_user_id = $${cteParams.length + taskParams.length + 1}`);
+    taskParams.push(filter.userId);
+  }
+
+  if (filter.since) {
+    taskWheres.push(`t.last_activity_at >= $${cteParams.length + taskParams.length + 1}`);
+    taskParams.push(filter.since);
+  }
+
+  // Column filter against pre-aggregated CTE columns
+  if (column === 'active') {
+    taskWheres.push(`agg.has_active = 1`);
+  } else if (column === 'recent') {
+    taskWheres.push(`agg.has_active = 0 AND agg.latest_status = 'done'`);
+  } else if (column === 'errored') {
+    taskWheres.push(`agg.has_active = 0 AND agg.latest_status = 'error'`);
+  }
+
+  // Cursor pagination
   if (cursor) {
     const [cursorTs, cursorId] = cursor.split('|', 2);
     if (cursorTs && cursorId) {
-      // Stable descending pagination — ties broken by task id.
-      wheres.push(
-        `(tasks.last_activity_at < $${params.length + 1}
-          OR (tasks.last_activity_at = $${params.length + 1} AND tasks.id < $${params.length + 2}))`,
-      );
-      params.push(cursorTs, cursorId);
+      const p1 = cteParams.length + taskParams.length + 1;
+      taskWheres.push(`(t.last_activity_at < $${p1} OR (t.last_activity_at = $${p1} AND t.id < $${p1 + 1}))`);
+      taskParams.push(cursorTs, cursorId);
     }
   }
 
-  const whereSql = wheres.length ? `WHERE ${wheres.join(' AND ')}` : '';
-  const limitIdx = params.length + 1;
-  params.push(limit + 1); // over-fetch by 1 to detect next page
+  const taskWhereSql = taskWheres.length ? `AND ${taskWheres.join(' AND ')}` : '';
+  const allParams = [...cteParams, ...taskParams];
+  const limitIdx = allParams.length + 1;
+  allParams.push(limit + 1);
 
+  // Single-pass CTE: aggregate per-task activity status in one scan.
+  // has_active: 1 if any activity is in_progress
+  // latest_status: status of the most recent activity by started_at
   const { rows } = await db.query(
-    `SELECT *
-       FROM tasks
-       ${whereSql}
-      ORDER BY tasks.last_activity_at DESC, tasks.id DESC
+    `WITH ranked AS (
+       SELECT task_id, status,
+              MAX(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) OVER (PARTITION BY task_id) AS has_active,
+              ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY started_at DESC, id DESC) AS rn
+       FROM activities a
+       ${cteWhereSql}
+     ),
+     agg AS (
+       SELECT task_id, has_active, status AS latest_status
+       FROM ranked WHERE rn = 1
+     )
+     SELECT t.*
+       FROM tasks t
+       JOIN agg ON agg.task_id = t.id
+      WHERE 1=1 ${taskWhereSql}
+      ORDER BY t.last_activity_at DESC, t.id DESC
       LIMIT $${limitIdx}`,
-    params,
+    allParams,
   );
 
   const tasks = rows.slice(0, limit).map(rowToTask);
@@ -500,11 +495,12 @@ export async function countInProgressByAgent(
 }
 
 /**
- * Mark any activities/tool_calls that are still `in_progress` as `error`.
- * Called once at runner startup to recover from unclean shutdowns (SIGKILL,
- * crashes) that bypassed the normal closeActivity path.
+ * Mark any activities/tool_calls that are still `in_progress` as `error` and
+ * return the swept activity IDs so the caller can decide whether to auto-
+ * replay them. Called once at runner startup to recover from unclean
+ * shutdowns (SIGKILL, crashes) that bypassed the normal closeActivity path.
  */
-export async function sweepStaleActivities(): Promise<number> {
+export async function sweepStaleActivities(): Promise<string[]> {
   const db = getDb();
   await db.query(
     `UPDATE tool_calls SET status = 'ok'
@@ -519,7 +515,7 @@ export async function sweepStaleActivities(): Promise<number> {
   RETURNING id`,
     [],
   );
-  return rows.length;
+  return rows.map(r => r.id as string);
 }
 
 // =============================================================================

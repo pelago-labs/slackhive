@@ -266,6 +266,12 @@ export interface Skill {
   filename: string;
   /** Full markdown content of the skill file. */
   content: string;
+  /**
+   * Short one-line summary (~80 chars) shown in the CLAUDE.md skills index so
+   * the model can pick the right slash command without loading the body. Null
+   * until generated (manually or by the runner-side Sonnet summarizer).
+   */
+  description: string | null;
   /** Sort order within the category (lower = compiled first). */
   sortOrder: number;
   createdAt: Date;
@@ -307,6 +313,46 @@ export interface Restriction {
   /** Slack channel IDs the bot is allowed to respond in. Empty = unrestricted. */
   allowedChannels: string[];
   updatedAt: Date;
+}
+
+/**
+ * An audience group attached to a single agent. Members of the group receive
+ * an extra block of natural-language guidance prepended to the agent's normal
+ * prompt at message time. Used to make one agent answer differently to
+ * different cohorts (marketing, leadership, etc.) without forking the agent.
+ *
+ * Multi-group senders get every group's instructions concatenated in
+ * `priority` order (lower priority value = applied first).
+ */
+export interface AgentGroup {
+  id: string;
+  agentId: string;
+  name: string;
+  description: string | null;
+  /** Free-text instructions appended to the agent prompt for members. */
+  instructions: string;
+  /** Lower = applied first when concatenating multi-group senders. */
+  priority: number;
+  /**
+   * Audience-level verbose override.
+   *
+   * - `true`  → audience block emits "VERBOSE — write a detailed,
+   *             example-rich final reply, skip progress narration." This
+   *             overrides the agent's verbose setting for members.
+   * - `false` → audience block emits nothing about verbose. The agent's own
+   *             `verbose` setting applies unchanged.
+   */
+  verbose: boolean;
+  /** Number of users in this group. Populated by list endpoints; absent on writes. */
+  memberCount?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AgentGroupMember {
+  groupId: string;
+  userId: string;
+  createdAt: Date;
 }
 
 /**
@@ -415,8 +461,52 @@ export interface JobsReloadEvent {
   type: 'reload-jobs';
 }
 
+/**
+ * Event fired when a skill is created or updated. The runner picks this up,
+ * generates a one-line description with Sonnet, and writes it back to the DB.
+ * Decoupled from `reload` so summarization runs in the background and the
+ * agent doesn't get an extra restart for what is effectively a metadata fill.
+ */
+export interface SkillSavedEvent {
+  type: 'skill-saved';
+  agentId: string;
+  skillId: string;
+}
+
+/**
+ * Event fired when user-access state changes (agent_access grant/revoke,
+ * user create/update/delete). The runner uses it to invalidate its
+ * per-(agent, sender) userCanTrigger cache.
+ *
+ * `slackUserId` is preferred (targeted flush). `userId` (DB id) triggers a
+ * coarse clear because the runner can't resolve DB id → Slack id without
+ * an extra query. `agentId` flushes all entries for that agent.
+ * No fields → flush everything.
+ */
+export interface UserAccessChangedEvent {
+  type: 'user-access-changed';
+  slackUserId?: string;
+  userId?: string;
+  agentId?: string;
+}
+
+/**
+ * Event fired on env_vars write/delete. The runner uses it to drop its
+ * decrypted env-var snapshot cache so the next agent start sees fresh values.
+ */
+export interface EnvVarsChangedEvent {
+  type: 'env-vars-changed';
+}
+
 /** Union of all lifecycle events published on Redis. */
-export type AgentEvent = AgentReloadEvent | AgentStartEvent | AgentStopEvent | JobsReloadEvent;
+export type AgentEvent =
+  | AgentReloadEvent
+  | AgentStartEvent
+  | AgentStopEvent
+  | JobsReloadEvent
+  | SkillSavedEvent
+  | UserAccessChangedEvent
+  | EnvVarsChangedEvent;
 
 // =============================================================================
 // Coach (interactive instruction tuning) types
@@ -664,6 +754,8 @@ export interface UpdateRestrictionsRequest {
 export interface UpsertSkillRequest {
   content: string;
   sortOrder?: number;
+  /** Optional one-line description; if omitted, the runner summarizer fills it in. */
+  description?: string | null;
 }
 
 /**
@@ -876,6 +968,7 @@ export interface SnapshotSkill {
   filename: string;
   content: string;
   sort_order: number;
+  description?: string | null;
 }
 
 /** What triggered the snapshot creation. */
