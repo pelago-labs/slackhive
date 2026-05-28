@@ -400,6 +400,9 @@ export class AgentRunner {
   /** Interval handle for the heartbeat loop — cleared on stop(). */
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
+  /** Interval handle for the periodic stale-activity sweep — cleared on stop(). */
+  private sweepTimer: NodeJS.Timeout | null = null;
+
   constructor() {
     this.jobScheduler = new JobScheduler((agentId: string) => this.getRunningAgent(agentId));
   }
@@ -566,6 +569,7 @@ export class AgentRunner {
     await this.loadAllAgents();
     await this.jobScheduler.start();
     this.startHeartbeat();
+    this.startPeriodicSweep();
     this.registerShutdownHandlers();
 
     // Background-fill any skill description that's still NULL — covers rows
@@ -599,6 +603,20 @@ export class AgentRunner {
     }, 15_000);
     // Don't keep the event loop alive just for the heartbeat.
     this.heartbeatTimer.unref?.();
+  }
+
+  /** Sweep in_progress activities that were orphaned mid-run (every 2h). */
+  private startPeriodicSweep(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(async () => {
+      try {
+        const swept = await sweepStaleActivities();
+        if (swept.length > 0) logger.info('Periodic sweep: marked stale activities as error', { count: swept.length });
+      } catch (err) {
+        logger.warn('Periodic sweep failed', { error: (err as Error).message });
+      }
+    }, 2 * 60 * 60 * 1000); // 2 hours
+    this.sweepTimer.unref?.();
   }
 
   /**
@@ -659,6 +677,7 @@ export class AgentRunner {
 
     // Stop heartbeat
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
 
     // Stop internal server
     if (this.internalServer) { this.internalServer.close(); this.internalServer = null; }
