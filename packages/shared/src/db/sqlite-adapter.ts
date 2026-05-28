@@ -228,15 +228,17 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 
 CREATE TABLE IF NOT EXISTS mcp_servers (
-  id          TEXT PRIMARY KEY,
-  name        TEXT UNIQUE NOT NULL,
-  type        TEXT NOT NULL DEFAULT 'stdio'
-                   CHECK (type IN ('stdio', 'sse', 'http')),
-  config      TEXT NOT NULL,
-  description TEXT,
-  enabled     INTEGER NOT NULL DEFAULT 1,
-  created_by  TEXT NOT NULL DEFAULT 'admin',
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  id                    TEXT PRIMARY KEY,
+  name                  TEXT UNIQUE NOT NULL,
+  type                  TEXT NOT NULL DEFAULT 'stdio'
+                             CHECK (type IN ('stdio', 'sse', 'http')),
+  config                TEXT NOT NULL,
+  description           TEXT,
+  enabled               INTEGER NOT NULL DEFAULT 1,
+  created_by            TEXT NOT NULL DEFAULT 'admin',
+  created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+  tool_list_cache       TEXT,         -- JSON: [{name, description?}, ...]
+  tool_list_cached_at   TEXT          -- ISO timestamp of last successful fetch
 );
 
 CREATE TABLE IF NOT EXISTS agent_mcps (
@@ -688,6 +690,14 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   }
   if (!piCols.includes('bot_image_url')) {
     db.exec('ALTER TABLE platform_integrations ADD COLUMN bot_image_url TEXT');
+  }
+
+  const mcpServerCols = (db.pragma('table_info(mcp_servers)') as { name: string }[]).map(c => c.name);
+  if (!mcpServerCols.includes('tool_list_cache')) {
+    db.exec('ALTER TABLE mcp_servers ADD COLUMN tool_list_cache TEXT');
+  }
+  if (!mcpServerCols.includes('tool_list_cached_at')) {
+    db.exec('ALTER TABLE mcp_servers ADD COLUMN tool_list_cached_at TEXT');
   }
 
   // Rebuild wiki_sources if its status CHECK constraint pre-dates 'stale'.

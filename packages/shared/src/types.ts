@@ -209,6 +209,25 @@ export interface McpServer {
   /** Username of the user who added this MCP to the catalog. */
   createdBy: string;
   createdAt: Date;
+  /**
+   * Cached tool list from the last successful MCP handshake. Populated
+   * lazily by GET /api/mcps/[id]/tools and refreshed on a TTL or when
+   * the user explicitly hits "refresh" in the case editor.
+   */
+  toolListCache?: McpTool[] | null;
+  /** ISO timestamp of the last successful tool list fetch. */
+  toolListCachedAt?: Date | null;
+}
+
+/**
+ * A single tool advertised by an MCP server. Used by the case editor's
+ * tool dropdown so users can pick real tool ids instead of typing.
+ */
+export interface McpTool {
+  /** The tool's bare name (without the `mcp__<server>__` prefix). */
+  name: string;
+  /** Optional human-readable description from the MCP server. */
+  description?: string;
 }
 
 /**

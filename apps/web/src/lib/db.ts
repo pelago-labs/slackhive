@@ -185,6 +185,17 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
  * @returns {McpServer} Typed MCP server object.
  */
 function rowToMcpServer(row: Record<string, unknown>): McpServer {
+  const rawCache = row.tool_list_cache as string | null | undefined;
+  let toolListCache: McpServer['toolListCache'] = null;
+  if (typeof rawCache === 'string' && rawCache.trim() !== '') {
+    try {
+      const parsed = JSON.parse(rawCache);
+      if (Array.isArray(parsed)) toolListCache = parsed;
+    } catch {
+      // Stale/corrupt cache — treat as missing rather than crashing the row read.
+      toolListCache = null;
+    }
+  }
   return {
     id: row.id as string,
     name: row.name as string,
@@ -194,6 +205,8 @@ function rowToMcpServer(row: Record<string, unknown>): McpServer {
     enabled: row.enabled as boolean,
     createdBy: (row.created_by as string | undefined) ?? 'admin',
     createdAt: row.created_at as Date,
+    toolListCache,
+    toolListCachedAt: (row.tool_list_cached_at as Date | null) ?? null,
   };
 }
 
@@ -647,6 +660,24 @@ export async function updateMcpServer(
 export async function getMcpServerById(id: string): Promise<McpServer | null> {
   const r = await (await db()).query('SELECT * FROM mcp_servers WHERE id = $1', [id]);
   return r.rows.length ? rowToMcpServer(r.rows[0]) : null;
+}
+
+/**
+ * Writes the tool list cache for an MCP server. Called after a successful
+ * MCP handshake by GET /api/mcps/[id]/tools so subsequent reads can skip
+ * the network round-trip.
+ *
+ * @param id  MCP server UUID.
+ * @param tools  Array of {name, description?} returned by the server's tools/list.
+ */
+export async function setMcpToolsCache(
+  id: string,
+  tools: Array<{ name: string; description?: string }>,
+): Promise<void> {
+  await (await db()).query(
+    'UPDATE mcp_servers SET tool_list_cache = $2, tool_list_cached_at = now() WHERE id = $1',
+    [id, JSON.stringify(tools)],
+  );
 }
 
 /**
