@@ -26,7 +26,8 @@ import type {
   McpServer,
   UpdateEvalCaseRequest,
 } from '@slackhive/shared';
-import { Loader2, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { Loader2, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import type { McpTool } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 
 // ─── UI-facing check kinds ────────────────────────────────────────────────────
@@ -1008,6 +1009,17 @@ function SubstringEditor({
   );
 }
 
+/**
+ * Two-step picker for tool ids. Each entry row is { MCP server, tool } where
+ * the tool dropdown is lazy-populated when the user picks an MCP.
+ *
+ * Wire shape stays identical to the old free-text editor — an array of
+ * `mcp__server__tool` strings (or `mcp__server__*` for wildcards) — so the
+ * check primitive doesn't care which UI authored the value.
+ *
+ * Backward compat: incoming values that can't be parsed into server+tool
+ * fall back to a free-text input on that row.
+ */
 function ToolCalledEditor({
   label,
   values,
@@ -1019,29 +1031,277 @@ function ToolCalledEditor({
   mcps: McpServer[];
   onChange: (next: string[]) => void;
 }) {
+  const entries = values.length > 0 ? values.map(parseToolValue) : [emptyEntry()];
+
+  function updateEntry(idx: number, next: ToolEntry) {
+    const out = entries.slice();
+    out[idx] = next;
+    onChange(out.map(entryToString).filter((s) => s !== ''));
+  }
+  function removeEntry(idx: number) {
+    const out = entries.slice();
+    out.splice(idx, 1);
+    onChange(out.map(entryToString).filter((s) => s !== ''));
+  }
+  function addEntry() {
+    const next = [...entries, emptyEntry()];
+    onChange(next.map(entryToString).filter((s) => s !== ''));
+  }
+
   return (
     <Field label={label}>
-      <textarea
-        rows={3}
-        value={values.join('\n')}
-        onChange={(e) =>
-          onChange(
-            e.target.value
-              .split('\n')
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0),
-          )
-        }
-        placeholder={'mcp__redshift-mcp__query\nmcp__redshift-mcp__find_column'}
-        style={{ ...textareaStyle, fontFamily: 'var(--font-mono)', fontSize: 12 }}
-      />
-      {mcps.length > 0 && (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {entries.map((entry, i) => (
+          <ToolEntryRow
+            key={i}
+            entry={entry}
+            mcps={mcps}
+            onChange={(next) => updateEntry(i, next)}
+            onRemove={entries.length > 1 ? () => removeEntry(i) : undefined}
+          />
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={addEntry}
+        style={{
+          marginTop: 8,
+          padding: '4px 10px',
+          fontSize: 12,
+          background: 'transparent',
+          border: '1px dashed var(--border-2)',
+          borderRadius: 6,
+          color: 'var(--muted)',
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+      >
+        <Plus size={12} /> Add tool
+      </button>
+      {mcps.length === 0 && (
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-          Linked MCPs: {mcps.map((m) => m.name).join(', ')}
+          No MCP servers linked — link one in the agent's Tools tab to use this check.
         </div>
       )}
     </Field>
   );
+}
+
+interface ToolEntry {
+  /** Linked-MCP name (e.g. "github"). null when the user hasn't picked yet. */
+  serverName: string | null;
+  /** Bare tool name (e.g. "get_pull_request"), `*` for wildcard, or null. */
+  tool: string | null;
+  /** Set when the original value couldn't be parsed — row renders as text input. */
+  raw?: string;
+}
+
+function emptyEntry(): ToolEntry {
+  return { serverName: null, tool: null };
+}
+
+function parseToolValue(value: string): ToolEntry {
+  if (!value.startsWith('mcp__')) return { serverName: null, tool: null, raw: value };
+  const secondUnderscore = value.indexOf('__', 5);
+  if (secondUnderscore === -1) return { serverName: null, tool: null, raw: value };
+  const serverName = value.slice(5, secondUnderscore);
+  const tool = value.slice(secondUnderscore + 2);
+  if (serverName === '' || tool === '') return { serverName: null, tool: null, raw: value };
+  return { serverName, tool };
+}
+
+function entryToString(entry: ToolEntry): string {
+  if (entry.raw !== undefined) return entry.raw.trim();
+  if (entry.serverName === null || entry.tool === null) return '';
+  return `mcp__${entry.serverName}__${entry.tool}`;
+}
+
+function ToolEntryRow({
+  entry,
+  mcps,
+  onChange,
+  onRemove,
+}: {
+  entry: ToolEntry;
+  mcps: McpServer[];
+  onChange: (next: ToolEntry) => void;
+  onRemove?: () => void;
+}) {
+  const mcpForEntry = entry.serverName ? mcps.find((m) => m.name === entry.serverName) : null;
+  const { tools, status, error, refresh } = useMcpTools(mcpForEntry?.id ?? null);
+
+  // Raw fallback: when the original value can't be parsed, just show a text input.
+  if (entry.raw !== undefined) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input
+          type="text"
+          value={entry.raw}
+          onChange={(e) => onChange({ serverName: null, tool: null, raw: e.target.value })}
+          placeholder="mcp__server__tool"
+          style={{
+            flex: 1,
+            padding: '6px 10px',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            fontSize: 12,
+            fontFamily: 'var(--font-mono)',
+            background: 'var(--surface)',
+            color: 'var(--text)',
+          }}
+        />
+        {onRemove && (
+          <button type="button" onClick={onRemove} style={toolIconBtnStyle} aria-label="Remove">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr auto auto', gap: 6, alignItems: 'center' }}>
+      <select
+        value={entry.serverName ?? ''}
+        onChange={(e) =>
+          onChange({ serverName: e.target.value || null, tool: null })
+        }
+        style={selectStyle}
+      >
+        <option value="">Pick MCP…</option>
+        {mcps.map((m) => (
+          <option key={m.id} value={m.name}>
+            {m.name}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={entry.tool ?? ''}
+        onChange={(e) => onChange({ ...entry, tool: e.target.value || null })}
+        disabled={!entry.serverName || status === 'loading'}
+        style={toolSelectStyle}
+      >
+        <option value="">
+          {!entry.serverName
+            ? 'Pick MCP first'
+            : status === 'loading'
+              ? 'Loading tools…'
+              : status === 'error'
+                ? `Error: ${error ?? 'failed'} — type manually`
+                : 'Pick tool…'}
+        </option>
+        <option value="*">* (any tool from this MCP)</option>
+        {tools.map((t) => (
+          <option key={t.name} value={t.name} title={t.description}>
+            {t.name}
+          </option>
+        ))}
+        {/* If the existing value isn't in the fetched list (legacy or post-refresh removed), show it anyway so the user sees what's set. */}
+        {entry.tool && entry.tool !== '*' && !tools.some((t) => t.name === entry.tool) && (
+          <option value={entry.tool}>{entry.tool} (not in current list)</option>
+        )}
+      </select>
+
+      <button
+        type="button"
+        onClick={refresh}
+        disabled={!entry.serverName || status === 'loading'}
+        style={toolIconBtnStyle}
+        title="Refresh tool list"
+        aria-label="Refresh tool list"
+      >
+        {status === 'loading' ? (
+          <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+        ) : (
+          <RefreshCw size={14} />
+        )}
+      </button>
+
+      {onRemove && (
+        <button type="button" onClick={onRemove} style={toolIconBtnStyle} aria-label="Remove">
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+const toolSelectStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  fontSize: 12,
+  fontFamily: 'inherit',
+  background: 'var(--surface)',
+  color: 'var(--text)',
+};
+
+const toolIconBtnStyle: React.CSSProperties = {
+  padding: '4px 6px',
+  background: 'transparent',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  color: 'var(--muted)',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+};
+
+/**
+ * Lazy fetcher + per-mount cache for an MCP's tool list. Keys by MCP id;
+ * once a server's tools are fetched they stay in memory for the lifetime
+ * of this hook instance so re-opening the dropdown is instant.
+ */
+function useMcpTools(mcpId: string | null) {
+  const [byId, setById] = useState<Record<string, McpTool[]>>({});
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTools = useCallback(async (id: string, force = false) => {
+    setStatus('loading');
+    setError(null);
+    try {
+      const res = await fetch(`/api/mcps/${id}/tools${force ? '?refresh=1' : ''}`);
+      const body = (await res.json()) as { tools?: McpTool[]; error?: string };
+      if (!res.ok) {
+        setStatus('error');
+        setError(body.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setById((prev) => ({ ...prev, [id]: body.tools ?? [] }));
+      setStatus('ok');
+    } catch (err) {
+      setStatus('error');
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mcpId === null) {
+      setStatus('idle');
+      return;
+    }
+    if (byId[mcpId]) {
+      setStatus('ok');
+      return;
+    }
+    fetchTools(mcpId);
+  }, [mcpId, byId, fetchTools]);
+
+  const refresh = useCallback(() => {
+    if (mcpId !== null) fetchTools(mcpId, true);
+  }, [mcpId, fetchTools]);
+
+  return {
+    tools: mcpId !== null ? byId[mcpId] ?? [] : [],
+    status,
+    error,
+    refresh,
+  };
 }
 
 function LlmJudgeEditor({
