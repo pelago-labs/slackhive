@@ -3,16 +3,18 @@
  *
  * Two of the three primitives are fully implemented here:
  *   - substring   (deterministic — final_reply selector)
- *   - tool_called (deterministic — tool_calls selector)
+ *   - tool_called (deterministic — tool_calls selector, supports `*` suffix wildcards)
  *
  * The third (llm_judge) lives outside this module because it needs an
  * out-of-process call to Claude via the runner. The orchestrator (T4)
  * decides when to invoke the judge — specifically, *not* when any
  * static check has already FAILed ("static FAIL beats judge PASS").
  *
- * Empty-selector handling per docs/evals/V1-DESIGN.md:
+ * Empty-selector handling:
  *   substring   — FAIL (no reply to check)
- *   tool_called — FAIL (no tools to check)
+ *   tool_called — verdict is per-pattern, so:
+ *                   `must_call`     with no tools called → FAIL (expected calls absent)
+ *                   `must_not_call` with no tools called → PASS (vacuously satisfied)
  *   llm_judge   — SUSPECT (handled by the orchestrator/judge wiring)
  *
  * Returns `null` for llm_judge so the caller knows to dispatch
@@ -82,23 +84,19 @@ function checkToolCalled(
   check: Extract<CheckConfig, { primitive: 'tool_called' }>,
   toolCalls: ToolCallTrace[],
 ): CheckResult {
-  if (toolCalls.length === 0) {
-    return {
-      primitive: 'tool_called',
-      verdict: 'FAIL',
-      message: 'Agent invoked no tools — nothing to check.',
-    };
-  }
+  // No blanket FAIL on empty toolCalls — must_not_call should pass
+  // vacuously when no tools were invoked. Verdict falls out of the
+  // per-pattern check below.
   const calledIds = new Set(toolCalls.map((t) => t.toolId));
 
   const missing: string[] = [];
   for (const tool of check.must_call ?? []) {
-    if (!calledIds.has(tool)) missing.push(tool);
+    if (!toolMatches(tool, calledIds)) missing.push(tool);
   }
 
   const present: string[] = [];
   for (const tool of check.must_not_call ?? []) {
-    if (calledIds.has(tool)) present.push(tool);
+    if (toolMatches(tool, calledIds)) present.push(tool);
   }
 
   if (missing.length === 0 && present.length === 0) {
@@ -113,5 +111,21 @@ function checkToolCalled(
     parts.push(`forbidden called: ${present.join(', ')}`);
   }
   return { primitive: 'tool_called', verdict: 'FAIL', message: parts.join('; ') };
+}
+
+/**
+ * Tool-id pattern matcher. Supports a trailing `*` as a suffix wildcard
+ * so users can write `mcp__github__*` to mean "any tool from the github
+ * MCP server". Exact match otherwise.
+ */
+function toolMatches(pattern: string, calledIds: Set<string>): boolean {
+  if (pattern.endsWith('*')) {
+    const prefix = pattern.slice(0, -1);
+    for (const id of calledIds) {
+      if (id.startsWith(prefix)) return true;
+    }
+    return false;
+  }
+  return calledIds.has(pattern);
 }
 
