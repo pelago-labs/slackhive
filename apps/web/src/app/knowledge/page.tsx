@@ -248,25 +248,32 @@ export default function KnowledgePage() {
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      alert('File is too large. Maximum size is 2 MB.');
-      e.target.value = '';
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+    if (isPdf) {
+      if (file.size > 10 * 1024 * 1024) { alert('PDF is too large. Maximum size is 10 MB.'); e.target.value = ''; return; }
+      setFileUploading(true);
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/api/parse-pdf', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error ?? 'Failed to parse PDF.'); return; }
+        setSourceForm(p => ({ ...p, type: 'file', name: p.name || file.name.replace(/\.pdf$/i, ''), content: data.text }));
+      } finally { setFileUploading(false); e.target.value = ''; }
       return;
     }
-    // Reject known binary formats — browsers may report empty type for code files (.ts, .py, etc)
-    const BINARY_TYPES = /^application\/(pdf|zip|octet-stream|msword|vnd\.|x-executable)/;
+
+    if (file.size > 2 * 1024 * 1024) { alert('File is too large. Maximum size is 2 MB.'); e.target.value = ''; return; }
+    // Reject other binary formats
+    const BINARY_TYPES = /^application\/(zip|octet-stream|msword|vnd\.|x-executable)/;
     if (file.type && BINARY_TYPES.test(file.type)) {
-      alert(`Binary files are not supported. Please upload a plain text or Markdown file.`);
-      e.target.value = '';
-      return;
+      alert('Binary files are not supported. Please upload a plain text, Markdown, or PDF file.');
+      e.target.value = ''; return;
     }
     setFileUploading(true);
     const text = await file.text().catch(() => '');
-    if (!text.trim()) {
-      alert('The file appears to be empty or could not be read as text.');
-      setFileUploading(false); e.target.value = '';
-      return;
-    }
+    if (!text.trim()) { alert('The file appears to be empty or could not be read as text.'); setFileUploading(false); e.target.value = ''; return; }
     setSourceForm(p => ({ ...p, type: 'file', name: p.name || file.name.replace(/\.[^.]+$/, ''), content: text }));
     setFileUploading(false); e.target.value = '';
   }
@@ -748,7 +755,7 @@ export default function KnowledgePage() {
                   {sourceForm.content ? `${sourceForm.content.length.toLocaleString()} chars` : 'or paste below'}
                 </span>
               </div>
-              <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.ts,.js,.py,.go,.rb,.java,.c,.cpp,.h" style={{ display: 'none' }} onChange={handleFileSelect} />
+              <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.ts,.js,.py,.go,.rb,.java,.c,.cpp,.h,.pdf" style={{ display: 'none' }} onChange={handleFileSelect} />
               <textarea style={{ ...inputStyle, minHeight: 140, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 12 }} value={sourceForm.content} onChange={e => setSourceForm(p => ({ ...p, content: e.target.value }))} placeholder="Paste content here, or upload a file above…" />
             </>
           )}
