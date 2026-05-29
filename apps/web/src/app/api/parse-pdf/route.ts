@@ -15,14 +15,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (file.size > 10 * 1024 * 1024) return NextResponse.json({ error: 'PDF too large (max 10MB)' }, { status: 400 });
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse');
-    const data = await pdfParse(buffer);
-    const text = data.text?.trim() ?? '';
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+    const pdf = await loadingTask.promise;
+    const pages: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      pages.push(content.items.map((item: { str?: string }) => item.str ?? '').join(' '));
+    }
+    const text = pages.join('\n\n').trim();
 
     if (!text) return NextResponse.json({ error: 'Could not extract text from PDF. It may be scanned or image-based.' }, { status: 422 });
 
-    return NextResponse.json({ text, pages: data.numpages });
+    return NextResponse.json({ text, pages: pdf.numPages });
   } catch (err) {
     return NextResponse.json({ error: `Failed to parse PDF: ${(err as Error).message}` }, { status: 500 });
   }
