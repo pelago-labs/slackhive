@@ -33,14 +33,3 @@ export const DEFAULT_COACH_MODEL = 'claude-sonnet-4-6';
 
 /** Settings-table key storing the admin's Coach model choice. */
 export const COACH_MODEL_SETTING_KEY = 'coachModel';
-
-/**
- * Default model for the Tier 2 Evals LLM judge.
- * Haiku — cheapest option. Judges run once per case per regression
- * run, and runs are user-triggered, so cost adds up fast on Opus.
- * Admins can override in Settings → AI.
- */
-export const DEFAULT_EVAL_JUDGE_MODEL = 'claude-haiku-4-5-20251001';
-
-/** Settings-table key storing the admin's Eval judge model choice. */
-export const EVAL_JUDGE_MODEL_SETTING_KEY = 'evalJudgeModel';

@@ -21,10 +21,9 @@ import { useAuth } from '@/lib/auth-context';
 import { FilesChanged, type FileChange } from './diff-view';
 import { CoachPanel } from './coach-panel';
 import { TestPanel } from './test-panel';
-import { EvalsPanel } from './evals-panel';
 import { AudiencesPanel } from './audiences-panel';
 
-type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'logs' | 'history' | 'evals';
+type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'logs' | 'history';
 
 interface AgentExportPayload {
   version: number;
@@ -44,7 +43,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'audiences',     label: 'Audiences'     },
   { id: 'logs',          label: 'Logs'          },
   { id: 'history',       label: 'History'       },
-  { id: 'evals',         label: 'Evals'         },
 ];
 
 const STATUS_COLOR = {
@@ -391,7 +389,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'evals'       && <EvalsPanel     agent={agent} />}
       </div>
 
       {/* Coach is a slide-over — rendered once at page level so it floats over

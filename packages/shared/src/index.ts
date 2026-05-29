@@ -33,12 +33,5 @@ export type {
   TaskWithDetails,
   ActivityUsageInput, AgentTokenUsage, UserActivitySummary,
 } from './db/activities-repo';
-export {
-  MODELS,
-  DEFAULT_AGENT_MODEL,
-  DEFAULT_COACH_MODEL,
-  COACH_MODEL_SETTING_KEY,
-  DEFAULT_EVAL_JUDGE_MODEL,
-  EVAL_JUDGE_MODEL_SETTING_KEY,
-} from './models';
+export { MODELS, DEFAULT_AGENT_MODEL, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from './models';
 export type { ModelOption } from './models';
