@@ -35,6 +35,14 @@ import type {
   CreateWikiFolderRequest,
   UpdateWikiFolderRequest,
   CreateWikiSourceRequest,
+  EvalCase,
+  CheckConfig,
+  CheckResult,
+  CreateEvalCaseRequest,
+  UpdateEvalCaseRequest,
+  EvalRun,
+  EvalRunResult,
+  ToolCallTrace,
 } from '@slackhive/shared';
 import { getDb, initDb, encrypt, decrypt, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 import { getEncryptionKey } from './secrets';
@@ -120,7 +128,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
 const STALE_HEARTBEAT_MS = 45_000;
 
 /**
- * SQLite's `datetime('now')` returns naive UTC like `"2026-04-20 00:51:59"`.
+ * SQLite's `now()` returns naive UTC like `"2026-04-20 00:51:59"`.
  * `new Date(str)` parses that as LOCAL time, so in UTC+N every fresh
  * heartbeat looks N hours old. Normalize to ISO-with-Z before parsing.
  */
@@ -177,6 +185,17 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
  * @returns {McpServer} Typed MCP server object.
  */
 function rowToMcpServer(row: Record<string, unknown>): McpServer {
+  const rawCache = row.tool_list_cache as string | null | undefined;
+  let toolListCache: McpServer['toolListCache'] = null;
+  if (typeof rawCache === 'string' && rawCache.trim() !== '') {
+    try {
+      const parsed = JSON.parse(rawCache);
+      if (Array.isArray(parsed)) toolListCache = parsed;
+    } catch {
+      // Stale/corrupt cache — treat as missing rather than crashing the row read.
+      toolListCache = null;
+    }
+  }
   return {
     id: row.id as string,
     name: row.name as string,
@@ -186,6 +205,8 @@ function rowToMcpServer(row: Record<string, unknown>): McpServer {
     enabled: row.enabled as boolean,
     createdBy: (row.created_by as string | undefined) ?? 'admin',
     createdAt: row.created_at as Date,
+    toolListCache,
+    toolListCachedAt: (row.tool_list_cached_at as Date | null) ?? null,
   };
 }
 
@@ -639,6 +660,24 @@ export async function updateMcpServer(
 export async function getMcpServerById(id: string): Promise<McpServer | null> {
   const r = await (await db()).query('SELECT * FROM mcp_servers WHERE id = $1', [id]);
   return r.rows.length ? rowToMcpServer(r.rows[0]) : null;
+}
+
+/**
+ * Writes the tool list cache for an MCP server. Called after a successful
+ * MCP handshake by GET /api/mcps/[id]/tools so subsequent reads can skip
+ * the network round-trip.
+ *
+ * @param id  MCP server UUID.
+ * @param tools  Array of {name, description?} returned by the server's tools/list.
+ */
+export async function setMcpToolsCache(
+  id: string,
+  tools: Array<{ name: string; description?: string }>,
+): Promise<void> {
+  await (await db()).query(
+    'UPDATE mcp_servers SET tool_list_cache = $2, tool_list_cached_at = now() WHERE id = $1',
+    [id, JSON.stringify(tools)],
+  );
 }
 
 /**
@@ -1942,7 +1981,7 @@ export async function updateWikiFolder(id: string, req: UpdateWikiFolderRequest)
   if (req.name !== undefined) { sets.push(`name = $${i++}`); vals.push(req.name); }
   if (req.description !== undefined) { sets.push(`description = $${i++}`); vals.push(req.description); }
   if (!sets.length) return getWikiFolder(id);
-  sets.push(`updated_at = datetime('now')`);
+  sets.push(`updated_at = now()`);
   vals.push(id);
   await (await db()).query(`UPDATE wiki_folders SET ${sets.join(', ')} WHERE id = $${i}`, vals);
   return getWikiFolder(id);
@@ -2025,4 +2064,331 @@ export async function unassignWikiFolder(agentId: string, folderId: string): Pro
     'DELETE FROM agent_wiki_folders WHERE agent_id = $1 AND folder_id = $2',
     [agentId, folderId],
   );
+}
+
+// =============================================================================
+// Eval cases (Tier 2)
+// =============================================================================
+
+/**
+ * Coerce DB date column to a proper ISO 8601 string (with `Z`).
+ *
+ * SQLite's `datetime('now')` returns `"YYYY-MM-DD HH:MM:SS"` — UTC time
+ * but with no timezone marker. Naively passing that into `new Date(s)`
+ * makes JS interpret it as LOCAL time, which shifts it by the runtime's
+ * timezone offset (e.g. +8h on Taipei). That breaks every relative-time
+ * UI and our stale-run detector. Normalize at the boundary so everything
+ * downstream sees ISO+Z.
+ *
+ * Postgres returns Date objects via `pg` driver — handle that too.
+ */
+function toIsoString(v: unknown): string {
+  if (v instanceof Date) return v.toISOString();
+  const s = String(v);
+  // Already ISO-with-Z or with explicit offset → trust it.
+  if (s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
+  // SQLite `YYYY-MM-DD HH:MM:SS` (UTC, no marker) — convert.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+    return s.replace(' ', 'T') + 'Z';
+  }
+  // Bare ISO without Z — coerce to UTC.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(s)) {
+    return s.endsWith('Z') ? s : s + 'Z';
+  }
+  return s;
+}
+
+/** Safe JSON parse — corrupted rows shouldn't crash the whole endpoint. */
+function safeJsonParse<T>(raw: unknown, fallback: T, context: string): T {
+  if (raw == null) return fallback;
+  if (typeof raw !== 'string') return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    console.error(`[db] ${context} JSON parse failed`, err);
+    return fallback;
+  }
+}
+
+function rowToEvalCase(row: Record<string, unknown>): EvalCase {
+  const approvedAtRaw = row.approved_at ?? row.approvedAt;
+  return {
+    id: row.id as string,
+    agentId: (row.agent_id ?? row.agentId) as string,
+    status: row.status as EvalCase['status'],
+    question: row.question as string,
+    checks: safeJsonParse<CheckConfig[]>(row.checks, [], 'eval_cases.checks'),
+    approvedBy: (row.approved_by ?? row.approvedBy) as string | undefined,
+    approvedAt: approvedAtRaw ? toIsoString(approvedAtRaw) : undefined,
+    createdBy: (row.created_by ?? row.createdBy) as string,
+    createdAt: toIsoString(row.created_at ?? row.createdAt),
+    updatedAt: toIsoString(row.updated_at ?? row.updatedAt),
+  };
+}
+
+/**
+ * Lists eval cases for an agent, optionally filtered by status.
+ * Default order: oldest first (creation order = stable IDs in UI).
+ */
+export async function getEvalCases(
+  agentId: string,
+  opts: { status?: 'approved' | 'proposed' } = {},
+): Promise<EvalCase[]> {
+  const filters: string[] = ['agent_id = $1'];
+  const params: unknown[] = [agentId];
+  if (opts.status) {
+    filters.push(`status = $${params.length + 1}`);
+    params.push(opts.status);
+  }
+  const r = await (await db()).query(
+    `SELECT * FROM eval_cases WHERE ${filters.join(' AND ')} ORDER BY created_at ASC`,
+    params,
+  );
+  return r.rows.map(rowToEvalCase);
+}
+
+export async function getEvalCase(id: string): Promise<EvalCase | null> {
+  const r = await (await db()).query('SELECT * FROM eval_cases WHERE id = $1', [id]);
+  return r.rows[0] ? rowToEvalCase(r.rows[0]) : null;
+}
+
+/**
+ * Creates a new eval case. If `status` is `approved`, the approver is
+ * the same as the creator and `approved_at` is set to now.
+ */
+export async function createEvalCase(
+  agentId: string,
+  req: CreateEvalCaseRequest,
+  createdBy: string,
+): Promise<EvalCase> {
+  const id = randomUUID();
+  const status = req.status ?? 'proposed';
+  const approvedBy = status === 'approved' ? createdBy : null;
+  const approvedAt = status === 'approved' ? new Date().toISOString() : null;
+  const r = await (await db()).query(
+    `INSERT INTO eval_cases (id, agent_id, status, question, checks, approved_by, approved_at, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [
+      id,
+      agentId,
+      status,
+      req.question,
+      JSON.stringify(req.checks),
+      approvedBy,
+      approvedAt,
+      createdBy,
+    ],
+  );
+  return rowToEvalCase(r.rows[0]);
+}
+
+/**
+ * Patches an eval case in a single atomic UPDATE. Toggling `status`
+ * between `proposed` and `approved` automatically sets/clears
+ * `approved_by` / `approved_at` based on the OLD row's status (no
+ * separate read+write — no race).
+ *
+ * Returns null if no case with that id.
+ */
+export async function updateEvalCase(
+  id: string,
+  patch: UpdateEvalCaseRequest,
+  currentUser: string,
+): Promise<EvalCase | null> {
+  // CASE expressions read the OLD column values (status), so the
+  // "transition from approved to proposed" check is evaluated on the
+  // pre-update row even though we're computing the new status in the
+  // same statement via COALESCE.
+  const newStatusSql = `COALESCE($4, status)`;
+  const r = await (await db()).query(
+    `UPDATE eval_cases
+     SET question = COALESCE($2, question),
+         checks = COALESCE($3, checks),
+         status = ${newStatusSql},
+         approved_by = CASE
+           WHEN ${newStatusSql} = 'approved' AND status <> 'approved' THEN $5
+           WHEN ${newStatusSql} = 'proposed' AND status =  'approved' THEN NULL
+           ELSE approved_by
+         END,
+         approved_at = CASE
+           WHEN ${newStatusSql} = 'approved' AND status <> 'approved' THEN now()
+           WHEN ${newStatusSql} = 'proposed' AND status =  'approved' THEN NULL
+           ELSE approved_at
+         END,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING *`,
+    [
+      id,
+      patch.question ?? null,
+      patch.checks ? JSON.stringify(patch.checks) : null,
+      patch.status ?? null,
+      currentUser,
+    ],
+  );
+  return r.rows[0] ? rowToEvalCase(r.rows[0]) : null;
+}
+
+/**
+ * Hard-deletes an eval case. Returns false if no case with that id.
+ * Cascade clears any `eval_run_results` rows referencing it.
+ */
+export async function deleteEvalCase(id: string): Promise<boolean> {
+  const existing = await getEvalCase(id);
+  if (!existing) return false;
+  await (await db()).query('DELETE FROM eval_cases WHERE id = $1', [id]);
+  return true;
+}
+
+// =============================================================================
+// Eval runs + results (Tier 2)
+// =============================================================================
+
+function rowToEvalRun(row: Record<string, unknown>): EvalRun {
+  const finishedRaw = row.finished_at ?? row.finishedAt;
+  return {
+    id: row.id as string,
+    agentId: (row.agent_id ?? row.agentId) as string,
+    triggeredBy: (row.triggered_by ?? row.triggeredBy) as string,
+    startedAt: toIsoString(row.started_at ?? row.startedAt),
+    finishedAt: finishedRaw ? toIsoString(finishedRaw) : undefined,
+    status: row.status as EvalRun['status'],
+    passCount: Number(row.pass_count ?? row.passCount ?? 0),
+    failCount: Number(row.fail_count ?? row.failCount ?? 0),
+    suspectCount: Number(row.suspect_count ?? row.suspectCount ?? 0),
+    infraCount: Number(row.infra_count ?? row.infraCount ?? 0),
+    totalMs: row.total_ms != null ? Number(row.total_ms) : undefined,
+  };
+}
+
+function rowToEvalRunResult(row: Record<string, unknown>): EvalRunResult {
+  return {
+    id: row.id as string,
+    runId: (row.run_id ?? row.runId) as string,
+    caseId: (row.case_id ?? row.caseId) as string,
+    verdict: row.verdict as EvalRunResult['verdict'],
+    timeMs: Number(row.time_ms ?? row.timeMs ?? 0),
+    finalReply: (row.final_reply ?? row.finalReply) as string | undefined,
+    toolCalls: safeJsonParse<ToolCallTrace[] | undefined>(
+      row.tool_calls ?? row.toolCalls,
+      undefined,
+      'eval_run_results.tool_calls',
+    ),
+    checkResults: safeJsonParse<CheckResult[]>(
+      row.check_results ?? row.checkResults,
+      [],
+      'eval_run_results.check_results',
+    ),
+    judgeReasoning: (row.judge_reasoning ?? row.judgeReasoning) as string | undefined,
+  };
+}
+
+/**
+ * Creates a new `eval_runs` row in `running` state. The orchestrator
+ * is expected to call finalizeEvalRun or failEvalRun once cases complete.
+ */
+export async function createEvalRun(agentId: string, triggeredBy: string): Promise<EvalRun> {
+  const id = randomUUID();
+  const r = await (await db()).query(
+    `INSERT INTO eval_runs (id, agent_id, triggered_by, status)
+     VALUES ($1, $2, $3, 'running')
+     RETURNING *`,
+    [id, agentId, triggeredBy],
+  );
+  return rowToEvalRun(r.rows[0]);
+}
+
+/**
+ * Increments the counts on a running eval_runs row without changing
+ * status / finished_at. Called per-case by the orchestrator so the UI
+ * can show partial progress while a run is in flight.
+ */
+export async function updateEvalRunProgress(
+  runId: string,
+  counts: { passCount: number; failCount: number; suspectCount: number; infraCount: number },
+): Promise<void> {
+  await (await db()).query(
+    `UPDATE eval_runs
+       SET pass_count = $2,
+           fail_count = $3,
+           suspect_count = $4,
+           infra_count = $5
+     WHERE id = $1`,
+    [runId, counts.passCount, counts.failCount, counts.suspectCount, counts.infraCount],
+  );
+}
+
+/**
+ * Marks a run done with the final counts and total elapsed time.
+ */
+export async function finalizeEvalRun(
+  runId: string,
+  counts: { passCount: number; failCount: number; suspectCount: number; infraCount: number },
+  totalMs: number,
+): Promise<void> {
+  await (await db()).query(
+    `UPDATE eval_runs
+     SET status = 'done',
+         finished_at = now(),
+         pass_count = $2,
+         fail_count = $3,
+         suspect_count = $4,
+         infra_count = $5,
+         total_ms = $6
+     WHERE id = $1`,
+    [runId, counts.passCount, counts.failCount, counts.suspectCount, counts.infraCount, totalMs],
+  );
+}
+
+/**
+ * Marks a run errored (orchestrator threw, runner unreachable, etc).
+ */
+export async function failEvalRun(runId: string): Promise<void> {
+  await (await db()).query(
+    `UPDATE eval_runs SET status = 'error', finished_at = now() WHERE id = $1`,
+    [runId],
+  );
+}
+
+/**
+ * Inserts a per-case result row. JSON columns are stringified here.
+ */
+export async function insertEvalRunResult(result: EvalRunResult): Promise<void> {
+  await (await db()).query(
+    `INSERT INTO eval_run_results
+       (id, run_id, case_id, verdict, time_ms, final_reply, tool_calls, check_results, judge_reasoning)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      result.id,
+      result.runId,
+      result.caseId,
+      result.verdict,
+      result.timeMs,
+      result.finalReply ?? null,
+      result.toolCalls ? JSON.stringify(result.toolCalls) : null,
+      JSON.stringify(result.checkResults),
+      result.judgeReasoning ?? null,
+    ],
+  );
+}
+
+export async function getEvalRun(runId: string): Promise<EvalRun | null> {
+  const r = await (await db()).query('SELECT * FROM eval_runs WHERE id = $1', [runId]);
+  return r.rows[0] ? rowToEvalRun(r.rows[0]) : null;
+}
+
+export async function getEvalRuns(agentId: string, limit = 10): Promise<EvalRun[]> {
+  const r = await (await db()).query(
+    `SELECT * FROM eval_runs WHERE agent_id = $1 ORDER BY started_at DESC LIMIT $2`,
+    [agentId, limit],
+  );
+  return r.rows.map(rowToEvalRun);
+}
+
+export async function getEvalRunResults(runId: string): Promise<EvalRunResult[]> {
+  const r = await (await db()).query(
+    `SELECT * FROM eval_run_results WHERE run_id = $1`,
+    [runId],
+  );
+  return r.rows.map(rowToEvalRunResult);
 }
