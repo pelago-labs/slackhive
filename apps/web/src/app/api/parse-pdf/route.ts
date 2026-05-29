@@ -23,7 +23,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      pages.push(content.items.map((item: any) => item.str ?? '').join(' '));
+      const items = content.items as any[];
+
+      // Sort by Y (descending = top-to-bottom) then X (left-to-right)
+      // to preserve reading order including table rows/columns
+      items.sort((a, b) => {
+        const yDiff = (b.transform?.[5] ?? 0) - (a.transform?.[5] ?? 0);
+        if (Math.abs(yDiff) > 3) return yDiff; // different rows
+        return (a.transform?.[4] ?? 0) - (b.transform?.[4] ?? 0); // same row: left to right
+      });
+
+      // Group items into lines by Y position, join columns with tab
+      const lines: string[] = [];
+      let currentY: number | null = null;
+      let currentLine: string[] = [];
+      for (const item of items) {
+        const y = Math.round(item.transform?.[5] ?? 0);
+        if (currentY === null || Math.abs(y - currentY) > 3) {
+          if (currentLine.length) lines.push(currentLine.join('\t'));
+          currentLine = [item.str ?? ''];
+          currentY = y;
+        } else {
+          currentLine.push(item.str ?? '');
+        }
+      }
+      if (currentLine.length) lines.push(currentLine.join('\t'));
+      pages.push(lines.join('\n'));
     }
     const text = pages.join('\n\n').trim();
 
