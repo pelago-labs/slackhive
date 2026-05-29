@@ -209,6 +209,25 @@ export interface McpServer {
   /** Username of the user who added this MCP to the catalog. */
   createdBy: string;
   createdAt: Date;
+  /**
+   * Cached tool list from the last successful MCP handshake. Populated
+   * lazily by GET /api/mcps/[id]/tools and refreshed on a TTL or when
+   * the user explicitly hits "refresh" in the case editor.
+   */
+  toolListCache?: McpTool[] | null;
+  /** ISO timestamp of the last successful tool list fetch. */
+  toolListCachedAt?: Date | null;
+}
+
+/**
+ * A single tool advertised by an MCP server. Used by the case editor's
+ * tool dropdown so users can pick real tool ids instead of typing.
+ */
+export interface McpTool {
+  /** The tool's bare name (without the `mcp__<server>__` prefix). */
+  name: string;
+  /** Optional human-readable description from the MCP server. */
+  description?: string;
 }
 
 /**
@@ -1082,4 +1101,162 @@ export interface ActivityFilter {
    * user has access to nothing, so the query returns zero rows.
    */
   accessibleAgentIds?: string[];
+}
+
+// =============================================================================
+// Evals (Tier 2 regression eval — see docs/evals/V1-DESIGN.md + T2-PLAN.md)
+// =============================================================================
+
+/**
+ * Outcome of a single check or case.
+ *
+ * - `PASS`     — all checks clean
+ * - `FAIL`     — any deterministic check failed OR judge says diverged
+ * - `SUSPECT`  — judge selector empty / judge flagged uncertain
+ * - `INFRA`    — tool errored, runner died, /test unreachable (not the agent's fault)
+ */
+export type Verdict = 'PASS' | 'FAIL' | 'SUSPECT' | 'INFRA';
+
+/**
+ * One check configuration, stored as JSON in `eval_cases.checks`.
+ * Discriminated by `primitive`; only fields relevant to that primitive
+ * are populated.
+ */
+export type CheckConfig =
+  | {
+      primitive: 'substring';
+      target: 'final_reply';
+      must_contain?: string[];
+      must_not_contain?: string[];
+    }
+  | {
+      primitive: 'tool_called';
+      must_call?: string[];
+      must_not_call?: string[];
+    }
+  | {
+      primitive: 'llm_judge';
+      target: 'final_reply';
+      rubric: string;
+      groundtruth?: string;
+    };
+
+/**
+ * Per-check evaluation result. One per `CheckConfig` in a case.
+ * Persisted as part of `eval_run_results.check_results` JSON.
+ */
+export interface CheckResult {
+  primitive: CheckConfig['primitive'];
+  verdict: Verdict;
+  message?: string;
+}
+
+/**
+ * One tool call from the agent's response, captured by the SSE runner.
+ * Persisted as part of `eval_run_results.tool_calls` JSON.
+ */
+export interface ToolCallTrace {
+  toolId: string;
+  input: Record<string, unknown>;
+}
+
+/**
+ * A test case — a question + the checks its response must satisfy.
+ * Human-curated, lives in `eval_cases` table.
+ *
+ * Date fields are ISO 8601 strings (not Date objects). This is the
+ * cross-driver / over-the-wire representation; consumers that need
+ * Date math should `new Date(...)` locally. Mirrors what JSON
+ * serialization already produces.
+ */
+export interface EvalCase {
+  id: string;
+  agentId: string;
+  status: 'approved' | 'proposed';
+  question: string;
+  checks: CheckConfig[];
+  approvedBy?: string;
+  approvedAt?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A single execution of an agent's approved cases.
+ * Lives in `eval_runs` table. Counts roll up across `eval_run_results`.
+ *
+ * Date fields are ISO 8601 strings — see {@link EvalCase} note.
+ */
+export interface EvalRun {
+  id: string;
+  agentId: string;
+  triggeredBy: string;
+  startedAt: string;
+  finishedAt?: string;
+  status: 'running' | 'done' | 'cancelled' | 'error';
+  passCount: number;
+  failCount: number;
+  suspectCount: number;
+  infraCount: number;
+  totalMs?: number;
+}
+
+/**
+ * Result of running one case within one run.
+ * Lives in `eval_run_results` table.
+ */
+export interface EvalRunResult {
+  id: string;
+  runId: string;
+  caseId: string;
+  verdict: Verdict;
+  timeMs: number;
+  finalReply?: string;
+  toolCalls?: ToolCallTrace[];
+  checkResults: CheckResult[];
+  judgeReasoning?: string;
+}
+
+/**
+ * Request body for POST /api/agents/[id]/evals/cases.
+ */
+export interface CreateEvalCaseRequest {
+  question: string;
+  checks: CheckConfig[];
+  status?: 'approved' | 'proposed';
+}
+
+/**
+ * Request body for PATCH /api/agents/[id]/evals/cases/[caseId].
+ */
+export interface UpdateEvalCaseRequest {
+  question?: string;
+  checks?: CheckConfig[];
+  status?: 'approved' | 'proposed';
+}
+
+// =============================================================================
+// Suggest-cases wire shapes (boundary between runner and web)
+// =============================================================================
+
+/**
+ * One check in the user-facing vocabulary, as produced by the LLM and
+ * returned by the runner's /suggest-cases endpoint. The web side
+ * validates and translates these into framework {@link CheckConfig}
+ * shapes before persisting.
+ */
+export type SuggestedCheck =
+  | { type: 'substring_contain'; phrases: string[] }
+  | { type: 'substring_not_contain'; phrases: string[] }
+  | { type: 'tool_called'; tools: string[] }
+  | { type: 'tool_not_called'; tools: string[] }
+  | { type: 'llm_judge'; rubric: string; groundtruth?: string };
+
+/**
+ * One generated test case from the LLM, before validation/translation.
+ */
+export interface SuggestedCaseWire {
+  question: string;
+  checks: SuggestedCheck[];
 }
