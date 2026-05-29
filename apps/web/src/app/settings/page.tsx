@@ -16,6 +16,12 @@ import {
   COACH_MODEL_SETTING_KEY,
   DEFAULT_EVAL_JUDGE_MODEL,
   EVAL_JUDGE_MODEL_SETTING_KEY,
+  PROVIDER_PRESETS,
+  AI_PROVIDER_KEY,
+  AI_PROVIDER_BASE_URL,
+  AI_PROVIDER_API_KEY,
+  AI_PROVIDER_MODEL,
+  type AiProvider,
 } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
@@ -94,6 +100,10 @@ function GeneralTab() {
   const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
   const [evalJudgeModel, setEvalJudgeModel] = useState(DEFAULTS[EVAL_JUDGE_MODEL_SETTING_KEY]);
   const [openToWorkspace, setOpenToWorkspace] = useState(true);
+  const [aiProvider, setAiProvider] = useState<AiProvider>('claude-code');
+  const [aiBaseUrl, setAiBaseUrl] = useState('');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiModel, setAiModel] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -108,6 +118,10 @@ function GeneralTab() {
         if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
         if (s[EVAL_JUDGE_MODEL_SETTING_KEY]) setEvalJudgeModel(s[EVAL_JUDGE_MODEL_SETTING_KEY]);
         setOpenToWorkspace(s.openToWorkspace !== 'false');
+        if (s[AI_PROVIDER_KEY]) setAiProvider(s[AI_PROVIDER_KEY] as AiProvider);
+        if (s[AI_PROVIDER_BASE_URL]) setAiBaseUrl(s[AI_PROVIDER_BASE_URL]);
+        if (s[AI_PROVIDER_API_KEY]) setAiApiKey(s[AI_PROVIDER_API_KEY]);
+        if (s[AI_PROVIDER_MODEL]) setAiModel(s[AI_PROVIDER_MODEL]);
       })
       .catch(() => {});
   }, []);
@@ -186,6 +200,83 @@ function GeneralTab() {
           onChange={v => { setEvalJudgeModel(v); save(EVAL_JUDGE_MODEL_SETTING_KEY, v); }}
           hint="Model used by the Tier 2 regression evals to judge agent responses against rubrics. Called once per case per run — Haiku keeps cost low; switch to Sonnet/Opus if rubrics need deeper judgment."
         />
+      </Section>
+
+      <Section title="AI Provider">
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+          Choose where agent queries are sent. Changes take effect when agents are restarted.
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {(['claude-code', 'local', 'openrouter'] as AiProvider[]).map(p => (
+            <button key={p} onClick={() => {
+              setAiProvider(p);
+              save(AI_PROVIDER_KEY, p);
+              if (p !== 'claude-code' && PROVIDER_PRESETS[p as keyof typeof PROVIDER_PRESETS]) {
+                const preset = PROVIDER_PRESETS[p as keyof typeof PROVIDER_PRESETS];
+                setAiBaseUrl(preset.baseUrl);
+                setAiModel(preset.defaultModel);
+                save(AI_PROVIDER_BASE_URL, preset.baseUrl);
+                save(AI_PROVIDER_MODEL, preset.defaultModel);
+              }
+            }} style={{
+              padding: '6px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: 'pointer', border: '1px solid',
+              borderColor: aiProvider === p ? 'var(--accent)' : 'var(--border)',
+              background: aiProvider === p ? 'var(--accent)' : 'var(--surface-2)',
+              color: aiProvider === p ? '#fff' : 'var(--text)',
+            }}>
+              {p === 'claude-code' ? 'Claude Code' : p === 'local' ? 'Local Model' : 'OpenRouter'}
+            </button>
+          ))}
+        </div>
+
+        {aiProvider === 'claude-code' && (
+          <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 6 }}>
+            Using Claude Code subscription credentials. No configuration needed.
+          </div>
+        )}
+
+        {aiProvider !== 'claude-code' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', display: 'block', marginBottom: 4 }}>Base URL</label>
+              <input
+                type="text" value={aiBaseUrl}
+                onChange={e => setAiBaseUrl(e.target.value)}
+                onBlur={() => save(AI_PROVIDER_BASE_URL, aiBaseUrl)}
+                placeholder={aiProvider === 'local' ? 'http://localhost:4000' : 'https://openrouter.ai/api'}
+                style={{ width: '100%', padding: '7px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', display: 'block', marginBottom: 4 }}>API Key</label>
+              <input
+                type="password" value={aiApiKey}
+                onChange={e => setAiApiKey(e.target.value)}
+                onBlur={() => save(AI_PROVIDER_API_KEY, aiApiKey)}
+                placeholder={aiProvider === 'local' ? 'sk-litellm-master' : 'sk-or-v1-...'}
+                style={{ width: '100%', padding: '7px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', display: 'block', marginBottom: 4 }}>Model</label>
+              <input
+                type="text" value={aiModel}
+                onChange={e => setAiModel(e.target.value)}
+                onBlur={() => save(AI_PROVIDER_MODEL, aiModel)}
+                placeholder={aiProvider === 'local' ? 'qwen3.6' : 'qwen/qwen3.6-27b'}
+                style={{ width: '100%', padding: '7px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }}
+              />
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                {aiProvider === 'local' ? 'Model name as registered in LiteLLM config.' : 'Any OpenRouter model string, e.g. google/gemini-2.5-flash, moonshotai/kimi-k2'}
+              </div>
+            </div>
+            {aiApiKey && aiBaseUrl && aiModel && (
+              <div style={{ fontSize: 12, padding: '7px 10px', background: 'rgba(34,197,94,0.08)', borderRadius: 6, borderLeft: '3px solid #16a34a', color: 'var(--muted)' }}>
+                <strong style={{ color: '#16a34a' }}>Configured.</strong> Restart agents to apply.
+              </div>
+            )}
+          </div>
+        )}
       </Section>
 
       <Section title="Access Control">

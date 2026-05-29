@@ -44,3 +44,31 @@ export const DEFAULT_EVAL_JUDGE_MODEL = 'claude-haiku-4-5-20251001';
 
 /** Settings-table key storing the admin's Eval judge model choice. */
 export const EVAL_JUDGE_MODEL_SETTING_KEY = 'evalJudgeModel';
+
+// ─── AI Provider settings ──────────────────────────────────────────────────────
+
+export type AiProvider = 'claude-code' | 'local' | 'openrouter';
+
+export interface ProviderPreset {
+  label: string;
+  baseUrl: string;
+  defaultModel: string;
+}
+
+export const PROVIDER_PRESETS: Record<Exclude<AiProvider, 'claude-code'>, ProviderPreset> = {
+  local: {
+    label: 'Local (LiteLLM)',
+    baseUrl: 'http://localhost:4000',
+    defaultModel: 'qwen3.6',
+  },
+  openrouter: {
+    label: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api',
+    defaultModel: 'qwen/qwen3.6-27b',
+  },
+};
+
+export const AI_PROVIDER_KEY      = 'aiProvider';
+export const AI_PROVIDER_BASE_URL = 'aiProviderBaseUrl';
+export const AI_PROVIDER_API_KEY  = 'aiProviderApiKey';
+export const AI_PROVIDER_MODEL    = 'aiProviderModel';

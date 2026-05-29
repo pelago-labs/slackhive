@@ -40,5 +40,10 @@ export {
   COACH_MODEL_SETTING_KEY,
   DEFAULT_EVAL_JUDGE_MODEL,
   EVAL_JUDGE_MODEL_SETTING_KEY,
+  PROVIDER_PRESETS,
+  AI_PROVIDER_KEY,
+  AI_PROVIDER_BASE_URL,
+  AI_PROVIDER_API_KEY,
+  AI_PROVIDER_MODEL,
 } from './models';
-export type { ModelOption } from './models';
+export type { ModelOption, AiProvider, ProviderPreset } from './models';

@@ -567,7 +567,8 @@ export class ClaudeHandler {
     }
 
     const sessionWorkDir = this.getSessionWorkDir(sessionKey);
-    const options = this.buildSdkOptions(sessionWorkDir, claudeSessionId, abortController);
+    const providerEnv = await this.resolveProviderEnv();
+    const options = this.buildSdkOptions(sessionWorkDir, claudeSessionId, abortController, providerEnv);
 
     this.log.debug('Streaming query', {
       sessionKey,
@@ -768,7 +769,8 @@ export class ClaudeHandler {
   private buildSdkOptions(
     sessionWorkDir: string,
     claudeSessionId: string | undefined,
-    abortController?: AbortController
+    abortController?: AbortController,
+    providerEnv?: Record<string, string> | null,
   ): Record<string, unknown> {
     const options: Record<string, unknown> = {
       permissionMode: 'acceptEdits',
@@ -873,7 +875,40 @@ export class ClaudeHandler {
       options.resume = claudeSessionId;
     }
 
+    if (providerEnv) {
+      options.env = providerEnv;
+    }
+
     return options;
+  }
+
+  /** Reads AI provider settings from the DB and returns env overrides, or null for Claude Code. */
+  private async resolveProviderEnv(): Promise<Record<string, string> | null> {
+    try {
+      const { getDb } = await import('@slackhive/shared');
+      const db = getDb();
+      const get = async (key: string): Promise<string | null> => {
+        const { rows } = await db.query('SELECT value FROM settings WHERE key = $1', [key]);
+        return (rows[0]?.value as string) ?? null;
+      };
+      const provider = (await get('aiProvider')) ?? 'claude-code';
+      if (provider === 'claude-code') return null;
+      const baseUrl = await get('aiProviderBaseUrl');
+      const apiKey  = await get('aiProviderApiKey');
+      const model   = await get('aiProviderModel');
+      if (!baseUrl || !apiKey) return null;
+      this.log.info('Provider override active', { provider, baseUrl, model: model ?? 'default' });
+      return {
+        ...(process.env as Record<string, string>),
+        ANTHROPIC_BASE_URL:   baseUrl,
+        ANTHROPIC_AUTH_TOKEN: apiKey,
+        ANTHROPIC_API_KEY:    '',
+        ...(model ? { ANTHROPIC_MODEL: model } : {}),
+      };
+    } catch (err) {
+      this.log.warn('Could not read provider settings', { error: (err as Error).message });
+      return null;
+    }
   }
 
   /**
