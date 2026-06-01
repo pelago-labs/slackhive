@@ -80,6 +80,8 @@ interface DrawerProps {
   onClose: () => void;
   /** Force-open in "new case" mode rather than the list. */
   startInNew?: boolean;
+  /** Force-open in "edit" mode for this specific case id. Takes precedence over startInNew. */
+  startInEditCaseId?: string | null;
   /** Called after any successful create / update / delete. */
   onCasesChanged?: () => void;
 }
@@ -94,6 +96,7 @@ export function EvalsCasesDrawer({
   open,
   onClose,
   startInNew = false,
+  startInEditCaseId = null,
   onCasesChanged,
 }: DrawerProps) {
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
@@ -169,9 +172,15 @@ export function EvalsCasesDrawer({
 
   useEffect(() => {
     if (!open) return;
-    setMode(startInNew ? { kind: 'new' } : { kind: 'list' });
+    setMode(
+      startInEditCaseId
+        ? { kind: 'edit', caseId: startInEditCaseId }
+        : startInNew
+          ? { kind: 'new' }
+          : { kind: 'list' },
+    );
     refresh();
-  }, [open, startInNew, refresh]);
+  }, [open, startInNew, startInEditCaseId, refresh]);
 
   useEffect(() => {
     function onEsc(e: KeyboardEvent) {

@@ -22,6 +22,7 @@ import {
   ChevronRight,
   HelpCircle,
   Loader2,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -74,6 +75,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
   const [hoveredHelp, setHoveredHelp] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerStartInNew, setDrawerStartInNew] = useState(false);
+  const [drawerEditCaseId, setDrawerEditCaseId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [cases, setCases] = useState<EvalCase[]>([]);
   const [latest, setLatest] = useState<RunWithResults | null>(null);
@@ -621,6 +623,10 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                 const hasInfra = nonPass.some((r) => r.verdict === 'INFRA');
                 const onToggleRow = (id: string) =>
                   setExpandedResultId(expandedResultId === id ? null : id);
+                const onOpenCase = (caseId: string) => {
+                  setDrawerEditCaseId(caseId);
+                  setDrawerOpen(true);
+                };
                 return (
                   <>
                     {nonPass.length > 0 && (
@@ -633,6 +639,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                         cases={cases}
                         expandedId={expandedResultId}
                         onToggle={onToggleRow}
+                        onOpenCase={onOpenCase}
                       />
                     )}
                     {passed.length > 0 && (
@@ -642,6 +649,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                         cases={cases}
                         expandedId={expandedResultId}
                         onToggle={onToggleRow}
+                        onOpenCase={onOpenCase}
                         collapsible
                         defaultOpen={nonPass.length === 0}
                       />
@@ -659,7 +667,12 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
         agent={agent}
         open={drawerOpen}
         startInNew={drawerStartInNew}
-        onClose={() => setDrawerOpen(false)}
+        startInEditCaseId={drawerEditCaseId}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerEditCaseId(null);
+          setDrawerStartInNew(false);
+        }}
         onCasesChanged={fetchCases}
       />
 
@@ -1033,6 +1046,7 @@ function ResultsList({
   cases,
   expandedId,
   onToggle,
+  onOpenCase,
   collapsible = false,
   defaultOpen = true,
 }: {
@@ -1041,6 +1055,7 @@ function ResultsList({
   cases: EvalCase[];
   expandedId: string | null;
   onToggle: (id: string) => void;
+  onOpenCase?: (caseId: string) => void;
   collapsible?: boolean;
   defaultOpen?: boolean;
 }) {
@@ -1081,7 +1096,7 @@ function ResultsList({
                 onClick={() => onToggle(r.id)}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr auto 14px',
+                  gridTemplateColumns: onOpenCase && caseRow ? '1fr auto auto 14px' : '1fr auto 14px',
                   gap: 10,
                   alignItems: 'center',
                   padding: '9px 12px',
@@ -1113,6 +1128,30 @@ function ResultsList({
                 >
                   {r.verdict}
                 </span>
+                {onOpenCase && caseRow && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenCase(caseRow.id);
+                    }}
+                    title="Open this test case"
+                    aria-label="Open this test case"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      padding: 4,
+                      cursor: 'pointer',
+                      color: 'var(--muted)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 4,
+                    }}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                )}
                 <span style={{ color: 'var(--subtle)', display: 'flex' }}>
                   {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 </span>
