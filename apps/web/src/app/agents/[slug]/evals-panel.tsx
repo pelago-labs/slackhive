@@ -615,16 +615,40 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                 />
               </div>
 
-              {latest.results.some((r) => r.verdict !== 'PASS') && (
-                <FailuresList
-                  results={latest.results.filter((r) => r.verdict !== 'PASS')}
-                  cases={cases}
-                  expandedId={expandedResultId}
-                  onToggle={(id) =>
-                    setExpandedResultId(expandedResultId === id ? null : id)
-                  }
-                />
-              )}
+              {(() => {
+                const nonPass = latest.results.filter((r) => r.verdict !== 'PASS');
+                const passed = latest.results.filter((r) => r.verdict === 'PASS');
+                const hasInfra = nonPass.some((r) => r.verdict === 'INFRA');
+                const onToggleRow = (id: string) =>
+                  setExpandedResultId(expandedResultId === id ? null : id);
+                return (
+                  <>
+                    {nonPass.length > 0 && (
+                      <ResultsList
+                        title={
+                          (hasInfra ? 'Failures, suspects & errors' : 'Failures & suspects') +
+                          ' · click to inspect'
+                        }
+                        results={nonPass}
+                        cases={cases}
+                        expandedId={expandedResultId}
+                        onToggle={onToggleRow}
+                      />
+                    )}
+                    {passed.length > 0 && (
+                      <ResultsList
+                        title={`Passed (${passed.length}) · click to inspect`}
+                        results={passed}
+                        cases={cases}
+                        expandedId={expandedResultId}
+                        onToggle={onToggleRow}
+                        collapsible
+                        defaultOpen={nonPass.length === 0}
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
           </div>
@@ -1003,21 +1027,29 @@ function InfraStatCard({
   );
 }
 
-function FailuresList({
+function ResultsList({
+  title,
   results,
   cases,
   expandedId,
   onToggle,
+  collapsible = false,
+  defaultOpen = true,
 }: {
+  title: string;
   results: EvalRunResult[];
   cases: EvalCase[];
   expandedId: string | null;
   onToggle: (id: string) => void;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
 }) {
-  const hasInfra = results.some((r) => r.verdict === 'INFRA');
+  const [sectionOpen, setSectionOpen] = useState(defaultOpen);
+  const isOpen = collapsible ? sectionOpen : true;
   return (
     <div style={{ marginTop: 14 }}>
       <div
+        onClick={collapsible ? () => setSectionOpen((v) => !v) : undefined}
         style={{
           fontSize: 11,
           textTransform: 'uppercase',
@@ -1025,10 +1057,18 @@ function FailuresList({
           color: 'var(--muted)',
           fontWeight: 600,
           marginBottom: 6,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: collapsible ? 'pointer' : 'default',
+          userSelect: 'none',
         }}
       >
-        {hasInfra ? 'Failures, suspects & errors' : 'Failures & suspects'} · click to inspect
+        {collapsible &&
+          (isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+        {title}
       </div>
+      {isOpen && (
       <div style={{ border: '1px solid var(--border)', borderRadius: 8 }}>
         {results.map((r, idx) => {
           const caseRow = cases.find((c) => c.id === r.caseId);
@@ -1164,6 +1204,7 @@ function FailuresList({
           );
         })}
       </div>
+      )}
     </div>
   );
 }
