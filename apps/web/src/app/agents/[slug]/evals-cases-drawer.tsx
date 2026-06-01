@@ -1031,21 +1031,28 @@ function ToolCalledEditor({
   mcps: McpServer[];
   onChange: (next: string[]) => void;
 }) {
-  const entries = values.length > 0 ? values.map(parseToolValue) : [emptyEntry()];
+  // Local state so partial entries (MCP picked, tool not yet) survive across
+  // renders — entryToString drops them when serializing for the parent.
+  const [entries, setEntries] = useState<ToolEntry[]>(() =>
+    values.length > 0 ? values.map(parseToolValue) : [emptyEntry()],
+  );
 
+  function commit(next: ToolEntry[]) {
+    setEntries(next);
+    onChange(next.map(entryToString).filter((s) => s !== ''));
+  }
   function updateEntry(idx: number, next: ToolEntry) {
     const out = entries.slice();
     out[idx] = next;
-    onChange(out.map(entryToString).filter((s) => s !== ''));
+    commit(out);
   }
   function removeEntry(idx: number) {
     const out = entries.slice();
     out.splice(idx, 1);
-    onChange(out.map(entryToString).filter((s) => s !== ''));
+    commit(out.length === 0 ? [emptyEntry()] : out);
   }
   function addEntry() {
-    const next = [...entries, emptyEntry()];
-    onChange(next.map(entryToString).filter((s) => s !== ''));
+    commit([...entries, emptyEntry()]);
   }
 
   return (
