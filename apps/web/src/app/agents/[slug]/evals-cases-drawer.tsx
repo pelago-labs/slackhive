@@ -842,16 +842,16 @@ function FormView({
       <div
         style={{
           display: 'flex',
-          justifyContent: existing ? 'space-between' : 'flex-end',
+          justifyContent: existing || autoFilledCaseId ? 'space-between' : 'flex-end',
           alignItems: 'center',
           paddingTop: 14,
           borderTop: '1px solid var(--border)',
           marginTop: 4,
         }}
       >
-        {existing && (
+        {(existing || autoFilledCaseId) && (
           <button
-            onClick={() => onArchive(existing.id)}
+            onClick={() => onArchive((existing?.id ?? autoFilledCaseId) as string)}
             style={{
               background: 'transparent',
               border: '1px solid var(--red-soft-border, #fecaca)',
