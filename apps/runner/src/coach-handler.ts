@@ -588,7 +588,13 @@ function buildToolbox(ctx: ToolContext) {
       );
       if (r.rows.length === 0) throw new Error(`eval case not found: ${caseId}`);
       const caseQuestion = r.rows[0].question as string;
-      const before = r.rows[0].checks as CheckConfig[];
+      // `eval_cases.checks` is a jsonb column. The pg driver in this app
+      // returns it as a JSON string (see safeJsonParse usage in lib/db.ts),
+      // so we parse defensively — accept either string or already-parsed.
+      const rawChecks = r.rows[0].checks;
+      const before = (typeof rawChecks === 'string'
+        ? JSON.parse(rawChecks)
+        : rawChecks ?? []) as CheckConfig[];
       const id = randomUUID();
       ctx.proposals.push({
         kind: 'eval-case-check',
