@@ -32,6 +32,8 @@ export default function AiProviderSection() {
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
+  const [device, setDevice] = useState<{ status: string; verificationUrl?: string; userCode?: string; error?: string } | null>(null);
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
     fetch('/api/system/backends').then(r => r.json()).then((d: ApiResponse) => {
@@ -41,6 +43,33 @@ export default function AiProviderSection() {
       setAuthModes({ claude: d.current.claudeAuthMode, codex: d.current.codexAuthMode });
     }).catch(() => {});
   }, []);
+
+  // Poll the device-auth login until it resolves.
+  useEffect(() => {
+    if (device?.status !== 'pending') return;
+    const t = setInterval(async () => {
+      const r = await fetch('/api/system/codex-login').then(res => res.json()).catch(() => null);
+      if (!r) return;
+      setDevice(r);
+      if (r.status === 'connected') {
+        setData(d => d ? { ...d, secretsSet: { ...d.secretsSet, CODEX_AUTH_JSON: true } } : d);
+      }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [device?.status]);
+
+  async function startCodexLogin() {
+    setConnecting(true);
+    setDevice(null);
+    try {
+      const r = await fetch('/api/system/codex-login', { method: 'POST' }).then(res => res.json());
+      setDevice(r);
+    } catch {
+      setDevice({ status: 'failed', error: 'Failed to start login' });
+    } finally {
+      setConnecting(false);
+    }
+  }
 
   if (!data) return null;
 
@@ -114,6 +143,36 @@ export default function AiProviderSection() {
           </select>
           {activeAuth?.hint && <p style={hintStyle}>{activeAuth.hint}</p>}
         </div>
+
+        {/* Codex ChatGPT device-auth: one-click web login (no host CLI / keychain). */}
+        {descriptor.id === 'codex' && authMode === 'subscription' && (
+          <div style={{ border: '1px solid var(--border)', borderRadius: 7, padding: 12, background: 'var(--surface-2)' }}>
+            <button
+              onClick={startCodexLogin}
+              disabled={connecting || device?.status === 'pending'}
+              style={{
+                background: device?.status === 'connected' ? '#10b981' : 'var(--accent)', color: 'var(--accent-fg)',
+                border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 500,
+                cursor: connecting || device?.status === 'pending' ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {device?.status === 'connected' ? '✓ Connected to ChatGPT'
+                : device?.status === 'pending' ? 'Waiting for authorization…'
+                : connecting ? 'Starting…' : 'Connect ChatGPT'}
+            </button>
+            {device?.status === 'pending' && device.verificationUrl && (
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                1. Open <a href={device.verificationUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{device.verificationUrl}</a><br />
+                2. Enter code <strong style={{ color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', letterSpacing: 1 }}>{device.userCode}</strong><br />
+                3. Approve — this updates automatically when done.
+              </div>
+            )}
+            {device?.status === 'failed' && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#dc2626' }}>Login failed: {device.error}</div>
+            )}
+            <p style={{ ...hintStyle, marginTop: 8 }}>Authenticates from here — no <code>codex login</code> on the host needed. Or paste auth.json below.</p>
+          </div>
+        )}
 
         {/* Credential fields for the selected auth mode */}
         {activeAuth?.fields.map(field => {
