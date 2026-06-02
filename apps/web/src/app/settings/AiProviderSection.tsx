@@ -33,6 +33,11 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
   const [toast, setToast] = useState('');
   const [device, setDevice] = useState<{ status: string; verificationUrl?: string; userCode?: string; error?: string; output?: string } | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [connStatus, setConnStatus] = useState<{ label?: string; status: string } | null>(null);
+
+  const loadStatus = () => {
+    fetch('/api/system/backend-status').then(r => r.ok ? r.json() : null).then(s => s && setConnStatus(s)).catch(() => {});
+  };
 
   useEffect(() => {
     fetch('/api/system/backends').then(r => r.json()).then((d: ApiResponse) => {
@@ -40,6 +45,7 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
       setBackend(d.current.backend);
       setAuthModes({ claude: d.current.claudeAuthMode, codex: d.current.codexAuthMode });
     }).catch(() => {});
+    loadStatus();
   }, []);
 
   // Poll the device-auth login until it resolves.
@@ -51,6 +57,7 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
       setDevice(r);
       if (r.status === 'connected') {
         setData(d => d ? { ...d, secretsSet: { ...d.secretsSet, CODEX_AUTH_JSON: true } } : d);
+        loadStatus();
       }
     }, 3000);
     return () => clearInterval(t);
@@ -95,6 +102,7 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
       // reflect newly-set secrets without a refetch
       setData(d => d ? { ...d, secretsSet: { ...d.secretsSet, ...Object.fromEntries(Object.keys(secrets).map(k => [k, !!secrets[k]])) } } : d);
       setToast('Saved — agents reloading');
+      loadStatus();
       onSaved?.(); // let the parent (AI tab) refresh coach model / dependent state
     } catch {
       setToast('Save failed');
@@ -116,7 +124,15 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
           <select style={{ ...controlStyle, cursor: 'pointer' }} value={backend} onChange={e => setBackend(e.target.value)}>
             {data.descriptors.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
-          <p style={hintStyle}>The runtime all agents run on. Switching reloads every agent.</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+            <p style={{ ...hintStyle, margin: 0 }}>The runtime all agents run on. Switching reloads every agent.</p>
+            {connStatus && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: connStatus.status === 'connected' ? '#10b981' : connStatus.status === 'expired' ? '#f59e0b' : '#dc2626' }} />
+                {connStatus.label ?? 'Backend'} {connStatus.status}
+              </span>
+            )}
+          </div>
         </div>
 
         <p style={{ ...hintStyle, marginTop: -4 }}>Model is chosen per agent on each agent&apos;s page.</p>

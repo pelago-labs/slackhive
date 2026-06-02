@@ -29,7 +29,7 @@ import type { Agent, McpServer, Permission, AgentBackend, BackendMessage, AgentP
 import { DEFAULT_CODEX_MODEL } from '@slackhive/shared';
 import { getSession, upsertSession, cleanupStaleSessions } from '../db';
 import { agentLogger } from '../logger';
-import { agentHasBash, buildCodexConfig, buildThreadOptions } from './codex-config';
+import { buildCodexConfig, buildThreadOptions } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -203,7 +203,11 @@ export class CodexBackend implements AgentBackend {
       sessionWorkDir,
       workDir: this.workDir,
       model,
-      networkAccess: agentHasBash(this.permissions),
+      // Claude agents run with unrestricted network (only curl/wget are command-
+      // denied), and MCP servers (e.g. Pelago) need to reach their APIs — a
+      // network-sandboxed MCP call surfaces as "user cancelled". So enable network
+      // for parity; the workspace-write sandbox still confines the filesystem.
+      networkAccess: true,
     });
     const input = toCodexInput(prompt, sessionWorkDir);
     const codex = await this.ensureCodex();
