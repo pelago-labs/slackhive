@@ -73,13 +73,21 @@ function resolveCodexBinary(): string {
   return 'codex';
 }
 
+/** Strip ANSI escape sequences (colors, cursor moves) the codex CLI emits. */
+function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
+
 function parseDeviceInfo(text: string, state: LoginState): void {
+  const clean = stripAnsi(text);
   if (!state.verificationUrl) {
-    const url = text.match(/https?:\/\/[^\s'"]+/);
-    if (url && /device|auth|activate|login/i.test(url[0])) state.verificationUrl = url[0];
+    const url = clean.match(/https?:\/\/[^\s'"]+/);
+    // Trim trailing punctuation the CLI may print after the link.
+    if (url && /device|auth|activate|login/i.test(url[0])) state.verificationUrl = url[0].replace(/[).,]+$/, '');
   }
   if (!state.userCode) {
-    const code = text.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/);
+    const code = clean.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/);
     if (code) state.userCode = code[1];
   }
 }
@@ -104,7 +112,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ status: 'pending', verificationUrl: current.verificationUrl, userCode: current.userCode });
   }
 
-  const proc = spawn(resolveCodexBinary(), ['login', '--device-auth'], { env: process.env });
+  // NO_COLOR/TERM=dumb suppress ANSI color codes so the parsed URL/code stay clean.
+  const proc = spawn(resolveCodexBinary(), ['login', '--device-auth'], {
+    env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', CLICOLOR: '0' },
+  });
   const state: LoginState = { proc, status: 'pending', output: '' };
   current = state;
 
