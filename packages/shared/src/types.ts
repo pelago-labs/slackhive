@@ -595,6 +595,28 @@ export type CoachProposal =
       rationale: string;
       id: string;
       status: 'pending' | 'applied' | 'rejected';
+    }
+  | {
+      /**
+       * A change to an eval test case's `checks` array, emitted by Coach when
+       * triaging a failing eval as a `test_mismatch`. Apply rewrites the case's
+       * checks via PATCH /api/agents/[id]/evals/cases/[caseId]. `before` is
+       * captured at proposal time so the approval card can render a chip-based
+       * Before/After view without re-fetching the case.
+       */
+      kind: 'eval-case-check';
+      caseId: string;
+      /** Case question, copied at proposal time — header on the approval card. */
+      caseQuestion: string;
+      /** Triage bucket Coach assigned when emitting this proposal. */
+      triage: 'skill_issue' | 'test_mismatch' | 'real_failure';
+      /** Snapshot of the case's checks at proposal time, for the Before render. */
+      before: CheckConfig[];
+      /** Replacement checks array — what Apply writes. */
+      after: CheckConfig[];
+      rationale: string;
+      id: string;
+      status: 'pending' | 'applied' | 'rejected';
     };
 
 /** One message in the coach conversation. */

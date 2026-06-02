@@ -26,6 +26,7 @@ import {
   Play,
   Plus,
   RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import { EvalsCasesDrawer } from './evals-cases-drawer';
 import { EvalsRunsDrawer } from './evals-runs-drawer';
@@ -66,7 +67,43 @@ const spinStyle: React.CSSProperties = {
   animation: 'spin 0.8s linear infinite',
 };
 
-export function EvalsPanel({ agent }: { agent: Agent }) {
+/**
+ * Build the seed message Coach receives when the user clicks "Ask Coach" on
+ * a failing eval row. The block is parsed by Coach's system prompt's
+ * "Eval-failure triage" section, which classifies the failure and emits a
+ * proposal of the right kind.
+ */
+function buildCoachSeed(
+  agent: Agent,
+  c: EvalCase | undefined,
+  r: EvalRunResult,
+): string {
+  const lines: string[] = [
+    `Diagnose this failing eval test case for agent "${agent.name}". Triage as skill_issue, test_mismatch, or real_failure per the rules in your system prompt, then either emit one proposal or ask one clarifying question.`,
+    '',
+    `<eval_failure agent="${agent.slug}" case_id="${r.caseId}" verdict="${r.verdict}">`,
+    `question: ${c?.question ?? '(unknown — case not in local cache)'}`,
+    '',
+    'current_checks:',
+    JSON.stringify(c?.checks ?? [], null, 2),
+    '',
+    'agent_final_reply:',
+    r.finalReply ?? '(no reply captured)',
+    '',
+    'tool_calls_observed:',
+    JSON.stringify(r.toolCalls ?? [], null, 2),
+    '',
+    'check_results:',
+    JSON.stringify(r.checkResults, null, 2),
+  ];
+  if (r.judgeReasoning) {
+    lines.push('', 'judge_reasoning:', r.judgeReasoning);
+  }
+  lines.push('</eval_failure>');
+  return lines.join('\n');
+}
+
+export function EvalsPanel({ agent, onAskCoach }: { agent: Agent; onAskCoach?: (seedMessage: string) => void }) {
   const [data, setData] = useState<HealthcheckResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +166,14 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
     fetchCases();
     fetchLatestRun();
   }, [fetchCases, fetchLatestRun]);
+
+  // Coach applies an eval-case-check proposal → fire-and-forget refetch so the
+  // case list reflects the new checks without a manual reload.
+  useEffect(() => {
+    const onRefresh = () => { fetchCases(); };
+    window.addEventListener('slackhive:evals-refresh', onRefresh);
+    return () => window.removeEventListener('slackhive:evals-refresh', onRefresh);
+  }, [fetchCases]);
 
   // Poll while a run is in flight. setInterval is fine here — DB queries
   // are cheap and the page only mounts on the Evals tab.
@@ -627,6 +672,12 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                   setDrawerEditCaseId(caseId);
                   setDrawerOpen(true);
                 };
+                const onAskCoachRow = onAskCoach
+                  ? (r: EvalRunResult) => {
+                      const c = cases.find((x) => x.id === r.caseId);
+                      onAskCoach(buildCoachSeed(agent, c, r));
+                    }
+                  : undefined;
                 return (
                   <>
                     {nonPass.length > 0 && (
@@ -640,6 +691,7 @@ export function EvalsPanel({ agent }: { agent: Agent }) {
                         expandedId={expandedResultId}
                         onToggle={onToggleRow}
                         onOpenCase={onOpenCase}
+                        onAskCoach={onAskCoachRow}
                       />
                     )}
                     {passed.length > 0 && (
@@ -1047,6 +1099,7 @@ function ResultsList({
   expandedId,
   onToggle,
   onOpenCase,
+  onAskCoach,
   collapsible = false,
   defaultOpen = true,
 }: {
@@ -1056,6 +1109,7 @@ function ResultsList({
   expandedId: string | null;
   onToggle: (id: string) => void;
   onOpenCase?: (caseId: string) => void;
+  onAskCoach?: (result: EvalRunResult) => void;
   collapsible?: boolean;
   defaultOpen?: boolean;
 }) {
@@ -1090,13 +1144,19 @@ function ResultsList({
           const palette = VERDICT_COLOR[r.verdict];
           const isOpen = expandedId === r.id;
           const isLast = idx === results.length - 1;
+          const showPencil = !!(onOpenCase && caseRow);
+          const showAskCoach = !!onAskCoach;
+          const cols = ['1fr', 'auto'];
+          if (showPencil) cols.push('auto');
+          if (showAskCoach) cols.push('auto');
+          cols.push('14px');
           return (
             <div key={r.id}>
               <div
                 onClick={() => onToggle(r.id)}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: onOpenCase && caseRow ? '1fr auto auto 14px' : '1fr auto 14px',
+                  gridTemplateColumns: cols.join(' '),
                   gap: 10,
                   alignItems: 'center',
                   padding: '9px 12px',
@@ -1128,12 +1188,12 @@ function ResultsList({
                 >
                   {r.verdict}
                 </span>
-                {onOpenCase && caseRow && (
+                {showPencil && (
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onOpenCase(caseRow.id);
+                      onOpenCase!(caseRow!.id);
                     }}
                     title="Open this test case"
                     aria-label="Open this test case"
@@ -1150,6 +1210,35 @@ function ResultsList({
                     }}
                   >
                     <Pencil size={13} />
+                  </button>
+                )}
+                {showAskCoach && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAskCoach!(r);
+                    }}
+                    title="Ask Coach to debug this failure"
+                    aria-label="Ask Coach to debug this failure"
+                    style={{
+                      background: 'var(--accent-soft-bg, rgba(99,102,241,0.08))',
+                      border: '1px solid var(--accent)',
+                      color: 'var(--accent)',
+                      padding: '3px 8px',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      lineHeight: 1.2,
+                      fontFamily: 'var(--font-sans)',
+                    }}
+                  >
+                    <Sparkles size={11} />
+                    Ask Coach
                   </button>
                 )}
                 <span style={{ color: 'var(--subtle)', display: 'flex' }}>

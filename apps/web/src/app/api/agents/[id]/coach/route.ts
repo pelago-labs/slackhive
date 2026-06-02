@@ -270,7 +270,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
   const raw = await getSetting(sessionKey(id));
   if (!raw) return NextResponse.json({ error: 'no session' }, { status: 404 });
   const session = JSON.parse(raw);
-  let hit: { kind: string; action?: string; category?: string; filename?: string; memoryName?: string; memoryType?: string; name?: string } | null = null;
+  let hit: { kind: string; action?: string; category?: string; filename?: string; memoryName?: string; memoryType?: string; name?: string; caseQuestion?: string } | null = null;
   for (const msg of session.messages ?? []) {
     if (!Array.isArray(msg.proposals)) continue;
     for (const p of msg.proposals) {
@@ -282,6 +282,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
           memoryName: p.memoryName,
           memoryType: p.memoryType,
           name: p.name,
+          caseQuestion: p.caseQuestion,
         };
       }
     }
@@ -304,7 +305,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams): Promise<
       ? `memory ${hit.action} ${hit.memoryName}${hit.memoryType ? ` (${hit.memoryType})` : ''}`
       : hit.kind === 'file-source'
         ? `file source ${hit.action} ${hit.name ?? ''}`.trim()
-        : `skill ${hit.action} ${hit.category}/${hit.filename}`;
+        : hit.kind === 'eval-case-check'
+          ? `eval check change on "${hit.caseQuestion ?? '?'}"`
+          : `skill ${hit.action} ${hit.category}/${hit.filename}`;
   const prevNotesRaw = await getSetting(notesKey(id));
   let notes: string[] = [];
   if (prevNotesRaw) {
