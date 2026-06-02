@@ -572,13 +572,38 @@ function buildToolbox(ctx: ToolContext) {
   // the case's current question + checks so the approval card can render a
   // Before/After view without re-fetching.
 
+  // Mirror the CheckConfig discriminated union from @slackhive/shared so the
+  // MCP layer rejects malformed proposals before they reach the approval card.
+  // PATCH /evals/cases/[caseId] does not validate inner shape (only
+  // non-empty), so without this guard a hallucinated shape would land in DB
+  // and break the next eval run.
+  const checkConfigSchema = z.discriminatedUnion('primitive', [
+    z.object({
+      primitive: z.literal('substring'),
+      target: z.literal('final_reply'),
+      must_contain: z.array(z.string()).optional(),
+      must_not_contain: z.array(z.string()).optional(),
+    }),
+    z.object({
+      primitive: z.literal('tool_called'),
+      must_call: z.array(z.string()).optional(),
+      must_not_call: z.array(z.string()).optional(),
+    }),
+    z.object({
+      primitive: z.literal('llm_judge'),
+      target: z.literal('final_reply'),
+      rubric: z.string().min(1),
+      groundtruth: z.string().optional(),
+    }),
+  ]);
+
   const proposeEvalCheckChange = defTool(
     'propose_eval_case_check_change',
-    "Propose a new `checks` array for an existing eval test case. Use this ONLY when the failure is a `test_mismatch` (the agent did the right thing but the assertions didn't capture it). Provide the FULL replacement checks array — the existing array is overwritten on Apply. Surfaces an approval card; no edit is applied until the human clicks Apply.",
+    "Propose a new `checks` array for an existing eval test case. Use this ONLY when the failure is a `test_mismatch` (the agent did the right thing but the assertions didn't capture it). Provide the FULL replacement checks array — the existing array is overwritten on Apply. Each check is a discriminated union: {primitive:'substring',target:'final_reply',must_contain?,must_not_contain?} | {primitive:'tool_called',must_call?,must_not_call?} | {primitive:'llm_judge',target:'final_reply',rubric,groundtruth?}. Surfaces an approval card; no edit is applied until the human clicks Apply.",
     {
       caseId: z.string().min(1),
       triage: z.enum(['skill_issue', 'test_mismatch', 'real_failure']),
-      checks: z.array(z.any()).min(1, 'at least one check required'),
+      checks: z.array(checkConfigSchema).min(1, 'at least one check required'),
       rationale: z.string().min(1),
     },
     wrap('propose_eval_case_check_change', async ({ caseId, triage, checks, rationale }) => {
