@@ -381,7 +381,7 @@ function Step1Identity({ state, update, bosses }: {
               This agent is a Boss
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>
-              Boss agents orchestrate specialists. Their CLAUDE.md is auto-generated from the team.
+              Boss agents orchestrate specialists. Their AGENTS.md is auto-generated from the team.
             </div>
           </div>
         </label>
@@ -475,7 +475,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 1 }}>Import config</div>
-              <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>Load CLAUDE.md + skills from an exported agent</div>
+              <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>Load AGENTS.md + skills from an exported agent</div>
               {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 3 }}>{error}</div>}
             </div>
             <button type="button" onClick={() => ref.current?.click()} style={{
@@ -497,7 +497,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
                 Config loaded
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
+                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · AGENTS.md included
               </div>
             </div>
             <button type="button" onClick={() => { onChange(null); setError(''); }} style={{
@@ -525,7 +525,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
               Import from existing config
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Load CLAUDE.md + skills from a previously exported agent
+              Load AGENTS.md + skills from a previously exported agent
             </div>
             {error && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 4 }}>{error}</div>}
           </div>
@@ -563,7 +563,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
                 Config file loaded
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
+                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · AGENTS.md included
                 {value.exportedAt && ` · ${new Date(value.exportedAt).toLocaleDateString()}`}
               </div>
             </div>
@@ -1146,7 +1146,7 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
             />
             <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-              Used to seed the agent&apos;s CLAUDE.md and kick off the Coach&apos;s first-turn draft.
+              Used to seed the agent&apos;s AGENTS.md and kick off the Coach&apos;s first-turn draft.
             </p>
           </div>
           <div>

@@ -781,7 +781,7 @@ Reply conversationally. When you want to propose concrete changes, append EXACTL
 
 \`\`\`coach-proposals
 [
-  { "kind": "claude-md", "content": "<full new CLAUDE.md>", "rationale": "<one sentence>" },
+  { "kind": "instructions", "content": "<full new AGENTS.md instructions>", "rationale": "<one sentence>" },
   { "kind": "skill", "action": "create", "category": "<cat>", "filename": "<file.md>", "content": "<body>", "rationale": "<one sentence>" },
   { "kind": "memory", "action": "create", "memoryName": "<name>", "memoryType": "user|feedback|project|reference", "content": "<body>", "rationale": "<one sentence>" }
 ]
@@ -804,7 +804,9 @@ async function mapAndApplyProposal(agentId: string, p: Record<string, any>, auto
   const id = randomUUID();
   const rationale = typeof p.rationale === 'string' ? p.rationale : 'Proposed by Coach.';
 
-  if (p.kind === 'claude-md' && typeof p.content === 'string') {
+  // Instruction-doc proposal. Accept neutral + legacy kind names; the internal
+  // CoachProposal kind stays 'claude-md' (the DB column is agents.claude_md).
+  if ((p.kind === 'instructions' || p.kind === 'agents-md' || p.kind === 'claude-md') && typeof p.content === 'string') {
     if (autoApply) { await updateAgentClaudeMd(agentId, p.content); return { kind: 'claude-md', id, content: p.content, rationale, status: 'applied' }; }
     return { kind: 'claude-md', id, content: p.content, rationale, status: 'pending' };
   }
@@ -845,7 +847,10 @@ export async function runCoachTurnCodex(input: CoachTurnInput, agent: Agent): Pr
     : input.userMessage;
 
   const context = await buildCoachContext(input.agentId);
-  const system = (input.autoApply ? SYSTEM_PROMPT + BOOTSTRAP_APPENDIX : SYSTEM_PROMPT) + '\n' + CODEX_PROPOSAL_PROTOCOL;
+  // The shared prompt is Claude-worded; on Codex refer to the instruction doc by
+  // its neutral on-disk name (AGENTS.md) so the model doesn't say "CLAUDE.md".
+  const base = (input.autoApply ? SYSTEM_PROMPT + BOOTSTRAP_APPENDIX : SYSTEM_PROMPT).replace(/CLAUDE\.md/g, 'AGENTS.md');
+  const system = base + '\n' + CODEX_PROPOSAL_PROTOCOL;
   const prompt = `${system}
 
 # Agent you are tuning
@@ -854,7 +859,7 @@ Persona: ${agent.persona ?? '(none)'}
 Description: ${agent.description ?? '(none)'}
 Model: ${agent.model}
 
-# Current CLAUDE.md
+# Current AGENTS.md (the agent's instructions)
 ${agent.claudeMd?.trim() || '(empty)'}
 
 # Current agent state

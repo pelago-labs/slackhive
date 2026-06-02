@@ -913,10 +913,10 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
                 <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
-                    This will overwrite current CLAUDE.md and skills
+                    This will overwrite current AGENTS.md and skills
                   </div>
                   <div style={{ fontSize: 12, color: '#9f1239' }}>
-                    Existing CLAUDE.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
+                    Existing AGENTS.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
                   </div>
                 </div>
               </div>
@@ -3245,7 +3245,7 @@ function buildDiffFiles(snapshot: AgentSnapshot, current: AgentSnapshot): FileCh
   const currMd = current.compiledMd?.trim() ?? '';
   const snapMd = snapshot.compiledMd?.trim() ?? '';
   if (currMd && snapMd && currMd !== snapMd) {
-    files.push({ path: 'CLAUDE.md', status: 'modified', oldText: currMd, newText: snapMd });
+    files.push({ path: 'AGENTS.md', status: 'modified', oldText: currMd, newText: snapMd });
   }
 
   const snapMap = new Map(snapshot.skillsJson.map(s => [`${s.category}/${s.filename}`, s.content]));

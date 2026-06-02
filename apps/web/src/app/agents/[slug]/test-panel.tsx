@@ -506,7 +506,7 @@ function MessageBubble({
   if (m.role === 'error') {
     const friendly =
       m.text === 'delegation-depth-exceeded'
-        ? 'Delegation chain too long — aborting. Check the boss\u2019s CLAUDE.md or the specialist\u2019s reply pattern.'
+        ? 'Delegation chain too long — aborting. Check the boss\u2019s AGENTS.md or the specialist\u2019s reply pattern.'
         : m.text;
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
