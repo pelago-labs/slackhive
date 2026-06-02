@@ -168,7 +168,11 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
               </div>
             )}
             {device?.status === 'failed' && (
-              <div style={{ marginTop: 8, fontSize: 12, color: '#dc2626' }}>Login failed: {device.error}</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: '#dc2626', lineHeight: 1.6 }}>
+                {/429|too many requests/i.test(device.error ?? '')
+                  ? <>OpenAI is rate-limiting device sign-in (too many attempts). Wait ~15&nbsp;minutes and retry, or use <strong>API key</strong> auth above, or paste <strong>auth.json</strong> below (from a machine where you ran <code>codex login</code>).</>
+                  : <>Login failed: {device.error}</>}
+              </div>
             )}
             <p style={{ ...hintStyle, marginTop: 8 }}>Authenticates from here — no <code>codex login</code> on the host needed. Or paste auth.json below.</p>
           </div>
