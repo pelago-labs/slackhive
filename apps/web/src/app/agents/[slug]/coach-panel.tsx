@@ -13,6 +13,7 @@
  * @module web/app/agents/[slug]/coach-panel
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Send, Loader2, RotateCcw, Wand2, ChevronDown, ChevronRight, Check, FileText, History, ArrowLeft, BookOpen, Paperclip, Download } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -635,7 +636,12 @@ export function CoachPanel({
   const bootstrapDrafting = isLiveDraft(messages[messages.length - 1]);
   const composerDisabled = !canEdit || sending || bootstrapDrafting;
 
-  return (
+  // Portal to document.body so the panel escapes any transformed ancestor
+  // (e.g. the AgentPage wrapper carries `.fade-up`, which leaves a persistent
+  // `transform: translateY(0)` via `animation-fill-mode: both` — that creates
+  // a new containing block and would otherwise pin `position: fixed; top: 0`
+  // to the scrolled-past page top instead of the viewport.
+  return createPortal((
     <>
       <div
         onClick={onClose}
@@ -939,7 +945,7 @@ export function CoachPanel({
         }
       `}</style>
     </>
-  );
+  ), document.body);
 }
 
 const iconBtn: React.CSSProperties = {
