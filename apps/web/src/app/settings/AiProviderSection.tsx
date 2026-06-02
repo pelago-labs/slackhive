@@ -31,7 +31,7 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
-  const [device, setDevice] = useState<{ status: string; verificationUrl?: string; userCode?: string; error?: string } | null>(null);
+  const [device, setDevice] = useState<{ status: string; verificationUrl?: string; userCode?: string; error?: string; output?: string } | null>(null);
   const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
@@ -153,8 +153,18 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
             {device?.status === 'pending' && device.verificationUrl && (
               <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
                 1. Open <a href={device.verificationUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{device.verificationUrl}</a><br />
-                2. Enter code <strong style={{ color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', letterSpacing: 1 }}>{device.userCode}</strong><br />
+                2. Enter this code:{' '}
+                {device.userCode
+                  ? <strong style={{ color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', letterSpacing: 1, fontSize: 14 }}>{device.userCode}</strong>
+                  : <span style={{ color: 'var(--subtle)' }}>(see terminal output below)</span>}
+                <br />
                 3. Approve — this updates automatically when done.
+                {device.output && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ cursor: 'pointer', color: 'var(--subtle)' }}>codex output (find your code here if not shown above)</summary>
+                    <pre style={{ marginTop: 6, padding: 8, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 180, overflow: 'auto' }}>{device.output}</pre>
+                  </details>
+                )}
               </div>
             )}
             {device?.status === 'failed' && (

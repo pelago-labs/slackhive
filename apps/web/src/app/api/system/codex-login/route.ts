@@ -87,8 +87,12 @@ function parseDeviceInfo(text: string, state: LoginState): void {
     if (url && /device|auth|activate|login/i.test(url[0])) state.verificationUrl = url[0].replace(/[).,]+$/, '');
   }
   if (!state.userCode) {
-    const code = clean.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/);
-    if (code) state.userCode = code[1];
+    // Device codes vary in format; try the common shapes, then a labeled fallback.
+    const code =
+      clean.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/) ||           // ABCD-1234 (9 chars)
+      clean.match(/\b([A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3})\b/) || // ABC-DEF-GHI
+      clean.match(/\bcode[:\s]+([A-Z0-9][A-Z0-9-]{5,13})\b/i);    // "code: XXXXXXXXX"
+    if (code) state.userCode = code[1].toUpperCase();
   }
 }
 
@@ -144,9 +148,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   if (state.status === 'failed') {
-    return NextResponse.json({ status: 'failed', error: state.error }, { status: 502 });
+    return NextResponse.json({ status: 'failed', error: state.error, output: stripAnsi(state.output).slice(-2000) }, { status: 502 });
   }
-  return NextResponse.json({ status: state.status, verificationUrl: state.verificationUrl, userCode: state.userCode });
+  return NextResponse.json({ status: state.status, verificationUrl: state.verificationUrl, userCode: state.userCode, output: stripAnsi(state.output).slice(-2000) });
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -158,5 +162,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     verificationUrl: current.verificationUrl,
     userCode: current.userCode,
     error: current.error,
+    output: stripAnsi(current.output).slice(-2000),
   });
 }
