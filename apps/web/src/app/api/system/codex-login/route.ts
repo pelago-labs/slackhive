@@ -41,21 +41,35 @@ function codexHome(): string {
   return process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
 }
 
-/** Resolve a runnable codex binary: CODEX_PATH → bundled platform package → PATH. */
+/**
+ * Resolve a runnable codex binary by walking node_modules up from the cwd
+ * (Next bundles routes, so require.resolve is unreliable here):
+ *   CODEX_PATH → node_modules/.bin/codex → bundled platform vendor binary → PATH.
+ */
 function resolveCodexBinary(): string {
-  if (process.env.CODEX_PATH) return process.env.CODEX_PATH;
+  if (process.env.CODEX_PATH && fs.existsSync(process.env.CODEX_PATH)) return process.env.CODEX_PATH;
+
   const arch = process.arch === 'x64' ? 'x64' : process.arch;
-  const pkg = `@openai/codex-${process.platform}-${arch}`;
-  try {
-    const root = path.dirname(require.resolve(`${pkg}/package.json`));
-    const vendor = path.join(root, 'vendor');
+  const platformPkg = `@openai/codex-${process.platform}-${arch}`;
+
+  const roots: string[] = [];
+  let cur = process.cwd();
+  while (cur !== path.dirname(cur)) {
+    roots.push(path.join(cur, 'node_modules'));
+    cur = path.dirname(cur);
+  }
+
+  for (const nm of roots) {
+    const shim = path.join(nm, '.bin', 'codex');
+    if (fs.existsSync(shim)) return shim;
+    const vendor = path.join(nm, platformPkg, 'vendor');
     if (fs.existsSync(vendor)) {
       for (const triple of fs.readdirSync(vendor)) {
         const bin = path.join(vendor, triple, 'bin', 'codex');
         if (fs.existsSync(bin)) return bin;
       }
     }
-  } catch { /* fall through */ }
+  }
   return 'codex';
 }
 
