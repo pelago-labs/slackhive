@@ -244,6 +244,10 @@ export function CoachPanel({
   // until the server closes, `sending` stays true, and the composer is
   // permanently locked — see bug report).
   const abortRef = useRef<AbortController | null>(null);
+  // Flips true after the first loadSession tick completes for this open cycle.
+  // Gates the seed-message effect so optimistic state from send() isn't
+  // overwritten by the session-snapshot setMessages(next) that the GET fires.
+  const [sessionLoaded, setSessionLoaded] = useState(false);
 
   // Fetch agent context once per panel open for smart suggestions.
   useEffect(() => {
@@ -293,7 +297,11 @@ export function CoachPanel({
   // When drafting finishes, fire a global refresh event so the claude.md /
   // skills / memory sections re-fetch without a manual page reload.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Reset on close so the next open cycle re-gates the seed effect.
+      setSessionLoaded(false);
+      return;
+    }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
@@ -307,6 +315,7 @@ export function CoachPanel({
         const next: CoachMessage[] = Array.isArray(d.messages) ? d.messages : [];
         if (cancelled) return;
         setMessages(next);
+        setSessionLoaded(true);
         const tail = next[next.length - 1];
         const stillDrafting = isLiveDraft(tail);
         if (wasDrafting && !stillDrafting) {
@@ -445,10 +454,17 @@ export function CoachPanel({
    * per token. The ref-based dedup means closing and re-opening the panel with
    * the same seed doesn't re-ask the same question — the page bumps the token
    * for each distinct Ask-Coach click.
+   *
+   * `sessionLoaded` gate: the loadSession effect above does setMessages(next)
+   * after its GET resolves; firing send() before that would race — the GET's
+   * setMessages would overwrite our optimistic [userMsg, draft], and incoming
+   * SSE deltas would either be dropped (empty tail) or append to a stale
+   * assistant message (prior conversation). Wait for the first tick to settle.
    */
   const lastSeedTokenRef = useRef<string | null>(null);
   useEffect(() => {
     if (!open || !seed) return;
+    if (!sessionLoaded) return;
     if (seed.token === lastSeedTokenRef.current) return;
     if (sending) return;
     lastSeedTokenRef.current = seed.token;
@@ -456,7 +472,7 @@ export function CoachPanel({
     // send is intentionally excluded — it's recreated every render and
     // including it would re-fire on every keystroke in the composer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, seed, sending]);
+  }, [open, seed, sending, sessionLoaded]);
 
   /** Archive the current conversation and start a fresh one (non-destructive —
    *  the active row is moved into `coach-archive:<id>` before being cleared).
