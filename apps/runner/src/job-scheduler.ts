@@ -3,7 +3,7 @@
  *
  * On each cron trigger:
  * 1. Finds the boss agent from the runningAgents map
- * 2. Sends the job's prompt to the boss via claudeHandler.streamQuery()
+ * 2. Sends the job's prompt to the boss via backend.streamQuery()
  * 3. Posts the result to the target Slack channel or DM
  * 4. Records the run in the job_runs table
  *
@@ -13,13 +13,13 @@
 import cron from 'node-cron';
 import type { ScheduledJob, PlatformAdapter } from '@slackhive/shared';
 import { getAllEnabledJobs, insertJobRun, updateJobRun } from './db';
-import type { ClaudeHandler } from './claude-handler';
+import type { AgentBackend } from '@slackhive/shared';
 import { logger } from './logger';
 
 /** The shape of a running agent as exposed by AgentRunner. */
 interface RunningAgent {
   adapter: PlatformAdapter;
-  claudeHandler: ClaudeHandler;
+  backend: AgentBackend;
 }
 
 /**
@@ -124,7 +124,7 @@ export class JobScheduler {
 
       // Stream query to agent
       let output = '';
-      for await (const msg of agent.claudeHandler.streamQuery(job.prompt, sessionKey)) {
+      for await (const msg of agent.backend.streamQuery(job.prompt, sessionKey)) {
         const m = msg as Record<string, unknown>;
         if (m.type === 'result' && m.subtype === 'success') {
           output = (m.result as string) ?? '';

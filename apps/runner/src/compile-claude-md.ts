@@ -280,12 +280,16 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
   });
 
   // -------------------------------------------------------------------------
-  // 1. Write CLAUDE.md (identity + inlined memories + knowledge base index)
+  // 1. Write the instruction doc (identity + inlined memories + knowledge index).
+  //    Canonical on-disk name is AGENTS.md (provider-neutral; read by both the
+  //    Codex SDK and Claude Code). CLAUDE.md is written too for the headless
+  //    claude-agent-sdk, which is confirmed to read CLAUDE.md. Identical content.
   // -------------------------------------------------------------------------
   const claudeMdContent = buildClaudeMd(agent, memories, skills, overrideClaudeMd, formattingRules, folderSlugToName);
+  fs.writeFileSync(path.join(workDir, 'AGENTS.md'), claudeMdContent, 'utf-8');
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
-  logger.debug('CLAUDE.md written', {
+  logger.debug('Instruction doc written (AGENTS.md + CLAUDE.md)', {
     agent: agent.slug,
     path: claudeMdPath,
     bytes: Buffer.byteLength(claudeMdContent, 'utf-8'),
@@ -340,6 +344,11 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
     fs.writeFileSync(path.join(commandsDir, filename), skill.content, 'utf-8');
   }
 
+  // Also emit Codex-format skills (.agents/skills/{name}/SKILL.md). Backends copy
+  // the format they need into each session dir (Claude → .claude/commands, Codex
+  // → .agents/skills). Both are kept in sync from the same skill rows.
+  writeAgentsSkills(workDir, skills, hasWiki ? WIKI_SKILL : null);
+
   logger.debug('Skill commands written', {
     agent: agent.slug,
     commands: skills.map(s => s.filename),
@@ -355,10 +364,11 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
       const sessionDir = path.join(sessionsDir, entry);
       if (!fs.statSync(sessionDir).isDirectory()) continue;
 
-      // Update CLAUDE.md
+      // Update the instruction doc (both names — see step 1).
       fs.writeFileSync(path.join(sessionDir, 'CLAUDE.md'), claudeMdContent, 'utf8');
+      fs.writeFileSync(path.join(sessionDir, 'AGENTS.md'), claudeMdContent, 'utf8');
 
-      // Update .claude/commands/
+      // Update .claude/commands/ (Claude slash commands)
       const sessionCommandsDir = path.join(sessionDir, '.claude', 'commands');
       fs.mkdirSync(sessionCommandsDir, { recursive: true });
       for (const existing of fs.readdirSync(sessionCommandsDir)) {
@@ -372,6 +382,8 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
         const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
         fs.writeFileSync(path.join(sessionCommandsDir, filename), skill.content, 'utf-8');
       }
+      // Update .agents/skills/ (Codex skills)
+      writeAgentsSkills(sessionDir, skills, hasWiki ? WIKI_SKILL : null);
     }
   }
 
@@ -382,6 +394,47 @@ export async function compileClaudeMd(agent: Agent, overrideClaudeMd?: string, f
 // =============================================================================
 // Private helpers
 // =============================================================================
+
+/** Slugify a skill filename into a Codex skill / slash-command name. */
+function toSkillName(filename: string): string {
+  return filename.replace(/\.md$/i, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'skill';
+}
+
+/** First non-empty, de-hashed line of markdown — a description fallback. */
+function firstMeaningfulLine(content: string): string {
+  for (const raw of content.split('\n')) {
+    const line = raw.replace(/^#+\s*/, '').trim();
+    if (line) return line.slice(0, 200);
+  }
+  return '';
+}
+
+/**
+ * Emit Codex Agent Skills under `{targetDir}/.agents/skills/{name}/SKILL.md`.
+ * Codex discovers these in the cwd and exposes them as `$name` slash commands /
+ * implicitly-matched skills. `Skill` has no `name` field, so the name is derived
+ * from the filename; `description` (nullable) falls back to the first content line.
+ */
+function writeAgentsSkills(targetDir: string, skills: Skill[], wikiBody: string | null): void {
+  const skillsRoot = path.join(targetDir, '.agents', 'skills');
+  fs.rmSync(skillsRoot, { recursive: true, force: true });
+  fs.mkdirSync(skillsRoot, { recursive: true });
+
+  const write = (name: string, description: string, body: string): void => {
+    const dir = path.join(skillsRoot, name);
+    fs.mkdirSync(dir, { recursive: true });
+    // JSON.stringify yields a YAML-safe double-quoted scalar for the description.
+    const frontmatter = `---\nname: ${name}\ndescription: ${JSON.stringify(description.replace(/\s+/g, ' ').trim())}\n---\n\n`;
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), frontmatter + body, 'utf8');
+  };
+
+  if (wikiBody) write('wiki', 'Search and read the agent knowledge wiki.', wikiBody);
+  for (const skill of skills) {
+    const name = toSkillName(skill.filename);
+    const description = (skill.description?.trim()) || firstMeaningfulLine(skill.content) || name;
+    write(name, description, skill.content);
+  }
+}
 
 /**
  * Builds the inlined `# Learned Memories (active)` section.

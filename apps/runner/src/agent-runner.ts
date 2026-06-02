@@ -24,8 +24,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
-import type { Agent, PlatformAdapter, ThreadMessage } from '@slackhive/shared';
-import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities } from '@slackhive/shared';
+import type { Agent, PlatformAdapter, ThreadMessage, AgentBackend } from '@slackhive/shared';
+import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
 import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
@@ -48,10 +48,12 @@ import {
   getSkillById,
   updateSkillDescription,
   getSkillsMissingDescription,
+  getSetting,
 } from './db';
 import { summarizeSkill } from './summarize-skill';
 import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
-import { ClaudeHandler } from './claude-handler';
+import { createAgentBackend } from './backends';
+import { ClaudeBackend } from './backends/claude-backend';
 import { MemoryWatcher } from './memory-watcher';
 import { logger } from './logger';
 import { dispatchCacheEvent } from './access-cache';
@@ -248,7 +250,7 @@ export function processRemovedArticles(
 interface RunningAgent {
   agent: Agent;
   adapter: PlatformAdapter;
-  claudeHandler: ClaudeHandler;
+  backend: AgentBackend;
   messageHandler: MessageHandler;
   memoryWatcher: MemoryWatcher;
 }
@@ -265,7 +267,7 @@ interface RunningAgent {
 export interface AgentParticipant {
   agent: Agent;
   adapter: TestAdapter;
-  claudeHandler: ClaudeHandler;
+  backend: AgentBackend;
   messageHandler: MessageHandler;
   workDir: string;
 }
@@ -410,9 +412,9 @@ export class AgentRunner {
   /**
    * Returns any running agent by ID, or undefined if not running.
    */
-  getRunningAgent(agentId: string): { adapter: PlatformAdapter; claudeHandler: import('./claude-handler').ClaudeHandler } | undefined {
+  getRunningAgent(agentId: string): { adapter: PlatformAdapter; backend: AgentBackend } | undefined {
     const ra = this.runningAgents.get(agentId);
-    return ra ? { adapter: ra.adapter, claudeHandler: ra.claudeHandler } : undefined;
+    return ra ? { adapter: ra.adapter, backend: ra.backend } : undefined;
   }
 
   /**
@@ -792,16 +794,17 @@ export class AgentRunner {
     // prompt (no /recall skill needed) and inlines the wiki index when present.
     const workDir = await compileClaudeMd(agent, undefined, adapter.getFormattingRules());
 
-    // Create Claude Code SDK handler
-    const claudeHandler = new ClaudeHandler(agent, mcpServers, permissions, workDir, envVarValues);
-    claudeHandler.initialize();
+    // Create the agent backend (Claude Code, Codex, …) per the global setting
+    const backendId = (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+    const backend = createAgentBackend(backendId, agent, mcpServers, permissions, workDir, envVarValues);
+    backend.initialize();
 
     // Create memory watcher (persists SDK memory writes back to DB)
     const memoryWatcher = new MemoryWatcher(agent);
     memoryWatcher.start();
 
-    // Wire message handler: adapter → MessageHandler → ClaudeHandler
-    const messageHandler = new MessageHandler(adapter, claudeHandler, agent, restrictions);
+    // Wire message handler: adapter → MessageHandler → backend
+    const messageHandler = new MessageHandler(adapter, backend, agent, restrictions);
     adapter.onMessage(msg => messageHandler.handleMessage(msg));
 
     // Start the platform connection
@@ -814,7 +817,7 @@ export class AgentRunner {
       agent.slackBotUserId = botUserId;
     }
 
-    this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, messageHandler, memoryWatcher });
+    this.runningAgents.set(agent.id, { agent, adapter, backend, messageHandler, memoryWatcher });
     // Success — clear any leftover error message from a prior failed start.
     await updateAgentStatus(agent.id, 'running', null, this.runnerId);
 
@@ -834,11 +837,11 @@ export class AgentRunner {
     const running = this.runningAgents.get(agentId);
     if (!running) return;
 
-    const { agent, adapter, claudeHandler, memoryWatcher } = running;
+    const { agent, adapter, backend, memoryWatcher } = running;
     logger.info('Stopping agent', { agent: agent.slug });
 
     memoryWatcher.stop();
-    await claudeHandler.destroy();
+    await backend.destroy();
 
     try {
       await adapter.stop();
@@ -938,11 +941,12 @@ export class AgentRunner {
       session.workDirRoot, agent.slug, agentWorkDir,
     );
 
-    // Test sessions now get the agent's real MCP servers. ClaudeHandler's
+    // Test sessions now get the agent's real MCP servers. The backend's
     // McpProcessManager retries on port-in-use, so running alongside the live
     // Slack agent just lands the test proxies on neighbouring ports.
-    const claudeHandler = new ClaudeHandler(agent, mcpServers, permissions, participantWorkDir, envVarValues);
-    claudeHandler.initialize();
+    const backendId = (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+    const backend = createAgentBackend(backendId, agent, mcpServers, permissions, participantWorkDir, envVarValues);
+    backend.initialize();
 
     const adapter = new TestAdapter(() => { /* emit target is set per turn by test-handler-server */ });
     adapter.setSharedHistory(session.history);
@@ -953,11 +957,11 @@ export class AgentRunner {
     });
     if (agent.slackBotUserId) adapter.setBotUserId(agent.slackBotUserId);
 
-    const messageHandler = new MessageHandler(adapter, claudeHandler, agent, null);
+    const messageHandler = new MessageHandler(adapter, backend, agent, null);
     adapter.onMessage(msg => messageHandler.handleMessage(msg));
 
     const participant: AgentParticipant = {
-      agent, adapter, claudeHandler, messageHandler,
+      agent, adapter, backend, messageHandler,
       workDir: participantWorkDir,
     };
     session.participants.set(agent.id, participant);
@@ -979,7 +983,7 @@ export class AgentRunner {
     this.testSessions.delete(key);
 
     for (const p of session.participants.values()) {
-      try { p.claudeHandler.destroy(); } catch { /* swallow */ }
+      try { p.backend.destroy(); } catch { /* swallow */ }
     }
 
     try {
@@ -2952,7 +2956,7 @@ Return this JSON:
 
     // Attempt 3: refresh OAuth token, then retry
     try {
-      const refreshed = await ClaudeHandler.refreshOAuthToken();
+      const refreshed = await ClaudeBackend.refreshOAuthToken();
       if (refreshed) {
         logger.info('OAuth token refreshed');
         return await runQuery();

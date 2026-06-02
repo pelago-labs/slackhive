@@ -10,6 +10,18 @@ export type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment,
   MessagePayload, PlatformCredentials, SlackCredentials,
 } from './platform';
+export type {
+  AgentBackend, BackendMessage, BackendUsage, AssistantBlock, UserBlock, AgentPrompt,
+} from './agent-backend';
+export {
+  AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND,
+  CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, CODEX_MODELS,
+  CODEX_AUTH_MODE_SETTING_KEY, CLAUDE_AUTH_MODE_SETTING_KEY,
+  BACKEND_DESCRIPTORS, getBackendDescriptor,
+} from './backends';
+export type {
+  BackendId, BackendAuthMode, BackendAuthField, BackendAuthOption, BackendDescriptor,
+} from './backends';
 export { initDb, getDb, closeDb, setDb } from './db/adapter';
 export type { DbAdapter, DbResult, DbRow } from './db/adapter';
 export { createSqliteAdapter } from './db/sqlite-adapter';

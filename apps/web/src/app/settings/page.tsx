@@ -13,6 +13,7 @@ import { KeyRound } from 'lucide-react';
 import { MODELS, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
+import AiProviderSection from './AiProviderSection';
 
 type Tab = 'general' | 'users' | 'auth';
 
@@ -160,6 +161,8 @@ function GeneralTab() {
         <Field label="Dashboard Title" hint="Main heading on the dashboard page." maxLength={80}
           value={dashboardTitle} onChange={setDashboardTitle} onBlur={() => save('dashboardTitle', dashboardTitle)} />
       </Section>
+
+      <AiProviderSection />
 
       <Section title="AI">
         <SelectField

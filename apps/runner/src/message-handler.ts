@@ -41,7 +41,7 @@ async function isOpenToWorkspace(): Promise<boolean> {
   }
 }
 export function _resetOpenToWorkspaceCache() { _openToWorkspaceCache = null; }
-import type { ClaudeHandler } from './claude-handler';
+import type { AgentBackend } from '@slackhive/shared';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
 import { isShuttingDown } from './shutdown-signal';
@@ -83,7 +83,7 @@ export class MessageHandler {
 
   constructor(
     private adapter: PlatformAdapter,
-    private claudeHandler: ClaudeHandler,
+    private backend: AgentBackend,
     private agent: Agent,
     private restrictions: Restriction | null,
   ) {
@@ -167,7 +167,7 @@ export class MessageHandler {
       return;
     }
 
-    const sessionKey = this.claudeHandler.getSessionKey(userId, channelId, threadId);
+    const sessionKey = this.backend.getSessionKey(userId, channelId, threadId);
     this.log.info('Processing message', { userId, channelId, threadId, sessionKey, textLength: text.length });
 
     // Abort any in-flight request for this session
@@ -195,7 +195,7 @@ export class MessageHandler {
     let lastToolResultText: string | null = null;
 
     try {
-      for await (const message of this.claudeHandler.streamQuery(prompt, sessionKey, abortController)) {
+      for await (const message of this.backend.streamQuery(prompt, sessionKey, abortController)) {
         if (abortController.signal.aborted) break;
 
         if (message.type === 'assistant') {

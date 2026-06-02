@@ -15,6 +15,7 @@
 import 'dotenv/config';
 import { initDb, setEventBus, getEventBus } from '@slackhive/shared';
 import { AgentRunner } from './agent-runner';
+import { syncBackendCredentials } from './backends/credentials';
 import { logger } from './logger';
 import { acquireRunnerLock } from './runner-lock';
 import { fork, type ChildProcess } from 'child_process';
@@ -125,6 +126,14 @@ async function main(): Promise<void> {
   // Initialize the shared database
   await initDb();
   logger.info('Database initialized', { type: process.env.DATABASE_TYPE ?? 'sqlite' });
+
+  // Materialize backend credentials (Claude/Codex) from the Settings page onto
+  // disk/env — replaces the old `slackhive init` auth step.
+  try {
+    await syncBackendCredentials();
+  } catch (err) {
+    logger.warn('Backend credential sync failed (continuing)', { error: (err as Error).message });
+  }
 
   // Initialize the shared event bus (in-memory since no Redis)
   const bus = getEventBus();
