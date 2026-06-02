@@ -24,7 +24,7 @@ const controlStyle = {
 };
 const hintStyle = { margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' } as const;
 
-export default function AiProviderSection() {
+export default function AiProviderSection({ onSaved }: { onSaved?: () => void } = {}) {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [backend, setBackend] = useState('claude');
   const [authModes, setAuthModes] = useState<Record<string, string>>({});
@@ -95,6 +95,7 @@ export default function AiProviderSection() {
       // reflect newly-set secrets without a refetch
       setData(d => d ? { ...d, secretsSet: { ...d.secretsSet, ...Object.fromEntries(Object.keys(secrets).map(k => [k, !!secrets[k]])) } } : d);
       setToast('Saved — agents reloading');
+      onSaved?.(); // let the parent (AI tab) refresh coach model / dependent state
     } catch {
       setToast('Save failed');
     } finally {

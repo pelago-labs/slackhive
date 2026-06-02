@@ -173,7 +173,7 @@ function AITab() {
   // Coach runs on the active backend, so its model options follow that backend.
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
 
-  useEffect(() => {
+  const load = () => {
     fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
       if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
     }).catch(() => {});
@@ -181,7 +181,8 @@ function AITab() {
       const cur = d?.descriptors?.find((x: { id: string }) => x.id === d.current.backend);
       if (cur?.models?.length) setModelOptions(cur.models);
     }).catch(() => {});
-  }, []);
+  };
+  useEffect(() => { load(); }, []);
 
   const saveCoach = (v: string) => {
     setCoachModel(v);
@@ -196,7 +197,7 @@ function AITab() {
 
   return (
     <>
-      <AiProviderSection />
+      <AiProviderSection onSaved={load} />
       <Section title="Coach">
         <SelectField
           label="Coach Model"
