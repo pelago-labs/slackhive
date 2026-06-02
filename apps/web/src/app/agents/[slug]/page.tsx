@@ -438,15 +438,12 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
       .catch(() => {});
   }, [agent.id, agent.slackBotToken]);
 
-  // Load the active backend's selectable models. Falls back to Claude models
-  // (e.g. for non-admins, whose role can't read the backend settings endpoint).
+  // Load the active backend's selectable models — real provider API list when an
+  // API key is set, else the curated fallback (served by /api/system/models).
   useEffect(() => {
-    fetch('/api/system/backends')
+    fetch('/api/system/models')
       .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const cur = d?.descriptors?.find((x: { id: string }) => x.id === d.current.backend);
-        if (cur?.models?.length) setModelOptions(cur.models);
-      })
+      .then(d => { if (d?.models?.length) setModelOptions(d.models); })
       .catch(() => {});
   }, []);
 

@@ -26,13 +26,19 @@ export const CODEX_AUTH_MODE_SETTING_KEY = 'codexAuthMode';
 /** Settings-table key holding the chosen Claude auth mode ('subscription' | 'apiKey'). */
 export const CLAUDE_AUTH_MODE_SETTING_KEY = 'claudeAuthMode';
 
-export const DEFAULT_CODEX_MODEL = 'gpt-5-codex';
+export const DEFAULT_CODEX_MODEL = 'gpt-5.4';
 
-/** Codex model choices (subscription exposes GPT-5.5; API key path exposes codex models). */
+/**
+ * Curated fallback list of Codex models — used when the live model list can't be
+ * fetched (subscription auth has no models API). Real slugs as of 2026; the
+ * `sub` describes the model only (auth is chosen separately). `gpt-5.5` is the
+ * one with an auth caveat — it requires ChatGPT login (not available via API key).
+ */
 export const CODEX_MODELS: readonly ModelOption[] = [
-  { value: 'gpt-5.5',     label: 'GPT-5.5',     sub: 'Subscription (ChatGPT)' },
-  { value: 'gpt-5-codex', label: 'GPT-5 Codex', sub: 'Coding-tuned' },
-  { value: 'gpt-5',       label: 'GPT-5',       sub: 'General' },
+  { value: 'gpt-5.5',       label: 'GPT-5.5',       sub: 'Most capable (ChatGPT login)' },
+  { value: 'gpt-5.4',       label: 'GPT-5.4',       sub: 'Balanced' },
+  { value: 'gpt-5.4-mini',  label: 'GPT-5.4 mini',  sub: 'Fastest' },
+  { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', sub: 'Coding specialist' },
 ];
 
 export type BackendAuthMode = 'subscription' | 'apiKey';

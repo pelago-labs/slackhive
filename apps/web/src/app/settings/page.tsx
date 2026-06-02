@@ -177,9 +177,8 @@ function AITab() {
     fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
       if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
     }).catch(() => {});
-    fetch('/api/system/backends').then(r => r.ok ? r.json() : null).then(d => {
-      const cur = d?.descriptors?.find((x: { id: string }) => x.id === d.current.backend);
-      if (cur?.models?.length) setModelOptions(cur.models);
+    fetch('/api/system/models').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.models?.length) setModelOptions(d.models);
     }).catch(() => {});
   };
   useEffect(() => { load(); }, []);
