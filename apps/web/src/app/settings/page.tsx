@@ -203,11 +203,16 @@ function AITab() {
 // =============================================================================
 
 function UsersAccessTab({ isSuperadmin }: { isSuperadmin: boolean }) {
+  // Config first (access + sign-in), the tall users table last. Each block is
+  // separated so its own Save/controls read as a distinct section.
+  const divider: React.CSSProperties = { borderTop: '1px solid var(--border)', margin: '28px 0' };
   return (
     <>
       <AccessControlSection />
-      <UsersTab />
+      {isSuperadmin && <div style={divider} />}
       {isSuperadmin && <AuthTab />}
+      <div style={divider} />
+      <UsersTab />
     </>
   );
 }
