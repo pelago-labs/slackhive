@@ -77,11 +77,13 @@ const STATUS_LABEL: Record<string, string> = {
   stale:   'Stale',
 };
 
-interface ClaudeStatus {
+interface BackendStatus {
+  backend?: string;
+  label?: string;
   status: 'connected' | 'disconnected' | 'expired';
   source?: string;
   expiresIn?: string;
-  error?: string;
+  hint?: string;
 }
 
 export default function Dashboard() {
@@ -89,7 +91,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('Welcome to SlackHive');
   const [view, setView] = useState<'hierarchy' | 'grid'>('hierarchy');
-  const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
+  const [claudeStatus, setClaudeStatus] = useState<BackendStatus | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
   const [inProgressByAgent, setInProgressByAgent] = useState<Record<string, number>>({});
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -116,7 +118,7 @@ export default function Dashboard() {
   }, [sort]);
 
   const loadStatus = () => {
-    fetch('/api/system/claude-status').then(r => r.json()).then(setClaudeStatus).catch(() => {});
+    fetch('/api/system/backend-status').then(r => r.json()).then(setClaudeStatus).catch(() => {});
   };
 
   const loadActivityStats = () => {
@@ -219,7 +221,7 @@ export default function Dashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Claude Code status badge */}
+          {/* Active agent-backend status badge */}
           {claudeStatus && (
             <div style={{ position: 'relative' }}>
               <button onClick={() => setStatusOpen(!statusOpen)} style={{
@@ -234,7 +236,7 @@ export default function Dashboard() {
                             : claudeStatus.status === 'expired' ? '#f59e0b'
                             : '#dc2626',
                 }} />
-                Claude {claudeStatus.status === 'connected' ? 'connected' : claudeStatus.status === 'expired' ? 'expired' : 'disconnected'}
+                {claudeStatus.label ?? 'Backend'} {claudeStatus.status === 'connected' ? 'connected' : claudeStatus.status === 'expired' ? 'expired' : 'disconnected'}
               </button>
               {statusOpen && (
                 <div style={{
@@ -244,7 +246,7 @@ export default function Dashboard() {
                   boxShadow: 'var(--shadow-md)', fontSize: 12,
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 600, color: 'var(--text)' }}>Claude Code Status</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text)' }}>{claudeStatus.label ?? 'Backend'} Status</span>
                     <button onClick={() => setStatusOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0 }}>×</button>
                   </div>
                   <div style={{ color: 'var(--muted)', lineHeight: 1.6 }}>
@@ -252,8 +254,8 @@ export default function Dashboard() {
                     {claudeStatus.source && <div>Source: <strong style={{ color: 'var(--text)' }}>{claudeStatus.source}</strong></div>}
                     {claudeStatus.expiresIn && <div>Expires in: <strong style={{ color: 'var(--text)' }}>{claudeStatus.expiresIn}</strong></div>}
                     {claudeStatus.status !== 'connected' && (
-                      <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                        Run on host: <code>claude login</code>
+                      <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 11, lineHeight: 1.5 }}>
+                        {claudeStatus.hint ?? 'Configure credentials in Settings → Agent Backend.'}
                       </div>
                     )}
                   </div>
