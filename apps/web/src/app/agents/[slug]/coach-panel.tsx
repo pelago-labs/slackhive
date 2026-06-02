@@ -883,6 +883,7 @@ export function CoachPanel({
               placeholder={
                 !canEdit ? 'Read-only — you lack edit access'
                 : bootstrapDrafting ? 'Claude is drafting your initial setup…'
+                : sending ? 'Coach is replying…'
                 : 'Ask anything about this agent…'
               }
               disabled={composerDisabled}
@@ -908,9 +909,23 @@ export function CoachPanel({
                 <Paperclip size={14} />
               </button>
               <span style={{ flex: 1 }} />
-              <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)' }}>
-                ↵ send · ⇧↵ newline
-              </span>
+              {(sending || bootstrapDrafting) ? (
+                <span
+                  title="Coach is replying"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    fontSize: 11, fontWeight: 600, color: 'var(--accent)',
+                    fontFamily: 'var(--font-sans)',
+                  }}
+                >
+                  <DraftingIndicator color="var(--accent)" size={5} />
+                  Coach is replying
+                </span>
+              ) : (
+                <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)' }}>
+                  ↵ send · ⇧↵ newline
+                </span>
+              )}
               <button
                 onClick={() => send(input)}
                 disabled={composerDisabled || !input.trim()}
@@ -1415,10 +1430,10 @@ const connectorStyle: React.CSSProperties = {
 
 /** Three-dot thinking indicator (iMessage/Slack style). Keyframes for the
  *  dot animation live in the <style> block at the bottom of the panel. */
-function DraftingIndicator() {
+function DraftingIndicator({ color = 'var(--muted)', size = 6 }: { color?: string; size?: number } = {}) {
   const dot: React.CSSProperties = {
-    width: 6, height: 6, borderRadius: '50%',
-    background: 'var(--muted)',
+    width: size, height: size, borderRadius: '50%',
+    background: color,
     animation: 'coachDot 1.2s infinite ease-in-out',
   };
   return (
