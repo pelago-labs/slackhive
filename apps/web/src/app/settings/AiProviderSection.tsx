@@ -12,7 +12,7 @@ import type { BackendDescriptor } from '@slackhive/shared';
 
 interface ApiResponse {
   descriptors: BackendDescriptor[];
-  current: { backend: string; codexModel: string; claudeAuthMode: string; codexAuthMode: string };
+  current: { backend: string; claudeAuthMode: string; codexAuthMode: string };
   secretsSet: Record<string, boolean>;
 }
 
@@ -27,7 +27,6 @@ const hintStyle = { margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' } as
 export default function AiProviderSection() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [backend, setBackend] = useState('claude');
-  const [codexModel, setCodexModel] = useState('');
   const [authModes, setAuthModes] = useState<Record<string, string>>({});
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -39,7 +38,6 @@ export default function AiProviderSection() {
     fetch('/api/system/backends').then(r => r.json()).then((d: ApiResponse) => {
       setData(d);
       setBackend(d.current.backend);
-      setCodexModel(d.current.codexModel);
       setAuthModes({ claude: d.current.claudeAuthMode, codex: d.current.codexAuthMode });
     }).catch(() => {});
   }, []);
@@ -87,7 +85,6 @@ export default function AiProviderSection() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           backend,
-          codexModel,
           claudeAuthMode: authModes.claude,
           codexAuthMode: authModes.codex,
           secrets,
@@ -121,15 +118,7 @@ export default function AiProviderSection() {
           <p style={hintStyle}>The runtime all agents run on. Switching reloads every agent.</p>
         </div>
 
-        {/* Model (only when the backend has its own model setting, e.g. Codex) */}
-        {descriptor.modelSettingKey && descriptor.models.length > 0 && (
-          <div>
-            <label style={labelStyle}>Model</label>
-            <select style={{ ...controlStyle, cursor: 'pointer' }} value={codexModel} onChange={e => setCodexModel(e.target.value)}>
-              {descriptor.models.map(m => <option key={m.value} value={m.value}>{m.label}{m.sub ? ` — ${m.sub}` : ''}</option>)}
-            </select>
-          </div>
-        )}
+        <p style={{ ...hintStyle, marginTop: -4 }}>Model is chosen per agent on each agent&apos;s page.</p>
 
         {/* Auth mode */}
         <div>

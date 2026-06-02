@@ -15,7 +15,7 @@ import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import AiProviderSection from './AiProviderSection';
 
-type Tab = 'general' | 'users' | 'auth';
+type Tab = 'general' | 'ai' | 'users';
 
 interface User {
   id: string;
@@ -65,13 +65,13 @@ export default function SettingsPage() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
         <TabBtn active={tab === 'general'} onClick={() => setTab('general')}>General</TabBtn>
-        {canManageUsers && <TabBtn active={tab === 'users'} onClick={() => setTab('users')}>Users</TabBtn>}
-        {isSuperadmin && <TabBtn active={tab === 'auth'} onClick={() => setTab('auth')}>Authentication</TabBtn>}
+        {canManageUsers && <TabBtn active={tab === 'ai'} onClick={() => setTab('ai')}>AI</TabBtn>}
+        {canManageUsers && <TabBtn active={tab === 'users'} onClick={() => setTab('users')}>Users &amp; Access</TabBtn>}
       </div>
 
       {tab === 'general' && <GeneralTab />}
-      {tab === 'users' && canManageUsers && <UsersTab />}
-      {tab === 'auth' && isSuperadmin && <AuthTab />}
+      {tab === 'ai' && canManageUsers && <AITab />}
+      {tab === 'users' && canManageUsers && <UsersAccessTab isSuperadmin={isSuperadmin} />}
     </div>
   );
 }
@@ -85,8 +85,6 @@ function GeneralTab() {
   const [tagline, setTagline] = useState(DEFAULTS.tagline);
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
-  const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
-  const [openToWorkspace, setOpenToWorkspace] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -98,8 +96,6 @@ function GeneralTab() {
         if (s.tagline) setTagline(s.tagline);
         if (s.logoUrl !== undefined && s.logoUrl !== '') setLogoUrl(s.logoUrl);
         if (s.dashboardTitle) setDashboardTitle(s.dashboardTitle);
-        if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
-        setOpenToWorkspace(s.openToWorkspace !== 'false');
       })
       .catch(() => {});
   }, []);
@@ -124,7 +120,6 @@ function GeneralTab() {
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'tagline', value: tagline }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'logoUrl', value: logoUrl }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'dashboardTitle', value: dashboardTitle }) }),
-        fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: COACH_MODEL_SETTING_KEY, value: coachModel }) }),
       ]);
       setToast('All settings saved');
       setTimeout(() => setToast(''), 2000);
@@ -162,60 +157,112 @@ function GeneralTab() {
           value={dashboardTitle} onChange={setDashboardTitle} onBlur={() => save('dashboardTitle', dashboardTitle)} />
       </Section>
 
-      <AiProviderSection />
-
-      <Section title="AI">
-        <SelectField
-          label="Coach Model"
-          value={coachModel}
-          options={MODELS}
-          onChange={v => { setCoachModel(v); save(COACH_MODEL_SETTING_KEY, v); }}
-          hint="Model used by Coach to generate prompts and skills. Not the model your agents run on."
-        />
-      </Section>
-
-      <Section title="Access Control">
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-              {openToWorkspace
-                ? <>Any Slack workspace member can message the bot — no account setup needed. Turn off to restrict access to specific imported users with a Trigger grant.</>
-                : <>Only imported users with <strong>Trigger</strong> access can use the bot. Others get a message asking them to contact an admin. Import teammates and assign access in <strong>Users</strong>.</>
-              }
-            </div>
-            {!openToWorkspace && (
-              <div style={{ fontSize: 12, marginTop: 8, padding: '7px 10px', background: 'rgba(234,179,8,0.08)', borderRadius: 6, borderLeft: '3px solid #ca8a04', color: 'var(--muted)', lineHeight: 1.5 }}>
-                <strong style={{ color: '#ca8a04' }}>Restricted mode active.</strong> Turn on to allow all workspace members to trigger agents again.
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => {
-              const next = !openToWorkspace;
-              if (!next && !window.confirm('Turning off Open to Workspace will immediately restrict bot access to only imported users with a Trigger grant. Anyone else will be blocked. Continue?')) return;
-              setOpenToWorkspace(next);
-              save('openToWorkspace', String(next));
-            }}
-            style={{
-              width: 44, height: 24, borderRadius: 12, border: 'none', flexShrink: 0, marginTop: 2,
-              background: openToWorkspace ? '#3b82f6' : 'var(--border-2)',
-              cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
-            }}
-          >
-            <div style={{
-              position: 'absolute', top: 3, left: openToWorkspace ? 23 : 3,
-              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
-              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }} />
-          </button>
-        </div>
-      </Section>
-
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
         <PrimaryBtn onClick={saveAll} loading={saving}>Save All</PrimaryBtn>
       </div>
     </>
+  );
+}
+
+// =============================================================================
+// AI tab — agent backend + coach
+// =============================================================================
+
+function AITab() {
+  const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
+
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
+      if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
+    }).catch(() => {});
+  }, []);
+
+  const saveCoach = (v: string) => {
+    setCoachModel(v);
+    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: COACH_MODEL_SETTING_KEY, value: v }) }).catch(() => {});
+  };
+
+  return (
+    <>
+      <AiProviderSection />
+      <Section title="Coach">
+        <SelectField
+          label="Coach Model"
+          value={coachModel}
+          options={MODELS}
+          onChange={saveCoach}
+          hint="Model used by Coach to generate prompts and skills. Always Claude — independent of the agent backend your agents run on."
+        />
+      </Section>
+    </>
+  );
+}
+
+// =============================================================================
+// Users & Access tab — access control + users + authentication
+// =============================================================================
+
+function UsersAccessTab({ isSuperadmin }: { isSuperadmin: boolean }) {
+  return (
+    <>
+      <AccessControlSection />
+      <UsersTab />
+      {isSuperadmin && <AuthTab />}
+    </>
+  );
+}
+
+function AccessControlSection() {
+  const [openToWorkspace, setOpenToWorkspace] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
+      setOpenToWorkspace(s.openToWorkspace !== 'false');
+    }).catch(() => {});
+  }, []);
+
+  const save = (next: boolean) => {
+    setOpenToWorkspace(next);
+    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'openToWorkspace', value: String(next) }) }).catch(() => {});
+  };
+
+  return (
+    <Section title="Access Control">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+            {openToWorkspace
+              ? <>Any Slack workspace member can message the bot — no account setup needed. Turn off to restrict access to specific imported users with a Trigger grant.</>
+              : <>Only imported users with <strong>Trigger</strong> access can use the bot. Others get a message asking them to contact an admin. Import teammates and assign access below.</>
+            }
+          </div>
+          {!openToWorkspace && (
+            <div style={{ fontSize: 12, marginTop: 8, padding: '7px 10px', background: 'rgba(234,179,8,0.08)', borderRadius: 6, borderLeft: '3px solid #ca8a04', color: 'var(--muted)', lineHeight: 1.5 }}>
+              <strong style={{ color: '#ca8a04' }}>Restricted mode active.</strong> Turn on to allow all workspace members to trigger agents again.
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => {
+            const next = !openToWorkspace;
+            if (!next && !window.confirm('Turning off Open to Workspace will immediately restrict bot access to only imported users with a Trigger grant. Anyone else will be blocked. Continue?')) return;
+            save(next);
+          }}
+          style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', flexShrink: 0, marginTop: 2,
+            background: openToWorkspace ? '#3b82f6' : 'var(--border-2)',
+            cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+          }}
+        >
+          <div style={{
+            position: 'absolute', top: 3, left: openToWorkspace ? 23 : 3,
+            width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
+            transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          }} />
+        </button>
+      </div>
+    </Section>
   );
 }
 

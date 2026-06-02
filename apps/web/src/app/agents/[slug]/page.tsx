@@ -426,6 +426,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
   const [showManifest, setShowManifest] = useState(false);
   const [deleting, setDeleting]         = useState(false);
   const [slackInfo, setSlackInfo]       = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
+  // Model options adapt to the active agent backend (Claude or Codex).
+  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
   const router = useRouter();
 
   useEffect(() => {
@@ -435,6 +437,25 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
       .then(d => d && setSlackInfo(d))
       .catch(() => {});
   }, [agent.id, agent.slackBotToken]);
+
+  // Load the active backend's selectable models. Falls back to Claude models
+  // (e.g. for non-admins, whose role can't read the backend settings endpoint).
+  useEffect(() => {
+    fetch('/api/system/backends')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const cur = d?.descriptors?.find((x: { id: string }) => x.id === d.current.backend);
+        if (cur?.models?.length) setModelOptions(cur.models);
+      })
+      .catch(() => {});
+  }, []);
+
+  // If the agent's stored model isn't valid for the active backend, select the
+  // backend's default so the dropdown always shows a real, runnable choice.
+  useEffect(() => {
+    if (!modelOptions.length) return;
+    setForm(f => modelOptions.some(m => m.value === f.model) ? f : { ...f, model: modelOptions[0].value });
+  }, [modelOptions]);
 
   // Channel restrictions state
   const [allowedChannels, setAllowedChannels] = useState('');
@@ -508,8 +529,9 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
         <Grid2>
           <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
             hint="Internal agent name." />
-          <Field label="Model" value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))}
-            hint={MODELS.map(m => m.value).join(' · ')} readOnly={!canEdit} />
+          <SelectField label="Model" value={form.model} options={modelOptions}
+            onChange={v => setForm(f => ({ ...f, model: v }))}
+            hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
         </Grid2>
         <Field label="Description" value={form.description}
           onChange={v => setForm(f => ({ ...f, description: v }))}
@@ -2556,6 +2578,35 @@ function Field({ label, value, onChange, hint, type = 'text', readOnly }: {
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
       />
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
+    </div>
+  );
+}
+
+function SelectField({ label, value, options, onChange, hint, readOnly }: {
+  label: string; value: string; options: { value: string; label: string; sub?: string }[];
+  onChange: (v: string) => void; hint?: React.ReactNode; readOnly?: boolean;
+}) {
+  const known = options.some(o => o.value === value);
+  return (
+    <div>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
+        {label}
+      </label>
+      <select
+        value={value} onChange={e => onChange(e.target.value)} disabled={readOnly}
+        style={{
+          width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
+          cursor: readOnly ? 'default' : 'pointer',
+        }}
+      >
+        {options.map((o, i) => (
+          <option key={o.value} value={o.value}>{o.label}{o.sub ? ` — ${o.sub}` : ''}{i === 0 ? ' (default)' : ''}</option>
+        ))}
+        {!known && value && <option value={value}>{value}</option>}
+      </select>
       {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );

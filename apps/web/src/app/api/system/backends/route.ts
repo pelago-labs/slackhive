@@ -13,7 +13,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   BACKEND_DESCRIPTORS, getBackendDescriptor,
   AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND,
-  CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL,
   CLAUDE_AUTH_MODE_SETTING_KEY, CODEX_AUTH_MODE_SETTING_KEY,
   encrypt,
 } from '@slackhive/shared';
@@ -45,7 +44,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     descriptors: BACKEND_DESCRIPTORS,
     current: {
       backend: (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND,
-      codexModel: (await getSetting(CODEX_MODEL_SETTING_KEY)) ?? DEFAULT_CODEX_MODEL,
       claudeAuthMode: (await getSetting(CLAUDE_AUTH_MODE_SETTING_KEY)) ?? 'subscription',
       codexAuthMode: (await getSetting(CODEX_AUTH_MODE_SETTING_KEY)) ?? 'subscription',
     },
@@ -55,7 +53,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
 interface PutBody {
   backend?: string;
-  codexModel?: string;
   claudeAuthMode?: string;
   codexAuthMode?: string;
   /** secretKey → plaintext value (encrypted before storage). Empty string clears. */
@@ -74,7 +71,6 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
     }
     await setSetting(AGENT_BACKEND_SETTING_KEY, body.backend);
   }
-  if (body.codexModel !== undefined) await setSetting(CODEX_MODEL_SETTING_KEY, body.codexModel);
   if (body.claudeAuthMode !== undefined) await setSetting(CLAUDE_AUTH_MODE_SETTING_KEY, body.claudeAuthMode);
   if (body.codexAuthMode !== undefined) await setSetting(CODEX_AUTH_MODE_SETTING_KEY, body.codexAuthMode);
 

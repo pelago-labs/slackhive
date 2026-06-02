@@ -26,8 +26,8 @@ import * as crypto from 'crypto';
 // `Codex` class via dynamic import() — tsx preserves it as a real ESM import.
 import type { Codex as CodexClient, CodexOptions } from '@openai/codex-sdk';
 import type { Agent, McpServer, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
-import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL } from '@slackhive/shared';
-import { getSession, upsertSession, cleanupStaleSessions, getSetting } from '../db';
+import { DEFAULT_CODEX_MODEL } from '@slackhive/shared';
+import { getSession, upsertSession, cleanupStaleSessions } from '../db';
 import { agentLogger } from '../logger';
 import { agentHasBash, buildCodexConfig, buildThreadOptions } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
@@ -52,7 +52,6 @@ export class CodexBackend implements AgentBackend {
   private sessionCache: Map<string, string> = new Map();
   private inflightAborts: Set<AbortController> = new Set();
   private cleanupTimer: NodeJS.Timeout | null = null;
-  private model: string | null = null;
 
   constructor(
     agent: Agent,
@@ -150,10 +149,14 @@ export class CodexBackend implements AgentBackend {
     return sessionDir;
   }
 
-  private async getModel(): Promise<string> {
-    if (this.model) return this.model;
-    this.model = (await getSetting(CODEX_MODEL_SETTING_KEY)) ?? DEFAULT_CODEX_MODEL;
-    return this.model;
+  /**
+   * Codex model for this agent — taken from `agent.model` (chosen per agent in
+   * the web UI). Falls back to a default if the stored model is a Claude id
+   * (e.g. an agent created before switching the backend to Codex).
+   */
+  private getModel(): string {
+    const m = this.agent.model;
+    return m && !/^claude/i.test(m) ? m : DEFAULT_CODEX_MODEL;
   }
 
   async *streamQuery(
@@ -195,7 +198,7 @@ export class CodexBackend implements AgentBackend {
     }
 
     const sessionWorkDir = this.getSessionWorkDir(sessionKey);
-    const model = await this.getModel();
+    const model = this.getModel();
     const threadOptions = buildThreadOptions({
       sessionWorkDir,
       workDir: this.workDir,
