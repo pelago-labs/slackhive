@@ -170,10 +170,16 @@ function GeneralTab() {
 
 function AITab() {
   const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
+  // Coach runs on the active backend, so its model options follow that backend.
+  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
 
   useEffect(() => {
     fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
       if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
+    }).catch(() => {});
+    fetch('/api/system/backends').then(r => r.ok ? r.json() : null).then(d => {
+      const cur = d?.descriptors?.find((x: { id: string }) => x.id === d.current.backend);
+      if (cur?.models?.length) setModelOptions(cur.models);
     }).catch(() => {});
   }, []);
 
@@ -182,6 +188,12 @@ function AITab() {
     fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: COACH_MODEL_SETTING_KEY, value: v }) }).catch(() => {});
   };
 
+  // If the saved coach model isn't valid for the active backend, default to its first model.
+  useEffect(() => {
+    if (!modelOptions.length) return;
+    setCoachModel(cm => modelOptions.some(m => m.value === cm) ? cm : modelOptions[0].value);
+  }, [modelOptions]);
+
   return (
     <>
       <AiProviderSection />
@@ -189,9 +201,9 @@ function AITab() {
         <SelectField
           label="Coach Model"
           value={coachModel}
-          options={MODELS}
+          options={modelOptions}
           onChange={saveCoach}
-          hint="Model used by Coach to generate prompts and skills. Always Claude — independent of the agent backend your agents run on."
+          hint="Model Coach uses to generate prompts and skills — follows the active agent backend."
         />
       </Section>
     </>

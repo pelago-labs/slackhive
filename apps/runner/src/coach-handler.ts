@@ -35,7 +35,8 @@ const defTool = tool as unknown as <S extends Record<string, unknown>>(
   extras?: { annotations?: Record<string, unknown> },
 ) => SdkTool;
 import type { CoachProposal } from '@slackhive/shared';
-import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from '@slackhive/shared';
+import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND, DEFAULT_CODEX_MODEL } from '@slackhive/shared';
+import type { Agent } from '@slackhive/shared';
 import {
   getAgentById,
   getAgentSkills,
@@ -579,15 +580,39 @@ export interface CoachTurnInput {
   emit: (ev: CoachStreamEvent) => void;
 }
 
-export async function runCoachTurn(input: CoachTurnInput): Promise<{
+/** Shared return shape for a single coach turn across backends. */
+export interface CoachTurnResult {
   sdkSessionId?: string;
   proposals: CoachProposal[];
   assistantText: string;
   toolCalls: { name: string; input: Record<string, unknown>; ok: boolean }[];
-}> {
+}
+
+/** A coach implementation for one agent backend (parallels the AgentBackend registry). */
+type CoachRunner = (input: CoachTurnInput, agent: Agent) => Promise<CoachTurnResult>;
+
+/**
+ * Coach backends registry. Add a backend's coach implementation here and Coach
+ * works on it automatically — mirrors `backends/index.ts:createAgentBackend`.
+ * Route-A providers (OpenRouter, local models) run through Codex, so they reuse
+ * the 'codex' runner; only a net-new harness needs a new entry.
+ */
+const COACH_RUNNERS: Record<string, CoachRunner> = {
+  claude: runCoachTurnClaude,
+  codex: runCoachTurnCodex,
+};
+
+/** Dispatch a coach turn to the active backend's implementation. */
+export async function runCoachTurn(input: CoachTurnInput): Promise<CoachTurnResult> {
   const agent = await getAgentById(input.agentId);
   if (!agent) throw new Error('agent not found');
+  const backend = (await readSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+  const runner = COACH_RUNNERS[backend] ?? COACH_RUNNERS.claude;
+  return runner(input, agent);
+}
 
+/** Claude Code coach — uses in-process SDK tools to read state and queue proposals. */
+async function runCoachTurnClaude(input: CoachTurnInput, agent: Agent): Promise<CoachTurnResult> {
   const proposals: CoachProposal[] = [];
   const toolCalls: { name: string; input: Record<string, unknown>; ok: boolean }[] = [];
 
@@ -718,4 +743,173 @@ ${userBlock}`;
   input.emit({ type: 'done', sdkSessionId: finalSessionId });
 
   return { sdkSessionId: finalSessionId, proposals, assistantText, toolCalls };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Codex coach path
+//
+// Codex can't use the in-process SDK tools the Claude path relies on, so instead
+// we preload the agent's full state into the prompt and ask the model to return
+// proposals as a fenced `coach-proposals` JSON block, which we parse and feed
+// into the same CoachProposal pipeline (the UI Apply flow is backend-agnostic).
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Coach model under Codex — falls back to the default if a Claude id is configured. */
+async function codexCoachModel(): Promise<string> {
+  const m = await readSetting(COACH_MODEL_SETTING_KEY);
+  return m && !/^claude/i.test(m) ? m : DEFAULT_CODEX_MODEL;
+}
+
+async function buildCoachContext(agentId: string): Promise<string> {
+  const [skills, memories, mcps] = await Promise.all([
+    getAgentSkills(agentId), getAgentMemories(agentId), getAgentMcpServers(agentId),
+  ]);
+  return [
+    '## Skills',
+    skills.length ? skills.map(s => `### ${s.category}/${s.filename}\n${s.content}`).join('\n\n') : '(none)',
+    '## Memories',
+    memories.length ? memories.map(m => `- id=${m.id} [${m.type}] ${m.name}: ${m.content}`).join('\n') : '(none)',
+    '## MCP servers',
+    mcps.length ? mcps.map(m => `- ${m.name} (${m.type}) — ${m.description ?? ''}`).join('\n') : '(none)',
+  ].join('\n\n');
+}
+
+const CODEX_PROPOSAL_PROTOCOL = `
+# TOOLING (Codex mode)
+You have NO tools and cannot read or write files. The agent's full current state is provided inline below.
+Reply conversationally. When you want to propose concrete changes, append EXACTLY ONE fenced block at the very end of your reply:
+
+\`\`\`coach-proposals
+[
+  { "kind": "claude-md", "content": "<full new CLAUDE.md>", "rationale": "<one sentence>" },
+  { "kind": "skill", "action": "create", "category": "<cat>", "filename": "<file.md>", "content": "<body>", "rationale": "<one sentence>" },
+  { "kind": "memory", "action": "create", "memoryName": "<name>", "memoryType": "user|feedback|project|reference", "content": "<body>", "rationale": "<one sentence>" }
+]
+\`\`\`
+
+Rules: one proposal per distinct change; for skill/memory delete omit content; for update include the existing id (memoryId) / category+filename. Include the block ONLY if you have concrete changes — otherwise omit it entirely and write nothing after your prose.`;
+
+function parseCoachProposals(text: string): { message: string; raw: Record<string, unknown>[] } {
+  const m = text.match(/```coach-proposals\s*([\s\S]*?)```/);
+  if (!m) return { message: text.trim(), raw: [] };
+  let raw: Record<string, unknown>[] = [];
+  try {
+    const parsed = JSON.parse(m[1].trim());
+    if (Array.isArray(parsed)) raw = parsed as Record<string, unknown>[];
+  } catch { /* malformed block → no proposals */ }
+  return { message: text.replace(m[0], '').trim(), raw };
+}
+
+async function mapAndApplyProposal(agentId: string, p: Record<string, any>, autoApply: boolean): Promise<CoachProposal | null> {
+  const id = randomUUID();
+  const rationale = typeof p.rationale === 'string' ? p.rationale : 'Proposed by Coach.';
+
+  if (p.kind === 'claude-md' && typeof p.content === 'string') {
+    if (autoApply) { await updateAgentClaudeMd(agentId, p.content); return { kind: 'claude-md', id, content: p.content, rationale, status: 'applied' }; }
+    return { kind: 'claude-md', id, content: p.content, rationale, status: 'pending' };
+  }
+
+  if (p.kind === 'skill' && p.category && p.filename && p.action) {
+    try { assertSafeSkillPath(p.category, p.filename); } catch { return null; }
+    const content = p.action === 'delete' ? undefined : (typeof p.content === 'string' ? p.content : '');
+    if (autoApply) {
+      if (p.action === 'delete') await deleteSkill(agentId, p.category, p.filename);
+      else {
+        const existing = (await getAgentSkills(agentId)).find(s => s.category === p.category && s.filename === p.filename);
+        await upsertSkill(agentId, p.category, p.filename, content ?? '', existing?.sortOrder ?? 0);
+      }
+      return { kind: 'skill', id, category: p.category, filename: p.filename, action: p.action, content, rationale, status: 'applied' };
+    }
+    return { kind: 'skill', id, category: p.category, filename: p.filename, action: p.action, content, rationale, status: 'pending' };
+  }
+
+  if (p.kind === 'memory' && p.action) {
+    // Memory proposals always queue for UI approval (matches the Claude path).
+    return {
+      kind: 'memory', id,
+      memoryId: p.memoryId, memoryName: p.memoryName ?? p.name ?? '(memory)',
+      action: p.action, memoryType: p.memoryType,
+      content: p.action === 'delete' ? undefined : p.content,
+      rationale, status: 'pending',
+    };
+  }
+
+  return null;
+}
+
+export async function runCoachTurnCodex(input: CoachTurnInput, agent: Agent): Promise<CoachTurnResult> {
+  const proposals: CoachProposal[] = [];
+  const attachmentText = input.attachment?.slice(0, MAX_ATTACHMENT_CHARS);
+  const userBlock = attachmentText
+    ? `${input.userMessage}\n\n<attached_file name="${input.attachmentName ?? 'attachment'}">\n${attachmentText}\n</attached_file>`
+    : input.userMessage;
+
+  const context = await buildCoachContext(input.agentId);
+  const system = (input.autoApply ? SYSTEM_PROMPT + BOOTSTRAP_APPENDIX : SYSTEM_PROMPT) + '\n' + CODEX_PROPOSAL_PROTOCOL;
+  const prompt = `${system}
+
+# Agent you are tuning
+Name: ${agent.name}
+Persona: ${agent.persona ?? '(none)'}
+Description: ${agent.description ?? '(none)'}
+Model: ${agent.model}
+
+# Current CLAUDE.md
+${agent.claudeMd?.trim() || '(empty)'}
+
+# Current agent state
+${context}
+
+# User message
+${userBlock}`;
+
+  const model = await codexCoachModel();
+  let assistantText = '';
+  let threadId = input.sdkSessionId;
+
+  try {
+    const { Codex } = await import('@openai/codex-sdk');
+    const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined;
+    const codex = new Codex({
+      ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
+      ...(apiKey ? { apiKey } : {}),
+      config: { cli_auth_credentials_store: 'file' },
+    });
+    const threadOpts = {
+      skipGitRepoCheck: true, sandboxMode: 'read-only' as const, approvalPolicy: 'never' as const,
+      webSearchEnabled: true, webSearchMode: 'live' as const, model,
+    };
+    const thread = threadId ? codex.resumeThread(threadId, threadOpts) : codex.startThread(threadOpts);
+    const turn = await thread.run(prompt);
+    assistantText = turn.finalResponse ?? '';
+    threadId = thread.id ?? threadId;
+  } catch (err) {
+    const message = (err as Error).message ?? String(err);
+    logger.error('codex coach turn failed', { agentId: input.agentId, error: message });
+    input.emit({ type: 'error', message });
+    throw err;
+  }
+
+  const { message, raw } = parseCoachProposals(assistantText);
+  for (const p of raw) {
+    try {
+      const mapped = await mapAndApplyProposal(input.agentId, p, !!input.autoApply);
+      if (mapped) proposals.push(mapped);
+    } catch (err) {
+      logger.warn('codex coach: proposal map/apply failed', { error: (err as Error).message });
+    }
+  }
+
+  if (message) input.emit({ type: 'text', delta: message });
+
+  // Bootstrap safety net (same as the Claude path).
+  if (input.autoApply && !proposals.some(p => p.kind === 'claude-md' && p.status === 'applied') && !agent.claudeMd?.trim()) {
+    const skeleton = `# ${agent.name}\n\n${agent.persona || agent.description || 'You are a helpful Slack assistant.'}`;
+    try { await updateAgentClaudeMd(input.agentId, skeleton); } catch { /* non-fatal */ }
+  }
+
+  for (const p of proposals) input.emit({ type: 'proposal', proposal: p });
+  input.emit({ type: 'done', sdkSessionId: threadId });
+
+  return { sdkSessionId: threadId, proposals, assistantText: message, toolCalls: [] };
 }
