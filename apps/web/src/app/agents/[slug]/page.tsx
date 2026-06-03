@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -3514,17 +3514,18 @@ const TRIGGER_COLORS: Record<string, { bg: string; color: string }> = {
   manual:      { bg: 'rgba(22,163,74,0.12)',   color: '#16a34a' },
 };
 
+const TRIGGER_LABELS: Record<string, string> = {
+  skills: 'Skills', permissions: 'Capabilities', mcps: 'Connected Apps',
+  'claude-md': 'System Prompt', manual: 'Manual', restrictions: 'Channels',
+};
+
 function TriggerBadge({ trigger }: { trigger: string }) {
   const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--surface-2)', color: 'var(--muted)' };
-  const label: Record<string, string> = {
-    skills: 'Skills', permissions: 'Capabilities', mcps: 'Connected Apps',
-    'claude-md': 'System Prompt', manual: 'Manual', restrictions: 'Channels',
-  };
   return (
     <span style={{
       fontSize: 10.5, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
       background: c.bg, color: c.color, letterSpacing: '0.03em',
-    }}>{label[trigger] ?? trigger}</span>
+    }}>{TRIGGER_LABELS[trigger] ?? trigger}</span>
   );
 }
 
@@ -3541,6 +3542,8 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   const [restoring, setRestoring] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [msg, setMsg]             = useState('');
+  const [copied, setCopied]       = useState(false);
+  const [menuOpen, setMenuOpen]   = useState(false);
 
   // Load snapshot list + MCP catalog (fast path — no live state on mount)
   useEffect(() => {
@@ -3634,6 +3637,31 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
     return `${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
+  const handleExport = () => {
+    if (!fullSnapshot) return;
+    const blob = new Blob([JSON.stringify(fullSnapshot, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `snapshot-${fullSnapshot.id}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyId = () => {
+    if (!fullSnapshot) return;
+    navigator.clipboard?.writeText(fullSnapshot.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  // Newer/Older paging across the (newest-first) snapshot list.
+  const selIndex = selectedId ? snapshots.findIndex(s => s.id === selectedId) : -1;
+  const goNewer = () => { if (selIndex > 0) setSelectedId(snapshots[selIndex - 1].id); };
+  const goOlder = () => { if (selIndex >= 0 && selIndex < snapshots.length - 1) setSelectedId(snapshots[selIndex + 1].id); };
+
+  const ghostBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-sans)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' };
+  const primaryBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 8, border: 'none', color: 'var(--accent-fg)', fontFamily: 'var(--font-sans)' };
+  const pagerBtnStyle = (disabled: boolean): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, fontFamily: 'var(--font-sans)', border: '1px solid var(--border)', background: 'var(--surface)', color: disabled ? 'var(--subtle)' : 'var(--text)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 });
+
   // Compare target is always live current state — restore preview is current-only.
   const currentAsSnapshot: AgentSnapshot | null = liveSnapshot;
 
@@ -3664,273 +3692,192 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   );
 
   return (
-    <div style={{ display: 'flex', gap: 20, minHeight: 500, alignItems: 'flex-start' }}>
+    <div className="fade-up">
+      {/* ── Section header ─────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div style={{ display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+          <div style={{ width: 40, height: 40, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}><History size={19} /></div>
+          <div>
+            <h2 style={{ margin: '0 0 3px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>History</h2>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 520 }}>View and compare snapshots of this agent's configuration over time.</p>
+          </div>
+        </div>
+        {msg && <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>{msg}</span>}
+      </div>
 
-      {/* ── Left: snapshot list ────────────────────────────────────────────── */}
-      <div style={{ width: 280, flexShrink: 0 }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-            color: 'var(--subtle)', textTransform: 'uppercase',
-          }}>
-            {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
-          </span>
-          {canEdit && (
-            <button onClick={handleCreateManual} style={{
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
-              borderRadius: 'var(--radius-sm)', padding: '7px 13px',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              fontFamily: 'var(--font-sans)', letterSpacing: '-0.01em',
-              boxShadow: 'var(--shadow-sm)', transition: 'opacity 0.15s',
-            }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-            >+ Snapshot</button>
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        {/* ── Left: snapshot timeline ──────────────────────────────────── */}
+        <div style={{ width: 300, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '13px 15px', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase' }}>
+              <History size={13} /> {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
+            </span>
+            {canEdit && (
+              <button onClick={handleCreateManual} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '6px 11px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Plus size={13} /> Snapshot</button>
+            )}
+          </div>
+
+          {snapshots.length === 0 ? (
+            <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+              <Camera size={22} style={{ color: 'var(--border-2)' }} />
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: '10px 0 6px' }}>No snapshots yet</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>Snapshots are saved automatically when you change skills, tools, or capabilities.</div>
+            </div>
+          ) : (
+            <div style={{ position: 'relative', padding: '14px 15px' }}>
+              <div style={{ position: 'absolute', left: 20, top: 22, bottom: 22, width: 2, background: 'var(--border)' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {snapshots.map((snap, i) => {
+                  const isSel = snap.id === selectedId;
+                  return (
+                    <div key={snap.id} onClick={() => setSelectedId(snap.id)} style={{ position: 'relative', paddingLeft: 20, cursor: 'pointer' }}>
+                      <span style={{ position: 'absolute', left: 0, top: 15, width: 12, height: 12, borderRadius: '50%', background: isSel ? 'var(--accent)' : 'var(--surface)', border: `2px solid ${isSel ? 'var(--accent)' : 'var(--border-2)'}`, boxShadow: '0 0 0 3px var(--surface)', zIndex: 1 }} />
+                      <div style={{ border: `1px solid ${isSel ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 11, background: isSel ? 'var(--surface-2)' : 'var(--surface)', padding: '10px 12px', transition: 'border-color .15s, background .15s' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{TRIGGER_LABELS[snap.trigger] ?? snap.trigger}</span>
+                          {i === 0 && <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--accent-fg)', background: 'var(--accent)', borderRadius: 5, padding: '1px 6px', textTransform: 'uppercase' }}>Latest</span>}
+                          <ChevronRight size={14} style={{ color: 'var(--subtle)', marginLeft: 'auto', flexShrink: 0 }} />
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{fmt(snap.createdAt)}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 1 }}>by {snap.createdBy}</div>
+                        {snap.label && <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snap.label}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
 
-        {msg && (
-          <div style={{
-            fontSize: 12, color: '#16a34a', background: '#f0fdf4',
-            border: '1px solid #bbf7d0', borderRadius: 8,
-            padding: '8px 12px', marginBottom: 10,
-          }}>{msg}</div>
-        )}
-
-        {snapshots.length === 0 ? (
-          <div style={{
-            background: 'var(--surface)', borderRadius: 'var(--radius)',
-            boxShadow: 'var(--shadow-card)', padding: '28px 20px',
-            textAlign: 'center',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Camera size={22} style={{ color: 'var(--border-2)' }} /></div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No snapshots yet</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-              Snapshots are saved automatically when you change skills, MCPs, or permissions.
+        {/* ── Right: detail ────────────────────────────────────────────── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {loadingDetail ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ height: 36, borderRadius: 10, background: 'var(--surface-2)' }} />
+              <div style={{ height: 84, borderRadius: 12, background: 'var(--surface-2)' }} />
+              {[160, 120].map((h, i) => <div key={i} style={{ height: h, borderRadius: 12, background: 'var(--surface-2)', opacity: 1 - i * 0.3 }} />)}
             </div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {snapshots.map(snap => {
-              const isSelected = snap.id === selectedId;
-              return (
-                <div
-                  key={snap.id}
-                  onClick={() => { setSelectedId(isSelected ? null : snap.id); }}
-                  style={{
-                    background: 'var(--surface)',
-                    borderRadius: 'var(--radius)',
-                    boxShadow: isSelected ? '0 0 0 2px var(--accent), var(--shadow-card)' : 'var(--shadow-card)',
-                    padding: '13px 15px', cursor: 'pointer',
-                    transition: 'box-shadow 0.15s',
-                  }}
-                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}
-                  onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-card)'; }}
-                >
-                  {/* Top row: badge + author */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-                    <TriggerBadge trigger={snap.trigger} />
-                    <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-mono)' }}>{snap.createdBy}</span>
-                  </div>
-
-                  {/* Timestamp */}
-                  <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)', marginBottom: snap.label ? 4 : 0 }}>
-                    {fmt(snap.createdAt)}
-                  </div>
-
-                  {/* Optional label */}
-                  {snap.label && (
-                    <div style={{
-                      fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic',
-                      marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>{snap.label}</div>
-                  )}
-
-                  {/* Actions — only when selected. Restore moves to the diff pane header; sidebar keeps Delete only. */}
-                  {isSelected && canEdit && (
-                    <div style={{ display: 'flex', gap: 7, marginTop: 11, paddingTop: 11, borderTop: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
-                      <button
-                        onClick={() => handleDelete(snap.id)}
-                        style={{
-                          flex: 1, fontSize: 12, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
-                          background: 'transparent', color: 'var(--red)',
-                          border: '1.5px solid rgba(220,38,38,0.25)',
-                          fontFamily: 'var(--font-sans)', fontWeight: 500, transition: 'all 0.15s',
-                        }}
-                        onMouseEnter={e => { (e.currentTarget.style.background = 'var(--red)'); (e.currentTarget.style.color = 'var(--accent-fg)'); (e.currentTarget.style.borderColor = 'var(--red)'); }}
-                        onMouseLeave={e => { (e.currentTarget.style.background = 'transparent'); (e.currentTarget.style.color = 'var(--red)'); (e.currentTarget.style.borderColor = 'rgba(220,38,38,0.25)'); }}
-                      >Delete</button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Right: diff panel ─────────────────────────────────────────────── */}
-      {loadingDetail ? (
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Compare bar skeleton */}
-          <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 90, height: 14, borderRadius: 4, background: 'var(--surface-2)' }} />
-            <div style={{ flex: 1, height: 34, borderRadius: 8, background: 'var(--surface-2)' }} />
-          </div>
-          {/* Section skeletons */}
-          {[120, 80, 60, 200].map((h, i) => (
-            <div key={i} style={{ background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', opacity: 1 - i * 0.15 }}>
-              <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ width: 70, height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
-              </div>
-              <div style={{ padding: '16px 18px' }}>
-                <div style={{ height: h, borderRadius: 6, background: 'var(--surface-2)' }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : fullSnapshot ? (
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* Restore preview header — the diff below shows what restoring this
-              snapshot would do to the current state. Green = will be added,
-              red = will be removed. Primary action lives here (not in sidebar). */}
-          <div style={{
-            background: 'var(--surface)', borderRadius: 'var(--radius)',
-            boxShadow: 'var(--shadow-card)', padding: '14px 18px',
-            display: 'flex', flexDirection: 'column', gap: 10,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{
-                fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
-                color: 'var(--muted)', textTransform: 'uppercase',
-              }}>Restore preview</span>
-              <span style={{
-                fontSize: 12.5, padding: '5px 10px', borderRadius: 6,
-                background: 'var(--surface-2)', border: '1px solid var(--border)',
-                color: 'var(--text)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
-              }}>
-                {fmt(fullSnapshot.createdAt)}
-              </span>
-              <TriggerBadge trigger={fullSnapshot.trigger} />
-              {fullSnapshot.label && (
-                <span style={{
-                  fontSize: 12, color: 'var(--muted)', fontStyle: 'italic',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>{fullSnapshot.label}</span>
-              )}
-              {canEdit && (
-                <button
-                  onClick={() => handleRestore(fullSnapshot)}
-                  disabled={restoring}
-                  style={{
-                    marginLeft: 'auto', fontSize: 12.5, padding: '7px 16px', borderRadius: 8,
-                    cursor: restoring ? 'not-allowed' : 'pointer',
-                    background: 'var(--green)', color: 'var(--accent-fg)', border: 'none',
-                    fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
-                  }}
-                  onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
-                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-                >{restoring ? 'Restoring…' : 'Restore'}</button>
-              )}
-            </div>
-            <span style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.5 }}>
-              If you restore this snapshot, the changes below will apply to your current state.{' '}
-              <span style={{ color: 'var(--green)', fontWeight: 600 }}>Green</span> = will be added to current.{' '}
-              <span style={{ color: 'var(--red)', fontWeight: 600 }}>Red</span> = will be removed from current.
-            </span>
-          </div>
-
-          {/* Diff sections — wait for compare target to load */}
-          {!currentAsSnapshot ? (
-            <div style={{
-              background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
-              padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
-            }}>
-              Loading comparison…
+          ) : !fullSnapshot ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 360, border: '1px dashed var(--border)', borderRadius: 16, gap: 10, padding: 40 }}>
+              <History size={30} style={{ color: 'var(--border-2)' }} />
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Select a snapshot</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>Pick a snapshot on the left to see what changed and restore it if needed.</div>
             </div>
           ) : (() => {
-            // Restore-preview frame: current is the OLD side, snapshot is the NEW side.
-            // Green = snapshot has, current doesn't = will be added on restore.
-            // Red   = current has, snapshot doesn't = will be removed on restore.
-            const files = buildDiffFiles(fullSnapshot, currentAsSnapshot);
+            // Restore-preview frame: current = OLD side, snapshot = NEW side.
+            // green = snapshot has, current doesn't = added on restore; red = the reverse.
+            const files = currentAsSnapshot ? buildDiffFiles(fullSnapshot, currentAsSnapshot) : [];
+            const added = files.filter(f => f.status === 'added').length;
+            const updated = files.filter(f => f.status === 'modified').length;
+            const removed = files.filter(f => f.status === 'removed').length;
 
-            // Cheap pre-checks so we can hide the "Other changes" card entirely
-            // when nothing on that axis has moved. Mirrors the "no changes"
-            // early-returns in PermsDiff / McpsDiff / ChannelsDiff below.
-            const currAllowed = new Set(currentAsSnapshot.allowedTools);
-            const currDenied  = new Set(currentAsSnapshot.deniedTools);
-            const snapAllowed = new Set(fullSnapshot.allowedTools);
-            const snapDenied  = new Set(fullSnapshot.deniedTools);
-            const hasPermChanges =
-              [...currAllowed].some(t => !snapAllowed.has(t)) ||
-              [...snapAllowed].some(t => !currAllowed.has(t)) ||
-              [...currDenied].some(t => !snapDenied.has(t)) ||
-              [...snapDenied].some(t => !currDenied.has(t));
-
-            const currMcps = new Set(currentAsSnapshot.mcpIds);
-            const snapMcps = new Set(fullSnapshot.mcpIds);
-            const hasMcpChanges =
-              [...currMcps].some(id => !snapMcps.has(id)) ||
-              [...snapMcps].some(id => !currMcps.has(id));
-
-            const currChs = new Set(currentAsSnapshot.allowedChannels ?? []);
-            const snapChs = new Set(fullSnapshot.allowedChannels ?? []);
-            const hasChannelChanges =
-              [...currChs].some(ch => !snapChs.has(ch)) ||
-              [...snapChs].some(ch => !currChs.has(ch));
-
+            const cur = currentAsSnapshot;
+            const hasPermChanges = !!cur && (
+              cur.allowedTools.some(t => !fullSnapshot.allowedTools.includes(t)) ||
+              fullSnapshot.allowedTools.some(t => !cur.allowedTools.includes(t)) ||
+              cur.deniedTools.some(t => !fullSnapshot.deniedTools.includes(t)) ||
+              fullSnapshot.deniedTools.some(t => !cur.deniedTools.includes(t)));
+            const hasMcpChanges = !!cur && (
+              cur.mcpIds.some(id => !fullSnapshot.mcpIds.includes(id)) ||
+              fullSnapshot.mcpIds.some(id => !cur.mcpIds.includes(id)));
+            const hasChannelChanges = !!cur && (
+              (cur.allowedChannels ?? []).some(c => !(fullSnapshot.allowedChannels ?? []).includes(c)) ||
+              (fullSnapshot.allowedChannels ?? []).some(c => !(cur.allowedChannels ?? []).includes(c)));
             const hasOther = hasPermChanges || hasMcpChanges || hasChannelChanges;
 
-            if (files.length === 0 && !hasOther) {
-              return (
-                <div style={{
-                  background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
-                  padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
-                }}>
-                  No differences
+            const Stat = ({ icon, color, value, label, sub }: { icon: React.ReactNode; color: string; value: number; label: string; sub: string }) => (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}>{icon}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1.1 }}>{value}</div>
+                  <div style={{ fontSize: 11, color: 'var(--subtle)' }}>{sub}</div>
                 </div>
-              );
-            }
+              </div>
+            );
+
+            const shortId = fullSnapshot.id.length > 13 ? `${fullSnapshot.id.slice(0, 8)}…` : fullSnapshot.id;
 
             return (
-              <>
-                {files.length > 0 && <FilesChanged files={files} />}
-                {hasOther && (
-                  <div style={{
-                    background: 'var(--surface)', borderRadius: 'var(--radius)',
-                    boxShadow: 'var(--shadow-card)', overflow: 'hidden',
-                  }}>
-                    <div style={{
-                      padding: '12px 18px', borderBottom: '1px solid var(--border)',
-                      fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-                      color: 'var(--muted)', textTransform: 'uppercase',
-                    }}>Other changes</div>
-                    <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                      {hasPermChanges    && <PermsDiff    snapshot={fullSnapshot} current={currentAsSnapshot} />}
-                      {hasMcpChanges     && <McpsDiff     snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} />}
-                      {hasChannelChanges && <ChannelsDiff snapshot={fullSnapshot} current={currentAsSnapshot} />}
-                    </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Detail header */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', minWidth: 0 }}>
+                    <TriggerBadge trigger={fullSnapshot.trigger} />
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{fmt(fullSnapshot.createdAt)}</span>
+                    <span style={{ fontSize: 12, color: 'var(--subtle)' }}>· by {fullSnapshot.createdBy}</span>
+                    <span style={{ fontSize: 12, color: 'var(--subtle)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      · ID <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{shortId}</span>
+                      <button onClick={copyId} title="Copy snapshot ID" style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: copied ? 'var(--green)' : 'var(--subtle)', padding: 2 }}>
+                        {copied ? <Check size={12} /> : <Copy size={12} />}
+                      </button>
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, position: 'relative' }}>
+                    <button onClick={handleExport} style={ghostBtnStyle}><Download size={13} /> Export</button>
+                    {canEdit && <button onClick={() => handleRestore(fullSnapshot)} disabled={restoring} style={{ ...primaryBtnStyle, background: 'var(--green)', cursor: restoring ? 'not-allowed' : 'pointer' }}><RotateCcw size={13} /> {restoring ? 'Restoring…' : 'Restore'}</button>}
+                    {canEdit && (
+                      <>
+                        <button onClick={() => setMenuOpen(o => !o)} style={{ ...ghostBtnStyle, padding: '7px 9px' }}><MoreHorizontal size={15} /></button>
+                        {menuOpen && (
+                          <>
+                            <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 10 }} />
+                            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 11, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: 5, minWidth: 160 }}>
+                              <button onClick={() => { setMenuOpen(false); handleDelete(fullSnapshot.id); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', fontSize: 12.5, color: 'var(--red)', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Trash2 size={13} /> Delete snapshot</button>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stat strip */}
+                {cur && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                    <Stat icon={<Plus size={17} />} color="var(--green)" value={added} label="Files added" sub="New files" />
+                    <Stat icon={<Pencil size={15} />} color="var(--amber)" value={updated} label="Files updated" sub="Modified files" />
+                    <Stat icon={<Minus size={17} />} color="var(--red)" value={removed} label="Files removed" sub="Removed files" />
                   </div>
                 )}
-              </>
+
+                {/* Caption */}
+                <div style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.5 }}>
+                  Diff vs the current configuration — <span style={{ color: 'var(--green)', fontWeight: 600 }}>green</span> is what Restore would add, <span style={{ color: 'var(--red)', fontWeight: 600 }}>red</span> what it would remove.
+                </div>
+
+                {/* Diff */}
+                {!cur ? (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '24px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13 }}>Loading comparison…</div>
+                ) : files.length === 0 && !hasOther ? (
+                  <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '28px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>This snapshot matches the current configuration — no differences.</div>
+                ) : (
+                  <>
+                    {files.length > 0 && <FilesChanged files={files} />}
+                    {hasOther && (
+                      <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>Other changes</div>
+                        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                          {hasPermChanges && <PermsDiff snapshot={fullSnapshot} current={cur} />}
+                          {hasMcpChanges && <McpsDiff snapshot={fullSnapshot} current={cur} allMcps={allMcps} />}
+                          {hasChannelChanges && <ChannelsDiff snapshot={fullSnapshot} current={cur} />}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Pager */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 2 }}>
+                  <button onClick={goNewer} disabled={selIndex <= 0} style={pagerBtnStyle(selIndex <= 0)}><ArrowLeft size={14} /> Newer</button>
+                  <button onClick={goOlder} disabled={selIndex < 0 || selIndex >= snapshots.length - 1} style={pagerBtnStyle(selIndex < 0 || selIndex >= snapshots.length - 1)}>Older <ArrowRight size={14} /></button>
+                </div>
+              </div>
             );
           })()}
         </div>
-      ) : (
-        <div style={{
-          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          background: 'var(--surface)', borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-card)', gap: 10, padding: 40,
-        }}>
-          <History size={32} style={{ color: 'var(--border-2)' }} />
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Select a snapshot</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 260, lineHeight: 1.6 }}>
-            Click any snapshot on the left to view what changed at that point in time.
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
