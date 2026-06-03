@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Hash, Calendar, UserCircle, Cpu, ArrowRight } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Hash, Calendar, UserCircle, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -447,28 +447,6 @@ function Card({ title, action, children }: { title?: string; action?: React.Reac
   );
 }
 
-/** Agent avatar — Slack profile image if present, else a palette letter tile. */
-function AgentAvatar({ agent, size }: { agent: Agent; size: number }) {
-  const [failed, setFailed] = useState(false);
-  const p = avatarPalette(agent.name);
-  const showImg = !!agent.slackBotImageUrl && !failed;
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: Math.round(size * 0.28), flexShrink: 0,
-      overflow: 'hidden', border: '1px solid var(--border)',
-      background: showImg ? 'var(--surface-2)' : p.bg,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: Math.round(size * 0.4), fontWeight: 700, color: p.fg,
-    }}>
-      {showImg ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={agent.slackBotImageUrl} alt={agent.name} width={size} height={size}
-          onError={() => setFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-      ) : agent.name.charAt(0).toUpperCase()}
-    </div>
-  );
-}
-
 /** A labeled metadata row for the Overview side panel. */
 function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label: string; children: React.ReactNode; mono?: boolean }) {
   return (
@@ -536,7 +514,6 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
     } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
   };
 
-  const statusAccent = agent.status === 'running' ? '#16a34a' : agent.status === 'error' ? '#ef4444' : 'var(--muted)';
   const num = (n: number | undefined) => counts ? String(n ?? 0) : '—';
   const fmtDate = (d: Date | string | undefined) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
 
@@ -544,12 +521,11 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }} className="fade-up">
       {/* Main column */}
       <div style={{ flex: '1 1 540px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Summary stats — monochrome; Status keeps its semantic color */}
+        {/* Summary stats (Status lives in the header pill — not repeated here) */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <StatCard icon={<ActivityIcon size={17} />} label="Status"   value={agent.status} accent={statusAccent} />
-          <StatCard icon={<BookOpen size={17} />}     label="Skills"   value={num(counts?.skills)} />
-          <StatCard icon={<Brain size={17} />}        label="Memories" value={num(counts?.memories)} />
-          <StatCard icon={<Database size={17} />}     label="Tools"    value={num(counts?.tools)} />
+          <StatCard icon={<BookOpen size={17} />}  label="Skills"   value={num(counts?.skills)} />
+          <StatCard icon={<Brain size={17} />}     label="Memories" value={num(counts?.memories)} />
+          <StatCard icon={<Database size={17} />}  label="Tools"    value={num(counts?.tools)} />
         </div>
 
         {/* Identity */}
@@ -572,24 +548,17 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
         </Card>
       </div>
 
-      {/* Right metadata panel */}
-      <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
-        <Card>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-            <AgentAvatar agent={agent} size={64} />
-            <div style={{ textAlign: 'center', minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{agent.name}</div>
-              {agent.slackBotHandle && <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>@{agent.slackBotHandle}</div>}
-            </div>
+      {/* Right metadata panel — only details NOT already shown in the header */}
+      <aside style={{ flex: '0 0 280px', maxWidth: '100%' }}>
+        <Card title="Details">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <MetaRow icon={<Hash size={13} />} label="Agent ID" mono>{agent.id}</MetaRow>
+            <MetaRow icon={<Calendar size={13} />} label="Created">{fmtDate(agent.createdAt)}</MetaRow>
+            <MetaRow icon={<Clock size={13} />} label="Updated">{fmtDate(agent.updatedAt)}</MetaRow>
+            <MetaRow icon={<UserCircle size={13} />} label="Owner">{agent.createdBy}</MetaRow>
           </div>
-          <MetaRow icon={<Hash size={13} />} label="Agent ID" mono>{agent.id}</MetaRow>
-          <MetaRow icon={<Calendar size={13} />} label="Created">{fmtDate(agent.createdAt)}</MetaRow>
-          <MetaRow icon={<Clock size={13} />} label="Updated">{fmtDate(agent.updatedAt)}</MetaRow>
-          <MetaRow icon={<UserCircle size={13} />} label="Owner">{agent.createdBy}</MetaRow>
-          <MetaRow icon={<ActivityIcon size={13} />} label="Status"><span style={{ color: statusAccent, textTransform: 'capitalize' }}>{agent.status}</span></MetaRow>
-          <MetaRow icon={<Cpu size={13} />} label="Model" mono>{agent.model}</MetaRow>
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10,
             padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,
             fontSize: 12.5, fontWeight: 500, color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-sans)',
           }}>
