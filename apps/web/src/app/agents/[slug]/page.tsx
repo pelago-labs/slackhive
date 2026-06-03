@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -1049,18 +1049,20 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
       </div>
 
       {/* ── Active section description ──────────────────────────────────── */}
-      <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 620 }}>
-        {section === 'system'
-          ? (agent.isBoss
-              ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
-              : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
-          : section === 'skills'
-          ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
-          : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
-      </p>
+      {/* System Prompt renders its description inline with the editor toolbar
+          (see ClaudeMdSection) so the toggle row doesn't waste vertical space. */}
+      {section !== 'system' && (
+        <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 620 }}>
+          {section === 'skills'
+            ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
+            : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
+        </p>
+      )}
 
       {/* ── Full-width content ─────────────────────────────────────────── */}
-      {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} />}
+      {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} description={agent.isBoss
+        ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
+        : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context."} />}
       {section === 'skills' && <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />}
       {section === 'memory' && <MemorySection agentId={agent.id} canEdit={canEdit} />}
     </div>
@@ -1087,7 +1089,7 @@ function ActionBtn({ icon, label, onClick, loading, primary }: { icon: React.Rea
   );
 }
 
-function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function ClaudeMdSection({ agentId, canEdit, description }: { agentId: string; canEdit: boolean; description?: string }) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1133,9 +1135,13 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
 
   return (
     <div style={{ position: 'relative' }}>
-      {/* Top bar: Save (when dirty) on the left, Edit/Preview toggle on the right */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Top bar: section description on the left; Save + Edit/Preview on the right */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 10 }}>
+        {description
+          ? <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 620, flex: 1, minWidth: 0 }}>{description}</p>
+          : <span style={{ flex: 1 }} />}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
           {canEdit && view === 'edit' && dirty && (
             <button onClick={save} disabled={saving} style={{
               background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
@@ -1143,8 +1149,6 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
               cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
             }}>{saving ? 'Saving…' : 'Save'}</button>
           )}
-          {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
-        </div>
         <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 9 }}>
           {(['edit', 'preview'] as const).map(v => (
             <button key={v} onClick={() => setView(v)} style={{
@@ -1154,6 +1158,7 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
               fontWeight: view === v ? 600 : 400, boxShadow: view === v ? 'var(--shadow-sm)' : 'none',
             }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
           ))}
+        </div>
         </div>
       </div>
 
@@ -1616,15 +1621,22 @@ function ToolsTab({ agentId, canEdit, canManageMcps, currentUsername }: { agentI
   );
 }
 
+/** Transport → icon. stdio = local process, http/sse = remote endpoints. */
+function mcpTypeIcon(type: McpServer['type']) {
+  return type === 'stdio' ? Terminal : type === 'http' ? Globe : Radio;
+}
+
 function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { agentId: string; canEdit: boolean; canManageMcps: boolean; currentUsername: string }) {
-  const [all, setAll]         = useState<McpServer[]>([]);
+  const [all, setAll]           = useState<McpServer[]>([]);
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
-  const [saving, setSaving]   = useState(false);
-  const [msg, setMsg]         = useState('');
-  // Tracks the initial fetch so the empty-state ("No MCP servers yet")
-  // doesn't flash before the data arrives. Without this, /api/mcps round-trip
-  // latency reads as "the feature is broken".
-  const [loading, setLoading] = useState(true);
+  // Snapshot of what's persisted, so we can show a Save bar only when the
+  // local selection diverges (Connect/Disconnect is optimistic; persisting
+  // triggers an agent reload, so we batch rather than save per-toggle).
+  const [initial, setInitial]   = useState<Set<string>>(new Set());
+  const [saving, setSaving]     = useState(false);
+  const [msg, setMsg]           = useState('');
+  // Tracks the initial fetch so the empty-state doesn't flash before data.
+  const [loading, setLoading]   = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1636,7 +1648,8 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
       fetch(`/api/agents/${agentId}/mcps`).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
     ]).then(([a, b]: [McpServer[], McpServer[]]) => {
       if (cancelled) return;
-      setAll(a); setAssigned(new Set(b.map(m => m.id)));
+      const ids = new Set(b.map(m => m.id));
+      setAll(a); setAssigned(ids); setInitial(new Set(ids));
     }).catch(err => {
       if (cancelled) return;
       setLoadError(err instanceof Error ? err.message : String(err));
@@ -1649,82 +1662,188 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
   const toggle = (id: string) =>
     setAssigned(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
+  const dirty = assigned.size !== initial.size || [...assigned].some(id => !initial.has(id));
+
   const save = async () => {
     setSaving(true);
-    await fetch(`/api/agents/${agentId}/mcps`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mcpIds: [...assigned] }),
-    });
-    setSaving(false); setMsg('Saved & reload triggered');
-    setTimeout(() => setMsg(''), 3000);
+    try {
+      await fetch(`/api/agents/${agentId}/mcps`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mcpIds: [...assigned] }),
+      });
+      setInitial(new Set(assigned));
+      setMsg('Saved · agent will reload');
+      setTimeout(() => setMsg(''), 3500);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  return (
-    <div style={{ maxWidth: 560 }} className="fade-up">
-      <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--muted)' }}>
-        Select MCP servers from the platform catalog to enable for this agent.
-      </p>
-      <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
-        {loading ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading apps…
-          </div>
-        ) : loadError ? (
-          <div style={{ padding: '16px 20px', color: 'var(--red)', fontSize: 13, background: 'var(--red-soft-bg)' }}>
-            Couldn't load MCP servers: {loadError}
-          </div>
-        ) : all.length === 0 ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-            No MCP servers yet.{' '}
-            <Link href="/settings/mcps" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Add some →</Link>
-          </div>
-        ) : all.map((mcp, i) => {
-          const canAssign = canManageMcps || mcp.createdBy === currentUsername;
-          const isDisabled = !mcp.enabled || !canEdit || !canAssign;
-          return (
-            <label
-              key={mcp.id}
-              style={{
-                display: 'flex', alignItems: 'flex-start', gap: 12,
-                padding: '13px 16px', cursor: isDisabled ? 'not-allowed' : 'pointer',
-                borderBottom: i < all.length - 1 ? '1px solid var(--border)' : 'none',
-                background: 'transparent', transition: 'background 0.12s',
-                opacity: mcp.enabled ? 1 : 0.45,
-              }}
-              onMouseEnter={e => { if (!isDisabled) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-            >
-              <input
-                type="checkbox"
-                checked={assigned.has(mcp.id)}
-                onChange={() => toggle(mcp.id)}
-                disabled={isDisabled}
-                style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0, marginTop: 2 }}
-              />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{mcp.name}</span>
-                  <span style={{
-                    fontSize: 10.5, fontFamily: 'var(--font-mono)',
-                    color: 'var(--muted)', background: 'var(--border)',
-                    padding: '1px 6px', borderRadius: 4,
-                  }}>{mcp.type}</span>
-                  {!mcp.enabled && <span style={{ fontSize: 11, color: 'var(--subtle)' }}>disabled</span>}
+  const connected = all.filter(m => assigned.has(m.id));
+  const available = all.filter(m => !assigned.has(m.id));
+
+  const Badge = ({ children }: { children: React.ReactNode }) => (
+    <span style={{
+      fontSize: 10, fontWeight: 600, letterSpacing: '0.03em', fontFamily: 'var(--font-mono)',
+      color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)',
+      padding: '1px 6px', borderRadius: 5, lineHeight: 1.5, whiteSpace: 'nowrap',
+    }}>{children}</span>
+  );
+
+  const renderCard = (mcp: McpServer, isConn: boolean) => {
+    const Icon = mcpTypeIcon(mcp.type);
+    const canAssign = canManageMcps || mcp.createdBy === currentUsername;
+    const actionable = canEdit && canAssign && mcp.enabled;
+    return (
+      <div key={mcp.id} style={{
+        border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)',
+        overflow: 'hidden', opacity: mcp.enabled ? 1 : 0.6,
+        boxShadow: isConn ? 'inset 3px 0 0 var(--accent)' : 'none',
+      }}>
+        <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)',
+          }}><Icon size={20} /></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mcp.name}</span>
+                  <Badge>MCP</Badge>
+                  <Badge>{mcp.type.toUpperCase()}</Badge>
                 </div>
-                {mcp.description && <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{mcp.description}</p>}
-                {canEdit && !canAssign && (
-                  <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-                    Only the MCP owner or an admin can assign this
-                  </p>
-                )}
               </div>
-            </label>
-          );
-        })}
+              {canEdit && (
+                actionable ? (
+                  <button onClick={() => toggle(mcp.id)} style={{
+                    flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 8,
+                    cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                    border: '1px solid var(--border)',
+                    background: isConn ? 'var(--surface)' : 'var(--accent)',
+                    color: isConn ? 'var(--text)' : 'var(--accent-fg)',
+                    borderColor: isConn ? 'var(--border)' : 'var(--accent)',
+                  }}>
+                    {isConn ? <><X size={13} />Disconnect</> : <><Plus size={13} />Connect</>}
+                  </button>
+                ) : (
+                  <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--subtle)', maxWidth: 130, textAlign: 'right' }}>
+                    {!mcp.enabled ? 'Disabled in catalog' : 'Owner/admin only'}
+                  </span>
+                )
+              )}
+            </div>
+            {mcp.description && (
+              <p style={{
+                margin: '7px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5,
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>{mcp.description}</p>
+            )}
+          </div>
+        </div>
+        <div style={{
+          borderTop: '1px solid var(--border)', padding: '9px 16px',
+          display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: 'var(--muted)',
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: isConn ? 'var(--green)' : 'var(--subtle)', flexShrink: 0 }} />
+          {isConn ? 'Connected' : 'Not connected'}
+        </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Assignments</PrimaryBtn>}
-        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+    );
+  };
+
+  const SectionHead = ({ label, count }: { label: string; count: number }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
+      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{label}</h3>
+      <span style={{
+        fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)',
+        border: '1px solid var(--border)', borderRadius: 99, padding: '0 8px', lineHeight: '18px',
+      }}>{count}</span>
+    </div>
+  );
+
+  const colEmpty = (text: string) => (
+    <div style={{
+      border: '1px dashed var(--border)', borderRadius: 14, padding: '28px 16px',
+      textAlign: 'center', fontSize: 12.5, color: 'var(--muted)',
+    }}>{text}</div>
+  );
+
+  return (
+    <div className="fade-up">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>Tools</h2>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
+            Connect external systems and MCP servers that this agent can use.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {msg && <span style={{ fontSize: 12, color: 'var(--green)' }}>{msg}</span>}
+          {canEdit && dirty && <PrimaryBtn onClick={save} loading={saving}>Save changes</PrimaryBtn>}
+          <Link href="/settings/mcps" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px',
+            fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none',
+            border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
+          }}>Browse MCP Catalog <ExternalLink size={13} /></Link>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading tools…
+        </div>
+      ) : loadError ? (
+        <div style={{ padding: '16px 20px', color: 'var(--red)', fontSize: 13, background: 'var(--red-soft-bg)', borderRadius: 12 }}>
+          Couldn't load MCP servers: {loadError}
+        </div>
+      ) : all.length === 0 ? (
+        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+          No MCP servers in the catalog yet.{' '}
+          <Link href="/settings/mcps" style={{ color: 'var(--text)', fontWeight: 500 }}>Add one →</Link>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 28, alignItems: 'start' }}>
+          <div>
+            <SectionHead label="Connected Tools" count={connected.length} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {connected.length ? connected.map(m => renderCard(m, true)) : colEmpty('No tools connected yet — connect one from the right.')}
+            </div>
+          </div>
+          <div>
+            <SectionHead label="Available Tools" count={available.length} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {available.length ? available.map(m => renderCard(m, false)) : colEmpty('All catalog tools are connected.')}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* What are tools? */}
+      <div style={{
+        marginTop: 28, padding: '16px 18px', border: '1px solid var(--border)', borderRadius: 14,
+        background: 'var(--surface-2)', display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap',
+      }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: 10, flexShrink: 0, display: 'flex',
+          alignItems: 'center', justifyContent: 'center', background: 'var(--surface)',
+          border: '1px solid var(--border)', color: 'var(--text)',
+        }}><Plug size={18} /></div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>What are tools?</div>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+            Tools let this agent securely access external systems and data through MCP (Model Context Protocol) servers —
+            querying databases, calling APIs, or running integrations. Connect the ones it needs; changes take effect on its next reload.
+          </p>
+        </div>
+        <Link href="/settings/mcps" style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', alignSelf: 'center',
+          fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none',
+          border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0,
+        }}>Learn more <ExternalLink size={13} /></Link>
       </div>
     </div>
   );
