@@ -20,13 +20,14 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Eye,
   HelpCircle,
   Loader2,
-  Pencil,
   Play,
   Plus,
   RotateCcw,
   Sparkles,
+  Wand2,
 } from 'lucide-react';
 import { EvalsCasesDrawer } from './evals-cases-drawer';
 import { EvalsRunsDrawer } from './evals-runs-drawer';
@@ -103,7 +104,15 @@ function buildCoachSeed(
   return lines.join('\n');
 }
 
-export function EvalsPanel({ agent, onAskCoach }: { agent: Agent; onAskCoach?: (seedMessage: string) => void }) {
+export function EvalsPanel({
+  agent,
+  onAskCoach,
+  onOpenCoach,
+}: {
+  agent: Agent;
+  onAskCoach?: (seedMessage: string) => void;
+  onOpenCoach?: () => void;
+}) {
   const [data, setData] = useState<HealthcheckResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -587,47 +596,72 @@ export function EvalsPanel({ agent, onAskCoach }: { agent: Agent; onAskCoach?: (
                 onShowHistory={() => setHistoryOpen(true)}
               />
             </div>
-            <button
-              onClick={startRun}
-              disabled={
-                startingRun ||
-                latest?.run.status === 'running' ||
-                caseCounts.approved === 0
-              }
-              style={{
-                background:
-                  caseCounts.approved === 0 || latest?.run.status === 'running'
-                    ? 'var(--surface-2)'
-                    : 'var(--accent)',
-                color:
-                  caseCounts.approved === 0 || latest?.run.status === 'running'
-                    ? 'var(--muted)'
-                    : 'var(--accent-fg)',
-                border: '1px solid var(--border-2)',
-                borderRadius: 6,
-                padding: '7px 12px',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor:
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {onOpenCoach && !agent.isBoss && (
+                <button
+                  onClick={onOpenCoach}
+                  title="Open Coach — chat with the agent's tuner without sending a failure context"
+                  style={{
+                    background: 'var(--surface)',
+                    color: 'var(--text)',
+                    border: '1px solid var(--border-2)',
+                    borderRadius: 6,
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontFamily: 'inherit',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Wand2 size={13} />
+                  Coach
+                </button>
+              )}
+              <button
+                onClick={startRun}
+                disabled={
                   startingRun ||
                   latest?.run.status === 'running' ||
                   caseCounts.approved === 0
-                    ? 'not-allowed'
-                    : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontFamily: 'inherit',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {latest?.run.status === 'running' || startingRun ? (
-                <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
-              ) : (
-                <Play size={13} />
-              )}
-              Run regression
-            </button>
+                }
+                style={{
+                  background:
+                    caseCounts.approved === 0 || latest?.run.status === 'running'
+                      ? 'var(--surface-2)'
+                      : 'var(--accent)',
+                  color:
+                    caseCounts.approved === 0 || latest?.run.status === 'running'
+                      ? 'var(--muted)'
+                      : 'var(--accent-fg)',
+                  border: '1px solid var(--border-2)',
+                  borderRadius: 6,
+                  padding: '7px 12px',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor:
+                    startingRun ||
+                    latest?.run.status === 'running' ||
+                    caseCounts.approved === 0
+                      ? 'not-allowed'
+                      : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontFamily: 'inherit',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {latest?.run.status === 'running' || startingRun ? (
+                  <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+                ) : (
+                  <Play size={13} />
+                )}
+                Run regression
+              </button>
+            </div>
           </div>
 
           {latest?.run.status === 'done' && (
@@ -1195,8 +1229,8 @@ function ResultsList({
                       e.stopPropagation();
                       onOpenCase!(caseRow!.id);
                     }}
-                    title="Open this test case"
-                    aria-label="Open this test case"
+                    title="View this test case (editable)"
+                    aria-label="View this test case (editable)"
                     style={{
                       background: 'transparent',
                       border: 'none',
@@ -1209,7 +1243,7 @@ function ResultsList({
                       borderRadius: 4,
                     }}
                   >
-                    <Pencil size={13} />
+                    <Eye size={14} />
                   </button>
                 )}
                 {showAskCoach && (

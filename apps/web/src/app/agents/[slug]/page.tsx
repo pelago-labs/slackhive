@@ -395,10 +395,13 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Memory is now inside Instructions tab */}
         {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
         {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'evals'       && <EvalsPanel     agent={agent} onAskCoach={(message) => {
-          setCoachSeed({ token: crypto.randomUUID(), message });
-          setCoachOpen(true);
-        }} />}
+        {tab === 'evals'       && <EvalsPanel     agent={agent}
+          onAskCoach={(message) => {
+            setCoachSeed({ token: crypto.randomUUID(), message });
+            setCoachOpen(true);
+          }}
+          onOpenCoach={() => setCoachOpen(true)}
+        />}
       </div>
 
       {/* Coach is a slide-over — rendered once at page level so it floats over
