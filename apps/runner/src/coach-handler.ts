@@ -13,31 +13,15 @@
  * @module runner/coach-handler
  */
 import { randomUUID } from 'crypto';
-import { z } from 'zod';
-import {
-  query,
-  tool,
-  createSdkMcpServer,
-  type SDKMessage,
-} from '@anthropic-ai/claude-agent-sdk';
-
-// The SDK types `tool()`'s schema against zod v4's `$ZodType`, but our workspace
-// resolves zod to v3 via transitive deps. Both shapes work at runtime — the
-// SDK's `AnyZodRawShape = ZodRawShape | ZodRawShape_2` union is designed for
-// this transitional case. We cast the builder to bypass the type-only mismatch.
-// TODO(zod): remove this cast once the workspace consolidates on zod v4.
-type SdkTool = NonNullable<Parameters<typeof createSdkMcpServer>[0]['tools']>[number];
-const defTool = tool as unknown as <S extends Record<string, unknown>>(
-  name: string,
-  description: string,
-  schema: S,
-  handler: (args: any, extra: unknown) => Promise<{ content: { type: 'text'; text: string }[] }>,
-  extras?: { annotations?: Record<string, unknown> },
-) => SdkTool;
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { CoachProposal } from '@slackhive/shared';
 import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
 import type { Agent } from '@slackhive/shared';
-import { createCodexClient, resolveCodexModel, baseCodexConfig } from './backends/codex-config';
+import { createCodexClient, baseCodexConfig, resolveCodexModel } from './backends/codex-config';
+import { writeSkillsTree } from './compile-instructions';
 import {
   getAgentById,
   getAgentSkills,
@@ -84,12 +68,6 @@ export type CoachStreamEvent =
   | { type: 'proposal'; proposal: CoachProposal }
   | { type: 'done'; sdkSessionId?: string }
   | { type: 'error'; message: string };
-
-const BUILT_IN_TOOLS_TO_DENY = [
-  'Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'BashOutput',
-  'Grep', 'Glob', 'Task', 'NotebookEdit',
-  'TodoWrite', 'ExitPlanMode',
-];
 
 const BOOTSTRAP_APPENDIX = `
 
@@ -272,292 +250,6 @@ export async function resetCoachSession(agentId: string): Promise<void> {
 // ────────────────────────────────────────────────────────────────────────────
 
 /** Collects proposals Claude emits during one turn. */
-interface ToolContext {
-  agentId: string;
-  proposals: CoachProposal[];
-  /**
-   * When true, `propose_*` tools apply their change to the DB immediately
-   * (for wizard bootstrap, where the user consented up-front). When false,
-   * proposals only queue for the user to Apply from the UI.
-   */
-  autoApply: boolean;
-  onToolCall: (name: string, input: Record<string, unknown>, ok: boolean) => void;
-}
-
-function textResult(text: string) {
-  return { content: [{ type: 'text' as const, text }] };
-}
-
-function buildToolbox(ctx: ToolContext) {
-  const wrap = <I extends Record<string, unknown>>(
-    name: string,
-    fn: (input: I) => Promise<ReturnType<typeof textResult>>
-  ) => async (input: I) => {
-    try {
-      const out = await fn(input);
-      ctx.onToolCall(name, input, true);
-      return out;
-    } catch (err) {
-      ctx.onToolCall(name, input, false);
-      return textResult(`ERROR: ${(err as Error).message}`);
-    }
-  };
-
-  const readClaudeMd = defTool(
-    'read_claude_md',
-    "Return the agent's current CLAUDE.md (system prompt). Takes no arguments.",
-    {},
-    wrap('read_claude_md', async () => {
-      const agent = await getAgentById(ctx.agentId);
-      if (!agent) throw new Error('agent not found');
-      return textResult(agent.claudeMd?.trim() || '(empty — no custom system prompt set yet)');
-    }),
-    { annotations: { readOnlyHint: true } }
-  );
-
-  const listSkills = defTool(
-    'list_skills',
-    "List every skill for this agent with category, filename, and the first line of content. Takes no arguments.",
-    {},
-    wrap('list_skills', async () => {
-      const skills = await getAgentSkills(ctx.agentId);
-      if (skills.length === 0) return textResult('(no skills yet)');
-      const lines = skills.map(s => {
-        const first = (s.content.split('\n').find((l: string) => l.trim()) ?? '').slice(0, 120);
-        return `- ${s.category}/${s.filename} — ${first}`;
-      });
-      return textResult(lines.join('\n'));
-    }),
-    { annotations: { readOnlyHint: true } }
-  );
-
-  const readSkill = defTool(
-    'read_skill',
-    'Return the full body of one skill file. Use this before proposing changes to an existing skill.',
-    { category: z.string(), filename: z.string() },
-    wrap('read_skill', async ({ category, filename }) => {
-      const skills = await getAgentSkills(ctx.agentId);
-      const hit = skills.find(s => s.category === category && s.filename === filename);
-      if (!hit) throw new Error(`skill not found: ${category}/${filename}`);
-      return textResult(hit.content);
-    }),
-    { annotations: { readOnlyHint: true } }
-  );
-
-  const listMcps = defTool(
-    'list_mcps',
-    'List the MCP tools connected to this agent, with type and description. Use this before referencing MCPs in instructions.',
-    {},
-    wrap('list_mcps', async () => {
-      const mcps = await getAgentMcpServers(ctx.agentId);
-      if (mcps.length === 0) return textResult('(no MCPs connected)');
-      return textResult(mcps.map(m => `- ${m.name} (${m.type}) — ${m.description ?? 'no description'}`).join('\n'));
-    }),
-    { annotations: { readOnlyHint: true } }
-  );
-
-  const readMemories = defTool(
-    'read_memories',
-    "Return the agent's learned memories with per-memory byte counts and total-vs-cap. Every memory is inlined into the system prompt at build time, so byte budget matters. Each entry includes an id you can pass to propose_memory_change.",
-    {},
-    wrap('read_memories', async () => {
-      const memories = await getAgentMemories(ctx.agentId);
-      if (memories.length === 0) return textResult('(no memories yet)');
-
-      // Match the cap + accounting in compile-claude-md.ts:buildInlinedMemoriesSection.
-      const CAP_BYTES = 32 * 1024;
-      const formatBytes = (n: number) => n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
-      const byteLen = (s: string) => Buffer.byteLength(s, 'utf-8');
-
-      const total = memories.reduce((sum, m) => sum + byteLen(m.content), 0);
-      const pct = Math.round((total / CAP_BYTES) * 100);
-
-      const lines = [
-        `Total: ${formatBytes(total)} / ${formatBytes(CAP_BYTES)} cap (${pct}%)`,
-        '',
-        ...memories.map(m =>
-          `- id=${m.id} [${m.type}] (${formatBytes(byteLen(m.content))}) ${m.name}: ${m.content}`
-        ),
-      ];
-      return textResult(lines.join('\n'));
-    }),
-    { annotations: { readOnlyHint: true } }
-  );
-
-  const proposeClaudeMd = defTool(
-    'propose_claude_md_update',
-    'Propose a full replacement for CLAUDE.md. Does not apply — surfaces an approval card in the UI. Provide the complete new content plus a one-sentence rationale. If you are stripping a domain-knowledge block, write it as a fenced markdown block in your reply so the user can download and add it to the Knowledge Library.',
-    {
-      content: z.string().min(1, 'content required'),
-      rationale: z.string().min(1, 'rationale required'),
-    },
-    wrap('propose_claude_md_update', async ({ content, rationale }) => {
-      const id = randomUUID();
-      if (ctx.autoApply) {
-        await updateAgentClaudeMd(ctx.agentId, content);
-        ctx.proposals.push({ kind: 'claude-md', id, content, rationale, status: 'applied' });
-        return textResult(`Applied (id=${id}).`);
-      }
-      ctx.proposals.push({ kind: 'claude-md', id, content, rationale, status: 'pending' });
-      return textResult(`Proposal queued (id=${id}). The user will see a diff card and choose to Apply or Reject.`);
-    }),
-    { annotations: { readOnlyHint: false, destructiveHint: false } }
-  );
-
-  const proposeSkill = defTool(
-    'propose_skill_change',
-    'Propose creating, updating, or deleting ONE skill file. Does not apply — surfaces an approval card. For create/update include full content. For delete omit content. If you are removing a skill that is really reference material (not a workflow), write it as a fenced markdown block in your reply so the user can download and add it to the Knowledge Library.',
-    {
-      category: z.string().min(1),
-      filename: z.string().min(1),
-      action: z.enum(['create', 'update', 'delete']),
-      content: z.string().optional(),
-      rationale: z.string().min(1),
-    },
-    wrap('propose_skill_change', async ({ category, filename, action, content, rationale }) => {
-      assertSafeSkillPath(category, filename);
-      if ((action === 'create' || action === 'update') && !content) {
-        throw new Error('content is required for create/update');
-      }
-      const id = randomUUID();
-      if (ctx.autoApply) {
-        if (action === 'delete') {
-          await deleteSkill(ctx.agentId, category, filename);
-        } else {
-          // Preserve the existing sortOrder on update so the model doesn't
-          // silently shuffle skills around; new skills go to position 0.
-          const existing = (await getAgentSkills(ctx.agentId)).find(
-            s => s.category === category && s.filename === filename,
-          );
-          await upsertSkill(ctx.agentId, category, filename, content ?? '', existing?.sortOrder ?? 0);
-        }
-        ctx.proposals.push({
-          kind: 'skill', id, category, filename, action,
-          content: action === 'delete' ? undefined : content,
-          rationale, status: 'applied',
-        });
-        return textResult(`Applied ${action} for ${category}/${filename}.`);
-      }
-      ctx.proposals.push({
-        kind: 'skill', id, category, filename, action,
-        content: action === 'delete' ? undefined : content,
-        rationale, status: 'pending',
-      });
-      return textResult(`Proposal queued (id=${id}) for ${action} ${category}/${filename}.`);
-    }),
-    { annotations: { readOnlyHint: false, destructiveHint: false } }
-  );
-
-  const proposeMemory = defTool(
-    'propose_memory_change',
-    'Propose creating, rewriting, or deleting ONE memory row. For `create`, provide name + memoryType + content (memoryId is ignored). For `update`, provide memoryId + content (memoryType optional — include it to retype a mis-categorized memory). For `delete`, provide memoryId only. If the edit strips domain knowledge out of the memory, write it as a fenced markdown block in your reply so the user can download and add it to the Knowledge Library.',
-    {
-      action: z.enum(['create', 'update', 'delete']),
-      /** Required for update/delete. Ignored on create. Get this from read_memories. */
-      memoryId: z.string().optional(),
-      /** Required for create (the new memory's name). Ignored on update/delete. */
-      name: z.string().optional(),
-      /** Required for create. Optional on update (retype). Ignored on delete. */
-      memoryType: z.enum(['feedback', 'user', 'project', 'reference']).optional(),
-      /** Required for create and update. Omit for delete. */
-      content: z.string().optional(),
-      rationale: z.string().min(1),
-    },
-    wrap('propose_memory_change', async ({ action, memoryId, name, memoryType, content, rationale }) => {
-      const id = randomUUID();
-
-      if (action === 'create') {
-        if (!name) throw new Error('name is required for create');
-        if (!memoryType) throw new Error('memoryType is required for create');
-        if (!content) throw new Error('content is required for create');
-        // Detect collisions early — same-name memories are replaced by upsert
-        // at apply time, so surface this to the model instead of silently
-        // clobbering. The model can then switch to action=update if intended.
-        const existing = await getAgentMemories(ctx.agentId);
-        if (existing.some(m => m.name === name)) {
-          throw new Error(`memory with name "${name}" already exists — use action=update instead`);
-        }
-        ctx.proposals.push({
-          kind: 'memory', id,
-          memoryName: name, memoryType,
-          action: 'create',
-          content,
-          rationale, status: 'pending',
-        });
-        return textResult(`Proposal queued (id=${id}) for create memory ${name}.`);
-      }
-
-      // update / delete both need an existing row.
-      if (!memoryId) throw new Error(`memoryId is required for ${action}`);
-      if (action === 'update' && !content) throw new Error('content is required for update');
-
-      const memories = await getAgentMemories(ctx.agentId);
-      const hit = memories.find(m => m.id === memoryId);
-      if (!hit) throw new Error(`memory not found: ${memoryId}`);
-
-      // Memory proposals always queue — no auto-apply even in wizard bootstrap.
-      ctx.proposals.push({
-        kind: 'memory', id,
-        memoryId: hit.id, memoryName: hit.name,
-        action,
-        memoryType: action === 'update' ? memoryType : undefined,
-        content: action === 'delete' ? undefined : content,
-        rationale, status: 'pending',
-      });
-      return textResult(`Proposal queued (id=${id}) for ${action} memory ${hit.name}.`);
-    }),
-    { annotations: { readOnlyHint: false, destructiveHint: true } }
-  );
-
-  // ── File-source tools ───────────────────────────────────────────────────
-  // Verbatim reference documents the agent Reads at turn-time from
-  // knowledge/sources/<name>.md. Scope is intentionally narrow: file type only.
-  // URL and repo sources are pulled from remotes and not coach-editable.
-
-  const listFileSources = defTool(
-    'list_file_sources',
-    "List every file-type knowledge source across all wiki folders assigned to this agent, with id, name, folder name, word count, status, and a 200-char preview. URL and repo sources are NOT included.",
-    {},
-    wrap('list_file_sources', async () => {
-      const r = await getDb().query(
-        `SELECT ws.id, ws.name, ws.content, ws.word_count, ws.status, ws.last_synced, wf.name as folder_name
-         FROM wiki_sources ws
-         JOIN agent_wiki_folders awf ON awf.folder_id = ws.folder_id
-         JOIN wiki_folders wf ON wf.id = ws.folder_id
-         WHERE awf.agent_id = $1 AND ws.type = 'file'
-         ORDER BY ws.created_at DESC`,
-        [ctx.agentId],
-      );
-      if (r.rows.length === 0) return textResult('(no file sources in assigned wiki folders)');
-      const lines = r.rows.map(row => {
-        const preview = ((row.content as string) ?? '').slice(0, 200).replace(/\s+/g, ' ').trim();
-        return `- id=${row.id} name="${row.name}" folder="${row.folder_name}" words=${row.word_count} status=${row.status}${row.last_synced ? ` last_synced=${row.last_synced}` : ''}\n    preview: ${preview}${preview.length === 200 ? '…' : ''}`;
-      });
-      return textResult(lines.join('\n'));
-    }),
-    { annotations: { readOnlyHint: true } }
-  );
-
-  const readFileSource = defTool(
-    'read_file_source',
-    'Return the full verbatim content of one file source by id. Call list_file_sources first to pick the id.',
-    { sourceId: z.string().min(1, 'sourceId required') },
-    wrap('read_file_source', async ({ sourceId }) => {
-      const r = await getDb().query(
-        `SELECT ws.name, ws.content FROM wiki_sources ws
-         JOIN agent_wiki_folders awf ON awf.folder_id = ws.folder_id
-         WHERE ws.id = $1 AND awf.agent_id = $2 AND ws.type = 'file'`,
-        [sourceId, ctx.agentId],
-      );
-      if (r.rows.length === 0) throw new Error(`file source not found: ${sourceId}`);
-      const content = (r.rows[0].content as string) ?? '';
-      return textResult(`# ${r.rows[0].name}\n\n${content || '(empty)'}`);
-    }),
-    { annotations: { readOnlyHint: true } }
-  );
-
-  return [readClaudeMd, listSkills, readSkill, listMcps, readMemories, proposeClaudeMd, proposeSkill, proposeMemory, listFileSources, readFileSource];
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Turn handler
@@ -589,181 +281,34 @@ export interface CoachTurnResult {
   toolCalls: { name: string; input: Record<string, unknown>; ok: boolean }[];
 }
 
-/** A coach implementation for one agent backend (parallels the AgentBackend registry). */
-type CoachRunner = (input: CoachTurnInput, agent: Agent) => Promise<CoachTurnResult>;
-
-/**
- * Coach backends registry. Add a backend's coach implementation here and Coach
- * works on it automatically — mirrors `backends/index.ts:createAgentBackend`.
- * Route-A providers (OpenRouter, local models) run through Codex, so they reuse
- * the 'codex' runner; only a net-new harness needs a new entry.
- */
-const COACH_RUNNERS: Record<string, CoachRunner> = {
-  claude: runCoachTurnClaude,
-  codex: runCoachTurnCodex,
-};
-
-/** Dispatch a coach turn to the active backend's implementation. */
-export async function runCoachTurn(input: CoachTurnInput): Promise<CoachTurnResult> {
-  const agent = await getAgentById(input.agentId);
-  if (!agent) throw new Error('agent not found');
-  const backend = (await readSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
-  const runner = COACH_RUNNERS[backend] ?? COACH_RUNNERS.claude;
-  return runner(input, agent);
-}
-
-/** Claude Code coach — uses in-process SDK tools to read state and queue proposals. */
-async function runCoachTurnClaude(input: CoachTurnInput, agent: Agent): Promise<CoachTurnResult> {
-  const proposals: CoachProposal[] = [];
-  const toolCalls: { name: string; input: Record<string, unknown>; ok: boolean }[] = [];
-
-  const ctx: ToolContext = {
-    agentId: input.agentId,
-    proposals,
-    autoApply: !!input.autoApply,
-    onToolCall: (name, toolInput, ok) => {
-      toolCalls.push({ name, input: toolInput, ok });
-      input.emit({ type: 'tool', name, input: toolInput, ok });
-    },
-  };
-
-  const mcpServer = createSdkMcpServer({
-    name: 'coach',
-    version: '1.0.0',
-    tools: buildToolbox(ctx),
-  });
-
-  // Name format used by the SDK for in-process MCP tools.
-  const allowedToolNames = [
-    'mcp__coach__read_claude_md',
-    'mcp__coach__list_skills',
-    'mcp__coach__read_skill',
-    'mcp__coach__list_mcps',
-    'mcp__coach__read_memories',
-    'mcp__coach__list_file_sources',
-    'mcp__coach__read_file_source',
-    'mcp__coach__propose_claude_md_update',
-    'mcp__coach__propose_skill_change',
-    'mcp__coach__propose_memory_change',
-    'WebFetch',
-    'WebSearch',
-  ];
-
-  const attachmentText = input.attachment?.slice(0, MAX_ATTACHMENT_CHARS);
-  const userBlock = attachmentText
-    ? `${input.userMessage}\n\n<attached_file name="${input.attachmentName ?? 'attachment'}">\n${attachmentText}\n</attached_file>`
-    : input.userMessage;
-
-  // First turn primes the model with agent identity; resume carries state after.
-  const prompt = input.sdkSessionId
-    ? userBlock
-    : `# Agent you are tuning
-Name: ${agent.name}
-Persona: ${agent.persona ?? '(none)'}
-Description: ${agent.description ?? '(none)'}
-Model: ${agent.model}
-
-# User's first message
-${userBlock}`;
-
-  const os = await import('os');
-  const path = await import('path');
-  const fs = await import('fs');
-  // Empty throwaway cwd so even if a built-in tool somehow ran there's nothing interesting.
-  const cwd = path.join(os.tmpdir(), `slackhive-coach-${input.agentId}`);
-  try { fs.mkdirSync(cwd, { recursive: true }); } catch { /* exists */ }
-
-  // Admin-configurable via Settings → General → AI. Falls back to the
-  // subscription-friendly default rather than whatever the CLI picks.
-  const coachModel = (await readSetting(COACH_MODEL_SETTING_KEY)) ?? DEFAULT_COACH_MODEL;
-
-  let assistantText = '';
-  let finalSessionId: string | undefined = input.sdkSessionId;
-
-  try {
-    for await (const msg of query({
-      prompt,
-      options: {
-        model: coachModel,
-        mcpServers: {
-          coach: { type: 'sdk', name: 'coach', instance: mcpServer.instance },
-        },
-        allowedTools: allowedToolNames,
-        disallowedTools: BUILT_IN_TOOLS_TO_DENY,
-        permissionMode: 'dontAsk',
-        maxTurns: 8,
-        cwd,
-        resume: input.sdkSessionId,
-        systemPrompt: input.autoApply ? SYSTEM_PROMPT + BOOTSTRAP_APPENDIX : SYSTEM_PROMPT,
-      },
-    })) {
-      const m = msg as SDKMessage & Record<string, any>;
-      if (m.type === 'system' && m.subtype === 'init' && m.session_id) {
-        finalSessionId = m.session_id;
-      }
-      if (m.type === 'assistant') {
-        const content: any[] = m.message?.content ?? [];
-        for (const block of content) {
-          if (block?.type === 'text' && typeof block.text === 'string') {
-            assistantText += block.text;
-            input.emit({ type: 'text', delta: block.text });
-          }
-        }
-      }
-      if (m.type === 'result') {
-        if (m.session_id && !finalSessionId) finalSessionId = m.session_id;
-        if (typeof m.result === 'string' && !assistantText.trim()) {
-          assistantText = m.result;
-          input.emit({ type: 'text', delta: m.result });
-        }
-      }
-    }
-  } catch (err) {
-    const message = (err as Error).message ?? String(err);
-    logger.error('coach turn failed', { agentId: input.agentId, error: message });
-    input.emit({ type: 'error', message });
-    throw err;
-  }
-
-  // Safety net: during bootstrap, guarantee the agent has at least a
-  // minimal claude.md so it's startable even if the model misbehaved.
-  if (input.autoApply) {
-    const touchedClaudeMd = proposals.some(p => p.kind === 'claude-md' && p.status === 'applied');
-    if (!touchedClaudeMd && agent && !agent.claudeMd?.trim()) {
-      const skeleton = `# ${agent.name}\n\n${agent.persona || agent.description || 'You are a helpful Slack assistant.'}`;
-      try {
-        await updateAgentClaudeMd(input.agentId, skeleton);
-        logger.info('coach bootstrap: wrote fallback skeleton', { agentId: input.agentId });
-      } catch (err) {
-        logger.warn('coach bootstrap: fallback skeleton failed', { error: (err as Error).message });
-      }
-    }
-  }
-
-  for (const p of proposals) input.emit({ type: 'proposal', proposal: p });
-  input.emit({ type: 'done', sdkSessionId: finalSessionId });
-
-  return { sdkSessionId: finalSessionId, proposals, assistantText, toolCalls };
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Codex coach path
-//
-// Codex can't use the in-process SDK tools the Claude path relies on, so instead
-// we preload the agent's full state into the prompt and ask the model to return
-// proposals as a fenced `coach-proposals` JSON block, which we parse and feed
-// into the same CoachProposal pipeline (the UI Apply flow is backend-agnostic).
-// ────────────────────────────────────────────────────────────────────────────
-
 /** Coach model under Codex — falls back to the default if a Claude id is configured. */
 async function codexCoachModel(): Promise<string> {
   return resolveCodexModel(await readSetting(COACH_MODEL_SETTING_KEY));
 }
 
-async function buildCoachContext(agentId: string): Promise<string> {
-  const [skills, memories, mcps, fileSources] = await Promise.all([
-    getAgentSkills(agentId), getAgentMemories(agentId), getAgentMcpServers(agentId),
-    // Knowledge file-sources (parity with the Claude coach's list_file_sources).
+/** Stable per-agent coach workspace dir (re-materialized each turn). */
+function coachWorkDir(agentId: string): string {
+  return path.join(os.tmpdir(), `slackhive-coach-${agentId.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
+}
+
+const sanitizeFileName = (s: string): string => String(s ?? 'item').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 80) || 'item';
+
+/**
+ * Materialize the agent's state as FILES in a read-only coach workspace and
+ * return a COMPACT index. The model reads only the files it needs (scales to big
+ * skills) instead of having everything preloaded into the prompt. One DB fetch
+ * feeds both the files and the index. Backend-neutral — both Claude (Read tool)
+ * and Codex (native file read under read-only) consume the same workspace.
+ */
+async function prepareCoachWorkspace(agent: Agent): Promise<{ dir: string; index: string }> {
+  const dir = coachWorkDir(agent.id);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+
+  const [skills, memories, mcps, sources] = await Promise.all([
+    getAgentSkills(agent.id),
+    getAgentMemories(agent.id),
+    getAgentMcpServers(agent.id),
     getDb().query(
       `SELECT ws.id, ws.name, ws.word_count, ws.status, ws.content, wf.name as folder_name
        FROM wiki_sources ws
@@ -771,39 +316,121 @@ async function buildCoachContext(agentId: string): Promise<string> {
        JOIN wiki_folders wf ON wf.id = ws.folder_id
        WHERE awf.agent_id = $1 AND ws.type = 'file'
        ORDER BY ws.created_at DESC`,
-      [agentId],
+      [agent.id],
     ).then(r => r.rows).catch(() => [] as Record<string, unknown>[]),
   ]);
-  const sourceLines = fileSources.map((row) => {
-    const preview = ((row.content as string) ?? '').slice(0, 200).replace(/\s+/g, ' ').trim();
-    return `- id=${row.id} "${row.name}" folder="${row.folder_name}" words=${row.word_count} status=${row.status}\n    preview: ${preview}`;
+
+  // Files the model can Read on demand.
+  fs.writeFileSync(path.join(dir, 'current-instructions.md'), agent.claudeMd?.trim() || '(empty — no instructions yet)');
+  writeSkillsTree(dir, skills, null); // → skills/<category>/<filename>.md
+  const memDir = path.join(dir, 'memory'); fs.mkdirSync(memDir, { recursive: true });
+  for (const m of memories) {
+    fs.writeFileSync(path.join(memDir, `${sanitizeFileName(String(m.id))}.md`), `# ${m.name} [${m.type}] (memoryId=${m.id})\n\n${m.content}`);
+  }
+  fs.writeFileSync(path.join(dir, 'mcp-servers.md'),
+    mcps.length ? mcps.map(m => `- ${m.name} (${m.type}) — ${m.description ?? ''}`).join('\n') : '(none)');
+  const srcDir = path.join(dir, 'knowledge-sources'); fs.mkdirSync(srcDir, { recursive: true });
+  for (const row of sources) {
+    fs.writeFileSync(path.join(srcDir, `${sanitizeFileName(String(row.name))}.md`), String(row.content ?? ''));
+  }
+
+  // Compact index (names + one-liners, never full content).
+  const skillLines = skills.map(s => {
+    const first = (s.content.split('\n').find((l: string) => l.trim()) ?? '').slice(0, 120);
+    const f = s.filename.endsWith('.md') ? s.filename : `${s.filename}.md`;
+    return `- skills/${s.category}/${f} — ${first}`;
   });
-  return [
-    '## Skills',
-    skills.length ? skills.map(s => `### ${s.category}/${s.filename}\n${s.content}`).join('\n\n') : '(none)',
-    '## Memories',
-    memories.length ? memories.map(m => `- id=${m.id} [${m.type}] ${m.name}: ${m.content}`).join('\n') : '(none)',
+  const memLines = memories.map(m => `- memory/${sanitizeFileName(String(m.id))}.md — memoryId=${m.id} [${m.type}] ${m.name}`);
+  const srcLines = sources.map((row) =>
+    `- knowledge-sources/${sanitizeFileName(String(row.name))}.md — "${row.name}" (folder=${row.folder_name}, words=${row.word_count})`);
+  const index = [
+    '## Skills (read the file for full content)',
+    skillLines.length ? skillLines.join('\n') : '(none)',
+    '## Memories (use memoryId for update/delete)',
+    memLines.length ? memLines.join('\n') : '(none)',
     '## MCP servers',
     mcps.length ? mcps.map(m => `- ${m.name} (${m.type}) — ${m.description ?? ''}`).join('\n') : '(none)',
     '## Knowledge file-sources',
-    sourceLines.length ? sourceLines.join('\n') : '(none)',
+    srcLines.length ? srcLines.join('\n') : '(none)',
   ].join('\n\n');
+
+  return { dir, index };
 }
 
-const CODEX_PROPOSAL_PROTOCOL = `
-# TOOLING (Codex mode)
-You have NO tools and cannot read or write files. The agent's full current state is provided inline below.
-Reply conversationally. When you want to propose concrete changes, append EXACTLY ONE fenced block at the very end of your reply:
+const COACH_PROTOCOL = `
+# TOOLING (read-only workspace)
+Inspect the agent's current state by READING files in your working directory — read only what's relevant to the request (the index below lists what exists). You cannot write files.
+- \`current-instructions.md\` — the agent's current instructions
+- \`skills/<category>/<filename>.md\` — each skill's full content
+- \`memory/<id>.md\` — each learned memory
+- \`knowledge-sources/<name>.md\` — operator-provided reference docs
+- \`mcp-servers.md\` — connected MCP servers
+
+When you want to propose concrete changes, append EXACTLY ONE fenced block at the very end of your reply:
 
 \`\`\`coach-proposals
 [
-  { "kind": "instructions", "content": "<full new AGENTS.md instructions>", "rationale": "<one sentence>" },
-  { "kind": "skill", "action": "create", "category": "<cat>", "filename": "<file.md>", "content": "<body>", "rationale": "<one sentence>" },
-  { "kind": "memory", "action": "create", "memoryName": "<name>", "memoryType": "user|feedback|project|reference", "content": "<body>", "rationale": "<one sentence>" }
+  { "kind": "instructions", "content": "<full new instructions>", "rationale": "<one sentence>" },
+  { "kind": "skill", "action": "create|update|delete", "category": "<cat>", "filename": "<file.md>", "content": "<body>", "rationale": "<one sentence>" },
+  { "kind": "memory", "action": "update|delete", "memoryId": "<id>", "memoryName": "<name>", "memoryType": "user|feedback|project|reference", "content": "<body>", "rationale": "<one sentence>" }
 ]
 \`\`\`
 
 Rules: one proposal per distinct change; for skill/memory delete omit content; for update include the existing id (memoryId) / category+filename. Include the block ONLY if you have concrete changes — otherwise omit it entirely and write nothing after your prose.`;
+
+/**
+ * Run one coach turn on the active backend over a read-only workspace, returning
+ * the model's text + a resumable session id. The single backend-dispatch point
+ * for Coach (parallels generateText / createAgentBackend).
+ */
+async function runCoachModelTurn(opts: {
+  backend: string; prompt: string; workDir: string; resumeId?: string;
+  emit: (ev: CoachStreamEvent) => void;
+}): Promise<{ text: string; sessionId?: string }> {
+  if (opts.backend === 'codex') {
+    const model = await codexCoachModel();
+    const codex = await createCodexClient(baseCodexConfig());
+    const threadOpts = {
+      workingDirectory: opts.workDir, skipGitRepoCheck: true,
+      sandboxMode: 'read-only' as const, approvalPolicy: 'never' as const,
+      webSearchEnabled: true, webSearchMode: 'live' as const, model,
+    };
+    const thread = opts.resumeId ? codex.resumeThread(opts.resumeId, threadOpts) : codex.startThread(threadOpts);
+    const turn = await thread.run(opts.prompt);
+    return { text: turn.finalResponse ?? '', sessionId: thread.id ?? opts.resumeId };
+  }
+
+  // Claude: read-only file tools (Read/Glob/Grep) + web; writes/bash denied.
+  const model = (await readSetting(COACH_MODEL_SETTING_KEY)) ?? DEFAULT_COACH_MODEL;
+  let text = '';
+  let sessionId = opts.resumeId;
+  for await (const msg of query({
+    prompt: opts.prompt,
+    options: {
+      model,
+      cwd: opts.workDir,
+      allowedTools: ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'],
+      disallowedTools: ['Write', 'Edit', 'MultiEdit', 'Bash', 'BashOutput', 'Task', 'NotebookEdit', 'TodoWrite', 'ExitPlanMode'],
+      permissionMode: 'bypassPermissions',
+      maxTurns: 12,
+      resume: opts.resumeId,
+    } as Record<string, unknown>,
+  })) {
+    const m = msg as { type: string; subtype?: string; session_id?: string; message?: { content?: { type: string; text?: string; name?: string; input?: Record<string, unknown> }[] }; result?: string };
+    if (m.type === 'system' && m.subtype === 'init' && m.session_id) sessionId = m.session_id;
+    if (m.type === 'assistant') {
+      for (const b of m.message?.content ?? []) {
+        if (b.type === 'text' && b.text) text += b.text;
+        else if (b.type === 'tool_use' && b.name) opts.emit({ type: 'tool', name: b.name, input: b.input ?? {}, ok: true });
+      }
+    }
+    if (m.type === 'result') {
+      if (m.session_id && !sessionId) sessionId = m.session_id;
+      if (typeof m.result === 'string' && !text.trim()) text = m.result;
+    }
+  }
+  return { text, sessionId };
+}
 
 function parseCoachProposals(text: string): { message: string; raw: Record<string, unknown>[] } {
   const m = text.match(/```coach-proposals\s*([\s\S]*?)```/);
@@ -855,54 +482,52 @@ async function mapAndApplyProposal(agentId: string, p: Record<string, any>, auto
   return null;
 }
 
-export async function runCoachTurnCodex(input: CoachTurnInput, agent: Agent): Promise<CoachTurnResult> {
+
+/**
+ * Run one coach turn for the active backend. Unified across Claude and Codex:
+ * materialize the agent state as a read-only file workspace + compact index, run
+ * a read-only model turn (the model reads only the files it needs — scales to
+ * large skills), then parse `coach-proposals` into approval cards. The only
+ * backend-specific step is runCoachModelTurn's dispatch.
+ */
+export async function runCoachTurn(input: CoachTurnInput): Promise<CoachTurnResult> {
+  const agent = await getAgentById(input.agentId);
+  if (!agent) throw new Error('agent not found');
+  const backend = (await readSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
   const proposals: CoachProposal[] = [];
+
+  const { dir, index } = await prepareCoachWorkspace(agent);
+
   const attachmentText = input.attachment?.slice(0, MAX_ATTACHMENT_CHARS);
   const userBlock = attachmentText
     ? `${input.userMessage}\n\n<attached_file name="${input.attachmentName ?? 'attachment'}">\n${attachmentText}\n</attached_file>`
     : input.userMessage;
 
-  const context = await buildCoachContext(input.agentId);
-  // The shared prompt is Claude-worded; on Codex refer to the instruction doc by
-  // its neutral on-disk name (AGENTS.md) so the model doesn't say "CLAUDE.md".
-  const base = (input.autoApply ? SYSTEM_PROMPT + BOOTSTRAP_APPENDIX : SYSTEM_PROMPT).replace(/CLAUDE\.md/g, 'AGENTS.md');
-  const system = base + '\n' + CODEX_PROPOSAL_PROTOCOL;
-  const prompt = `${system}
+  const sys = input.autoApply ? SYSTEM_PROMPT + BOOTSTRAP_APPENDIX : SYSTEM_PROMPT;
+  // First turn carries full context; resume turns send only the user message
+  // (the model retains the system prompt + workspace orientation in context).
+  const fullPrompt = [
+    sys,
+    COACH_PROTOCOL,
+    `# Agent you are tuning\nName: ${agent.name}\nPersona: ${agent.persona ?? '(none)'}\nDescription: ${agent.description ?? '(none)'}`,
+    `# Current state index (read files under the working dir for detail)\n${index}`,
+    `# User message\n${userBlock}`,
+  ].join('\n\n');
+  const prompt = input.sdkSessionId ? userBlock : fullPrompt;
 
-# Agent you are tuning
-Name: ${agent.name}
-Persona: ${agent.persona ?? '(none)'}
-Description: ${agent.description ?? '(none)'}
-Model: ${agent.model}
-
-# Current AGENTS.md (the agent's instructions)
-${agent.claudeMd?.trim() || '(empty)'}
-
-# Current agent state
-${context}
-
-# User message
-${userBlock}`;
-
-  const model = await codexCoachModel();
   let assistantText = '';
-  let threadId = input.sdkSessionId;
-
+  let sessionId = input.sdkSessionId;
   try {
-    const codex = await createCodexClient(baseCodexConfig());
-    const threadOpts = {
-      skipGitRepoCheck: true, sandboxMode: 'read-only' as const, approvalPolicy: 'never' as const,
-      webSearchEnabled: true, webSearchMode: 'live' as const, model,
-    };
-    const thread = threadId ? codex.resumeThread(threadId, threadOpts) : codex.startThread(threadOpts);
-    const turn = await thread.run(prompt);
-    assistantText = turn.finalResponse ?? '';
-    threadId = thread.id ?? threadId;
+    const r = await runCoachModelTurn({ backend, prompt, workDir: dir, resumeId: input.sdkSessionId, emit: input.emit });
+    assistantText = r.text;
+    sessionId = r.sessionId ?? sessionId;
   } catch (err) {
     const message = (err as Error).message ?? String(err);
-    logger.error('codex coach turn failed', { agentId: input.agentId, error: message });
+    logger.error('coach turn failed', { agentId: input.agentId, backend, error: message });
     input.emit({ type: 'error', message });
     throw err;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 
   const { message, raw } = parseCoachProposals(assistantText);
@@ -911,20 +536,18 @@ ${userBlock}`;
       const mapped = await mapAndApplyProposal(input.agentId, p, !!input.autoApply);
       if (mapped) proposals.push(mapped);
     } catch (err) {
-      logger.warn('codex coach: proposal map/apply failed', { error: (err as Error).message });
+      logger.warn('coach: proposal map/apply failed', { error: (err as Error).message });
     }
   }
-
   if (message) input.emit({ type: 'text', delta: message });
 
-  // Bootstrap safety net (same as the Claude path).
+  // Bootstrap safety net: guarantee a startable agent on the wizard's first turn.
   if (input.autoApply && !proposals.some(p => p.kind === 'claude-md' && p.status === 'applied') && !agent.claudeMd?.trim()) {
     const skeleton = `# ${agent.name}\n\n${agent.persona || agent.description || 'You are a helpful Slack assistant.'}`;
     try { await updateAgentClaudeMd(input.agentId, skeleton); } catch { /* non-fatal */ }
   }
 
   for (const p of proposals) input.emit({ type: 'proposal', proposal: p });
-  input.emit({ type: 'done', sdkSessionId: threadId });
-
-  return { sdkSessionId: threadId, proposals, assistantText: message, toolCalls: [] };
+  input.emit({ type: 'done', sdkSessionId: sessionId });
+  return { sdkSessionId: sessionId, proposals, assistantText: message, toolCalls: [] };
 }
