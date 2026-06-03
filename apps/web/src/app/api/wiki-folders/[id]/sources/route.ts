@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isFetchableUrl } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getWikiFolder, getWikiSources, createWikiSource, getEnvVarCreatedBy } from '@/lib/db';
 import { guardAuth } from '@/lib/api-guard';
@@ -42,14 +43,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: 'You can only reference env vars you own' }, { status: 403 });
       }
     }
+    // A 'url' source whose value isn't a real http(s) URL is pasted inline
+    // content in the wrong field. Classify it as a 'file' at creation so the
+    // build path never tries to fetch() the text (the runner self-heal is a
+    // fallback for legacy rows; this fixes the root cause). See isFetchableUrl.
+    const misTyped = body.type === 'url' && body.url && !isFetchableUrl(body.url);
+
     const source = await createWikiSource(id, {
-      type: body.type,
+      type: misTyped ? 'file' : body.type,
       name: body.name.trim(),
-      url: body.url,
+      url: misTyped ? undefined : body.url,
       repoUrl: body.repoUrl,
       branch: body.branch,
       patEnvRef: body.patEnvRef,
-      content: body.content,
+      content: misTyped ? (body.content || body.url) : body.content,
     });
     return NextResponse.json(source, { status: 201 });
   } catch (err) {

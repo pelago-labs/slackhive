@@ -47,3 +47,5 @@ export type {
 } from './db/activities-repo';
 export { MODELS, DEFAULT_AGENT_MODEL, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from './models';
 export type { ModelOption } from './models';
+export { isFetchableUrl } from './wiki-source-url';
+export { agentIdentityBody } from './agent-identity';

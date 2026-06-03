@@ -37,7 +37,7 @@ const defTool = tool as unknown as <S extends Record<string, unknown>>(
 import type { CoachProposal } from '@slackhive/shared';
 import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
 import type { Agent } from '@slackhive/shared';
-import { createCodexClient, resolveCodexModel } from './backends/codex-config';
+import { createCodexClient, resolveCodexModel, baseCodexConfig } from './backends/codex-config';
 import {
   getAgentById,
   getAgentSkills,
@@ -889,7 +889,7 @@ ${userBlock}`;
   let threadId = input.sdkSessionId;
 
   try {
-    const codex = await createCodexClient({ cli_auth_credentials_store: 'file' });
+    const codex = await createCodexClient(baseCodexConfig());
     const threadOpts = {
       skipGitRepoCheck: true, sandboxMode: 'read-only' as const, approvalPolicy: 'never' as const,
       webSearchEnabled: true, webSearchMode: 'live' as const, model,

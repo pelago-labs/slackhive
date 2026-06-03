@@ -45,25 +45,26 @@ function filterOpenAiModels(ids: string[]): ModelOption[] {
   return keep.map((id) => ({ value: id, label: id, sub: '' }));
 }
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  const denied = guardAdmin(req);
-  if (denied) return denied;
+type ModelsPayload = { backend: string; source: 'api' | 'curated'; models: readonly ModelOption[] };
 
-  const backend = req.nextUrl.searchParams.get('backend')
-    ?? (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+// Memoize successful external /v1/models fetches for 5 min so the Settings page
+// (which may poll) doesn't hit OpenAI/Anthropic on every request. Only 'api'
+// results are cached — curated fallbacks are constant (cheap) and not caching
+// them means a newly-added API key is reflected on the next request, not in 5 min.
+const MODELS_TTL_MS = 5 * 60 * 1000;
+const modelsCache = new Map<string, { at: number; payload: ModelsPayload }>();
 
+async function computeModels(backend: string): Promise<ModelsPayload> {
   if (backend === 'codex') {
     const key = process.env.OPENAI_API_KEY || process.env.CODEX_API_KEY || (await secret('OPENAI_API_KEY'));
     if (key) {
       const data = await fetchJson('https://api.openai.com/v1/models', { Authorization: `Bearer ${key}` });
       const models = data?.data ? filterOpenAiModels(data.data.map((m: { id: string }) => m.id)) : [];
-      if (models.length) return NextResponse.json({ backend, source: 'api', models });
+      if (models.length) return { backend, source: 'api', models };
     }
-    // Subscription (no models API) or fetch failed → curated list.
-    return NextResponse.json({ backend, source: 'curated', models: CODEX_MODELS });
+    return { backend, source: 'curated', models: CODEX_MODELS };
   }
 
-  // Claude
   const key = process.env.ANTHROPIC_API_KEY || (await secret('ANTHROPIC_API_KEY'));
   if (key) {
     const data = await fetchJson('https://api.anthropic.com/v1/models', {
@@ -72,7 +73,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const models: ModelOption[] = data?.data
       ? data.data.map((m: { id: string; display_name?: string }) => ({ value: m.id, label: m.display_name ?? m.id, sub: '' }))
       : [];
-    if (models.length) return NextResponse.json({ backend, source: 'api', models });
+    if (models.length) return { backend, source: 'api', models };
   }
-  return NextResponse.json({ backend, source: 'curated', models: MODELS });
+  return { backend, source: 'curated', models: MODELS };
+}
+
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const denied = guardAdmin(req);
+  if (denied) return denied;
+
+  const backend = req.nextUrl.searchParams.get('backend')
+    ?? (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+
+  const hit = modelsCache.get(backend);
+  if (hit && Date.now() - hit.at < MODELS_TTL_MS) return NextResponse.json(hit.payload);
+
+  const payload = await computeModels(backend);
+  if (payload.source === 'api') modelsCache.set(backend, { at: Date.now(), payload });
+  return NextResponse.json(payload);
 }

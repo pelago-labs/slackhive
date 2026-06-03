@@ -12,7 +12,8 @@ import { AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND, CODEX_MODEL_SETTING_K
 import { getSetting } from '../db';
 import { logger } from '../logger';
 import { ClaudeBackend } from './claude-backend';
-import { createCodexClient, resolveCodexModel } from './codex-config';
+import { createCodexClient, resolveCodexModel, baseCodexConfig } from './codex-config';
+import { syncClaudeCredentialsFromKeychain } from './credentials';
 
 export interface GenerateOpts {
   /** System prompt / role instructions. */
@@ -34,7 +35,7 @@ export async function generateText(prompt: string, opts: GenerateOpts = {}): Pro
 async function generateViaCodex(prompt: string, opts: GenerateOpts): Promise<string> {
   const os = await import('os');
   const model = resolveCodexModel(await getSetting(CODEX_MODEL_SETTING_KEY));
-  const codex = await createCodexClient({ cli_auth_credentials_store: 'file' });
+  const codex = await createCodexClient(baseCodexConfig());
   // Codex has no separate system-prompt param; prepend it to the turn input.
   const input = opts.systemPrompt ? `${opts.systemPrompt}\n\n${prompt}` : prompt;
   const thread = codex.startThread({
@@ -92,20 +93,9 @@ async function generateViaClaude(prompt: string, opts: GenerateOpts): Promise<st
   }
 
   // Attempt 2: macOS Keychain sync, then retry.
-  try {
-    const { execSync } = await import('child_process');
-    const fs = await import('fs');
-    const path = await import('path');
-    const creds = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
-      encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (creds) {
-      const credPath = path.join(process.env.HOME || '/tmp', '.claude', '.credentials.json');
-      fs.mkdirSync(path.dirname(credPath), { recursive: true });
-      fs.writeFileSync(credPath, creds, { mode: 0o600 });
-      return await runQuery();
-    }
-  } catch { /* fall through to refresh */ }
+  if (syncClaudeCredentialsFromKeychain()) {
+    try { return await runQuery(); } catch { /* fall through to refresh */ }
+  }
 
   // Attempt 3: refresh OAuth token, then retry.
   try {

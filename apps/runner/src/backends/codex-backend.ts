@@ -56,6 +56,10 @@ export class CodexBackend implements AgentBackend {
 
   /** In-memory cache: sessionKey → Codex thread id */
   private sessionCache: Map<string, string> = new Map();
+  /** sessionKey → mtime of the agent-root doc last materialized into that session.
+   *  Lets getSessionWorkDir skip re-copying AGENTS.md + the skills tree every turn
+   *  when the workspace hasn't been recompiled (compile rewrites them together). */
+  private lastSyncedDocMtime: Map<string, number> = new Map();
   private inflightAborts: Set<AbortController> = new Set();
   private cleanupTimer: NodeJS.Timeout | null = null;
 
@@ -160,17 +164,23 @@ export class CodexBackend implements AgentBackend {
       this.log.debug('Codex session work dir created', { sessionKey, sessionDir });
     }
 
-    // Refresh instructions + skills every turn (idempotent) so existing sessions
-    // pick up edits and newly-compiled skills, not just freshly-created dirs.
+    // Refresh instructions + skills when the workspace has recompiled, so existing
+    // sessions pick up edits/new skills — but skip the (recursive) copies on turns
+    // where nothing changed. compileAgentWorkspace rewrites AGENTS.md + the skills
+    // trees together, so the doc's mtime is a reliable "workspace changed" signal.
     const agentDoc = path.join(this.workDir, 'AGENTS.md');
     const legacyDoc = path.join(this.workDir, 'CLAUDE.md');
     const docSrc = fs.existsSync(agentDoc) ? agentDoc : (fs.existsSync(legacyDoc) ? legacyDoc : null);
-    if (docSrc) fs.copyFileSync(docSrc, path.join(sessionDir, 'AGENTS.md'));
-    // .agents/skills (Codex native discovery) + skills/ (path-addressable refs).
-    for (const rel of [['.agents', 'skills'], ['skills']]) {
-      const src = path.join(this.workDir, ...rel);
-      const dst = path.join(sessionDir, ...rel);
-      if (fs.existsSync(src)) { fs.rmSync(dst, { recursive: true, force: true }); fs.cpSync(src, dst, { recursive: true }); }
+    const docMtime = docSrc ? fs.statSync(docSrc).mtimeMs : 0;
+    if (docSrc && this.lastSyncedDocMtime.get(sessionKey) !== docMtime) {
+      fs.copyFileSync(docSrc, path.join(sessionDir, 'AGENTS.md'));
+      // .agents/skills (Codex native discovery) + skills/ (path-addressable refs).
+      for (const rel of [['.agents', 'skills'], ['skills']]) {
+        const src = path.join(this.workDir, ...rel);
+        const dst = path.join(sessionDir, ...rel);
+        if (fs.existsSync(src)) { fs.rmSync(dst, { recursive: true, force: true }); fs.cpSync(src, dst, { recursive: true }); }
+      }
+      this.lastSyncedDocMtime.set(sessionKey, docMtime);
     }
 
     // knowledge/ symlink (wiki + sources), idempotent — matches ClaudeBackend.

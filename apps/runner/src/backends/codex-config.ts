@@ -9,7 +9,7 @@
 
 import type { Codex as CodexClient, ThreadOptions } from '@openai/codex-sdk';
 import type { McpServer, McpStdioConfig, Permission } from '@slackhive/shared';
-import { DEFAULT_CODEX_MODEL } from '@slackhive/shared';
+import { DEFAULT_CODEX_MODEL, agentIdentityBody } from '@slackhive/shared';
 
 /** 1 MiB — generous so the inlined-memory AGENTS.md is never truncated (Codex default is 32 KiB). */
 const PROJECT_DOC_MAX_BYTES = 1_048_576;
@@ -17,6 +17,16 @@ const PROJECT_DOC_MAX_BYTES = 1_048_576;
 // Mirrors the SDK's (non-exported) CodexConfigObject so values aren't `unknown`.
 type ConfigValue = string | number | boolean | ConfigValue[] | { [k: string]: ConfigValue };
 export type ConfigObj = { [k: string]: ConfigValue };
+
+/**
+ * Base Codex client config shared by every entry point (agents, coach, one-shot
+ * generators). Forces file-based auth so `~/.codex/auth.json` works identically
+ * on macOS and Linux. buildCodexConfig() extends this with MCP/persona/doc knobs;
+ * lightweight callers (coach, generate-text) use it directly.
+ */
+export function baseCodexConfig(): ConfigObj {
+  return { cli_auth_credentials_store: 'file' };
+}
 
 // ── Client + model (the one place that knows how to build a Codex client) ─────
 
@@ -74,7 +84,7 @@ export function buildCodexConfig(
   developerInstructions?: string,
 ): ConfigObj {
   const config: ConfigObj = {
-    cli_auth_credentials_store: 'file',
+    ...baseCodexConfig(),
     project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
     memories: { use_memories: false },
   };
@@ -97,13 +107,9 @@ export function buildCodexConfig(
  * Returns '' when the agent has no persona/description (nothing to assert).
  */
 export function buildIdentityInstructions(agent: { name: string; persona?: string | null; description?: string | null }): string {
-  if (!agent.persona?.trim() && !agent.description?.trim()) return '';
-  const parts = [
-    `You are ${agent.name}. Respond fully in character — match this persona's voice, tone, and style in every message, not a generic assistant voice. Follow the detailed instructions in AGENTS.md.`,
-  ];
-  if (agent.persona?.trim()) parts.push(agent.persona.trim());
-  if (agent.description?.trim()) parts.push(agent.description.trim());
-  return parts.join('\n\n');
+  const body = agentIdentityBody(agent);
+  if (!body) return '';
+  return `You are ${agent.name}. Respond fully in character — match this persona's voice, tone, and style in every message, not a generic assistant voice. Follow the detailed instructions in AGENTS.md.\n\n${body}`;
 }
 
 /**

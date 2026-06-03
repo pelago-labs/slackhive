@@ -26,7 +26,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Agent, Memory, Skill } from '@slackhive/shared';
-import { getDb } from '@slackhive/shared';
+import { getDb, agentIdentityBody } from '@slackhive/shared';
 import { getAgentSkills, getAgentMemories, getAgentWikiFolders } from './db';
 import { logger } from './logger';
 
@@ -692,11 +692,11 @@ function buildClaudeMd(
 ): string {
   const sections: string[] = [];
 
-  // 1. Identity — always built from agent.name/persona/description. Never a skill row.
-  const lines = [`# ${agent.name}`];
-  if (agent.persona) lines.push('', agent.persona);
-  if (agent.description) lines.push('', agent.description);
-  sections.push(lines.join('\n'));
+  // 1. Identity — name + persona/description. Same identity body the Codex
+  //    backend injects via developer_instructions (agentIdentityBody), so the two
+  //    channels can't drift. Never a skill row.
+  const identityBody = agentIdentityBody(agent);
+  sections.push(identityBody ? `# ${agent.name}\n\n${identityBody}` : `# ${agent.name}`);
 
   // 2. System prompt / instructions (claudeMd field — Karpathy-style behavior/guardrails)
   const claudeMd = overrideClaudeMd ?? agent.claudeMd;
