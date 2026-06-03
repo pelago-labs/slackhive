@@ -45,7 +45,7 @@ import type { AgentBackend } from '@slackhive/shared';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
 import { isShuttingDown } from './shutdown-signal';
-import { VERBOSE_NARRATION_DIRECTIVE } from './compile-claude-md';
+import { VERBOSE_NARRATION_DIRECTIVE } from './compile-instructions';
 import { getKnownAgentsByBotId } from './agent-registry';
 import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import type { Logger } from 'winston';

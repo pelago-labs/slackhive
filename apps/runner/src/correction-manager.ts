@@ -17,7 +17,7 @@
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { upsertSkill, deleteSkill, getAgentSkills } from './db';
-import { compileClaudeMd } from './compile-claude-md';
+import { compileAgentWorkspace } from './compile-instructions';
 import type { Agent } from '@slackhive/shared';
 import { agentLogger } from './logger';
 
@@ -181,7 +181,7 @@ If duplicate, respond with ONLY: DUPLICATE: <number>`;
       );
 
       // Recompile CLAUDE.md so corrections take effect immediately
-      await compileClaudeMd(this.agent);
+      await compileAgentWorkspace(this.agent);
 
       const newCount = await this.getCount();
       this.log.info('Correction added', { reviewerId, newCount });
@@ -265,7 +265,7 @@ If duplicate, respond with ONLY: DUPLICATE: <number>`;
     }
 
     // Recompile CLAUDE.md
-    await compileClaudeMd(this.agent);
+    await compileAgentWorkspace(this.agent);
 
     const newCount = await this.getCount();
     return {

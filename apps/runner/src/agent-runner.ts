@@ -51,7 +51,7 @@ import {
   getSetting,
 } from './db';
 import { summarizeSkill } from './summarize-skill';
-import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
+import { compileAgentWorkspace, getAgentWorkDir } from './compile-instructions';
 import { createAgentBackend } from './backends';
 import { ClaudeBackend } from './backends/claude-backend';
 import { MemoryWatcher } from './memory-watcher';
@@ -792,7 +792,7 @@ export class AgentRunner {
     // Compile CLAUDE.md with platform-specific formatting rules.
     // compileClaudeMd inlines all learned memories directly into the system
     // prompt (no /recall skill needed) and inlines the wiki index when present.
-    const workDir = await compileClaudeMd(agent, undefined, adapter.getFormattingRules());
+    const workDir = await compileAgentWorkspace(agent, undefined, adapter.getFormattingRules());
 
     // Create the agent backend (Claude Code, Codex, …) per the global setting
     const backendId = (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
@@ -881,7 +881,7 @@ export class AgentRunner {
 
     // Compile the root agent's CLAUDE.md into its real workDir (deterministic;
     // safe to run in parallel with the live runtime) so we can clone from it.
-    const rootAgentWorkDir = await compileClaudeMd(rootAgent, undefined, '');
+    const rootAgentWorkDir = await compileAgentWorkspace(rootAgent, undefined, '');
     const workDirRoot = buildSessionRootDir(rootAgentWorkDir, sessionId, rootAgent.slug);
 
     const session: TeamTestSession = {
@@ -936,7 +936,7 @@ export class AgentRunner {
     // Compile this agent's CLAUDE.md into its real workDir, then clone
     // into an isolated participant subdir so test-session memory writes
     // never leak into the Slack agent's sessions dir.
-    const agentWorkDir = await compileClaudeMd(agent, undefined, '');
+    const agentWorkDir = await compileAgentWorkspace(agent, undefined, '');
     const participantWorkDir = buildParticipantWorkDir(
       session.workDirRoot, agent.slug, agentWorkDir,
     );
@@ -1884,7 +1884,7 @@ export class AgentRunner {
     const fs = await import('fs');
     const path = await import('path');
     const { getDb } = await import('@slackhive/shared');
-    const { getAgentWorkDir } = await import('./compile-claude-md');
+    const { getAgentWorkDir } = await import('./compile-instructions');
 
     const agent = await getAgentById(agentId);
     if (!agent) throw new Error('Agent not found');
@@ -2128,7 +2128,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
       const { getDb } = await import('@slackhive/shared');
       const fs = await import('fs');
       const path = await import('path');
-      const { getAgentWorkDir } = await import('./compile-claude-md');
+      const { getAgentWorkDir } = await import('./compile-instructions');
 
       // Sync check: if wiki is empty/missing but DB says sources are compiled, reset all
       const wikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
