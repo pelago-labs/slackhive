@@ -286,9 +286,13 @@ async function codexCoachModel(): Promise<string> {
   return resolveCodexModel(await readSetting(COACH_MODEL_SETTING_KEY));
 }
 
-/** Stable per-agent coach workspace dir (re-materialized each turn). */
+/**
+ * Per-turn coach workspace dir. Unique per call (randomUUID) so concurrent coach
+ * turns for the same agent — two browser tabs, rapid messages — never race on the
+ * same directory (each turn re-materializes + rmSyncs its own dir in finally).
+ */
 function coachWorkDir(agentId: string): string {
-  return path.join(os.tmpdir(), `slackhive-coach-${agentId.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
+  return path.join(os.tmpdir(), `slackhive-coach-${agentId.replace(/[^a-zA-Z0-9_-]/g, '_')}-${randomUUID()}`);
 }
 
 const sanitizeFileName = (s: string): string => String(s ?? 'item').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 80) || 'item';
@@ -301,8 +305,7 @@ const sanitizeFileName = (s: string): string => String(s ?? 'item').replace(/[^a
  * and Codex (native file read under read-only) consume the same workspace.
  */
 async function prepareCoachWorkspace(agent: Agent): Promise<{ dir: string; index: string }> {
-  const dir = coachWorkDir(agent.id);
-  fs.rmSync(dir, { recursive: true, force: true });
+  const dir = coachWorkDir(agent.id); // unique per turn — no pre-existing dir to clear
   fs.mkdirSync(dir, { recursive: true });
 
   const [skills, memories, mcps, sources] = await Promise.all([
@@ -329,9 +332,20 @@ async function prepareCoachWorkspace(agent: Agent): Promise<{ dir: string; index
   }
   fs.writeFileSync(path.join(dir, 'mcp-servers.md'),
     mcps.length ? mcps.map(m => `- ${m.name} (${m.type}) — ${m.description ?? ''}`).join('\n') : '(none)');
+  // Assign a UNIQUE filename per source up front (distinct names can sanitize to
+  // the same string) so writes don't clobber each other and the index points at
+  // the exact file that exists.
+  const usedSrcNames = new Set<string>();
+  const srcEntries = sources.map((row) => {
+    const base = sanitizeFileName(String(row.name));
+    let file = base;
+    for (let i = 2; usedSrcNames.has(file); i++) file = `${base}-${i}`;
+    usedSrcNames.add(file);
+    return { row, file };
+  });
   const srcDir = path.join(dir, 'knowledge-sources'); fs.mkdirSync(srcDir, { recursive: true });
-  for (const row of sources) {
-    fs.writeFileSync(path.join(srcDir, `${sanitizeFileName(String(row.name))}.md`), String(row.content ?? ''));
+  for (const { row, file } of srcEntries) {
+    fs.writeFileSync(path.join(srcDir, `${file}.md`), String(row.content ?? ''));
   }
 
   // Compact index (names + one-liners, never full content).
@@ -341,8 +355,8 @@ async function prepareCoachWorkspace(agent: Agent): Promise<{ dir: string; index
     return `- skills/${s.category}/${f} — ${first}`;
   });
   const memLines = memories.map(m => `- memory/${sanitizeFileName(String(m.id))}.md — memoryId=${m.id} [${m.type}] ${m.name}`);
-  const srcLines = sources.map((row) =>
-    `- knowledge-sources/${sanitizeFileName(String(row.name))}.md — "${row.name}" (folder=${row.folder_name}, words=${row.word_count})`);
+  const srcLines = srcEntries.map(({ row, file }) =>
+    `- knowledge-sources/${file}.md — "${row.name}" (folder=${row.folder_name}, words=${row.word_count})`);
   const index = [
     '## Skills (read the file for full content)',
     skillLines.length ? skillLines.join('\n') : '(none)',
@@ -358,12 +372,16 @@ async function prepareCoachWorkspace(agent: Agent): Promise<{ dir: string; index
 }
 
 const COACH_PROTOCOL = `
-# TOOLING (read-only workspace)
-Inspect the agent's current state by READING files in your working directory — read only what's relevant to the request (the index below lists what exists). You cannot write files.
-- \`current-instructions.md\` — the agent's current instructions
+# TOOLING — READ THIS, IT OVERRIDES THE SECTION ABOVE
+The instructions above mention named tools like \`propose_claude_md_update\`, \`propose_skill_change\`, \`propose_memory_change\`, \`read_claude_md\`, \`list_skills\`, \`read_skill\`, \`list_mcps\`, \`read_memories\`, \`list_file_sources\`, \`read_file_source\`. **Those tools DO NOT EXIST here.** Translate them as follows:
+- To INSPECT current state → READ the corresponding file in your working directory (you have read-only file access).
+- To PROPOSE any change → emit it in the \`coach-proposals\` JSON block described below. Prose alone NEVER creates a proposal — every change you recommend MUST appear in the block.
+
+Read only what's relevant to the request (the index below lists what exists). You cannot write files. Files available:
+- \`current-instructions.md\` — the agent's current instructions (this is the "CLAUDE.md" the above refers to)
 - \`skills/<category>/<filename>.md\` — each skill's full content
 - \`memory/<id>.md\` — each learned memory
-- \`knowledge-sources/<name>.md\` — operator-provided reference docs
+- \`knowledge-sources/<name>.md\` — operator-provided reference docs (read-only; you cannot change these)
 - \`mcp-servers.md\` — connected MCP servers
 
 When you want to propose concrete changes, append EXACTLY ONE fenced block at the very end of your reply:
@@ -432,15 +450,55 @@ async function runCoachModelTurn(opts: {
   return { text, sessionId };
 }
 
-function parseCoachProposals(text: string): { message: string; raw: Record<string, unknown>[] } {
-  const m = text.match(/```coach-proposals\s*([\s\S]*?)```/);
-  if (!m) return { message: text.trim(), raw: [] };
-  let raw: Record<string, unknown>[] = [];
-  try {
-    const parsed = JSON.parse(m[1].trim());
-    if (Array.isArray(parsed)) raw = parsed as Record<string, unknown>[];
-  } catch { /* malformed block → no proposals */ }
-  return { message: text.replace(m[0], '').trim(), raw };
+/**
+ * Extract the proposals array from the model's reply.
+ *
+ * Robust to two things models actually do: (1) using a ```json / bare ``` fence
+ * instead of the documented ```coach-proposals label, and (2) putting markdown
+ * code fences INSIDE a proposal's `content` (e.g. ```sql examples), which breaks
+ * any ```…``` regex. We scan for balanced top-level JSON arrays in a STRING-AWARE
+ * way (brackets/fences inside JSON strings are ignored) and keep the last one
+ * that looks like a proposal array (objects with a `kind`). Returns the prose
+ * (proposal block + wrapping fence stripped) and the raw proposals.
+ */
+export function parseCoachProposals(text: string): { message: string; raw: Record<string, unknown>[] } {
+  const isProposalArray = (v: unknown): v is Record<string, unknown>[] =>
+    Array.isArray(v) && v.length > 0 && v.every((e) => e && typeof e === 'object' && 'kind' in (e as object));
+
+  let found: { start: number; end: number; raw: Record<string, unknown>[] } | null = null;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '[') continue;
+    let depth = 0, inStr = false, esc = false;
+    for (let j = i; j < text.length; j++) {
+      const c = text[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') inStr = true;
+      else if (c === '[') depth++;
+      else if (c === ']') {
+        if (--depth === 0) {
+          try {
+            const parsed = JSON.parse(text.slice(i, j + 1));
+            if (isProposalArray(parsed)) found = { start: i, end: j + 1, raw: parsed as Record<string, unknown>[] };
+          } catch { /* not valid JSON — keep scanning */ }
+          i = j;
+          break;
+        }
+      }
+    }
+  }
+  if (!found) return { message: text.trim(), raw: [] };
+
+  // Drop the array plus any wrapping fence so the prose message reads cleanly.
+  const before = text.slice(0, found.start);
+  const openFence = before.match(/```(?:json|coach-proposals)?\s*$/);
+  const cut = openFence ? before.length - openFence[0].length : found.start;
+  const after = text.slice(found.end).replace(/^\s*```/, '');
+  return { message: (text.slice(0, cut) + after).trim(), raw: found.raw };
 }
 
 async function mapAndApplyProposal(agentId: string, p: Record<string, any>, autoApply: boolean): Promise<CoachProposal | null> {
@@ -469,6 +527,10 @@ async function mapAndApplyProposal(agentId: string, p: Record<string, any>, auto
   }
 
   if (p.kind === 'memory' && p.action) {
+    // The coach only ever updates/deletes existing memories (it never creates
+    // them). Both require a target memoryId — drop the proposal if it's missing
+    // so Apply can never run an UPDATE/DELETE that matches the wrong rows.
+    if ((p.action === 'update' || p.action === 'delete') && !p.memoryId) return null;
     // Memory proposals always queue for UI approval (matches the Claude path).
     return {
       kind: 'memory', id,
@@ -504,6 +566,10 @@ export async function runCoachTurn(input: CoachTurnInput): Promise<CoachTurnResu
     : input.userMessage;
 
   const sys = input.autoApply ? SYSTEM_PROMPT + BOOTSTRAP_APPENDIX : SYSTEM_PROMPT;
+  // Restated last (recency) so the output-format rule isn't lost at the end of a
+  // long prompt — the #1 cause of the model describing a change in prose without
+  // emitting the machine-readable block.
+  const reminder = 'REMINDER: If your reply makes or recommends ANY change to the instructions, a skill, or a memory, you MUST end with the ```coach-proposals``` JSON block. A prose description is NOT a proposal and will be silently dropped.';
   // First turn carries full context; resume turns send only the user message
   // (the model retains the system prompt + workspace orientation in context).
   const fullPrompt = [
@@ -512,8 +578,9 @@ export async function runCoachTurn(input: CoachTurnInput): Promise<CoachTurnResu
     `# Agent you are tuning\nName: ${agent.name}\nPersona: ${agent.persona ?? '(none)'}\nDescription: ${agent.description ?? '(none)'}`,
     `# Current state index (read files under the working dir for detail)\n${index}`,
     `# User message\n${userBlock}`,
+    reminder,
   ].join('\n\n');
-  const prompt = input.sdkSessionId ? userBlock : fullPrompt;
+  const prompt = input.sdkSessionId ? `${userBlock}\n\n${reminder}` : fullPrompt;
 
   let assistantText = '';
   let sessionId = input.sdkSessionId;
