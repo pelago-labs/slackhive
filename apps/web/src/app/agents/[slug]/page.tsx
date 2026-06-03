@@ -379,11 +379,10 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 /** Compact metric tile (icon + value + label) for the Details card grid. */
 function MiniStat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '11px 6px', textAlign: 'center', background: 'var(--surface)' }}>
-      <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--text)', lineHeight: 1, letterSpacing: '-0.02em' }}>{value}</div>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, color: 'var(--muted)', fontSize: 10.5 }}>
-        <span style={{ display: 'flex' }}>{icon}</span>{label}
-      </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 2px' }}>
+      <span style={{ color: 'var(--subtle)', display: 'flex', flexShrink: 0 }}>{icon}</span>
+      <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>{value}</span>
+      <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
     </div>
   );
 }
@@ -545,13 +544,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
       {/* Details (aside) — metrics + meta */}
       <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
         <Card title="Details">
-          {/* Counts — wrapping grid of stat cells */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 8 }}>
-            <MiniStat icon={<BookOpen size={13} />} value={num(counts?.skills)} label="Skills" />
-            <MiniStat icon={<Brain size={13} />} value={num(counts?.memories)} label="Memories" />
-            <MiniStat icon={<Database size={13} />} value={num(counts?.tools)} label="Tools" />
-            <MiniStat icon={<FolderOpen size={13} />} value={num(counts?.wiki)} label="Wiki" />
-            <MiniStat icon={<Users size={13} />} value={num(counts?.audiences)} label="Audiences" />
+          {/* Counts — compact two-column grid in one bordered box */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 14, rowGap: 2, border: '1px solid var(--border)', borderRadius: 10, padding: '8px 14px' }}>
+            <MiniStat icon={<BookOpen size={14} />} value={num(counts?.skills)} label="Skills" />
+            <MiniStat icon={<Brain size={14} />} value={num(counts?.memories)} label="Memories" />
+            <MiniStat icon={<Database size={14} />} value={num(counts?.tools)} label="Tools" />
+            <MiniStat icon={<FolderOpen size={14} />} value={num(counts?.wiki)} label="Wiki" />
+            <MiniStat icon={<Users size={14} />} value={num(counts?.audiences)} label="Audiences" />
           </div>
 
           <MetaGroupLabel>Configuration</MetaGroupLabel>

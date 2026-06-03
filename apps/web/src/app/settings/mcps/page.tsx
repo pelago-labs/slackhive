@@ -162,12 +162,17 @@ export default function McpSettingsPage() {
     fetch('/api/env-vars').then(r => r.json()).then((rows: { key: string }[]) => setEnvVarKeys(rows.map(r => r.key))).catch(() => {});
   }, []);
 
-  // CLI-detected MCPs
+  // CLI-detected MCPs — only relevant when the active backend is Claude Code
+  // (Codex doesn't read Claude's CLI config), so we gate the section on it.
   const [cliMcps, setCliMcps] = useState<any[]>([]);
+  const [backend, setBackend] = useState<string>('claude');
 
   useEffect(() => {
     fetch('/api/mcps/detected').then(r => r.json()).then(d => setCliMcps(d.detected ?? [])).catch(() => {});
+    fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => setBackend(s.agentBackend || 'claude')).catch(() => {});
   }, []);
+
+  const isClaudeBackend = backend === 'claude';
 
   const load = async () => {
     setLoading(true);
@@ -625,8 +630,8 @@ export default function McpSettingsPage() {
         </div>
       )}
 
-      {/* Detected from Claude Code CLI */}
-      {cliMcps.length > 0 && !showForm && (
+      {/* Detected from Claude Code CLI — Claude backend only */}
+      {isClaudeBackend && cliMcps.length > 0 && !showForm && (
         <div style={{ marginTop: 24 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 10 }}>
             Detected from Claude Code
@@ -1154,7 +1159,7 @@ export default function McpSettingsPage() {
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 4 }}>
                             {t.name}
                             {isInstalled && <Check size={13} style={{ color: 'var(--success, #22c55e)' }} />}
-                            {!isInstalled && isDetected && <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 3, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)' }}>CLI</span>}
+                            {!isInstalled && isDetected && isClaudeBackend && <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 3, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)' }}>CLI</span>}
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
                             {t.description}
