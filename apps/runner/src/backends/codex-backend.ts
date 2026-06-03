@@ -27,7 +27,8 @@ import { execFileSync } from 'child_process';
 // `Codex` class via dynamic import() — tsx preserves it as a real ESM import.
 import type { Codex as CodexClient } from '@openai/codex-sdk';
 import type { Agent, McpServer, McpStdioConfig, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
-import { getSession, upsertSession, cleanupStaleSessions } from '../db';
+import { CODEX_MODEL_SETTING_KEY } from '@slackhive/shared';
+import { getSession, upsertSession, cleanupStaleSessions, getSetting } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
 import { buildCodexConfig, buildThreadOptions, createCodexClient, resolveCodexModel, buildIdentityInstructions } from './codex-config';
@@ -184,12 +185,15 @@ export class CodexBackend implements AgentBackend {
   }
 
   /**
-   * Codex model for this agent — taken from `agent.model` (chosen per agent in
-   * the web UI). Falls back to a default if the stored model is a Claude id
-   * (e.g. an agent created before switching the backend to Codex).
+   * Codex model for this agent. A per-agent Codex model id (agent.model) wins;
+   * otherwise the global `codexModel` Settings value; otherwise the default.
+   * agent.model holds a Claude id by default (the new-agent wizard has no model
+   * picker), so the global setting is what normally applies — read live each turn
+   * so a Settings change takes effect on the next message without a reload.
    */
-  private getModel(): string {
-    return resolveCodexModel(this.agent.model);
+  private async getModel(): Promise<string> {
+    if (this.agent.model && !/^claude/i.test(this.agent.model)) return this.agent.model;
+    return resolveCodexModel(await getSetting(CODEX_MODEL_SETTING_KEY));
   }
 
   async *streamQuery(
@@ -231,7 +235,7 @@ export class CodexBackend implements AgentBackend {
     }
 
     const sessionWorkDir = this.getSessionWorkDir(sessionKey);
-    const model = this.getModel();
+    const model = await this.getModel();
     const threadOptions = buildThreadOptions({
       sessionWorkDir,
       workDir: this.workDir,
