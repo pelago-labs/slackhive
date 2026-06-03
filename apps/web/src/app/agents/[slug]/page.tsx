@@ -1698,7 +1698,6 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
       <div key={mcp.id} style={{
         border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)',
         overflow: 'hidden', opacity: mcp.enabled ? 1 : 0.6,
-        boxShadow: isConn ? 'inset 3px 0 0 var(--accent)' : 'none',
       }}>
         <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
           <div style={{
