@@ -29,16 +29,18 @@ export const CLAUDE_AUTH_MODE_SETTING_KEY = 'claudeAuthMode';
 export const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 
 /**
- * Curated fallback list of Codex models — used when the live model list can't be
- * fetched (subscription auth has no models API). Real slugs as of 2026; the
- * `sub` describes the model only (auth is chosen separately). `gpt-5.5` is the
- * one with an auth caveat — it requires ChatGPT login (not available via API key).
+ * Curated fallback list of Codex models — shown when the live model list can't be
+ * fetched (subscription auth has no models API). Only models that actually work
+ * under a **ChatGPT-account login** are listed, verified via `codex exec`. The
+ * `*-codex` coding models (e.g. gpt-5.3-codex) are intentionally excluded: Codex
+ * rejects them on a ChatGPT account ("not supported when using Codex with a
+ * ChatGPT account") — they're API-key-only, and API-key auth gets the real list
+ * from OpenAI's /v1/models endpoint instead of this fallback.
  */
 export const CODEX_MODELS: readonly ModelOption[] = [
-  { value: 'gpt-5.5',       label: 'GPT-5.5',       sub: 'Most capable (ChatGPT login)' },
+  { value: 'gpt-5.5',       label: 'GPT-5.5',       sub: 'Most capable' },
   { value: 'gpt-5.4',       label: 'GPT-5.4',       sub: 'Balanced' },
   { value: 'gpt-5.4-mini',  label: 'GPT-5.4 mini',  sub: 'Fastest' },
-  { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', sub: 'Coding specialist' },
 ];
 
 export type BackendAuthMode = 'subscription' | 'apiKey';
