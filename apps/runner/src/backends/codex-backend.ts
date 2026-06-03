@@ -20,6 +20,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { execFileSync } from 'child_process';
 // `@openai/codex-sdk` is ESM-only and its package `exports` has no CJS/`default`
 // condition, so a static value import fails under the runner's CommonJS+tsx
 // runtime (unlike claude-agent-sdk, which ships a `default` export). We load the
@@ -155,10 +156,16 @@ export class CodexBackend implements AgentBackend {
       const docSrc = fs.existsSync(agentDoc) ? agentDoc : (fs.existsSync(legacyDoc) ? legacyDoc : null);
       if (docSrc) fs.copyFileSync(docSrc, path.join(sessionDir, 'AGENTS.md'));
 
-      // .agents/skills/ — Codex discovers skills here.
+      // .agents/skills/ — Codex discovers skills here, but ONLY when the cwd is a
+      // git repo (its skill scopes are REPO-rooted). So git-init the session dir.
       const agentSkills = path.join(this.workDir, '.agents', 'skills');
       if (fs.existsSync(agentSkills)) {
         fs.cpSync(agentSkills, path.join(sessionDir, '.agents', 'skills'), { recursive: true });
+      }
+      try {
+        execFileSync('git', ['init', '-q'], { cwd: sessionDir, stdio: 'ignore' });
+      } catch (err) {
+        this.log.warn('git init for Codex skills discovery failed', { error: (err as Error).message });
       }
 
       // memory/ — agent-written memories; MemoryWatcher syncs these to the DB.
