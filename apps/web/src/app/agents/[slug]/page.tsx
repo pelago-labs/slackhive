@@ -462,6 +462,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
   const [msg, setMsg] = useState('');
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
   const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number } | null>(null);
+  const [usage, setUsage] = useState<{ queries30d: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
 
   useEffect(() => {
     fetch('/api/system/models').then(r => r.ok ? r.json() : null)
@@ -485,6 +486,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
     return () => { cancelled = true; };
   }, [agent.id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/agents/${agent.id}/usage`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setUsage(d); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
   const save = async () => {
     setSaving(true);
     try {
@@ -499,6 +507,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
 
   const num = (n: number | undefined) => counts ? String(n ?? 0) : '—';
   const fmtDate = (d: Date | string | undefined) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const fmtTokens = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n);
 
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }} className="fade-up">
@@ -538,6 +547,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
             <MetaRow icon={<UserCircle size={13} />} label="Owner">{agent.createdBy}</MetaRow>
             <MetaRow icon={<Calendar size={13} />} label="Created">{fmtDate(agent.createdAt)}</MetaRow>
             <MetaRow icon={<Clock size={13} />} label="Updated">{fmtDate(agent.updatedAt)}</MetaRow>
+          </div>
+          <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase', margin: '2px 0' }}>Activity</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <MetaRow icon={<MessageSquare size={13} />} label="Queries (30d)">{usage ? String(usage.queries30d) : '—'}</MetaRow>
+            <MetaRow icon={<Layers size={13} />} label="Tokens (total)">{usage ? fmtTokens(usage.totalTokens) : '—'}</MetaRow>
+            <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
           </div>
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12,
