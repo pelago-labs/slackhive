@@ -536,7 +536,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
             allTags={allAgents.flatMap(a => a.tags ?? [])} readOnly={!canEdit} />
           <TextArea label="Persona" value={form.persona}
             onChange={v => setForm(f => ({ ...f, persona: v }))}
-            hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
+            hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} grow />
         </Card>
       </div>
 
@@ -2851,12 +2851,12 @@ function SelectField({ label, value, options, onChange, hint, readOnly }: {
   );
 }
 
-function TextArea({ label, value, onChange, hint, rows = 3, readOnly }: {
+function TextArea({ label, value, onChange, hint, rows = 3, readOnly, grow }: {
   label: string; value: string; onChange: (v: string) => void;
-  hint?: string; rows?: number; readOnly?: boolean;
+  hint?: string; rows?: number; readOnly?: boolean; grow?: boolean;
 }) {
   return (
-    <div>
+    <div style={grow ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } : undefined}>
       <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
         {label}
       </label>
@@ -2866,7 +2866,8 @@ function TextArea({ label, value, onChange, hint, rows = 3, readOnly }: {
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
           fontSize: 12, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
-          transition: 'border-color 0.15s',
+          transition: 'border-color 0.15s', boxSizing: 'border-box',
+          ...(grow ? { flex: 1, minHeight: 140 } : {}),
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
         onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
