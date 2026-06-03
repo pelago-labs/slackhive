@@ -35,8 +35,9 @@ const defTool = tool as unknown as <S extends Record<string, unknown>>(
   extras?: { annotations?: Record<string, unknown> },
 ) => SdkTool;
 import type { CoachProposal } from '@slackhive/shared';
-import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND, DEFAULT_CODEX_MODEL } from '@slackhive/shared';
+import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
 import type { Agent } from '@slackhive/shared';
+import { createCodexClient, resolveCodexModel } from './backends/codex-config';
 import {
   getAgentById,
   getAgentSkills,
@@ -756,8 +757,7 @@ ${userBlock}`;
 
 /** Coach model under Codex — falls back to the default if a Claude id is configured. */
 async function codexCoachModel(): Promise<string> {
-  const m = await readSetting(COACH_MODEL_SETTING_KEY);
-  return m && !/^claude/i.test(m) ? m : DEFAULT_CODEX_MODEL;
+  return resolveCodexModel(await readSetting(COACH_MODEL_SETTING_KEY));
 }
 
 async function buildCoachContext(agentId: string): Promise<string> {
@@ -889,13 +889,7 @@ ${userBlock}`;
   let threadId = input.sdkSessionId;
 
   try {
-    const { Codex } = await import('@openai/codex-sdk');
-    const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined;
-    const codex = new Codex({
-      ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
-      ...(apiKey ? { apiKey } : {}),
-      config: { cli_auth_credentials_store: 'file' },
-    });
+    const codex = await createCodexClient({ cli_auth_credentials_store: 'file' });
     const threadOpts = {
       skipGitRepoCheck: true, sandboxMode: 'read-only' as const, approvalPolicy: 'never' as const,
       webSearchEnabled: true, webSearchMode: 'live' as const, model,

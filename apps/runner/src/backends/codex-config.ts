@@ -7,15 +7,49 @@
  * @module runner/backends/codex-config
  */
 
-import type { ThreadOptions } from '@openai/codex-sdk';
+import type { Codex as CodexClient, ThreadOptions } from '@openai/codex-sdk';
 import type { McpServer, McpStdioConfig, Permission } from '@slackhive/shared';
+import { DEFAULT_CODEX_MODEL } from '@slackhive/shared';
 
 /** 1 MiB — generous so the inlined-memory AGENTS.md is never truncated (Codex default is 32 KiB). */
 const PROJECT_DOC_MAX_BYTES = 1_048_576;
 
 // Mirrors the SDK's (non-exported) CodexConfigObject so values aren't `unknown`.
 type ConfigValue = string | number | boolean | ConfigValue[] | { [k: string]: ConfigValue };
-type ConfigObj = { [k: string]: ConfigValue };
+export type ConfigObj = { [k: string]: ConfigValue };
+
+// ── Client + model (the one place that knows how to build a Codex client) ─────
+
+/** Codex API key from env — subscription auth omits it (uses ~/.codex/auth.json). */
+export function codexApiKeyFromEnv(): string | undefined {
+  return process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined;
+}
+
+/**
+ * Construct the Codex client. Single source of truth for wiring
+ * `codexPathOverride` (host binary), the API key (subscription omits it), and the
+ * constructor `config` — shared by the backend, Coach, and the one-shot generator
+ * so none of them re-implement the plumbing. ESM-only package → dynamic import.
+ */
+export async function createCodexClient(config: ConfigObj, apiKey?: string): Promise<CodexClient> {
+  const { Codex } = await import('@openai/codex-sdk');
+  const key = apiKey ?? codexApiKeyFromEnv();
+  return new Codex({
+    ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
+    ...(key ? { apiKey: key } : {}),
+    config,
+  });
+}
+
+/**
+ * Resolve the effective Codex model id from a stored setting: fall back to the
+ * default when unset, and guard against a Claude model id leaking in from a
+ * backend switch (the agent's `model` column holds a Claude id).
+ */
+export function resolveCodexModel(stored: string | null | undefined): string {
+  const model = stored ?? DEFAULT_CODEX_MODEL;
+  return /^claude/i.test(model) ? DEFAULT_CODEX_MODEL : model;
+}
 
 /** Whether the agent has any Bash permission (→ shell commands need network for npm/git/pip). */
 export function agentHasBash(permissions: Permission | null): boolean {

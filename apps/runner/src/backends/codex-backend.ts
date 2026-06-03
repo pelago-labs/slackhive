@@ -27,11 +27,10 @@ import { execFileSync } from 'child_process';
 // `Codex` class via dynamic import() — tsx preserves it as a real ESM import.
 import type { Codex as CodexClient } from '@openai/codex-sdk';
 import type { Agent, McpServer, McpStdioConfig, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
-import { DEFAULT_CODEX_MODEL } from '@slackhive/shared';
 import { getSession, upsertSession, cleanupStaleSessions } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
-import { buildCodexConfig, buildThreadOptions } from './codex-config';
+import { buildCodexConfig, buildThreadOptions, createCodexClient, resolveCodexModel } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -86,12 +85,10 @@ export class CodexBackend implements AgentBackend {
   private async ensureCodex(): Promise<CodexClient> {
     if (!this.codex) {
       if (this.proxiesReady) await this.proxiesReady;
-      const { Codex } = await import('@openai/codex-sdk');
-      this.codex = new Codex({
-        ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
-        ...(this.apiKey ? { apiKey: this.apiKey } : {}),
-        config: buildCodexConfig(this.mcpServers, this.envVarValues, (name) => this.mcpManager.getStreamableUrl(name)),
-      });
+      this.codex = await createCodexClient(
+        buildCodexConfig(this.mcpServers, this.envVarValues, (name) => this.mcpManager.getStreamableUrl(name)),
+        this.apiKey,
+      );
     }
     return this.codex;
   }
@@ -187,8 +184,7 @@ export class CodexBackend implements AgentBackend {
    * (e.g. an agent created before switching the backend to Codex).
    */
   private getModel(): string {
-    const m = this.agent.model;
-    return m && !/^claude/i.test(m) ? m : DEFAULT_CODEX_MODEL;
+    return resolveCodexModel(this.agent.model);
   }
 
   async *streamQuery(

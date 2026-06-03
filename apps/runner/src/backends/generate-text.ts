@@ -8,13 +8,11 @@
  * @module runner/backends/generate-text
  */
 
-import {
-  AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND,
-  CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL,
-} from '@slackhive/shared';
+import { AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND, CODEX_MODEL_SETTING_KEY } from '@slackhive/shared';
 import { getSetting } from '../db';
 import { logger } from '../logger';
 import { ClaudeBackend } from './claude-backend';
+import { createCodexClient, resolveCodexModel } from './codex-config';
 
 export interface GenerateOpts {
   /** System prompt / role instructions. */
@@ -35,15 +33,8 @@ export async function generateText(prompt: string, opts: GenerateOpts = {}): Pro
 
 async function generateViaCodex(prompt: string, opts: GenerateOpts): Promise<string> {
   const os = await import('os');
-  const { Codex } = await import('@openai/codex-sdk');
-  const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined;
-  let model = (await getSetting(CODEX_MODEL_SETTING_KEY)) ?? DEFAULT_CODEX_MODEL;
-  if (/^claude/i.test(model)) model = DEFAULT_CODEX_MODEL;
-  const codex = new Codex({
-    ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
-    ...(apiKey ? { apiKey } : {}),
-    config: { cli_auth_credentials_store: 'file' },
-  });
+  const model = resolveCodexModel(await getSetting(CODEX_MODEL_SETTING_KEY));
+  const codex = await createCodexClient({ cli_auth_credentials_store: 'file' });
   // Codex has no separate system-prompt param; prepend it to the turn input.
   const input = opts.systemPrompt ? `${opts.systemPrompt}\n\n${prompt}` : prompt;
   const thread = codex.startThread({
