@@ -7,8 +7,6 @@
  * @module runner/backends/codex-config
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import type { ThreadOptions } from '@openai/codex-sdk';
 import type { McpServer, McpStdioConfig, Permission } from '@slackhive/shared';
 
@@ -30,27 +28,36 @@ export function agentHasBash(permissions: Permission | null): boolean {
  * Carries the per-agent-stable settings: MCP servers, doc size, disabling Codex's
  * native memory (SlackHive manages memory), and forcing file-based auth so
  * `~/.codex/auth.json` works identically on macOS and Linux/Ubuntu.
+ *
+ * `proxyUrlFor(name)` returns the local proxy's Streamable-HTTP URL for a stdio
+ * server (the elicitation shield); stdio servers are wired to that URL so they
+ * behave headlessly like they do under the Claude Agent SDK.
  */
 export function buildCodexConfig(
   mcpServers: McpServer[],
   envVarValues: Record<string, string>,
-  workDir: string,
+  proxyUrlFor: (name: string) => string | undefined,
 ): ConfigObj {
   const config: ConfigObj = {
     cli_auth_credentials_store: 'file',
     project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
     memories: { use_memories: false },
   };
-  const mcp = buildMcpServers(mcpServers, envVarValues, workDir);
+  const mcp = buildMcpServers(mcpServers, envVarValues, proxyUrlFor);
   if (Object.keys(mcp).length > 0) config.mcp_servers = mcp;
   return config;
 }
 
 /**
- * Per-thread options — the Codex equivalent of `buildSdkOptions`:
- * - acceptEdits → approvalPolicy:'never'
- * - path-scope hook → sandbox 'workspace-write' + cwd + additionalDirectories
- * - network only when the agent has Bash (npm/git/pip need it); web search always on
+ * Per-thread options — the Codex equivalent of `buildSdkOptions`.
+ *
+ * sandboxMode is `danger-full-access` (with approvalPolicy `never`) because Codex
+ * cancels MCP tool calls under the managed `workspace-write`/`read-only` sandboxes
+ * in headless `exec` mode — it hits an interactive user-input/elicitation path that
+ * exec can't service (known upstream bug: openai/codex#16685). This is also parity
+ * with SlackHive's Claude path, which runs with no OS sandbox (its confinement is
+ * the Bash command denylist + the Read/Write path-scope hook). cwd stays the
+ * per-session workdir so the agent naturally operates there.
  */
 export function buildThreadOptions(opts: {
   sessionWorkDir: string;
@@ -61,7 +68,7 @@ export function buildThreadOptions(opts: {
   return {
     workingDirectory: opts.sessionWorkDir,
     skipGitRepoCheck: true,
-    sandboxMode: 'workspace-write',
+    sandboxMode: 'danger-full-access',
     approvalPolicy: 'never',
     additionalDirectories: [opts.workDir],
     networkAccessEnabled: opts.networkAccess,
@@ -95,25 +102,23 @@ function resolveHeaders(c: Record<string, unknown>, envVarValues: Record<string,
   return out;
 }
 
-/** Find a runnable `tsx` for inline-TypeScript MCP servers (mirrors claude-backend). */
-function resolveTsxPath(): string {
-  const nmDirs: string[] = [];
-  let cur = path.resolve(__dirname);
-  while (cur !== path.dirname(cur)) {
-    const nm = path.join(cur, 'node_modules');
-    if (fs.existsSync(nm)) nmDirs.push(nm);
-    cur = path.dirname(cur);
-  }
-  return nmDirs.map((nm) => path.join(nm, '.bin', 'tsx')).find((p) => fs.existsSync(p)) ?? 'tsx';
-}
-
-/** Translate SlackHive MCP servers into Codex `[mcp_servers.NAME]` config entries. */
-function buildMcpServers(servers: McpServer[], envVarValues: Record<string, string>, workDir: string): ConfigObj {
+/**
+ * Translate SlackHive MCP servers into Codex `[mcp_servers.NAME]` config entries.
+ * - Remote HTTP/SSE servers → passthrough url + resolved headers.
+ * - stdio servers (incl. inline-TS) → the local proxy's Streamable-HTTP URL, so
+ *   the proxy (empty client capabilities) shields elicitation and the server
+ *   behaves headlessly. Falls back to direct stdio spawn if no proxy is up.
+ */
+function buildMcpServers(
+  servers: McpServer[],
+  envVarValues: Record<string, string>,
+  proxyUrlFor: (name: string) => string | undefined,
+): ConfigObj {
   const out: ConfigObj = {};
   for (const s of servers) {
     const c = s.config as McpStdioConfig & Record<string, unknown>;
 
-    // HTTP / SSE transport → url + static headers
+    // Remote HTTP / SSE transport → url + static headers
     const urlVal = (c as { url?: string }).url;
     if (s.type === 'http' || s.type === 'sse' || typeof urlVal === 'string') {
       const entry: ConfigObj = { url: String(urlVal ?? '') };
@@ -123,27 +128,14 @@ function buildMcpServers(servers: McpServer[], envVarValues: Record<string, stri
       continue;
     }
 
-    // Inline TypeScript MCP → write to disk and run via tsx
-    if (c.tsSource) {
-      const scriptDir = path.join(workDir, '.mcp-scripts');
-      const scriptPath = path.join(scriptDir, `${s.name}.ts`);
-      fs.mkdirSync(scriptDir, { recursive: true });
-      fs.writeFileSync(scriptPath, c.tsSource as string, 'utf8');
-      const nodePath = (process.env.NODE_PATH ?? '');
-      out[s.name] = {
-        command: resolveTsxPath(),
-        args: [scriptPath],
-        env: {
-          PATH: process.env.PATH ?? '',
-          HOME: process.env.HOME ?? '',
-          NODE_PATH: nodePath,
-          ...resolveEnvRefs(c, envVarValues),
-        },
-      };
+    // stdio (incl. inline-TS) → route through the local proxy.
+    const proxyUrl = proxyUrlFor(s.name);
+    if (proxyUrl) {
+      out[s.name] = { url: proxyUrl };
       continue;
     }
 
-    // stdio command server
+    // Fallback: proxy unavailable → let Codex spawn the stdio server directly.
     const entry: ConfigObj = { command: String(c.command ?? '') };
     if (Array.isArray(c.args)) entry.args = (c.args as unknown[]).map(String);
     const env = resolveEnvRefs(c, envVarValues);

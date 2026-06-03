@@ -24,11 +24,12 @@ import * as crypto from 'crypto';
 // condition, so a static value import fails under the runner's CommonJS+tsx
 // runtime (unlike claude-agent-sdk, which ships a `default` export). We load the
 // `Codex` class via dynamic import() — tsx preserves it as a real ESM import.
-import type { Codex as CodexClient, CodexOptions } from '@openai/codex-sdk';
-import type { Agent, McpServer, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
+import type { Codex as CodexClient } from '@openai/codex-sdk';
+import type { Agent, McpServer, McpStdioConfig, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
 import { DEFAULT_CODEX_MODEL } from '@slackhive/shared';
 import { getSession, upsertSession, cleanupStaleSessions } from '../db';
 import { agentLogger } from '../logger';
+import { McpProcessManager } from '../mcp-process-manager.js';
 import { buildCodexConfig, buildThreadOptions } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
@@ -45,8 +46,12 @@ export class CodexBackend implements AgentBackend {
   private readonly workDir: string;
   private readonly sessionsDir: string;
   private readonly log: Logger;
-  private readonly codexOptions: CodexOptions;
+  private readonly envVarValues: Record<string, string>;
+  private readonly apiKey: string | undefined;
+  private readonly mcpManager: McpProcessManager;
   private codex: CodexClient | null = null;
+  /** Resolves once stdio MCP proxies are up; ensureCodex awaits it. */
+  private proxiesReady: Promise<void> | null = null;
 
   /** In-memory cache: sessionKey → Codex thread id */
   private sessionCache: Map<string, string> = new Map();
@@ -66,28 +71,48 @@ export class CodexBackend implements AgentBackend {
     this.workDir = workDir;
     this.sessionsDir = path.join(workDir, 'sessions');
     this.log = agentLogger(agent.slug);
-
+    this.envVarValues = envVarValues;
     // API key (api-key mode); when absent, Codex uses ~/.codex/auth.json (subscription).
-    const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined;
-    this.codexOptions = {
-      ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
-      ...(apiKey ? { apiKey } : {}),
-      config: buildCodexConfig(mcpServers, envVarValues, workDir),
-    };
+    this.apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined;
+    // Shared MCP proxy (same module Claude uses). stdio servers are fronted by a
+    // local proxy that connects with empty client capabilities (no elicitation),
+    // so eliciting servers work headlessly on Codex — see mcp-process-manager.
+    const slugHash = agent.slug.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    this.mcpManager = new McpProcessManager(agent.slug, workDir, 14000 + (slugHash % 200) * 50);
   }
 
   /** Lazily construct the Codex client via dynamic import (ESM-only package). */
   private async ensureCodex(): Promise<CodexClient> {
     if (!this.codex) {
+      if (this.proxiesReady) await this.proxiesReady;
       const { Codex } = await import('@openai/codex-sdk');
-      this.codex = new Codex(this.codexOptions);
+      this.codex = new Codex({
+        ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
+        ...(this.apiKey ? { apiKey: this.apiKey } : {}),
+        config: buildCodexConfig(this.mcpServers, this.envVarValues, (name) => this.mcpManager.getStreamableUrl(name)),
+      });
     }
     return this.codex;
+  }
+
+  /** Start a local proxy for each stdio MCP server (Codex connects via its URL). */
+  private async startMcpProxies(): Promise<void> {
+    const stdio = this.mcpServers.filter(
+      (s) => s.type === 'stdio' || (!('url' in (s.config as object)) && ('command' in (s.config as object))),
+    );
+    await Promise.all(
+      stdio.map((s) =>
+        this.mcpManager
+          .startServer(s.name, s.config as McpStdioConfig, this.envVarValues)
+          .catch((err) => this.log.error('MCP proxy start failed', { server: s.name, error: (err as Error).message })),
+      ),
+    );
   }
 
   initialize(): void {
     fs.mkdirSync(this.sessionsDir, { recursive: true });
     this.cleanupTimer = setInterval(() => this.runSessionCleanup(), SESSION_CLEANUP_INTERVAL_MS);
+    this.proxiesReady = this.startMcpProxies();
     this.log.info('CodexBackend initialized', {
       workDir: this.workDir,
       mcpServers: this.mcpServers.map((s) => s.name),
@@ -104,6 +129,9 @@ export class CodexBackend implements AgentBackend {
     }
     this.inflightAborts.clear();
     this.sessionCache.clear();
+    await this.mcpManager.stopAll().catch((err) =>
+      this.log.warn('Error stopping MCP proxies', { error: (err as Error).message }),
+    );
   }
 
   getSessionKey(userId: string, channelId: string, threadTs?: string): string {
@@ -232,6 +260,15 @@ export class CodexBackend implements AgentBackend {
         const { events } = await thread.runStreamed(input, { signal: abort.signal });
         for await (const event of events) {
           if (abort.signal.aborted) break;
+          // Diagnostic: surface MCP tool-call outcomes and turn/stream failures.
+          if (event.type === 'item.completed' && (event.item as { type?: string }).type === 'mcp_tool_call') {
+            const it = event.item as { server?: string; tool?: string; status?: string; error?: { message?: string } };
+            this.log.info('Codex MCP tool call', { server: it.server, tool: it.tool, status: it.status, error: it.error?.message });
+          } else if (event.type === 'turn.failed') {
+            this.log.warn('Codex turn failed', { error: (event as { error?: { message?: string } }).error?.message });
+          } else if (event.type === 'error') {
+            this.log.warn('Codex stream error', { message: (event as { message?: string }).message });
+          }
           for (const msg of translateEvent(event, finalParts)) {
             // Persist the thread id as soon as it's known.
             if (msg.type === 'system' && msg.session_id) {

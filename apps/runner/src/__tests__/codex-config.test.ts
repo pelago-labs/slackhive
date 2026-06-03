@@ -17,18 +17,16 @@ describe('codex-config / agentHasBash', () => {
 });
 
 describe('codex-config / buildThreadOptions', () => {
-  it('maps acceptEdits + path-scope + web search onto thread options', () => {
-    const opts = buildThreadOptions({ sessionWorkDir: '/w/s', workDir: '/w', model: 'gpt-5-codex', networkAccess: false });
+  it('maps acceptEdits + web search onto thread options (danger-full-access for headless MCP — codex#16685)', () => {
+    const opts = buildThreadOptions({ sessionWorkDir: '/w/s', workDir: '/w', model: 'gpt-5.4', networkAccess: false });
     expect(opts).toMatchObject({
       workingDirectory: '/w/s',
       skipGitRepoCheck: true,
-      sandboxMode: 'workspace-write',
+      sandboxMode: 'danger-full-access',
       approvalPolicy: 'never',
-      additionalDirectories: ['/w'],
-      networkAccessEnabled: false,
       webSearchEnabled: true,
       webSearchMode: 'live',
-      model: 'gpt-5-codex',
+      model: 'gpt-5.4',
     });
   });
   it('enables network when the agent has Bash', () => {
@@ -37,34 +35,37 @@ describe('codex-config / buildThreadOptions', () => {
 });
 
 describe('codex-config / buildCodexConfig', () => {
+  const noProxy = () => undefined;
+  const withProxy = (url: string) => () => url;
+
   it('forces file-based auth, disables Codex memory, and sets a generous doc cap', () => {
-    const cfg = buildCodexConfig([], {}, '/w') as Record<string, unknown>;
+    const cfg = buildCodexConfig([], {}, noProxy) as Record<string, unknown>;
     expect(cfg.cli_auth_credentials_store).toBe('file');
     expect(cfg.memories).toEqual({ use_memories: false });
     expect(typeof cfg.project_doc_max_bytes).toBe('number');
     expect(cfg.mcp_servers).toBeUndefined(); // omitted when there are no servers
   });
 
-  it('translates a stdio MCP server to a command/args/env entry', () => {
+  it('routes a stdio MCP server through the local proxy URL (elicitation shield)', () => {
+    const cfg = buildCodexConfig(
+      [mcp('gh', 'stdio', { command: 'gh-mcp', args: ['--stdio'] })],
+      {}, withProxy('http://127.0.0.1:14300/mcp'),
+    ) as { mcp_servers: Record<string, unknown> };
+    expect(cfg.mcp_servers.gh).toEqual({ url: 'http://127.0.0.1:14300/mcp' });
+  });
+
+  it('falls back to direct stdio spawn when no proxy is available', () => {
     const cfg = buildCodexConfig(
       [mcp('gh', 'stdio', { command: 'gh-mcp', args: ['--stdio'], env: { TOKEN: 't' } })],
-      {}, '/w',
+      {}, noProxy,
     ) as { mcp_servers: Record<string, unknown> };
     expect(cfg.mcp_servers.gh).toEqual({ command: 'gh-mcp', args: ['--stdio'], env: { TOKEN: 't' } });
   });
 
-  it('resolves stdio envRefs from the env-var store', () => {
-    const cfg = buildCodexConfig(
-      [mcp('db', 'stdio', { command: 'db-mcp', envRefs: { API_KEY: 'STORE_KEY' } })],
-      { STORE_KEY: 'secret-val' }, '/w',
-    ) as { mcp_servers: Record<string, { env?: Record<string, string> }> };
-    expect(cfg.mcp_servers.db.env).toEqual({ API_KEY: 'secret-val' });
-  });
-
-  it('translates an http MCP server to url + resolved headers', () => {
+  it('translates an http MCP server to url + resolved headers (passthrough, no proxy)', () => {
     const cfg = buildCodexConfig(
       [mcp('remote', 'http', { url: 'https://mcp.example.com', headers: { Authorization: 'Bearer ' }, envRefs: { Authorization: 'TOK' } })],
-      { TOK: 'xyz' }, '/w',
+      { TOK: 'xyz' }, noProxy,
     ) as { mcp_servers: Record<string, unknown> };
     expect(cfg.mcp_servers.remote).toEqual({ url: 'https://mcp.example.com', http_headers: { Authorization: 'Bearer xyz' } });
   });
