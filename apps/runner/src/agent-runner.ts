@@ -53,6 +53,7 @@ import {
 } from './db';
 import { summarizeSkill } from './summarize-skill';
 import { fillSkillDescription } from './skill-description';
+import { isFetchableUrl } from './wiki-source-url';
 import { compileAgentWorkspace, getAgentWorkDir } from './compile-instructions';
 import { createAgentBackend } from './backends';
 import { MemoryWatcher } from './memory-watcher';
@@ -2391,12 +2392,24 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           if (src.type === 'file' || src.type === 'url') {
             content = src.content ?? '';
             if (!content && src.url) {
-              await writeProgress({ status: 'building', folderId, step: `Fetching ${src.name}…`, sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length, articlesWritten: totalPages });
-              const resp = await fetch(src.url);
-              if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${src.url}`);
-              content = await resp.text();
-              // Save fetched content back to DB
-              await getDb().query('UPDATE wiki_sources SET content = $1 WHERE id = $2', [content, src.id]);
+              // A `url` source whose "url" isn't actually an http(s) address is
+              // really pasted inline content stored in the wrong column (happens
+              // via the add-source form). fetch()-ing it throws "Failed to parse
+              // URL" and the source silently drops out of the wiki. Detect that,
+              // treat the text as content, and self-heal the row so it's a
+              // proper `file` source on the next rebuild.
+              if (isFetchableUrl(src.url)) {
+                await writeProgress({ status: 'building', folderId, step: `Fetching ${src.name}…`, sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length, articlesWritten: totalPages });
+                const resp = await fetch(src.url);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${src.url}`);
+                content = await resp.text();
+                // Save fetched content back to DB
+                await getDb().query('UPDATE wiki_sources SET content = $1 WHERE id = $2', [content, src.id]);
+              } else {
+                content = src.url;
+                logger.warn('[wiki] Source typed as url but value is not an http(s) URL — treating as inline content', { source: src.name });
+                await getDb().query("UPDATE wiki_sources SET content = $1, type = 'file' WHERE id = $2", [content, src.id]);
+              }
             }
             if (!content) throw new Error(`Source "${src.name}" has no content`);
           } else if (src.type === 'repo') {
