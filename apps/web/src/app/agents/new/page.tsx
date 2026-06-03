@@ -13,7 +13,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AlertTriangle, Eye, EyeOff, Search, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Agent, McpServer, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
-import { PERSONA_CATALOG, searchPersonas, MODELS, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 import { useAuth } from '@/lib/auth-context';
 
@@ -322,14 +322,12 @@ function Step1Identity({ state, update, bosses }: {
   state: WizardState; update: (p: Partial<WizardState>) => void;
   bosses: Agent[];
 }) {
-  // Model options follow the active backend (Codex vs Claude), real API list when
-  // a key is set; default the selection to a valid model for that backend.
-  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
+  // No model picker at creation — default to the active backend's model; it's
+  // editable later on the agent page.
   useEffect(() => {
     fetch('/api/system/models').then(r => r.ok ? r.json() : null).then(d => {
-      if (d?.models?.length) {
-        setModelOptions(d.models);
-        if (!d.models.some((m: { value: string }) => m.value === state.model)) update({ model: d.models[0].value });
+      if (d?.models?.length && !d.models.some((m: { value: string }) => m.value === state.model)) {
+        update({ model: d.models[0].value });
       }
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -352,31 +350,6 @@ function Step1Identity({ state, update, bosses }: {
         <Field label="Agent Name *" value={state.name} placeholder="e.g. GILFOYLE"
           onChange={v => update({ name: v, slug: autoSlug(v) })} />
       </div>
-      {/* Model selector */}
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 8 }}>
-          Model
-        </label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
-          {modelOptions.map(m => (
-            <label key={m.value} style={{
-              display: 'flex', flexDirection: 'column', gap: 2,
-              padding: '10px 12px', border: `1px solid ${state.model === m.value ? 'var(--accent)' : 'var(--border)'}`,
-              borderRadius: 8, cursor: 'pointer',
-              background: state.model === m.value ? 'rgba(59,130,246,0.08)' : 'transparent',
-              transition: 'border-color 0.15s, background 0.15s',
-            }}>
-              <input type="radio" name="model" value={m.value} checked={state.model === m.value}
-                onChange={() => update({ model: m.value })} style={{ display: 'none' }} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: state.model === m.value ? 'var(--accent)' : 'var(--text)' }}>
-                {m.label}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{m.sub}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
       {/* Boss toggle */}
       <div style={{ marginBottom: 14 }}>
         <label style={{
