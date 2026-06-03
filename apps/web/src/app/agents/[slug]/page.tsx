@@ -1132,7 +1132,7 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
         readOnly={!canEdit}
         placeholder="Write the agent's core instructions here — rules, workflows, response style..."
         style={{
-          width: '100%', minHeight: 120, maxHeight: '50vh',
+          width: '100%', minHeight: 460, maxHeight: '75vh',
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 8, padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
           color: 'var(--text)', fontFamily: 'var(--font-mono)',
