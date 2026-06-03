@@ -379,9 +379,9 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 /** Compact metric tile (icon + value + label) for the Details card grid. */
 function MiniStat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
   return (
-    <div style={{ flex: 1, textAlign: 'center', padding: '14px 8px' }}>
-      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1, letterSpacing: '-0.02em' }}>{value}</div>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 7, color: 'var(--muted)', fontSize: 11 }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '11px 6px', textAlign: 'center', background: 'var(--surface)' }}>
+      <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--text)', lineHeight: 1, letterSpacing: '-0.02em' }}>{value}</div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, color: 'var(--muted)', fontSize: 10.5 }}>
         <span style={{ display: 'flex' }}>{icon}</span>{label}
       </div>
     </div>
@@ -469,8 +469,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
-  const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number } | null>(null);
-  const [usage, setUsage] = useState<{ queries30d: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
+  const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number; wiki: number; audiences: number } | null>(null);
+  const [usage, setUsage] = useState<{ queries30d: number; inputTokens: number; outputTokens: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
 
   useEffect(() => {
     fetch('/api/system/models').then(r => r.ok ? r.json() : null)
@@ -488,8 +488,10 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
       fetch(`/api/agents/${agent.id}/skills`).then(r => r.ok ? r.json() : []).catch(() => []),
       fetch(`/api/agents/${agent.id}/memories`).then(r => r.ok ? r.json() : []).catch(() => []),
       fetch(`/api/agents/${agent.id}/mcps`).then(r => r.ok ? r.json() : []).catch(() => []),
-    ]).then(([s, m, t]) => {
-      if (!cancelled) setCounts({ skills: len(s, 'skills'), memories: len(m, 'memories'), tools: len(t, 'mcps') });
+      fetch(`/api/agents/${agent.id}/wiki-folders`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`/api/agents/${agent.id}/groups`).then(r => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([s, m, t, w, g]) => {
+      if (!cancelled) setCounts({ skills: len(s, 'skills'), memories: len(m, 'memories'), tools: len(t, 'mcps'), wiki: len(w, 'folders'), audiences: len(g, 'groups') });
     });
     return () => { cancelled = true; };
   }, [agent.id]);
@@ -543,13 +545,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
       {/* Details (aside) — metrics + meta */}
       <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
         <Card title="Details">
-          {/* Counts — one bordered tri-column box with hairline dividers */}
-          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: 'var(--surface)' }}>
+          {/* Counts — wrapping grid of stat cells */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 8 }}>
             <MiniStat icon={<BookOpen size={13} />} value={num(counts?.skills)} label="Skills" />
-            <div style={{ width: 1, background: 'var(--border)' }} />
             <MiniStat icon={<Brain size={13} />} value={num(counts?.memories)} label="Memories" />
-            <div style={{ width: 1, background: 'var(--border)' }} />
             <MiniStat icon={<Database size={13} />} value={num(counts?.tools)} label="Tools" />
+            <MiniStat icon={<FolderOpen size={13} />} value={num(counts?.wiki)} label="Wiki" />
+            <MiniStat icon={<Users size={13} />} value={num(counts?.audiences)} label="Audiences" />
           </div>
 
           <MetaGroupLabel>Configuration</MetaGroupLabel>
@@ -564,7 +566,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
           <MetaGroupLabel>Activity</MetaGroupLabel>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             <MetaRow icon={<MessageSquare size={13} />} label="Queries (30d)">{usage ? String(usage.queries30d) : '—'}</MetaRow>
-            <MetaRow icon={<Layers size={13} />} label="Tokens (total)">{usage ? fmtTokens(usage.totalTokens) : '—'}</MetaRow>
+            <MetaRow icon={<ArrowRight size={13} />} label="Tokens in">{usage ? fmtTokens(usage.inputTokens) : '—'}</MetaRow>
+            <MetaRow icon={<ArrowLeft size={13} />} label="Tokens out">{usage ? fmtTokens(usage.outputTokens) : '—'}</MetaRow>
             <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
           </div>
 

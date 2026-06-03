@@ -43,6 +43,8 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Ne
 
     const row30 = tokens30d.find(r => r.agentId === id);
     const rowAll = tokensAll.find(r => r.agentId === id);
+    const inputTokens = rowAll?.inputTokens ?? 0;
+    const outputTokens = rowAll?.outputTokens ?? 0;
     const totalTokens = rowAll
       ? rowAll.inputTokens + rowAll.outputTokens + rowAll.cacheReadTokens + rowAll.cacheCreationTokens
       : 0;
@@ -50,6 +52,8 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Ne
 
     return NextResponse.json({
       queries30d: row30?.turnCount ?? 0,
+      inputTokens,
+      outputTokens,
       totalTokens,
       powerUser7d: top
         ? { handle: top.handle ?? top.userId, taskCount: top.taskCount, turnCount: top.turnCount }
