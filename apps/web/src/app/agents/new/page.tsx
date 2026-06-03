@@ -322,6 +322,19 @@ function Step1Identity({ state, update, bosses }: {
   state: WizardState; update: (p: Partial<WizardState>) => void;
   bosses: Agent[];
 }) {
+  // Model options follow the active backend (Codex vs Claude), real API list when
+  // a key is set; default the selection to a valid model for that backend.
+  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
+  useEffect(() => {
+    fetch('/api/system/models').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.models?.length) {
+        setModelOptions(d.models);
+        if (!d.models.some((m: { value: string }) => m.value === state.model)) update({ model: d.models[0].value });
+      }
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const autoSlug = (name: string) =>
     name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -344,8 +357,8 @@ function Step1Identity({ state, update, bosses }: {
         <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 8 }}>
           Model
         </label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-          {MODELS.map(m => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+          {modelOptions.map(m => (
             <label key={m.value} style={{
               display: 'flex', flexDirection: 'column', gap: 2,
               padding: '10px 12px', border: `1px solid ${state.model === m.value ? 'var(--accent)' : 'var(--border)'}`,
