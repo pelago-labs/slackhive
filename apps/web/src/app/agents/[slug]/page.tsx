@@ -1102,7 +1102,7 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [dirty, setDirty] = useState(false);
-  const [view, setView] = useState<'edit' | 'preview'>(canEdit ? 'edit' : 'preview');
+  const [view, setView] = useState<'edit' | 'preview'>('preview');
 
   const refetch = () => {
     setLoading(true);
@@ -1142,8 +1142,18 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
 
   return (
     <div style={{ position: 'relative' }}>
-      {/* Edit / Preview toggle */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+      {/* Top bar: Save (when dirty) on the left, Edit/Preview toggle on the right */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {canEdit && dirty && (
+            <button onClick={save} disabled={saving} style={{
+              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
+              borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 500,
+              cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
+            }}>{saving ? 'Saving…' : 'Save'}</button>
+          )}
+          {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
+        </div>
         <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 9 }}>
           {(['edit', 'preview'] as const).map(v => (
             <button key={v} onClick={() => setView(v)} style={{
@@ -1181,18 +1191,6 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
           <MarkdownView>{content}</MarkdownView>
         </div>
       )}
-      {(dirty || msg) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-          {canEdit && dirty && (
-            <button onClick={save} disabled={saving} style={{
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
-              borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 500,
-              cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
-            }}>{saving ? 'Saving...' : 'Save'}</button>
-          )}
-          {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
-        </div>
-      )}
     </div>
   );
 }
@@ -1203,7 +1201,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
   const [skills, setSkills]         = useState<Skill[]>([]);
   const [selected, setSelected]     = useState<Skill | null>(null);
   const [content, setContent]       = useState('');
-  const [skillView, setSkillView]   = useState<'edit' | 'preview'>('edit');
+  const [skillView, setSkillView]   = useState<'edit' | 'preview'>('preview');
   const [description, setDescription] = useState('');
   const [descModal, setDescModal]   = useState(false);
   const [descDraft, setDescDraft]   = useState('');
