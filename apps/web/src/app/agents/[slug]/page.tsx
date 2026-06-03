@@ -2811,7 +2811,7 @@ function Field({ label, value, onChange, hint, type = 'text', readOnly }: {
         style={{
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
+          fontSize: 11, fontFamily: 'var(--font-sans)', outline: 'none',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
@@ -2837,7 +2837,7 @@ function SelectField({ label, value, options, onChange, hint, readOnly }: {
         style={{
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
+          fontSize: 11, fontFamily: 'var(--font-sans)', outline: 'none',
           cursor: readOnly ? 'default' : 'pointer',
         }}
       >

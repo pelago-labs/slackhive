@@ -12,7 +12,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import type { McpServer, McpServerType } from '@slackhive/shared';
 import { MCP_TEMPLATES } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
-import { Plug, Library, Search, X, Check, Loader2 } from 'lucide-react';
+import { Plug, Library, Search, X, Check, Loader2, Plus, ListFilter, ChevronDown, MoreHorizontal, Terminal, Globe, Radio, Power, Pencil, Trash2, Zap, ExternalLink, Info } from 'lucide-react';
 import { Portal } from '@/lib/portal';
 import { parseMcpJson, serializeMcpJson } from '@/lib/mcp-json';
 import type { McpServerConfig } from '@slackhive/shared';
@@ -78,6 +78,8 @@ export default function McpSettingsPage() {
   const { canEdit, username, role } = useAuth();
   const [servers, setServers]       = useState<McpServer[]>([]);
   const [serverSearch, setServerSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'stdio' | 'sse' | 'http'>('all');
+  const [sortBy, setSortBy]         = useState<'newest' | 'oldest' | 'name'>('newest');
   const [loading, setLoading]       = useState(true);
   const [form, setForm]             = useState<McpFormState>(DEFAULT_FORM);
   const [saving, setSaving]         = useState(false);
@@ -520,6 +522,20 @@ export default function McpSettingsPage() {
     setForm(prev => ({ ...prev, headerEntries: prev.headerEntries.map((e, idx) => idx === i ? { ...e, ...patch } : e) }));
 
   // ─── Render ──────────────────────────────────────────────────────────────────
+
+  const visibleServers = useMemo(() => {
+    const q = serverSearch.toLowerCase();
+    return servers
+      .filter(s => typeFilter === 'all' || s.type === typeFilter)
+      .filter(s => !q || s.name.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q))
+      .sort((a, b) => sortBy === 'name'
+        ? a.name.localeCompare(b.name)
+        : sortBy === 'oldest'
+          ? +new Date(a.createdAt) - +new Date(b.createdAt)
+          : +new Date(b.createdAt) - +new Date(a.createdAt));
+  }, [servers, serverSearch, typeFilter, sortBy]);
+
+  const detectedAvailable = cliMcps.filter(d => !servers.find(s => s.name === d.name));
 
   return (
     <div style={{ padding: '36px 40px' }} className="fade-up">
