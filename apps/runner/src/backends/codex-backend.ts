@@ -149,28 +149,25 @@ export class CodexBackend implements AgentBackend {
 
     if (!fs.existsSync(sessionDir)) {
       fs.mkdirSync(sessionDir, { recursive: true });
-
-      // AGENTS.md (canonical instruction doc) — Codex loads it from the cwd.
-      const agentDoc = path.join(this.workDir, 'AGENTS.md');
-      const legacyDoc = path.join(this.workDir, 'CLAUDE.md');
-      const docSrc = fs.existsSync(agentDoc) ? agentDoc : (fs.existsSync(legacyDoc) ? legacyDoc : null);
-      if (docSrc) fs.copyFileSync(docSrc, path.join(sessionDir, 'AGENTS.md'));
-
-      // .agents/skills/ — Codex discovers skills here, but ONLY when the cwd is a
-      // git repo (its skill scopes are REPO-rooted). So git-init the session dir.
-      const agentSkills = path.join(this.workDir, '.agents', 'skills');
-      if (fs.existsSync(agentSkills)) {
-        fs.cpSync(agentSkills, path.join(sessionDir, '.agents', 'skills'), { recursive: true });
-      }
-      try {
-        execFileSync('git', ['init', '-q'], { cwd: sessionDir, stdio: 'ignore' });
-      } catch (err) {
-        this.log.warn('git init for Codex skills discovery failed', { error: (err as Error).message });
-      }
-
       // memory/ — agent-written memories; MemoryWatcher syncs these to the DB.
       fs.mkdirSync(path.join(sessionDir, 'memory'), { recursive: true });
+      // git-init so Codex's REPO-scoped skill discovery picks up .agents/skills.
+      try { execFileSync('git', ['init', '-q'], { cwd: sessionDir, stdio: 'ignore' }); }
+      catch (err) { this.log.warn('git init for Codex skills failed', { error: (err as Error).message }); }
       this.log.debug('Codex session work dir created', { sessionKey, sessionDir });
+    }
+
+    // Refresh instructions + skills every turn (idempotent) so existing sessions
+    // pick up edits and newly-compiled skills, not just freshly-created dirs.
+    const agentDoc = path.join(this.workDir, 'AGENTS.md');
+    const legacyDoc = path.join(this.workDir, 'CLAUDE.md');
+    const docSrc = fs.existsSync(agentDoc) ? agentDoc : (fs.existsSync(legacyDoc) ? legacyDoc : null);
+    if (docSrc) fs.copyFileSync(docSrc, path.join(sessionDir, 'AGENTS.md'));
+    // .agents/skills (Codex native discovery) + skills/ (path-addressable refs).
+    for (const rel of [['.agents', 'skills'], ['skills']]) {
+      const src = path.join(this.workDir, ...rel);
+      const dst = path.join(sessionDir, ...rel);
+      if (fs.existsSync(src)) { fs.rmSync(dst, { recursive: true, force: true }); fs.cpSync(src, dst, { recursive: true }); }
     }
 
     // knowledge/ symlink (wiki + sources), idempotent — matches ClaudeBackend.

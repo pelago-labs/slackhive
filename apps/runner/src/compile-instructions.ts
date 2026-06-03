@@ -348,6 +348,8 @@ export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: str
   // the format they need into each session dir (Claude → .claude/commands, Codex
   // → .agents/skills). Both are kept in sync from the same skill rows.
   writeAgentsSkills(workDir, skills, hasWiki ? WIKI_SKILL : null);
+  // Path-addressable copy so `skills/<category>/<file>.md` references resolve (Codex).
+  writeSkillsTree(workDir, skills, hasWiki ? WIKI_SKILL : null);
 
   logger.debug('Skill commands written', {
     agent: agent.slug,
@@ -382,8 +384,9 @@ export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: str
         const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
         fs.writeFileSync(path.join(sessionCommandsDir, filename), skill.content, 'utf-8');
       }
-      // Update .agents/skills/ (Codex skills)
+      // Update .agents/skills/ (Codex skills) + path-addressable skills/ tree.
       writeAgentsSkills(sessionDir, skills, hasWiki ? WIKI_SKILL : null);
+      writeSkillsTree(sessionDir, skills, hasWiki ? WIKI_SKILL : null);
     }
   }
 
@@ -415,7 +418,28 @@ function firstMeaningfulLine(content: string): string {
  * implicitly-matched skills. `Skill` has no `name` field, so the name is derived
  * from the filename; `description` (nullable) falls back to the first content line.
  */
-function writeAgentsSkills(targetDir: string, skills: Skill[], wikiBody: string | null): void {
+/**
+ * Materialize skills at `{targetDir}/skills/<category>/<filename>.md` — the exact
+ * path agent instructions reference (e.g. "Follow skills/04-daily-dashboard/
+ * dashboard.md"). Claude exposes skills as `/slash` commands, but Codex reads
+ * them by path, so this makes those references resolve under Codex.
+ */
+export function writeSkillsTree(targetDir: string, skills: Skill[], wikiBody: string | null): void {
+  const root = path.join(targetDir, 'skills');
+  fs.rmSync(root, { recursive: true, force: true });
+  for (const skill of skills) {
+    const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
+    const dir = path.join(root, skill.category);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, filename), skill.content, 'utf8');
+  }
+  if (wikiBody) {
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, 'wiki.md'), wikiBody, 'utf8');
+  }
+}
+
+export function writeAgentsSkills(targetDir: string, skills: Skill[], wikiBody: string | null): void {
   const skillsRoot = path.join(targetDir, '.agents', 'skills');
   fs.rmSync(skillsRoot, { recursive: true, force: true });
   fs.mkdirSync(skillsRoot, { recursive: true });

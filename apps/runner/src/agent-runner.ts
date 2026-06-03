@@ -334,9 +334,10 @@ function buildParticipantWorkDir(
   const participantDir = path.join(sessionRoot, agentSlug);
   fs.mkdirSync(participantDir, { recursive: true });
 
-  const claudeMdSrc = path.join(agentWorkDir, 'CLAUDE.md');
-  if (fs.existsSync(claudeMdSrc)) {
-    fs.copyFileSync(claudeMdSrc, path.join(participantDir, 'CLAUDE.md'));
+  // Instruction doc — copy both names (Claude reads CLAUDE.md; Codex reads AGENTS.md).
+  for (const name of ['CLAUDE.md', 'AGENTS.md']) {
+    const src = path.join(agentWorkDir, name);
+    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(participantDir, name));
   }
 
   const commandsSrc = path.join(agentWorkDir, '.claude', 'commands');
@@ -346,6 +347,12 @@ function buildParticipantWorkDir(
     for (const f of fs.readdirSync(commandsSrc)) {
       fs.copyFileSync(path.join(commandsSrc, f), path.join(commandsDst, f));
     }
+  }
+
+  // Codex skill formats: .agents/skills (native discovery) + skills/ (path-addressable).
+  for (const rel of [['.agents', 'skills'], ['skills']]) {
+    const src = path.join(agentWorkDir, ...rel);
+    if (fs.existsSync(src)) fs.cpSync(src, path.join(participantDir, ...rel), { recursive: true });
   }
 
   // Symlink the wiki if present — avoids duplicating a potentially-large
