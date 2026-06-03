@@ -13,7 +13,6 @@ import { getSetting } from '../db';
 import { logger } from '../logger';
 import { ClaudeBackend } from './claude-backend';
 import { createCodexClient, resolveCodexModel, baseCodexConfig } from './codex-config';
-import { syncClaudeCredentialsFromKeychain } from './credentials';
 
 export interface GenerateOpts {
   /** System prompt / role instructions. */
@@ -89,15 +88,11 @@ async function generateViaClaude(prompt: string, opts: GenerateOpts): Promise<st
   } catch (err1) {
     const msg1 = (err1 as Error).message ?? '';
     if (!msg1.includes('401') && !msg1.includes('auth') && !msg1.includes('credentials')) throw err1;
-    logger.warn('generateText(claude): auth failed, trying keychain sync', { error: msg1.slice(0, 100) });
+    logger.warn('generateText(claude): auth failed, refreshing token', { error: msg1.slice(0, 100) });
   }
 
-  // Attempt 2: macOS Keychain sync, then retry.
-  if (syncClaudeCredentialsFromKeychain()) {
-    try { return await runQuery(); } catch { /* fall through to refresh */ }
-  }
-
-  // Attempt 3: refresh OAuth token, then retry.
+  // Attempt 2: refresh the OAuth token in the Settings-synced credentials file,
+  // then retry. (No host-Keychain fallback — auth is Settings-managed.)
   try {
     if (await ClaudeBackend.refreshOAuthToken()) return await runQuery();
   } catch { /* fall through */ }

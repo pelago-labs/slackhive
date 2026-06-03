@@ -16,7 +16,6 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import { decrypt } from '@slackhive/shared';
 import { getSetting } from '../db';
 import { getEncryptionKey } from '../secrets';
@@ -43,25 +42,6 @@ async function readSecret(secretKey: string): Promise<string | null> {
 function writeSecretFile(filePath: string, contents: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, contents, { mode: 0o600 });
-}
-
-/**
- * macOS only: copy the `Claude Code-credentials` item from the login Keychain
- * into `~/.claude/.credentials.json` (0600). Used as an auth-recovery step when
- * a Claude call 401s and no credentials file is present. Returns true if a file
- * was written. No-op (returns false) off macOS or when the item is absent.
- */
-export function syncClaudeCredentialsFromKeychain(): boolean {
-  try {
-    const creds = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
-      encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (!creds) return false;
-    writeSecretFile(path.join(claudeHome(), '.credentials.json'), creds);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
