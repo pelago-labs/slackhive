@@ -791,6 +791,10 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Which surface is shown — System Prompt, Skills, or Memory (was: System Prompt
+  // always-on + a separate Skills/Memory sub-tab bar). One segmented control reads
+  // cleaner and gives each surface the full width.
+  const [section, setSection] = useState<'system' | 'skills' | 'memory'>('system');
 
   // Persona library
   const [personaLibOpen, setPersonaLibOpen] = useState(false);
@@ -989,101 +993,91 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         />
       )}
 
-      {/* ── System Prompt ───────────────────────────────────────────────── */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            System Prompt
-            {importError && <span style={{ fontSize: 11, color: 'var(--danger)', marginLeft: 8, fontWeight: 400, textTransform: 'none' }}>{importError}</span>}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {canEdit && <IconBtn title="Export instructions as JSON" onClick={handleExport} loading={exporting}>
-              <Download size={14} />
-            </IconBtn>}
-            {canEdit && (
-              <IconBtn title="Import persona" onClick={() => setPersonaLibOpen(true)}>
-                <Upload size={14} />
-              </IconBtn>
-            )}
-            {canEdit && !agent.isBoss && (
-              <>
-                <div style={{ width: 1, height: 16, background: 'var(--border)' }} />
-                <button onClick={() => onOpenCoach?.()} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)', borderRadius: 7,
-                  padding: '5px 12px', fontSize: 12, fontWeight: 500,
-                  cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                  color: 'var(--text)',
-                }}>
-                  <Wand2 size={13} /> Coach
-                </button>
-              </>
-            )}
-          </div>
+      {/* ── Toolbar: segmented switcher + labeled actions ───────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+        <SegmentedControl
+          value={section}
+          onChange={setSection}
+          options={[
+            { id: 'system', label: 'System Prompt' },
+            { id: 'skills', label: 'Skills' },
+            { id: 'memory', label: 'Memory' },
+          ]}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {importError && <span style={{ fontSize: 11.5, color: 'var(--red)' }}>{importError}</span>}
+          {canEdit && <ActionBtn icon={<Download size={13} />} label="Export" onClick={handleExport} loading={exporting} />}
+          {canEdit && <ActionBtn icon={<Upload size={13} />} label="Persona Library" onClick={() => setPersonaLibOpen(true)} />}
+          {canEdit && !agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => onOpenCoach?.()} primary />}
         </div>
-        {agent.isBoss ? (
-          <>
-            <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-              Auto-generated from your team roster. Updates automatically when agents are added or removed.
-            </p>
-            <ClaudeMdSection agentId={agent.id} canEdit={false} />
-          </>
-        ) : (
-          <>
-            <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-              Define how this agent should behave — its rules, workflows, and response style. This is always in the agent&apos;s context.
-            </p>
-            <ClaudeMdSection agentId={agent.id} canEdit={canEdit} />
-          </>
-        )}
       </div>
 
-      {/* ── Skills / Memory sub-tabs ──────────────────────────────────── */}
-      <InstructionsSubTabs agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />
+      {/* ── Active surface ──────────────────────────────────────────────── */}
+      {section === 'system' && (
+        <div>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
+            {agent.isBoss
+              ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
+              : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context."}
+          </p>
+          <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} />
+        </div>
+      )}
+      {section === 'skills' && (
+        <div>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
+            Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.
+          </p>
+          <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />
+        </div>
+      )}
+      {section === 'memory' && (
+        <div>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
+            Learned from conversations — the agent asks before saving. Open Coach to review and clean up.
+          </p>
+          <MemorySection agentId={agent.id} canEdit={canEdit} />
+        </div>
+      )}
     </div>
   );
 }
 
-function InstructionsSubTabs({ agentId, canEdit, agentName, agentPersona, agentDescription }: { agentId: string; canEdit: boolean; agentName: string; agentPersona: string; agentDescription: string }) {
-  const [subTab, setSubTab] = useState<'skills' | 'memory'>('skills');
-
+/** Pill-style segmented switcher (System Prompt · Skills · Memory). */
+function SegmentedControl<T extends string>({ options, value, onChange }: { options: { id: T; label: string }[]; value: T; onChange: (v: T) => void }) {
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
-        {(['skills', 'memory'] as const).map(t => (
-          <button
-            key={t}
-            onClick={() => setSubTab(t)}
-            style={{
-              padding: '8px 18px', fontSize: 13, fontWeight: subTab === t ? 600 : 400,
-              color: subTab === t ? 'var(--text)' : 'var(--muted)',
-              background: 'none', border: 'none', borderBottom: subTab === t ? '2px solid var(--accent)' : '2px solid transparent',
-              cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              transition: 'color 0.15s, border-color 0.15s',
-            }}
-          >
-            {t === 'skills' ? 'Skills' : 'Memory'}
-          </button>
-        ))}
-      </div>
-      {subTab === 'skills' && (
-        <div>
-          <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-            Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.
-          </p>
-          <SkillsTab agentId={agentId} canEdit={canEdit} agentName={agentName} agentPersona={agentPersona} agentDescription={agentDescription} />
-        </div>
-      )}
-      {subTab === 'memory' && (
-        <div>
-          <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-            Learned from conversations — the agent asks before saving. Open Coach to review and clean up.
-          </p>
-          <MemorySection agentId={agentId} canEdit={canEdit} />
-        </div>
-      )}
+    <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+      {options.map(o => (
+        <button key={o.id} onClick={() => onChange(o.id)} style={{
+          padding: '6px 16px', fontSize: 13, borderRadius: 7, border: 'none',
+          cursor: 'pointer', fontFamily: 'var(--font-sans)',
+          background: value === o.id ? 'var(--surface)' : 'transparent',
+          color: value === o.id ? 'var(--text)' : 'var(--muted)',
+          fontWeight: value === o.id ? 600 : 400,
+          boxShadow: value === o.id ? 'var(--shadow-sm)' : 'none',
+          transition: 'all 0.15s',
+        }}>{o.label}</button>
+      ))}
     </div>
+  );
+}
+
+/** Labeled action button (icon + text) — used for the Instructions toolbar so
+ *  Coach / Export / Persona Library aren't hidden behind bare icons. */
+function ActionBtn({ icon, label, onClick, loading, primary }: { icon: React.ReactNode; label: string; onClick?: () => void; loading?: boolean; primary?: boolean }) {
+  return (
+    <button onClick={onClick} disabled={loading} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px',
+      fontSize: 12.5, fontWeight: 500, borderRadius: 8, fontFamily: 'var(--font-sans)',
+      cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
+      border: primary ? '1px solid transparent' : '1px solid var(--border)',
+      background: primary ? 'var(--accent)' : 'var(--surface)',
+      color: primary ? 'var(--accent-fg)' : 'var(--text)',
+      transition: 'all 0.15s',
+    }}>
+      {loading ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : icon}
+      {label}
+    </button>
   );
 }
 
