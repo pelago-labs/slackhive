@@ -761,9 +761,23 @@ async function codexCoachModel(): Promise<string> {
 }
 
 async function buildCoachContext(agentId: string): Promise<string> {
-  const [skills, memories, mcps] = await Promise.all([
+  const [skills, memories, mcps, fileSources] = await Promise.all([
     getAgentSkills(agentId), getAgentMemories(agentId), getAgentMcpServers(agentId),
+    // Knowledge file-sources (parity with the Claude coach's list_file_sources).
+    getDb().query(
+      `SELECT ws.id, ws.name, ws.word_count, ws.status, ws.content, wf.name as folder_name
+       FROM wiki_sources ws
+       JOIN agent_wiki_folders awf ON awf.folder_id = ws.folder_id
+       JOIN wiki_folders wf ON wf.id = ws.folder_id
+       WHERE awf.agent_id = $1 AND ws.type = 'file'
+       ORDER BY ws.created_at DESC`,
+      [agentId],
+    ).then(r => r.rows).catch(() => [] as Record<string, unknown>[]),
   ]);
+  const sourceLines = fileSources.map((row) => {
+    const preview = ((row.content as string) ?? '').slice(0, 200).replace(/\s+/g, ' ').trim();
+    return `- id=${row.id} "${row.name}" folder="${row.folder_name}" words=${row.word_count} status=${row.status}\n    preview: ${preview}`;
+  });
   return [
     '## Skills',
     skills.length ? skills.map(s => `### ${s.category}/${s.filename}\n${s.content}`).join('\n\n') : '(none)',
@@ -771,6 +785,8 @@ async function buildCoachContext(agentId: string): Promise<string> {
     memories.length ? memories.map(m => `- id=${m.id} [${m.type}] ${m.name}: ${m.content}`).join('\n') : '(none)',
     '## MCP servers',
     mcps.length ? mcps.map(m => `- ${m.name} (${m.type}) — ${m.description ?? ''}`).join('\n') : '(none)',
+    '## Knowledge file-sources',
+    sourceLines.length ? sourceLines.join('\n') : '(none)',
   ].join('\n\n');
 }
 
