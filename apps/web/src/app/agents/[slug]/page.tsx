@@ -1203,6 +1203,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
   const [skills, setSkills]         = useState<Skill[]>([]);
   const [selected, setSelected]     = useState<Skill | null>(null);
   const [content, setContent]       = useState('');
+  const [skillView, setSkillView]   = useState<'edit' | 'preview'>('edit');
   const [description, setDescription] = useState('');
   const [descModal, setDescModal]   = useState(false);
   const [descDraft, setDescDraft]   = useState('');
@@ -1503,6 +1504,15 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                <div style={{ display: 'inline-flex', gap: 2, padding: 2, background: 'var(--surface-3)', borderRadius: 7 }}>
+                  {(['edit', 'preview'] as const).map(v => (
+                    <button key={v} onClick={() => setSkillView(v)} style={{
+                      padding: '3px 10px', fontSize: 11, borderRadius: 5, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                      background: skillView === v ? 'var(--surface)' : 'transparent',
+                      color: skillView === v ? 'var(--text)' : 'var(--muted)', fontWeight: skillView === v ? 600 : 400,
+                    }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
+                  ))}
+                </div>
                 {msg && <span style={{ fontSize: 11.5, color: '#16a34a' }}>{msg}</span>}
                 {canEdit && !isIdentity && <button
                   onClick={save} disabled={saving}
@@ -1518,18 +1528,24 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                 </button>}
               </div>
             </div>
-            <textarea
-              value={isIdentity ? identityVirtual.content : content}
-              onChange={e => { if (!isIdentity) setContent(e.target.value); }}
-              readOnly={!canEdit || isIdentity}
-              style={{
-                flex: 1, border: 'none', outline: 'none', resize: 'none',
-                background: 'transparent', color: 'var(--text)',
-                fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.65,
-                padding: '16px', caretColor: 'var(--accent)',
-              }}
-              spellCheck={false}
-            />
+            {skillView === 'edit' ? (
+              <textarea
+                value={isIdentity ? identityVirtual.content : content}
+                onChange={e => { if (!isIdentity) setContent(e.target.value); }}
+                readOnly={!canEdit || isIdentity}
+                style={{
+                  flex: 1, border: 'none', outline: 'none', resize: 'none',
+                  background: 'transparent', color: 'var(--text)',
+                  fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.65,
+                  padding: '16px', caretColor: 'var(--accent)',
+                }}
+                spellCheck={false}
+              />
+            ) : (
+              <div style={{ flex: 1, overflow: 'auto', padding: '16px 18px' }}>
+                <MarkdownView>{isIdentity ? identityVirtual.content : content}</MarkdownView>
+              </div>
+            )}
           </>
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)', fontSize: 13 }}>
