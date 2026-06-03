@@ -1182,7 +1182,6 @@ function ResultsList({
           const showAskCoach = !!onAskCoach;
           const cols = ['1fr', 'auto'];
           if (showPencil) cols.push('auto');
-          if (showAskCoach) cols.push('auto');
           cols.push('14px');
           return (
             <div key={r.id}>
@@ -1244,35 +1243,6 @@ function ResultsList({
                     }}
                   >
                     <Eye size={14} />
-                  </button>
-                )}
-                {showAskCoach && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAskCoach!(r);
-                    }}
-                    title="Ask Coach to debug this failure"
-                    aria-label="Ask Coach to debug this failure"
-                    style={{
-                      background: 'var(--accent-soft-bg, rgba(99,102,241,0.08))',
-                      border: '1px solid var(--accent)',
-                      color: 'var(--accent)',
-                      padding: '3px 8px',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      borderRadius: 4,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      lineHeight: 1.2,
-                      fontFamily: 'var(--font-sans)',
-                    }}
-                  >
-                    <Sparkles size={11} />
-                    Ask Coach
                   </button>
                 )}
                 <span style={{ color: 'var(--subtle)', display: 'flex' }}>
@@ -1358,6 +1328,45 @@ function ResultsList({
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+                  {showAskCoach && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        marginTop: 12,
+                        paddingTop: 12,
+                        borderTop: '1px dashed var(--border)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAskCoach!(r);
+                        }}
+                        title="Ask Coach to debug this failure"
+                        aria-label="Ask Coach to debug this failure"
+                        style={{
+                          background: 'var(--accent-soft-bg, rgba(99,102,241,0.08))',
+                          border: '1px solid var(--accent)',
+                          color: 'var(--accent)',
+                          padding: '5px 12px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          borderRadius: 5,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          lineHeight: 1.2,
+                          fontFamily: 'var(--font-sans)',
+                        }}
+                      >
+                        <Sparkles size={12} />
+                        Ask Coach about this failure
+                      </button>
                     </div>
                   )}
                 </div>
