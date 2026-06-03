@@ -25,7 +25,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { Agent, PlatformAdapter, ThreadMessage, AgentBackend } from '@slackhive/shared';
-import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
+import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND, CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL } from '@slackhive/shared';
 import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
@@ -2905,7 +2905,15 @@ Return this JSON:
     );
   }
 
+  /**
+   * One-shot text generation for wiki/knowledge/analysis builders. Backend-aware:
+   * routes to Codex when that's the active backend, else Claude. (Named ...Claude...
+   * for history; it's the model-neutral generation helper.)
+   */
   private async callClaudeWithRetry(prompt: string, onProgress?: (chars: number) => void): Promise<string> {
+    const backend = (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+    if (backend === 'codex') return this.generateViaCodex(prompt, onProgress);
+
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     const os = await import('os');
 
@@ -2974,5 +2982,30 @@ Return this JSON:
 
     // All retries exhausted
     throw new Error('AUTH_NEEDS_LOGIN');
+  }
+
+  /** One-shot text generation via Codex (ESM-only SDK → dynamic import). */
+  private async generateViaCodex(prompt: string, onProgress?: (chars: number) => void): Promise<string> {
+    const os = await import('os');
+    const { Codex } = await import('@openai/codex-sdk');
+    const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined;
+    let model = (await getSetting(CODEX_MODEL_SETTING_KEY)) ?? DEFAULT_CODEX_MODEL;
+    if (/^claude/i.test(model)) model = DEFAULT_CODEX_MODEL;
+    const codex = new Codex({
+      ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
+      ...(apiKey ? { apiKey } : {}),
+      config: { cli_auth_credentials_store: 'file' },
+    });
+    const thread = codex.startThread({
+      workingDirectory: os.tmpdir(),
+      skipGitRepoCheck: true,
+      sandboxMode: 'read-only',
+      approvalPolicy: 'never',
+      model,
+    });
+    const turn = await thread.run(prompt);
+    const text = turn.finalResponse ?? '';
+    if (onProgress) onProgress(text.length);
+    return text;
   }
 }
