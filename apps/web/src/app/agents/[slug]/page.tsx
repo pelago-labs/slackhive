@@ -52,6 +52,10 @@ const STATUS_COLOR = {
   stale: '#f59e0b',
 } as const;
 
+/** Antigravity/Gemini-inspired accent — blue → violet. Applied to primary CTAs
+ *  and key highlights for a premium, branded feel (works on light + dark). */
+const BRAND_GRADIENT = 'linear-gradient(135deg, #3d7bff 0%, #9b5cff 100%)';
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 // Minimalist deterministic avatar palette — soft pastel bg + darker fg letter.
@@ -1076,8 +1080,8 @@ function ActionBtn({ icon, label, onClick, loading, primary }: { icon: React.Rea
       fontSize: 12.5, fontWeight: 500, borderRadius: 8, fontFamily: 'var(--font-sans)',
       cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
       border: primary ? '1px solid transparent' : '1px solid var(--border)',
-      background: primary ? 'var(--accent)' : 'var(--surface)',
-      color: primary ? 'var(--accent-fg)' : 'var(--text)',
+      background: primary ? BRAND_GRADIENT : 'var(--surface)',
+      color: primary ? '#fff' : 'var(--text)',
       transition: 'all 0.15s',
     }}>
       {loading ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : icon}
@@ -2630,8 +2634,8 @@ function PrimaryBtn({ children, onClick, loading }: {
 }) {
   return (
     <button onClick={onClick} disabled={loading} style={{
-      background: loading ? 'var(--border)' : 'var(--accent)',
-      color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
+      background: loading ? 'var(--border)' : BRAND_GRADIENT,
+      color: '#fff', border: 'none', borderRadius: 'var(--radius)',
       padding: '10px 22px', fontSize: 14, fontWeight: 600,
       letterSpacing: '-0.01em',
       cursor: loading ? 'not-allowed' : 'pointer',
