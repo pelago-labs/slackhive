@@ -12,7 +12,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import type { McpServer, McpServerType } from '@slackhive/shared';
 import { MCP_TEMPLATES } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
-import { Plug, Library, Search, X, Check, Loader2, Plus, ListFilter, ChevronDown, MoreHorizontal, Terminal, Globe, Radio, Power, Pencil, Trash2, Zap, ExternalLink, Info } from 'lucide-react';
+import { Plug, Library, Search, X, Check, Loader2, Plus, ListFilter, MoreHorizontal, Terminal, Globe, Radio, Power, Trash2, ExternalLink, Info } from 'lucide-react';
 import { Portal } from '@/lib/portal';
 import { parseMcpJson, serializeMcpJson } from '@/lib/mcp-json';
 import type { McpServerConfig } from '@slackhive/shared';
@@ -537,66 +537,56 @@ export default function McpSettingsPage() {
 
   const detectedAvailable = cliMcps.filter(d => !servers.find(s => s.name === d.name));
 
+  const ghostBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--surface)', color: 'var(--text)', padding: '8px 15px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' };
+  const accentBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent)', color: 'var(--accent-fg)', padding: '8px 15px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' };
+  const selectStyle: React.CSSProperties = { padding: '8px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', outline: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' };
+
   return (
     <div style={{ padding: '36px 40px' }} className="fade-up">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
         <div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>Settings</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--text)' }}>
             MCP Catalog
           </h1>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            {servers.length} server{servers.length !== 1 ? 's' : ''} · available to all agents
+            Discover, test, and manage MCP servers for your agents.
           </p>
         </div>
         {canEdit && !showForm && (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={openLibrary} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: 'var(--surface)', color: 'var(--text)',
-              padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)',
-              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              transition: 'opacity 0.15s',
-            }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-            >
-              <Library size={14} />
-              Browse Library
-            </button>
-            <button onClick={openAddForm} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: 'var(--accent)', color: 'var(--accent-fg)',
-              padding: '8px 16px', borderRadius: 8, border: 'none',
-              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              transition: 'opacity 0.15s',
-            }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-            >
-              <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span>
-              Custom Server
-            </button>
+            <button onClick={openLibrary} style={ghostBtnStyle}><Library size={14} /> Browse Library</button>
+            <button onClick={openAddForm} style={accentBtnStyle}><Plus size={15} /> Custom Server</button>
           </div>
         )}
       </div>
 
-      {/* Server list */}
-      {servers.length > 0 && (
-        <input
-          type="text"
-          placeholder="Search MCP servers…"
-          value={serverSearch}
-          onChange={e => setServerSearch(e.target.value)}
-          style={{
-            width: '100%', boxSizing: 'border-box', marginBottom: 12,
-            padding: '8px 12px', fontSize: 13, borderRadius: 8,
-            border: '1px solid var(--border)', background: 'var(--input-bg)',
-            color: 'var(--text)', outline: 'none',
-          }}
-        />
+      {/* Toolbar — search · type filter · sort */}
+      {!showForm && servers.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0 }}>
+            <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--subtle)', pointerEvents: 'none' }} />
+            <input type="text" placeholder="Search MCP servers…" value={serverSearch} onChange={e => setServerSearch(e.target.value)}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px 8px 34px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', outline: 'none' }} />
+          </div>
+          <div style={{ position: 'relative' }}>
+            <ListFilter size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--subtle)', pointerEvents: 'none' }} />
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as 'all' | 'stdio' | 'sse' | 'http')} style={{ ...selectStyle, paddingLeft: 32 }}>
+              <option value="all">All Types</option>
+              <option value="stdio">STDIO</option>
+              <option value="http">HTTP</option>
+              <option value="sse">SSE</option>
+            </select>
+          </div>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'newest' | 'oldest' | 'name')} style={selectStyle}>
+            <option value="newest">Sort: Newest</option>
+            <option value="oldest">Sort: Oldest</option>
+            <option value="name">Sort: Name</option>
+          </select>
+        </div>
       )}
+
       {loading ? (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
@@ -627,49 +617,71 @@ export default function McpSettingsPage() {
             }}>Add Custom</button>
           </div>}
         </div>
-      ) : (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-          {servers.filter(s => !serverSearch || s.name.toLowerCase().includes(serverSearch.toLowerCase()) || (s.description ?? '').toLowerCase().includes(serverSearch.toLowerCase())).map((server, i, arr) => (
-            <ServerRow
-              key={server.id} server={server}
-              isLast={i === arr.length - 1}
-              onEdit={() => handleEdit(server)}
-              onDelete={() => handleDelete(server.id)}
-              onToggle={() => handleToggle(server)}
-              onTest={() => handleTest(server)}
-              onDismissTest={() => setTestResults(prev => { const n = { ...prev }; delete n[server.id]; return n; })}
-              testResult={testResults[server.id]}
-              canEdit={canEdit}
-              canMutate={canEdit && (role === 'admin' || role === 'superadmin' || server.createdBy === username)}
-            />
-          ))}
-        </div>
+      ) : !showForm && (
+        <>
+          {/* Installed section */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>
+              Installed Servers <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>· {visibleServers.length}</span>
+            </div>
+            <p style={{ margin: '3px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>These servers are available to all agents in your workspace.</p>
+          </div>
+          {visibleServers.length === 0 ? (
+            <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '28px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, marginBottom: 24 }}>
+              No servers match your filters.
+            </div>
+          ) : (
+            <div style={{ border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', marginBottom: 24, background: 'var(--surface)' }}>
+              {visibleServers.map((server, i, arr) => (
+                <ServerRow
+                  key={server.id} server={server}
+                  isLast={i === arr.length - 1}
+                  onEdit={() => handleEdit(server)}
+                  onDelete={() => handleDelete(server.id)}
+                  onToggle={() => handleToggle(server)}
+                  onTest={() => handleTest(server)}
+                  onDismissTest={() => setTestResults(prev => { const n = { ...prev }; delete n[server.id]; return n; })}
+                  testResult={testResults[server.id]}
+                  canEdit={canEdit}
+                  canMutate={canEdit && (role === 'admin' || role === 'superadmin' || server.createdBy === username)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Detected from Claude Code CLI — Claude backend only */}
-      {isClaudeBackend && cliMcps.length > 0 && !showForm && (
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 10 }}>
-            Detected from Claude Code
+      {isClaudeBackend && detectedAvailable.length > 0 && !showForm && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>
+              Discovered from Claude Code <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>· {detectedAvailable.length}</span>
+            </div>
+            <p style={{ margin: '3px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>These servers were detected in your environment. Add to the catalog to use them with agents.</p>
           </div>
-          <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-            {cliMcps.filter(d => !servers.find(s => s.name === d.name)).map((d, i, arr) => {
+          <div style={{ border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', background: 'var(--surface)' }}>
+            {detectedAvailable.map((d, i, arr) => {
               const tpl = MCP_TEMPLATES.find(t => t.id === d.name || t.name.toLowerCase() === d.name.toLowerCase());
+              const TypeIcon = d.type === 'http' ? Globe : d.type === 'sse' ? Radio : Terminal;
               return (
                 <div key={d.name} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px',
+                  display: 'flex', alignItems: 'center', gap: 13, padding: '13px 16px',
                   borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
                 }}>
-                  {tpl?.logo ? (
-                    <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
-                      alt="" width={18} height={18} style={{ borderRadius: 3, opacity: 0.7, flexShrink: 0 }}
-                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                  ) : (
-                    <span style={{ width: 18, height: 18, borderRadius: 4, background: 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>{d.name.charAt(0).toUpperCase()}</span>
-                  )}
+                  <span style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 9, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+                    {tpl?.logo ? (
+                      <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
+                        alt="" width={18} height={18} style={{ borderRadius: 3, opacity: 0.8 }}
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : <TypeIcon size={17} />}
+                  </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{d.name}</span>
-                    <span style={{ fontSize: 11, color: 'var(--subtle)', marginLeft: 8 }}>{d.type} · {d.url || d.command}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{d.name}</span>
+                      <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '1px 6px', borderRadius: 5 }}>{String(d.type).toUpperCase()}</span>
+                    </div>
+                    <p style={{ margin: '2px 0 0', fontSize: 11.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.url || d.command}</p>
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)', flexShrink: 0 }}>CLI</span>
                   {canEdit && (
@@ -681,16 +693,23 @@ export default function McpSettingsPage() {
                       });
                       setCliMcps(prev => prev.filter(m => m.name !== d.name));
                       await load();
-                    }} style={{
-                      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 5,
-                      background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
-                      cursor: 'pointer', fontFamily: 'var(--font-sans)', flexShrink: 0,
-                    }}>Add to Catalog</button>
+                    }} style={{ ...accentBtnStyle, fontSize: 12, padding: '6px 12px' }}>Add to Catalog</button>
                   )}
                 </div>
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      {!showForm && !loading && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 28, fontSize: 12.5, color: 'var(--muted)' }}>
+          <Info size={14} style={{ color: 'var(--subtle)' }} />
+          Learn more about MCP servers and how to integrate them with your agents.
+          <a href="https://slackhive.mintlify.app" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--text)', fontWeight: 500, textDecoration: 'none' }}>
+            View Documentation <ExternalLink size={12} />
+          </a>
         </div>
       )}
 
@@ -1449,6 +1468,8 @@ function ServerRow({
   canEdit: boolean;
   canMutate: boolean;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   // Match against template for logo
   const tpl = MCP_TEMPLATES.find(t => t.id === server.name || t.name.toLowerCase() === server.name.toLowerCase());
 
@@ -1461,75 +1482,75 @@ function ServerRow({
     : String(cfg.url ?? '');
 
   const envCount = Object.keys((cfg.env as object) ?? {}).length + Object.keys((cfg.envRefs as object) ?? {}).length;
+  const TypeIcon = server.type === 'http' ? Globe : server.type === 'sse' ? Radio : Terminal;
+
+  const badgeStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '1px 6px', borderRadius: 5, whiteSpace: 'nowrap', lineHeight: 1.5 };
 
   return (
     <div style={{
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
-      opacity: server.enabled ? 1 : 0.55,
+      opacity: server.enabled ? 1 : 0.6,
     }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px',
-        transition: 'background 0.12s',
-      }}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-      >
-        {/* Icon — template logo or type badge */}
-        {tpl?.logo ? (
-          <span style={{ width: 28, height: 28, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 13, padding: '14px 16px' }}>
+        {/* Avatar — template logo or transport icon */}
+        <span style={{ width: 42, height: 42, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+          {tpl?.logo ? (
             <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
-              alt="" width={20} height={20} style={{ borderRadius: 3, opacity: 0.8 }}
+              alt="" width={20} height={20} style={{ borderRadius: 3, opacity: 0.85 }}
               onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          </span>
-        ) : (
-          <span style={{
-            width: 28, height: 28, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-          <span style={{
-            fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 500,
-            background: 'var(--border)', color: 'var(--muted)',
-            padding: '2px 6px', borderRadius: 5, letterSpacing: '0.02em',
-          }}>{isTs ? 'ts' : server.type}</span>
-          </span>
-        )}
+          ) : <TypeIcon size={19} />}
+        </span>
 
         {/* Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{server.name}</span>
-            {!server.enabled && (
-              <span style={{ fontSize: 10.5, color: 'var(--subtle)', background: 'var(--border)', padding: '1px 6px', borderRadius: 4 }}>
-                disabled
-              </span>
-            )}
-            {envCount > 0 && (
-              <span style={{ fontSize: 10.5, color: 'var(--muted)', background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--border)' }}>
-                {envCount} env var{envCount !== 1 ? 's' : ''}
-              </span>
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{server.name}</span>
+            <span style={badgeStyle}>MCP</span>
+            <span style={badgeStyle}>{isTs ? 'TS' : server.type.toUpperCase()}</span>
+            {envCount > 0 && <span style={badgeStyle}>{envCount} env var{envCount !== 1 ? 's' : ''}</span>}
           </div>
           {server.description && (
-            <p style={{ margin: '1px 0 0', fontSize: 12, color: 'var(--muted)' }}>{server.description}</p>
+            <p style={{ margin: '6px 0 0', fontSize: 12.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{server.description}</p>
           )}
           <p style={{
-            margin: '2px 0 0', fontSize: 11.5, color: 'var(--subtle)',
+            margin: '4px 0 0', fontSize: 11.5, color: 'var(--subtle)',
             fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{preview}</p>
-          <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
             Added by <span style={{ fontWeight: 500 }}>{server.createdBy}</span>
           </p>
         </div>
 
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
-          <ActionBtn onClick={onTest} color="var(--muted)" disabled={false}>
-            {testResult === 'testing' ? 'Testing…' : 'Test'}
-          </ActionBtn>
-          <ActionBtn onClick={onToggle} color="var(--muted)" disabled={!canMutate}>
-            {server.enabled ? 'Disable' : 'Enable'}
-          </ActionBtn>
-          {canEdit && <ActionBtn onClick={onEdit} color="var(--accent)" disabled={!canMutate}>Edit</ActionBtn>}
-          {canEdit && <ActionBtn onClick={onDelete} color="#ef4444" disabled={!canMutate}>Delete</ActionBtn>}
+        {/* Actions + status */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', position: 'relative' }}>
+            <ActionBtn onClick={onTest} color="var(--muted)" disabled={false}>
+              {testResult === 'testing' ? 'Testing…' : 'Test'}
+            </ActionBtn>
+            {canEdit && <ActionBtn onClick={onEdit} color="var(--text)" disabled={!canMutate}>Edit</ActionBtn>}
+            {canEdit && (
+              <>
+                <button onClick={() => setMenuOpen(o => !o)} disabled={!canMutate} style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 28,
+                  borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)',
+                  color: 'var(--muted)', cursor: canMutate ? 'pointer' : 'not-allowed', opacity: canMutate ? 1 : 0.5,
+                }}><MoreHorizontal size={15} /></button>
+                {menuOpen && (
+                  <>
+                    <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
+                    <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 21, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: 5, minWidth: 150 }}>
+                      <button onClick={() => { setMenuOpen(false); onToggle(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', fontSize: 12.5, color: 'var(--text)', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Power size={13} /> {server.enabled ? 'Disable' : 'Enable'}</button>
+                      <button onClick={() => { setMenuOpen(false); onDelete(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', fontSize: 12.5, color: 'var(--red)', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Trash2 size={13} /> Delete</button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: server.enabled ? 600 : 400, color: server.enabled ? 'var(--green)' : 'var(--subtle)' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: server.enabled ? 'var(--green)' : 'var(--subtle)' }} />
+            {server.enabled ? 'Enabled' : 'Disabled'}
+          </span>
         </div>
       </div>
 
