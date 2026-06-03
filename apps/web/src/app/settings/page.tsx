@@ -9,13 +9,13 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, SlidersHorizontal, Bot, ShieldCheck, LogIn, Users } from 'lucide-react';
 import { MODELS, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import AiProviderSection from './AiProviderSection';
 
-type Tab = 'general' | 'ai' | 'users';
+type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'users';
 
 interface User {
   id: string;
@@ -46,9 +46,20 @@ const DEFAULTS: Record<string, string> = {
  * @returns {JSX.Element}
  */
 export default function SettingsPage() {
-  const { canEdit, canManageUsers, role } = useAuth();
+  const { canManageUsers, role } = useAuth();
   const isSuperadmin = role === 'superadmin';
-  const [tab, setTab] = useState<Tab>('general');
+  const [section, setSection] = useState<SettingsSection>('general');
+
+  const nav = ([
+    { id: 'general', label: 'General',            Icon: SlidersHorizontal, show: true },
+    { id: 'ai',      label: 'AI Backend',         Icon: Bot,               show: canManageUsers },
+    { id: 'access',  label: 'Access Control',      Icon: ShieldCheck,       show: canManageUsers },
+    { id: 'signin',  label: 'Sign in with Slack',  Icon: LogIn,             show: canManageUsers && isSuperadmin },
+    { id: 'users',   label: 'Users',              Icon: Users,             show: canManageUsers },
+  ] as const).filter(n => n.show);
+
+  // Guard against a stale selection if a section becomes hidden (perm change).
+  const active: SettingsSection = nav.some(n => n.id === section) ? section : 'general';
 
   return (
     <div className="fade-up" style={{ padding: '36px 40px' }}>
@@ -62,16 +73,29 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
-        <TabBtn active={tab === 'general'} onClick={() => setTab('general')}>General</TabBtn>
-        {canManageUsers && <TabBtn active={tab === 'ai'} onClick={() => setTab('ai')}>AI</TabBtn>}
-        {canManageUsers && <TabBtn active={tab === 'users'} onClick={() => setTab('users')}>Users &amp; Access</TabBtn>}
-      </div>
+      {/* Side-nav + content */}
+      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <nav style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {nav.map(n => (
+            <button key={n.id} onClick={() => setSection(n.id)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 9, textAlign: 'left',
+              padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-sans)', fontSize: 13,
+              background: active === n.id ? 'var(--surface-2)' : 'transparent',
+              color: active === n.id ? 'var(--text)' : 'var(--muted)',
+              fontWeight: active === n.id ? 600 : 400,
+            }}><n.Icon size={15} />{n.label}</button>
+          ))}
+        </nav>
 
-      {tab === 'general' && <GeneralTab />}
-      {tab === 'ai' && canManageUsers && <AITab />}
-      {tab === 'users' && canManageUsers && <UsersAccessTab isSuperadmin={isSuperadmin} />}
+        <div style={{ flex: 1, minWidth: 0, maxWidth: 760 }}>
+          {active === 'general' && <GeneralTab />}
+          {active === 'ai'      && canManageUsers && <AITab />}
+          {active === 'access'  && canManageUsers && <AccessControlSection />}
+          {active === 'signin'  && canManageUsers && isSuperadmin && <AuthTab />}
+          {active === 'users'   && canManageUsers && <UsersTab />}
+        </div>
+      </div>
     </div>
   );
 }
@@ -213,19 +237,6 @@ function AITab() {
 // =============================================================================
 // Users & Access tab — access control + users + authentication
 // =============================================================================
-
-function UsersAccessTab({ isSuperadmin }: { isSuperadmin: boolean }) {
-  // Config first (access + sign-in), the tall users table last. AccessControlSection
-  // already ends with the Section border; the others get plain top spacing so we
-  // don't stack redundant divider lines.
-  return (
-    <>
-      <AccessControlSection />
-      {isSuperadmin && <div style={{ marginTop: 28 }}><AuthTab /></div>}
-      <div style={{ marginTop: 28 }}><UsersTab /></div>
-    </>
-  );
-}
 
 function AccessControlSection() {
   const [openToWorkspace, setOpenToWorkspace] = useState(true);
@@ -1198,22 +1209,6 @@ function AuthTab() {
 // =============================================================================
 // Shared UI helpers
 // =============================================================================
-
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} style={{
-      background: 'none', border: 'none', cursor: 'pointer',
-      padding: '10px 16px', fontSize: 13,
-      color: active ? 'var(--text)' : 'var(--muted)',
-      fontWeight: active ? 600 : 400,
-      fontFamily: 'var(--font-sans)',
-      position: 'relative',
-      transition: 'color 0.15s',
-      borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-      marginBottom: -1,
-    }}>{children}</button>
-  );
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
