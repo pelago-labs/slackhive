@@ -1747,7 +1747,7 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
           borderTop: '1px solid var(--border)', padding: '9px 16px',
           display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: 'var(--muted)',
         }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: isConn ? 'var(--green)' : 'var(--subtle)', flexShrink: 0 }} />
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: isConn ? 'var(--text)' : 'var(--subtle)', flexShrink: 0 }} />
           {isConn ? 'Connected' : 'Not connected'}
         </div>
       </div>
@@ -1782,7 +1782,7 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {msg && <span style={{ fontSize: 12, color: 'var(--green)' }}>{msg}</span>}
+          {msg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{msg}</span>}
           {canEdit && dirty && <PrimaryBtn onClick={save} loading={saving}>Save changes</PrimaryBtn>}
           <Link href="/settings/mcps" style={{
             display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px',
