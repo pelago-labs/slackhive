@@ -13,6 +13,7 @@ import { useEffect, useState, createContext } from 'react';
 import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
+import { LayoutDashboard, Activity as ActivityIcon, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut } from 'lucide-react';
 
 const STATUS_DOT: Record<string, string> = {
   running: '#059669', stopped: '#d4d4d4', error: '#dc2626', stale: '#f59e0b',
@@ -118,21 +119,10 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
 
         {/* Scrollable agents section */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 4px' }}>
-          <NavItem href="/" active={pathname === '/'} collapsed={collapsed} icon={
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="1.5" y="1.5" width="5" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <rect x="9.5" y="1.5" width="5" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <rect x="1.5" y="9.5" width="5" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <rect x="9.5" y="9.5" width="5" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            </svg>
-          }>Dashboard</NavItem>
+          <NavItem href="/" active={pathname === '/'} collapsed={collapsed} icon={<LayoutDashboard size={16} strokeWidth={1.75} />}>Dashboard</NavItem>
 
           {role !== 'viewer' && (
-            <NavItem href="/activity" active={pathname === '/activity' || pathname.startsWith('/activity/')} collapsed={collapsed} icon={
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M1.5 8h3l2-5 3 10 2-5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            } badge={activeTaskCount > 0 ? activeTaskCount : undefined}>Activity</NavItem>
+            <NavItem href="/activity" active={pathname === '/activity' || pathname.startsWith('/activity/')} collapsed={collapsed} icon={<ActivityIcon size={16} strokeWidth={1.75} />} badge={activeTaskCount > 0 ? activeTaskCount : undefined}>Activity</NavItem>
           )}
 
           {!collapsed && (
@@ -215,54 +205,33 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text)'; (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-              <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
+            <Plus size={16} strokeWidth={1.75} style={{ flexShrink: 0 }} />
             {!collapsed && 'Add agent'}
           </Link>}
 
         </div>
 
         {/* Fixed bottom nav — always visible */}
-        <div style={{ padding: '4px 12px 8px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+        <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
 
-          <NavItem href="/knowledge" active={pathname.startsWith('/knowledge')} collapsed={collapsed} icon={
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M3 3h10v10H3z" stroke="none"/>
-              <path d="M3 2.5A1.5 1.5 0 014.5 1h7A1.5 1.5 0 0113 2.5v11l-4.5-2.25L4 13.5V2.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-              <path d="M5.5 5h5M5.5 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
-          }>Knowledge</NavItem>
+          {!collapsed && (
+            <div style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: '0.06em',
+              color: 'var(--subtle)', textTransform: 'uppercase',
+              padding: '2px 10px 6px',
+            }}>Workspace</div>
+          )}
 
-          <NavItem href="/settings/mcps" active={pathname === '/settings/mcps'} collapsed={collapsed} icon={
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="2" width="12" height="12" rx="3" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M5.5 8h5M8 5.5v5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          }>MCP Catalog</NavItem>
+          <NavItem href="/knowledge" active={pathname.startsWith('/knowledge')} collapsed={collapsed} icon={<BookOpen size={16} strokeWidth={1.75} />}>Knowledge</NavItem>
 
-          <NavItem href="/settings/env-vars" active={pathname === '/settings/env-vars'} collapsed={collapsed} icon={
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="5" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M5 5V4a3 3 0 016 0v1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              <circle cx="8" cy="9" r="1.2" fill="currentColor"/>
-            </svg>
-          }>Env Vars</NavItem>
+          <NavItem href="/settings/mcps" active={pathname === '/settings/mcps'} collapsed={collapsed} icon={<Blocks size={16} strokeWidth={1.75} />}>MCP Catalog</NavItem>
 
-          <NavItem href="/jobs" active={pathname === '/jobs'} collapsed={collapsed} icon={
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M8 4.5V8l2.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          }>Jobs</NavItem>
+          <NavItem href="/settings/env-vars" active={pathname === '/settings/env-vars'} collapsed={collapsed} icon={<KeyRound size={16} strokeWidth={1.75} />}>Env Vars</NavItem>
+
+          <NavItem href="/jobs" active={pathname === '/jobs'} collapsed={collapsed} icon={<Clock size={16} strokeWidth={1.75} />}>Jobs</NavItem>
 
           {role === 'superadmin' && (
-          <NavItem href="/settings" active={pathname === '/settings'} collapsed={collapsed} icon={
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M6.86 2h2.28l.32 1.6a5 5 0 011.32.77l1.54-.52.94 1.62-1.22 1.08a5 5 0 010 1.54l1.22 1.08-.94 1.62-1.54-.52a5 5 0 01-1.32.77L9.14 14H6.86l-.32-1.6a5 5 0 01-1.32-.77l-1.54.52-.94-1.62 1.22-1.08a5 5 0 010-1.54L2.74 6.83l.94-1.62 1.54.52a5 5 0 011.32-.77L6.86 2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2"/>
-            </svg>
-          }>Settings</NavItem>
+            <NavItem href="/settings" active={pathname === '/settings'} collapsed={collapsed} icon={<SettingsIcon size={16} strokeWidth={1.75} />}>Settings</NavItem>
           )}
 
         </div>
@@ -302,9 +271,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               </div>
             )}
             {!collapsed && (
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, color: 'var(--subtle)', transform: profileOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
-                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--subtle)', transform: profileOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
             )}
           </div>
 
@@ -347,14 +314,9 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M3 2.5h6a2 2 0 012 2V13a1.5 1.5 0 00-1.5-1.5H3v-9z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                  <path d="M13 2.5H7a2 2 0 00-2 2V13a1.5 1.5 0 011.5-1.5H13v-9z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                </svg>
+                <FileText size={15} strokeWidth={1.75} style={{ flexShrink: 0 }} />
                 <span style={{ flex: 1 }}>Documentation</span>
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, color: 'var(--subtle)' }}>
-                  <path d="M6 3h7v7M13 3L5 11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                </svg>
+                <ExternalLink size={12} style={{ flexShrink: 0, color: 'var(--subtle)' }} />
               </a>
               <button
                 onClick={toggleTheme}
@@ -370,16 +332,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
-                {theme === 'light' ? (
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                    <path d="M14 9.2A6 6 0 116.8 2a4.8 4.8 0 007.2 7.2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                  </svg>
-                ) : (
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                    <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3"/>
-                  </svg>
-                )}
+                {theme === 'light' ? <Moon size={15} strokeWidth={1.75} /> : <Sun size={15} strokeWidth={1.75} />}
                 {theme === 'light' ? 'Dark mode' : 'Light mode'}
               </button>
               <button
@@ -395,9 +348,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--red-soft-bg)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                  <path d="M6 2H4a2 2 0 00-2 2v8a2 2 0 002 2h2M11 11l3-3-3-3M14 8H6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <LogOut size={15} strokeWidth={1.75} />
                 Sign out
               </button>
             </div>
@@ -418,7 +369,7 @@ function NavItem({ href, icon, children, active, collapsed, onClick, badge }: {
     justifyContent: collapsed ? 'center' : 'flex-start',
     borderRadius: 'var(--radius)', textDecoration: 'none', border: 'none',
     color: active ? 'var(--text)' : 'var(--muted)',
-    background: active ? 'var(--surface-3)' : 'transparent',
+    background: active ? 'var(--surface-2)' : 'transparent',
     fontSize: 13, fontWeight: active ? 600 : 400,
     transition: 'background 0.12s, color 0.12s',
     cursor: 'pointer', width: '100%', fontFamily: 'var(--font-sans)',
