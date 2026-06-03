@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Hash, Calendar, UserCircle, ArrowRight } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Hash, Calendar, UserCircle, ArrowRight, RotateCcw, Square } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -302,57 +302,21 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16 }}>
           {actionMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{actionMsg}</span>}
 
-          {!viewOnly && <button
-            onClick={() => setMode('test')}
-            title="Test this agent — chat with it without connecting to Slack"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px',
-              background: 'rgba(99, 102, 241, 0.1)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              color: 'var(--accent)',
-              borderRadius: 6,
-              fontSize: 12.5,
-              fontWeight: 500,
-              cursor: 'pointer',
-              letterSpacing: 0.2,
-            }}
-          >
-            <MessageSquare size={13} />
-            Test
-          </button>}
+          {!viewOnly && <HeaderBtn icon={<MessageSquare size={14} />} label="Test" onClick={() => setMode('test')}
+            title="Test this agent — chat with it without connecting to Slack" />}
 
-          <Link
-            href={`/activity?agent=${encodeURIComponent(agent.id)}`}
-            title={`View activity for ${agent.name}`}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px',
-              background: 'var(--surface-2)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              borderRadius: 6,
-              fontSize: 12.5,
-              fontWeight: 500,
-              cursor: 'pointer',
-              letterSpacing: 0.2,
-              textDecoration: 'none',
-            }}
-          >
-            <ActivityIcon size={13} />
-            Activity
-          </Link>
-
-          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
-
+          {canEdit && agent.status === 'running' && (
+            <>
+              <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+              <HeaderBtn icon={<RotateCcw size={14} />} label="Reload" onClick={() => triggerAction('reload')} />
+              <HeaderBtn icon={<Square size={13} />} label="Stop" tone="danger" onClick={() => triggerAction('stop')} />
+            </>
+          )}
           {canEdit && agent.status !== 'running' && (
-            <Btn color="#22c55e" onClick={() => triggerAction('start')}>Start</Btn>
-          )}
-          {canEdit && agent.status === 'running' && (
-            <Btn color="var(--border-2)" textColor="var(--muted)" onClick={() => triggerAction('reload')}>Reload</Btn>
-          )}
-          {canEdit && agent.status === 'running' && (
-            <Btn color="#ef4444" onClick={() => triggerAction('stop')}>Stop</Btn>
+            <>
+              <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+              <HeaderBtn icon={<ActivityIcon size={14} />} label="Start" tone="success" onClick={() => triggerAction('start')} />
+            </>
           )}
         </div>
       </div>
@@ -2728,21 +2692,30 @@ function IconBtn({ children, onClick, title, loading }: { children: React.ReactN
   );
 }
 
-function Btn({ children, onClick, color, textColor }: {
-  children: React.ReactNode; onClick?: () => void;
-  color?: string; textColor?: string;
+/**
+ * Header action button — consistent icon+label pill. `default` is a neutral
+ * outline (Test/Activity/Reload); `danger`/`success` fill solid for the
+ * destructive Stop / Start lifecycle actions. Renders a Link when `href` is set.
+ */
+function HeaderBtn({ icon, label, onClick, href, title, tone = 'default' }: {
+  icon: React.ReactNode; label: string; onClick?: () => void; href?: string; title?: string;
+  tone?: 'default' | 'danger' | 'success';
 }) {
-  return (
-    <button onClick={onClick} style={{
-      background: color ?? 'var(--border)', color: textColor ?? '#fff',
-      border: 'none', borderRadius: 'var(--radius)', padding: '8px 18px',
-      fontSize: 13, fontWeight: 600, cursor: 'pointer',
-      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
-    }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
-    >{children}</button>
-  );
+  const p = tone === 'danger'
+    ? { bg: '#ef4444', border: '#ef4444', color: '#fff', hbg: '#dc2626', hbd: '#dc2626' }
+    : tone === 'success'
+    ? { bg: '#16a34a', border: '#16a34a', color: '#fff', hbg: '#15803d', hbd: '#15803d' }
+    : { bg: 'var(--surface)', border: 'var(--border)', color: 'var(--text)', hbg: 'var(--surface-2)', hbd: 'var(--border-2)' };
+  const style: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+    background: p.bg, border: `1px solid ${p.border}`, color: p.color,
+    borderRadius: 8, fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
+    fontFamily: 'var(--font-sans)', textDecoration: 'none', whiteSpace: 'nowrap', transition: 'all 0.15s',
+  };
+  const enter = (e: React.MouseEvent) => { const el = e.currentTarget as HTMLElement; el.style.background = p.hbg; el.style.borderColor = p.hbd; };
+  const leave = (e: React.MouseEvent) => { const el = e.currentTarget as HTMLElement; el.style.background = p.bg; el.style.borderColor = p.border; };
+  if (href) return <Link href={href} title={title} style={style} onMouseEnter={enter} onMouseLeave={leave}>{icon}{label}</Link>;
+  return <button onClick={onClick} title={title} style={style} onMouseEnter={enter} onMouseLeave={leave}>{icon}{label}</button>;
 }
 
 function Modal({ title, children, onClose }: {
