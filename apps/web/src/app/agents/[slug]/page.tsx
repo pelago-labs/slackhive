@@ -1696,9 +1696,8 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
     const actionable = canEdit && canAssign && mcp.enabled;
     return (
       <div key={mcp.id} style={{
-        border: isConn ? '1px solid color-mix(in srgb, var(--green) 35%, var(--border))' : '1px solid var(--border)',
-        borderRadius: 14,
-        background: isConn ? 'color-mix(in srgb, var(--green) 6%, var(--surface))' : 'var(--surface)',
+        border: isConn ? '1px solid var(--border-2)' : '1px solid var(--border)', borderRadius: 14,
+        background: isConn ? 'var(--surface-2)' : 'var(--surface)',
         overflow: 'hidden', opacity: mcp.enabled ? 1 : 0.6,
       }}>
         <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
@@ -1711,8 +1710,8 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
             {isConn && (
               <span style={{
                 position: 'absolute', right: -5, bottom: -5, width: 18, height: 18, borderRadius: '50%',
-                background: 'var(--green)', color: '#fff', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface)',
+                background: 'var(--accent)', color: 'var(--accent-fg)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface-2)',
               }}><Check size={11} strokeWidth={3} /></span>
             )}
           </div>
@@ -1754,7 +1753,7 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
           </div>
         </div>
         <div style={{
-          borderTop: isConn ? '1px solid color-mix(in srgb, var(--green) 22%, var(--border))' : '1px solid var(--border)',
+          borderTop: '1px solid var(--border)',
           padding: '9px 16px', display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5,
           color: isConn ? 'var(--green)' : 'var(--muted)', fontWeight: isConn ? 600 : 400,
         }}>
