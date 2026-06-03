@@ -52,6 +52,7 @@ import {
   getSetting,
 } from './db';
 import { summarizeSkill } from './summarize-skill';
+import { fillSkillDescription } from './skill-description';
 import { compileAgentWorkspace, getAgentWorkDir } from './compile-instructions';
 import { createAgentBackend } from './backends';
 import { MemoryWatcher } from './memory-watcher';
@@ -2705,28 +2706,26 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
    * running on this runner.
    */
   private async summarizeSkillIfNeeded(agentId: string, skillId: string): Promise<void> {
-    const skill = await getSkillById(skillId);
-    if (!skill) return;
-    if (skill.description) return; // Already filled — nothing to do.
-    if (!this.runningAgents.has(agentId)) return; // Not our agent on this runner.
-
-    const description = await this.callSummarizerWithRetry(skill.filename, skill.content);
-    if (!description) return;
-
-    await updateSkillDescription(skillId, description);
-    logger.info('Skill description filled', {
+    const description = await fillSkillDescription(
+      {
+        getSkillById,
+        summarize: (filename, content) => this.callSummarizerWithRetry(filename, content),
+        updateSkillDescription,
+        // Recompile only when the agent is live; a stopped agent compiles on start.
+        // Regenerate must still summarize for stopped agents, so this gates the
+        // reload only — NOT the summarization (that was the bug).
+        isRunning: (id) => this.runningAgents.has(id),
+        reload: (id) =>
+          this.reloadAgent(id).catch((err) => {
+            logger.warn('Reload after skill summarize failed', { agentId: id, error: (err as Error).message });
+          }),
+      },
       agentId,
       skillId,
-      filename: skill.filename,
-      description,
-    });
-
-    // Recompile CLAUDE.md so the new line appears in the skills index. Reload
-    // is safe (the running session resumes via cached session keys); it's
-    // also what every other config-touching mutation triggers.
-    await this.reloadAgent(agentId).catch((err) =>
-      logger.warn('Reload after skill summarize failed', { agentId, error: (err as Error).message })
     );
+    if (description) {
+      logger.info('Skill description filled', { agentId, skillId, description });
+    }
   }
 
   /**
