@@ -380,7 +380,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} onOpenCoach={() => setCoachOpen(true)} onOpenTest={!viewOnly ? () => setMode('test') : undefined} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
@@ -403,15 +403,39 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-/** Small read-at-a-glance stat tile for the Overview summary strip. */
-function StatCard({ label, value }: { label: string; value: string }) {
+/** Read-at-a-glance stat tile (icon + value + label) for the Overview summary. */
+function StatCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent?: string }) {
   return (
     <div style={{
-      border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px',
-      background: 'var(--surface)', minWidth: 88,
+      flex: '1 1 140px', minWidth: 130,
+      border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px',
+      background: 'var(--surface)', boxShadow: 'var(--shadow-sm)',
+      display: 'flex', alignItems: 'center', gap: 12,
     }}>
-      <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginTop: 2, textTransform: 'capitalize' }}>{value}</div>
+      <div style={{
+        width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: accent ? `${accent}14` : 'var(--surface-2)', color: accent ?? 'var(--muted)',
+      }}>{icon}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)', lineHeight: 1.1, textTransform: 'capitalize' }}>{value}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Card wrapper used across the Overview for a cohesive SaaS look. */
+function Card({ title, action, children }: { title?: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '20px 22px' }}>
+      {(title || action) && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          {title && <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{title}</div>}
+          {action}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
     </div>
   );
 }
@@ -421,7 +445,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
  * config (Slack, verbose, hierarchy), logs, history and delete now live under the
  * Settings tab. Identity edits PATCH only their own fields (updateAgent merges).
  */
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, onOpenCoach, onOpenTest }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; onOpenCoach?: () => void; onOpenTest?: () => void }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
   const [form, setForm] = useState({
     name:        agent.name,
     description: agent.description ?? '',
@@ -468,19 +492,21 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onOpenCoach, onOpenT
     } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
   };
 
+  const statusAccent = agent.status === 'running' ? '#16a34a' : agent.status === 'error' ? '#ef4444' : 'var(--muted)';
+  const num = (n: number | undefined) => counts ? String(n ?? 0) : '—';
+
   return (
-    <div style={{ maxWidth: 640 }} className="fade-up">
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 24 }}>
-        <StatCard label="Status" value={agent.status} />
-        <StatCard label="Skills" value={counts ? String(counts.skills) : '—'} />
-        <StatCard label="Memories" value={counts ? String(counts.memories) : '—'} />
-        <StatCard label="Tools" value={counts ? String(counts.tools) : '—'} />
-        <div style={{ flex: 1 }} />
-        {onOpenTest && <GhostBtn onClick={onOpenTest}>Test</GhostBtn>}
-        {onOpenCoach && !agent.isBoss && <GhostBtn onClick={onOpenCoach}>Coach</GhostBtn>}
+    <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-up">
+      {/* Summary stats */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <StatCard icon={<ActivityIcon size={17} />} label="Status"   value={agent.status} accent={statusAccent} />
+        <StatCard icon={<BookOpen size={17} />}     label="Skills"   value={num(counts?.skills)}   accent="#2563eb" />
+        <StatCard icon={<Brain size={17} />}        label="Memories" value={num(counts?.memories)} accent="#7c3aed" />
+        <StatCard icon={<Database size={17} />}     label="Tools"    value={num(counts?.tools)}    accent="#059669" />
       </div>
 
-      <Section title="Identity">
+      {/* Identity */}
+      <Card title="Identity" action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
         <Grid2>
           <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
             hint="Internal agent name." />
@@ -496,12 +522,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onOpenCoach, onOpenT
         <TextArea label="Persona" value={form.persona}
           onChange={v => setForm(f => ({ ...f, persona: v }))}
           hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
-      </Section>
-
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
-        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -559,8 +580,8 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
     } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
   };
   return (
-    <div style={{ maxWidth: 620 }}>
-      <Section title="Behavior">
+    <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Card title="Behavior">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Verbose Responses</div>
@@ -573,9 +594,9 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
             <div style={{ position: 'absolute', top: 3, left: form.verbose ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
           </button>
         </div>
-      </Section>
+      </Card>
 
-      <Section title="Role & Hierarchy">
+      <Card title="Role & Hierarchy">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
@@ -620,7 +641,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
             </div>
           );
         })()}
-      </Section>
+      </Card>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
@@ -672,8 +693,8 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
   };
 
   return (
-    <div style={{ maxWidth: 620 }}>
-      <Section title="Slack Credentials">
+    <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Card title="Slack Credentials">
         <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
         <Field label="App-Level Token" value={form.slackAppToken ?? ''} onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
@@ -699,9 +720,9 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
             </div>
           </div>
         )}
-      </Section>
+      </Card>
 
-      <Section title="Allowed Channels">
+      <Card title="Allowed Channels">
         <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
           Restrict this bot to specific Slack channels. One Slack channel ID per line (e.g. <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>C01234ABCDE</code>).
           If empty, the bot responds in all channels it's invited to.
@@ -709,7 +730,7 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
         <textarea value={allowedChannels} onChange={e => setAllowedChannels(e.target.value)} rows={4} readOnly={!canEdit} placeholder={'C01234ABCDE\nC09876ZYXWV'}
           style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
           onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')} onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')} />
-      </Section>
+      </Card>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
