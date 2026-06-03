@@ -379,11 +379,19 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 /** Compact metric tile (icon + value + label) for the Details card grid. */
 function MiniStat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 6px', textAlign: 'center', background: 'var(--surface-2)' }}>
-      <div style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center', marginBottom: 5 }}>{icon}</div>
-      <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>{label}</div>
+    <div style={{ flex: 1, textAlign: 'center', padding: '14px 8px' }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1, letterSpacing: '-0.02em' }}>{value}</div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 7, color: 'var(--muted)', fontSize: 11 }}>
+        <span style={{ display: 'flex' }}>{icon}</span>{label}
+      </div>
     </div>
+  );
+}
+
+/** Uppercase group label for the Details side panel. */
+function MetaGroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase', margin: '4px 0 2px' }}>{children}</div>
   );
 }
 
@@ -535,12 +543,16 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
       {/* Details (aside) — metrics + meta */}
       <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
         <Card title="Details">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-            <MiniStat icon={<BookOpen size={15} />} value={num(counts?.skills)} label="Skills" />
-            <MiniStat icon={<Brain size={15} />} value={num(counts?.memories)} label="Memories" />
-            <MiniStat icon={<Database size={15} />} value={num(counts?.tools)} label="Tools" />
+          {/* Counts — one bordered tri-column box with hairline dividers */}
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: 'var(--surface)' }}>
+            <MiniStat icon={<BookOpen size={13} />} value={num(counts?.skills)} label="Skills" />
+            <div style={{ width: 1, background: 'var(--border)' }} />
+            <MiniStat icon={<Brain size={13} />} value={num(counts?.memories)} label="Memories" />
+            <div style={{ width: 1, background: 'var(--border)' }} />
+            <MiniStat icon={<Database size={13} />} value={num(counts?.tools)} label="Tools" />
           </div>
-          <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
+
+          <MetaGroupLabel>Configuration</MetaGroupLabel>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             <MetaRow icon={<Briefcase size={13} />} label="Role">{agent.isBoss ? 'Boss' : 'Standard'}</MetaRow>
             <MetaRow icon={<MessageSquare size={13} />} label="Verbose">{agent.verbose ? 'On' : 'Off'}</MetaRow>
@@ -548,15 +560,16 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
             <MetaRow icon={<Calendar size={13} />} label="Created">{fmtDate(agent.createdAt)}</MetaRow>
             <MetaRow icon={<Clock size={13} />} label="Updated">{fmtDate(agent.updatedAt)}</MetaRow>
           </div>
-          <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
-          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase', margin: '2px 0' }}>Activity</div>
+
+          <MetaGroupLabel>Activity</MetaGroupLabel>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             <MetaRow icon={<MessageSquare size={13} />} label="Queries (30d)">{usage ? String(usage.queries30d) : '—'}</MetaRow>
             <MetaRow icon={<Layers size={13} />} label="Tokens (total)">{usage ? fmtTokens(usage.totalTokens) : '—'}</MetaRow>
             <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
           </div>
+
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8,
             padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,
             fontSize: 12.5, fontWeight: 500, color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-sans)',
           }}>
