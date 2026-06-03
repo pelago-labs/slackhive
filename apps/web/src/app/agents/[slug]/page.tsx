@@ -1012,8 +1012,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {importError && <span style={{ fontSize: 11.5, color: 'var(--red)' }}>{importError}</span>}
           {canEdit && <ActionBtn icon={<Download size={13} />} label="Export" onClick={handleExport} loading={exporting} />}
-          {canEdit && <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => fileInputRef.current?.click()} />}
-          {canEdit && <ActionBtn icon={<Library size={13} />} label="Persona Library" onClick={() => setPersonaLibOpen(true)} />}
+          {canEdit && <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => setPersonaLibOpen(true)} />}
           {canEdit && !agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => onOpenCoach?.()} primary />}
         </div>
       </div>
