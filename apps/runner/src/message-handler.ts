@@ -319,7 +319,15 @@ export class MessageHandler {
 
           if ((message as any).subtype === 'success') {
             const finalResult = (message as any).result as string | undefined;
-            if (finalResult && !sentMessages.includes(finalResult)) {
+            // In verbose mode every assistant text block was already streamed as
+            // it arrived. The result's `.result` is their concatenation (on Codex,
+            // many `agent_message` items joined with blank lines), which won't
+            // exact-match any single streamed post — so posting it here reprints
+            // the entire turn. Skip it when we've already streamed text; still
+            // post when nothing was streamed (non-verbose, or a verbose turn that
+            // only produced the answer via the result).
+            const alreadyStreamed = this.agent.verbose && sentMessages.length > 0;
+            if (finalResult && !alreadyStreamed && !sentMessages.includes(finalResult)) {
               sentMessages.push(finalResult);
               await this.postFormattedMessage(channelId, threadId, finalResult);
             }
