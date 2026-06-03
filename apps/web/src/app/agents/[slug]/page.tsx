@@ -422,16 +422,16 @@ function MarkdownView({ children }: { children: string }) {
 }
 
 /** Card wrapper used across the Overview for a cohesive SaaS look. */
-function Card({ title, action, children }: { title?: string; action?: React.ReactNode; children: React.ReactNode }) {
+function Card({ title, action, children, fill }: { title?: string; action?: React.ReactNode; children: React.ReactNode; fill?: boolean }) {
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '20px 22px' }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '20px 22px', ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : {}) }}>
       {(title || action) && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           {title && <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{title}</div>}
           {action}
         </div>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, ...(fill ? { flex: 1 } : {}) }}>{children}</div>
     </div>
   );
 }
@@ -518,10 +518,10 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
   const fmtTokens = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n);
 
   return (
-    <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }} className="fade-up">
+    <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }} className="fade-up">
       {/* Identity (main) */}
       <div style={{ flex: '1 1 540px', minWidth: 0 }}>
-        <Card title="Identity" action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
+        <Card title="Identity" fill action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
           <Grid2>
             <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
               hint="Internal agent name." />
@@ -542,7 +542,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
 
       {/* Details (aside) — metrics + meta */}
       <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
-        <Card title="Details">
+        <Card title="Details" fill>
           {/* Counts — compact two-column grid in one bordered box */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 14, rowGap: 2, border: '1px solid var(--border)', borderRadius: 10, padding: '8px 14px' }}>
             <MiniStat value={num(counts?.skills)} label="Skills" />
@@ -570,7 +570,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
           </div>
 
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 'auto',
             padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,
             fontSize: 12.5, fontWeight: 500, color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-sans)',
           }}>
@@ -2811,7 +2811,7 @@ function Field({ label, value, onChange, hint, type = 'text', readOnly }: {
         style={{
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 11, fontFamily: 'var(--font-sans)', outline: 'none',
+          fontSize: 12, fontFamily: 'var(--font-sans)', outline: 'none',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
@@ -2837,7 +2837,7 @@ function SelectField({ label, value, options, onChange, hint, readOnly }: {
         style={{
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 11, fontFamily: 'var(--font-sans)', outline: 'none',
+          fontSize: 12, fontFamily: 'var(--font-sans)', outline: 'none',
           cursor: readOnly ? 'default' : 'pointer',
         }}
       >
@@ -2865,7 +2865,7 @@ function TextArea({ label, value, onChange, hint, rows = 3, readOnly }: {
         style={{
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+          fontSize: 12, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
           transition: 'border-color 0.15s',
         }}
         onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
