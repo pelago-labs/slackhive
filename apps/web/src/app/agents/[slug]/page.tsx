@@ -2246,12 +2246,15 @@ function WikiTree({ articles, onSelect, selected }: { articles: WikiArticle[]; o
 // ─── Knowledge (Wiki Folder Assignment) ─────────────────────────────────────
 
 interface WikiFolder { id: string; name: string; description?: string; createdBy: string; createdAt: string; updatedAt: string; }
-interface WikiSource  { id: string; status: string; wordCount: number; type: string; }
+interface WikiSource  { id: string; status: string; wordCount: number; type: string; lastSynced?: string; }
+
+type FolderStats = { sources: number; words: number; lastSynced: string | null };
 
 function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string; canEdit: boolean }) {
-  const [allFolders, setAllFolders]   = useState<(WikiFolder & { assigned: boolean })[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [saving, setSaving]           = useState(false);
+  const [allFolders, setAllFolders] = useState<(WikiFolder & { assigned: boolean })[]>([]);
+  const [stats, setStats]           = useState<Record<string, FolderStats>>({});
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -2260,88 +2263,157 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
       fetch(`/api/agents/${agentId}/wiki-folders`).then(r => r.json()) as Promise<WikiFolder[]>,
     ]).then(([all, assigned]) => {
       const assignedIds = new Set(assigned.map((f: WikiFolder) => f.id));
-      setAllFolders(all.map(f => ({ ...f, assigned: assignedIds.has(f.id) })));
+      const merged = all.map(f => ({ ...f, assigned: assignedIds.has(f.id) }));
+      setAllFolders(merged);
+      // Per-folder counts come from each folder's sources (one fetch each).
+      merged.forEach(f => {
+        fetch(`/api/wiki-folders/${f.id}/sources`).then(r => r.ok ? r.json() : []).then((srcs: WikiSource[]) => {
+          const words = srcs.reduce((s, x) => s + (x.wordCount || 0), 0);
+          const lastSynced = srcs.reduce<string | null>((m, x) => (x.lastSynced && (!m || x.lastSynced > m) ? x.lastSynced : m), null);
+          setStats(prev => ({ ...prev, [f.id]: { sources: srcs.length, words, lastSynced } }));
+        }).catch(() => {});
+      });
     }).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, [agentId]);
 
   async function toggle(folderId: string, currentlyAssigned: boolean) {
-    setSaving(true);
+    setSaving(folderId);
     const updated = allFolders.map(f => f.id === folderId ? { ...f, assigned: !currentlyAssigned } : f);
     setAllFolders(updated);
     const newIds = updated.filter(f => f.assigned).map(f => f.id);
     const r = await fetch(`/api/agents/${agentId}/wiki-folders`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderIds: newIds }),
     });
     if (!r.ok) {
-      // Roll back optimistic update
-      setAllFolders(allFolders);
+      setAllFolders(allFolders); // roll back optimistic update
       const err = await r.json().catch(() => ({}));
       alert(err.error ?? 'Failed to update wiki folder assignment');
     }
-    setSaving(false);
+    setSaving(null);
   }
 
+  const fmtWords = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  const fmtSynced = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+
+  const assigned  = allFolders.filter(f => f.assigned);
+  const available = allFolders.filter(f => !f.assigned);
+
+  const renderCard = (f: WikiFolder & { assigned: boolean }) => {
+    const st = stats[f.id];
+    const busy = saving === f.id;
+    return (
+      <div key={f.id} style={{
+        border: `1px solid ${f.assigned ? 'var(--border-2)' : 'var(--border)'}`, borderRadius: 14,
+        background: f.assigned ? 'var(--surface-2)' : 'var(--surface)', overflow: 'hidden',
+      }}>
+        <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+            {f.assigned ? <FolderOpen size={20} /> : <Folder size={20} />}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 2 }}>by {f.createdBy}</div>
+              </div>
+              {canEdit ? (
+                <button onClick={() => toggle(f.id, f.assigned)} disabled={busy} style={{
+                  flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 8,
+                  cursor: busy ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)', opacity: busy ? 0.6 : 1,
+                  border: '1px solid var(--border)',
+                  background: f.assigned ? 'var(--surface)' : 'var(--accent)',
+                  color: f.assigned ? 'var(--text)' : 'var(--accent-fg)',
+                  borderColor: f.assigned ? 'var(--border)' : 'var(--accent)',
+                }}>
+                  {f.assigned ? <><X size={13} />Unassign</> : <><Plus size={13} />Assign</>}
+                </button>
+              ) : null}
+            </div>
+            {f.description && (
+              <p style={{ margin: '7px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{f.description}</p>
+            )}
+          </div>
+        </div>
+        <div style={{ borderTop: '1px solid var(--border)', padding: '9px 16px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 11.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><FileText size={12} /> {st ? `${st.sources} source${st.sources !== 1 ? 's' : ''}` : '—'}</span>
+          <span style={{ color: 'var(--border-2)' }}>·</span>
+          <span>{st ? `${fmtWords(st.words)} words` : '—'}</span>
+          {st?.lastSynced && (<><span style={{ color: 'var(--border-2)' }}>·</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Clock size={12} /> synced {fmtSynced(st.lastSynced)}</span></>)}
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: f.assigned ? 'var(--green)' : 'var(--subtle)', fontWeight: f.assigned ? 600 : 400 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: f.assigned ? 'var(--green)' : 'var(--subtle)' }} />
+            {f.assigned ? 'Assigned' : 'Not assigned'}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const SectionHead = ({ label, count }: { label: string; count: number }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
+      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{label}</h3>
+      <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 99, padding: '0 8px', lineHeight: '18px' }}>{count}</span>
+    </div>
+  );
+
+  const colEmpty = (text: string) => (
+    <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '28px 16px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>{text}</div>
+  );
+
   return (
-    <div style={{ maxWidth: 700 }}>
-      <div style={{ marginBottom: 20 }}>
-        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Wiki Folders</h3>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Assign shared knowledge folders to this agent. The agent reads these wikis at compile time.
-          Manage folder contents in the <a href="/knowledge" style={{ color: 'var(--accent)' }}>Knowledge Library</a>.
-        </p>
+    <div className="fade-up">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>Wiki</h2>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
+            Assign shared knowledge folders — the agent reads these wikis at compile time.
+          </p>
+        </div>
+        <Link href="/knowledge" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0 }}>Knowledge Library <ExternalLink size={13} /></Link>
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading folders…
+        </div>
       ) : allFolders.length === 0 ? (
-        <div style={{
-          border: '1px dashed var(--border)', borderRadius: 10, padding: '32px',
-          textAlign: 'center', color: 'var(--muted)', fontSize: 13,
-        }}>
-          No wiki folders exist yet. <a href="/knowledge" style={{ color: 'var(--accent)' }}>Create one in the Knowledge Library.</a>
+        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+          No wiki folders exist yet.{' '}
+          <Link href="/knowledge" style={{ color: 'var(--text)', fontWeight: 500 }}>Create one in the Knowledge Library →</Link>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {allFolders.map(f => (
-            <div key={f.id} style={{
-              background: 'var(--surface)', border: `1px solid ${f.assigned ? 'var(--accent-border, rgba(99,102,241,0.35))' : 'var(--border)'}`,
-              borderRadius: 10, padding: '14px 16px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              transition: 'border-color 0.15s',
-            }}>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>{f.name}</div>
-                {f.description && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{f.description}</div>}
-                <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 3 }}>Created by {f.createdBy}</div>
-              </div>
-              {canEdit ? (
-                <button
-                  onClick={() => toggle(f.id, f.assigned)}
-                  disabled={saving}
-                  style={{
-                    padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
-                    cursor: saving ? 'default' : 'pointer', border: 'none',
-                    background: f.assigned ? 'var(--accent)' : 'var(--surface-2)',
-                    color: f.assigned ? 'var(--accent-fg)' : 'var(--text)',
-                    opacity: saving ? 0.6 : 1, transition: 'background 0.15s, color 0.15s',
-                    flexShrink: 0,
-                  }}
-                >
-                  {f.assigned ? 'Assigned' : 'Assign'}
-                </button>
-              ) : (
-                <span style={{ fontSize: 12, color: f.assigned ? '#059669' : 'var(--subtle)', fontWeight: 500 }}>
-                  {f.assigned ? 'Assigned' : 'Not assigned'}
-                </span>
-              )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 28, alignItems: 'start' }}>
+          <div>
+            <SectionHead label="Assigned" count={assigned.length} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {assigned.length ? assigned.map(renderCard) : colEmpty('No folders assigned yet — assign one from the right.')}
             </div>
-          ))}
+          </div>
+          <div>
+            <SectionHead label="Available" count={available.length} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {available.length ? available.map(renderCard) : colEmpty('All folders are assigned.')}
+            </div>
+          </div>
         </div>
       )}
+
+      {/* What is the wiki? */}
+      <div style={{ marginTop: 28, padding: '16px 18px', border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface-2)', display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}><BookOpen size={18} /></div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>What is the wiki?</div>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+            Wiki folders are shared knowledge bases — docs, repos, and URLs — that the agent reads at compile time.
+            Assign the folders this agent should know; edit folder contents in the Knowledge Library.
+          </p>
+        </div>
+        <Link href="/knowledge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', alignSelf: 'center', fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0 }}>Learn more <ExternalLink size={13} /></Link>
+      </div>
     </div>
   );
 }
