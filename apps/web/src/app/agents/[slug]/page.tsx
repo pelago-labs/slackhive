@@ -23,7 +23,8 @@ import { CoachPanel } from './coach-panel';
 import { TestPanel } from './test-panel';
 import { AudiencesPanel } from './audiences-panel';
 
-type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'logs' | 'history';
+type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'settings';
+type SettingsSection = 'general' | 'slack' | 'logs' | 'history' | 'danger';
 
 interface AgentExportPayload {
   version: number;
@@ -41,8 +42,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'tools',         label: 'Tools'         },
   { id: 'knowledge',     label: 'Wiki'          },
   { id: 'audiences',     label: 'Audiences'     },
-  { id: 'logs',          label: 'Logs'          },
-  { id: 'history',       label: 'History'       },
+  { id: 'settings',      label: 'Settings'      },
 ];
 
 const STATUS_COLOR = {
@@ -149,7 +149,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               setCanEdit(writable);
               const readOnly = !writable;
               setViewOnly(readOnly);
-              if (readOnly) setTab(t => (t === 'logs' || t === 'history') ? 'overview' : t);
               if (writable) {
                 // Editors with write access can also see tokens — update in background
                 fetch(`/api/agents/${found.id}`)
@@ -360,7 +359,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         background: 'var(--surface)',
         overflowX: 'auto', WebkitOverflowScrolling: 'touch',
       }}>
-        {TABS.filter(t => !viewOnly || (t.id !== 'logs' && t.id !== 'history')).map(t => (
+        {TABS.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -381,14 +380,12 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} username={username} onOpenCoach={() => setCoachOpen(true)} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} onOpenCoach={() => setCoachOpen(true)} onOpenTest={!viewOnly ? () => setMode('test') : undefined} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
         {tab === 'audiences'     && <AudiencesPanel    agentId={agent.id} canEdit={canEdit} />}
-        {/* Memory is now inside Instructions tab */}
-        {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
-        {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
+        {tab === 'settings'      && <AgentSettingsTab  agent={agent} onUpdate={setAgent} canEdit={canEdit} viewOnly={viewOnly} allAgents={allAgents} role={role} username={username} />}
       </div>
 
       {/* Coach is a slide-over — rendered once at page level so it floats over
@@ -406,61 +403,248 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null; username: string; onOpenCoach?: () => void }) {
+/** Small read-at-a-glance stat tile for the Overview summary strip. */
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{
+      border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px',
+      background: 'var(--surface)', minWidth: 88,
+    }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginTop: 2, textTransform: 'capitalize' }}>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Overview — slimmed to the agent's identity + an at-a-glance summary. Operational
+ * config (Slack, verbose, hierarchy), logs, history and delete now live under the
+ * Settings tab. Identity edits PATCH only their own fields (updateAgent merges).
+ */
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, onOpenCoach, onOpenTest }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; onOpenCoach?: () => void; onOpenTest?: () => void }) {
   const [form, setForm] = useState({
-    name:               agent.name,
-    description:        agent.description ?? '',
-    persona:            agent.persona ?? '',
-    model:              agent.model,
-    slackBotToken:      agent.slackBotToken,
-    slackAppToken:      agent.slackAppToken,
-    slackSigningSecret: agent.slackSigningSecret,
-    isBoss:             agent.isBoss,
-    verbose:            agent.verbose ?? true,
-    reportsTo:          agent.reportsTo ?? [] as string[],
-    tags:               agent.tags ?? [] as string[],
+    name:        agent.name,
+    description: agent.description ?? '',
+    persona:     agent.persona ?? '',
+    model:       agent.model,
+    tags:        agent.tags ?? [] as string[],
   });
-  const [saving, setSaving]             = useState(false);
-  const [msg, setMsg]                   = useState('');
-  const [manifest, setManifest]         = useState('');
-  const [showManifest, setShowManifest] = useState(false);
-  const [deleting, setDeleting]         = useState(false);
-  const [slackInfo, setSlackInfo]       = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
-  // Model options adapt to the active agent backend (Claude or Codex).
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
-  const router = useRouter();
+  const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number } | null>(null);
 
   useEffect(() => {
-    if (!agent.slackBotToken) return;
-    fetch(`/api/agents/${agent.id}/slack-info`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => d && setSlackInfo(d))
-      .catch(() => {});
-  }, [agent.id, agent.slackBotToken]);
-
-  // Load the active backend's selectable models — real provider API list when an
-  // API key is set, else the curated fallback (served by /api/system/models).
-  useEffect(() => {
-    fetch('/api/system/models')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.models?.length) setModelOptions(d.models); })
-      .catch(() => {});
+    fetch('/api/system/models').then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.models?.length) setModelOptions(d.models); }).catch(() => {});
   }, []);
-
-  // If the agent's stored model isn't valid for the active backend, select the
-  // backend's default so the dropdown always shows a real, runnable choice.
   useEffect(() => {
     if (!modelOptions.length) return;
     setForm(f => modelOptions.some(m => m.value === f.model) ? f : { ...f, model: modelOptions[0].value });
   }, [modelOptions]);
 
-  // Channel restrictions state
+  useEffect(() => {
+    let cancelled = false;
+    const len = (x: any, key: string) => Array.isArray(x) ? x.length : (Array.isArray(x?.[key]) ? x[key].length : 0);
+    Promise.all([
+      fetch(`/api/agents/${agent.id}/skills`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`/api/agents/${agent.id}/memories`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`/api/agents/${agent.id}/mcps`).then(r => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([s, m, t]) => {
+      if (!cancelled) setCounts({ skills: len(s, 'skills'), memories: len(m, 'memories'), tools: len(t, 'mcps') });
+    });
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.name, persona: form.persona, description: form.description, model: form.model, tags: form.tags }),
+      });
+      const data = await r.json();
+      if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
+    } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
+  };
+
+  return (
+    <div style={{ maxWidth: 640 }} className="fade-up">
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 24 }}>
+        <StatCard label="Status" value={agent.status} />
+        <StatCard label="Skills" value={counts ? String(counts.skills) : '—'} />
+        <StatCard label="Memories" value={counts ? String(counts.memories) : '—'} />
+        <StatCard label="Tools" value={counts ? String(counts.tools) : '—'} />
+        <div style={{ flex: 1 }} />
+        {onOpenTest && <GhostBtn onClick={onOpenTest}>Test</GhostBtn>}
+        {onOpenCoach && !agent.isBoss && <GhostBtn onClick={onOpenCoach}>Coach</GhostBtn>}
+      </div>
+
+      <Section title="Identity">
+        <Grid2>
+          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
+            hint="Internal agent name." />
+          <SelectField label="Model" value={form.model} options={modelOptions}
+            onChange={v => setForm(f => ({ ...f, model: v }))}
+            hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
+        </Grid2>
+        <Field label="Description" value={form.description}
+          onChange={v => setForm(f => ({ ...f, description: v }))}
+          hint="Short summary — used by boss agents for delegation." readOnly={!canEdit} />
+        <TagInput tags={form.tags} onChange={tags => setForm(f => ({ ...f, tags }))}
+          allTags={allAgents.flatMap(a => a.tags ?? [])} readOnly={!canEdit} />
+        <TextArea label="Persona" value={form.persona}
+          onChange={v => setForm(f => ({ ...f, persona: v }))}
+          hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
+      </Section>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
+        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Agent Settings (side-nav: General · Slack · Logs · History · Danger) ──────
+
+function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role, username }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; viewOnly: boolean; allAgents: Agent[]; role: string | null; username: string }) {
+  const isAdmin = role === 'admin' || role === 'superadmin';
+  const canDelete = isAdmin || agent.createdBy === username;
+  const sections: { id: SettingsSection; label: string }[] = [
+    { id: 'general', label: 'General' },
+    { id: 'slack', label: 'Slack' },
+  ];
+  if (!viewOnly) sections.push({ id: 'logs', label: 'Logs' }, { id: 'history', label: 'History' });
+  if (canDelete) sections.push({ id: 'danger', label: 'Danger Zone' });
+  const [section, setSection] = useState<SettingsSection>('general');
+
+  return (
+    <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }} className="fade-up">
+      <div style={{ width: 170, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {sections.map(s => (
+          <button key={s.id} onClick={() => setSection(s.id)} style={{
+            textAlign: 'left', padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            fontSize: 13, fontFamily: 'var(--font-sans)',
+            background: section === s.id ? 'var(--surface-2)' : 'transparent',
+            color: section === s.id ? (s.id === 'danger' ? '#dc2626' : 'var(--text)') : 'var(--muted)',
+            fontWeight: section === s.id ? 500 : 400,
+          }}>{s.label}</button>
+        ))}
+      </div>
+      <div style={{ flex: 1, minWidth: 320 }}>
+        {section === 'general' && <GeneralSettingsSection agent={agent} onUpdate={onUpdate} canEdit={canEdit} allAgents={allAgents} />}
+        {section === 'slack'   && <SlackSettingsSection   agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
+        {section === 'logs'    && <LogsTab    agentId={agent.id} slug={agent.slug} />}
+        {section === 'history' && <HistoryTab agentId={agent.id} canEdit={canEdit} />}
+        {section === 'danger'  && <DangerSection agent={agent} canDelete={canDelete} />}
+      </div>
+    </div>
+  );
+}
+
+function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
+  const [form, setForm] = useState({ isBoss: agent.isBoss, verbose: agent.verbose ?? true, reportsTo: agent.reportsTo ?? [] as string[] });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isBoss: form.isBoss, verbose: form.verbose, reportsTo: form.reportsTo }),
+      });
+      const data = await r.json();
+      if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
+    } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
+  };
+  return (
+    <div style={{ maxWidth: 620 }}>
+      <Section title="Behavior">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Verbose Responses</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>On: each step is posted as it happens. Off: only the final answer is sent as one message.</div>
+          </div>
+          <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, verbose: !f.verbose }))} style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', background: form.verbose ? '#3b82f6' : 'var(--border-2)',
+            cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          }}>
+            <div style={{ position: 'absolute', top: 3, left: form.verbose ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+          </button>
+        </div>
+      </Section>
+
+      <Section title="Role & Hierarchy">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks</div>
+          </div>
+          <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', background: form.isBoss ? '#d97706' : 'var(--border-2)',
+            cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          }}>
+            <div style={{ position: 'absolute', top: 3, left: form.isBoss ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+          </button>
+        </div>
+        {!form.isBoss && (() => {
+          const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
+          if (bosses.length === 0) return (
+            <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>No boss agents available. Create a boss agent first.</div>
+          );
+          return (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {bosses.map(boss => {
+                  const checked = form.reportsTo.includes(boss.id);
+                  return (
+                    <label key={boss.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8,
+                      border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
+                      background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
+                      cursor: canEdit ? 'pointer' : 'default', transition: 'all 0.15s',
+                    }}>
+                      <input type="checkbox" checked={checked} disabled={!canEdit}
+                        onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
+                        style={{ accentColor: '#d97706', width: 14, height: 14 }} />
+                      <div style={{ width: 24, height: 24, borderRadius: 6, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--accent-fg)', flexShrink: 0 }}>{boss.name.charAt(0).toUpperCase()}</div>
+                      <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{boss.name}</div></div>
+                      {checked && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, color: '#d97706', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Reports to</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>An agent can report to multiple bosses.</div>
+            </div>
+          );
+        })()}
+      </Section>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
+        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean }) {
+  const [form, setForm] = useState({ slackBotToken: agent.slackBotToken, slackAppToken: agent.slackAppToken, slackSigningSecret: agent.slackSigningSecret });
   const [allowedChannels, setAllowedChannels] = useState('');
+  const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
+  const [manifest, setManifest] = useState('');
+  const [showManifest, setShowManifest] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
 
   useEffect(() => {
-    fetch(`/api/agents/${agent.id}/restrictions`)
-      .then(r => r.json())
-      .then((d: Restriction) => setAllowedChannels((d.allowedChannels ?? []).join('\n')));
+    if (!agent.slackBotToken) return;
+    fetch(`/api/agents/${agent.id}/slack-info`).then(r => r.ok ? r.json() : null).then(d => d && setSlackInfo(d)).catch(() => {});
+  }, [agent.id, agent.slackBotToken]);
+  useEffect(() => {
+    fetch(`/api/agents/${agent.id}/restrictions`).then(r => r.json()).then((d: Restriction) => setAllowedChannels((d.allowedChannels ?? []).join('\n'))).catch(() => {});
   }, [agent.id]);
 
   const save = async () => {
@@ -469,23 +653,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
       const [r] = await Promise.all([
         fetch(`/api/agents/${agent.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: form.name,
-            persona: form.persona,
-            description: form.description,
-            model: form.model,
-            isBoss: form.isBoss,
-            verbose: form.verbose,
-            reportsTo: form.reportsTo,
-            tags: form.tags,
-            ...(form.slackBotToken && {
-              platformCredentials: {
-                botToken: form.slackBotToken,
-                appToken: form.slackAppToken,
-                signingSecret: form.slackSigningSecret,
-              },
-            }),
-          }),
+          body: JSON.stringify(form.slackBotToken ? { platformCredentials: { botToken: form.slackBotToken, appToken: form.slackAppToken, signingSecret: form.slackSigningSecret } } : {}),
         }),
         fetch(`/api/agents/${agent.id}/restrictions`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -503,174 +671,17 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
     setShowManifest(true);
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Permanently delete agent "${agent.name}"? This cannot be undone.`)) return;
-    setDeleting(true);
-    const r = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
-    if (r.ok) {
-      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
-      router.push('/');
-    } else {
-      const err = await r.json();
-      setMsg(err.error ?? 'Delete failed');
-      setDeleting(false);
-    }
-  };
-
-  const isAdmin = role === 'admin' || role === 'superadmin';
-  const canDelete = isAdmin || agent.createdBy === username;
-
   return (
-    <div style={{ maxWidth: 640 }} className="fade-up">
-      <Section title="Configuration">
-        <Grid2>
-          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
-            hint="Internal agent name." />
-          <SelectField label="Model" value={form.model} options={modelOptions}
-            onChange={v => setForm(f => ({ ...f, model: v }))}
-            hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
-        </Grid2>
-        <Field label="Description" value={form.description}
-          onChange={v => setForm(f => ({ ...f, description: v }))}
-          hint="Short summary — used by boss agents for delegation." readOnly={!canEdit} />
-        <TagInput
-          tags={form.tags}
-          onChange={tags => setForm(f => ({ ...f, tags }))}
-          allTags={allAgents.flatMap(a => a.tags ?? [])}
-          readOnly={!canEdit}
-        />
-        <TextArea label="Persona" value={form.persona}
-          onChange={v => setForm(f => ({ ...f, persona: v }))}
-          hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Verbose Responses</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              On: each step is posted as it happens. Off: only the final answer is sent as one message.
-            </div>
-          </div>
-          <button
-            disabled={!canEdit}
-            onClick={() => setForm(f => ({ ...f, verbose: !f.verbose }))}
-            style={{
-              width: 44, height: 24, borderRadius: 12, border: 'none',
-              background: form.verbose ? '#3b82f6' : 'var(--border-2)',
-              cursor: canEdit ? 'pointer' : 'default',
-              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-            }}
-          >
-            <div style={{
-              position: 'absolute', top: 3, left: form.verbose ? 23 : 3,
-              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
-              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }} />
-          </button>
-        </div>
-      </Section>
-
-      <Section title="Role & Hierarchy">
-        {/* Boss toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks</div>
-          </div>
-          <button
-            disabled={!canEdit}
-            onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))}
-            style={{
-              width: 44, height: 24, borderRadius: 12, border: 'none',
-              background: form.isBoss ? '#d97706' : 'var(--border-2)',
-              cursor: canEdit ? 'pointer' : 'default',
-              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-            }}
-          >
-            <div style={{
-              position: 'absolute', top: 3, left: form.isBoss ? 23 : 3,
-              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
-              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }} />
-          </button>
-        </div>
-
-        {/* Reports To — only show for non-boss agents */}
-        {!form.isBoss && (() => {
-          const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
-          if (bosses.length === 0) return (
-            <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>
-              No boss agents available. Create a boss agent first.
-            </div>
-          );
-          return (
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {bosses.map(boss => {
-                  const checked = form.reportsTo.includes(boss.id);
-                  return (
-                    <label key={boss.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '8px 12px', borderRadius: 8,
-                      border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
-                      background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
-                      cursor: canEdit ? 'pointer' : 'default',
-                      transition: 'all 0.15s',
-                    }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!canEdit}
-                        onChange={() => setForm(f => ({
-                          ...f,
-                          reportsTo: checked
-                            ? f.reportsTo.filter(id => id !== boss.id)
-                            : [...f.reportsTo, boss.id],
-                        }))}
-                        style={{ accentColor: '#d97706', width: 14, height: 14 }}
-                      />
-                      <div style={{
-                        width: 24, height: 24, borderRadius: 6, background: 'var(--accent)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 600, color: 'var(--accent-fg)', flexShrink: 0,
-                      }}>
-                        {boss.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{boss.name}</div>
-                      </div>
-                      {checked && (
-                        <span style={{
-                          marginLeft: 'auto', fontSize: 10, fontWeight: 600,
-                          color: '#d97706', letterSpacing: '0.04em', textTransform: 'uppercase',
-                        }}>Reports to</span>
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>
-                An agent can report to multiple bosses.
-              </div>
-            </div>
-          );
-        })()}
-      </Section>
-
+    <div style={{ maxWidth: 620 }}>
       <Section title="Slack Credentials">
-        <Field label="Bot Token" value={form.slackBotToken ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
+        <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
-        <Field label="App-Level Token" value={form.slackAppToken ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
+        <Field label="App-Level Token" value={form.slackAppToken ?? ''} onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
           hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
-        <Field label="Signing Secret" value={form.slackSigningSecret ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
+        <Field label="Signing Secret" value={form.slackSigningSecret ?? ''} onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
           hint="Basic Information → App Credentials → Signing Secret" />
         {slackInfo && (
-          <div style={{
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: 7, padding: '10px 14px', fontSize: 12,
-          }}>
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, padding: '10px 14px', fontSize: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
               <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to Slack</span>
@@ -688,41 +699,16 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
             </div>
           </div>
         )}
-        {!slackInfo && agent.slackBotUserId && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: 7, padding: '8px 12px', fontSize: 12,
-          }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-            <span style={{ color: '#15803d' }}>Connected ·</span>
-            <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>Bot User ID: {agent.slackBotUserId}</span>
-          </div>
-        )}
       </Section>
 
       <Section title="Allowed Channels">
         <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-          Restrict this bot to specific Slack channels. Enter one Slack channel ID per line (e.g. <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>C01234ABCDE</code>).
+          Restrict this bot to specific Slack channels. One Slack channel ID per line (e.g. <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>C01234ABCDE</code>).
           If empty, the bot responds in all channels it's invited to.
-          When invited to a non-allowed channel, it will post a notice and leave automatically.
-          Bot-initiated messages from scheduled jobs are not affected.
         </p>
-        <textarea
-          value={allowedChannels}
-          onChange={e => setAllowedChannels(e.target.value)}
-          rows={4}
-          readOnly={!canEdit}
-          placeholder={'C01234ABCDE\nC09876ZYXWV'}
-          style={{
-            width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
-            fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7,
-            outline: 'none', resize: 'vertical', boxSizing: 'border-box',
-          }}
-          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-          onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-        />
+        <textarea value={allowedChannels} onChange={e => setAllowedChannels(e.target.value)} rows={4} readOnly={!canEdit} placeholder={'C01234ABCDE\nC09876ZYXWV'}
+          style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')} onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')} />
       </Section>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -732,60 +718,45 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
       </div>
 
       {showManifest && (
-        <div style={{
-          marginTop: 20, background: 'var(--surface-2)',
-          border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden',
-        }}>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '10px 16px', borderBottom: '1px solid var(--border)',
-            background: 'var(--surface-2)',
-          }}>
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-              slack-manifest.json
-            </span>
-            <button
-              onClick={() => navigator.clipboard.writeText(manifest)}
-              style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
-            >Copy</button>
+        <div style={{ marginTop: 20, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+            <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>slack-manifest.json</span>
+            <button onClick={() => navigator.clipboard.writeText(manifest)} style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Copy</button>
           </div>
-          <pre style={{
-            margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)',
-            fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 320,
-          }}>{manifest}</pre>
+          <pre style={{ margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)', fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 320 }}>{manifest}</pre>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* ── Danger Zone ── */}
-      {canDelete && (
-        <div style={{
-          marginTop: 40, borderTop: '1px solid var(--red-soft-border)', paddingTop: 28,
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
-            Danger Zone
-          </div>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: 'var(--surface-2)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '14px 18px',
-          }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>Delete this agent</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Permanently removes the agent, all its skills, memories, and history. This cannot be undone.</div>
-            </div>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              style={{
-                flexShrink: 0, marginLeft: 24,
-                padding: '8px 18px', borderRadius: 7, border: '1px solid #dc2626',
-                background: deleting ? 'var(--surface-2)' : 'var(--surface)', color: '#dc2626',
-                fontSize: 13, fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer',
-                fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
-              }}
-            >{deleting ? 'Deleting…' : 'Delete Agent'}</button>
-          </div>
+function DangerSection({ agent, canDelete }: { agent: Agent; canDelete: boolean }) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const [msg, setMsg] = useState('');
+  const handleDelete = async () => {
+    if (!confirm(`Permanently delete agent "${agent.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    const r = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
+    if (r.ok) { window.dispatchEvent(new Event('slackhive:sidebar-refresh')); router.push('/'); }
+    else { const err = await r.json(); setMsg(err.error ?? 'Delete failed'); setDeleting(false); }
+  };
+  if (!canDelete) return <div style={{ fontSize: 13, color: 'var(--muted)' }}>You don&apos;t have permission to delete this agent.</div>;
+  return (
+    <div style={{ maxWidth: 620 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>Danger Zone</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-2)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '14px 18px' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>Delete this agent</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Permanently removes the agent, all its skills, memories, and history. This cannot be undone.</div>
         </div>
-      )}
+        <button onClick={handleDelete} disabled={deleting} style={{
+          flexShrink: 0, marginLeft: 24, padding: '8px 18px', borderRadius: 7, border: '1px solid #dc2626',
+          background: deleting ? 'var(--surface-2)' : 'var(--surface)', color: '#dc2626', fontSize: 13, fontWeight: 600,
+          cursor: deleting ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+        }}>{deleting ? 'Deleting…' : 'Delete Agent'}</button>
+      </div>
+      {msg && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 10 }}>{msg}</div>}
     </div>
   );
 }
