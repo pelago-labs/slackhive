@@ -169,7 +169,9 @@ NOT a file source — short, needed every turn.
 4. **Keep prose short.** The UI renders cards — do not repeat their content in chat. One-line framing at most.
 
 # Audit checklist
-When the user asks to review memories, CLAUDE.md, a skill, or a file source: inspect, then work through this checklist in order. Surface every finding — include a confidence note if uncertain. The human's Apply/Reject click is the filter; do not self-suppress.
+When the user asks to AUDIT / review / "flag what's weak": this is a READ-ONLY assessment. Deliver your findings as a concise prose report, grouped by severity — that report IS the deliverable. Do NOT turn an audit into a pile of destructive proposals. Attach a proposal ONLY when a fix is (a) high-confidence, (b) low-risk, and (c) clearly inside what the user asked; otherwise describe the fix in prose and let the user ask you to apply it. **In an audit turn, never DELETE skills/memories or rewrite CLAUDE.md wholesale unless the user explicitly said to make those changes.** Use the checklist below to find issues — not as a list of edits to auto-emit.
+
+**Missing-tool content is NOT dead weight by default.** If a skill or instruction references an MCP/tool that is not in \`list_mcps\` (e.g. OpenMetadata or a Slack upload tool the instructions assume), the most likely fix is to CONNECT that MCP — NOT to delete the skill or strip the instruction. Flag the mismatch, name the missing capability, and recommend connecting it. Propose deletion of that content only if the user confirms the capability is permanently gone.
 
 For a "review everything" request: sequence — memories first, then CLAUDE.md, then skills, then file sources. Report per-category; one line per clean category.
 
@@ -194,6 +196,8 @@ If nothing needs fixing anywhere, reply in ONE short line (e.g. "All clean — 3
 - **JS-rendered docs fallback.** When \`WebFetch\` returns mostly markup/CSS (typical of SPA doc sites — Stripe, Vercel, Mintlify, Intercom), retry via Jina Reader: \`WebFetch\` on \`https://r.jina.ai/<original-url>\`. Only ask the user to paste after Jina also fails.
 - Inspect before proposing; never guess at current state.
 - One proposal per distinct change — do not bundle unrelated edits into one card.
+- **Least-destructive first.** Prefer the smallest targeted edit that fixes the problem. DELETE and wholesale CLAUDE.md rewrites are last resorts that require high confidence AND clear user intent to change things. A single turn must never gut an agent — if you find yourself about to delete multiple skills or replace the entire instructions, STOP and instead report the findings in prose and ask the user what to change.
+- **Don't delete content for a missing tool.** If content references an MCP/tool not in \`list_mcps\`, recommend connecting the tool; only delete if the user confirms the capability is gone for good.
 - Never invent MCPs, skills, or file sources that don't exist. Call \`list_mcps\` / \`list_skills\` / \`list_file_sources\` first.
 - Each proposal carries a one-sentence rationale grounded in the user's words or inspection output.
 - Ask ONE short clarifying question when intent is ambiguous. Do not offer multiple hypothetical follow-ups.
@@ -569,7 +573,7 @@ export async function runCoachTurn(input: CoachTurnInput): Promise<CoachTurnResu
   // Restated last (recency) so the output-format rule isn't lost at the end of a
   // long prompt — the #1 cause of the model describing a change in prose without
   // emitting the machine-readable block.
-  const reminder = 'REMINDER: If your reply makes or recommends ANY change to the instructions, a skill, or a memory, you MUST end with the ```coach-proposals``` JSON block. A prose description is NOT a proposal and will be silently dropped.';
+  const reminder = 'REMINDER: If your reply makes or recommends ANY change to the instructions, a skill, or a memory, you MUST end with the ```coach-proposals``` JSON block. A prose description is NOT a proposal and will be silently dropped. BUT for an audit / "flag what\'s weak" / review request, the prose report IS the deliverable — attach proposals ONLY for high-confidence, low-risk fixes, and NEVER delete skills/memories or rewrite the full instructions unless the user explicitly asked to make changes. If content references a tool that is not connected, recommend connecting it instead of deleting the content.';
   // First turn carries full context; resume turns send only the user message
   // (the model retains the system prompt + workspace orientation in context).
   const fullPrompt = [
