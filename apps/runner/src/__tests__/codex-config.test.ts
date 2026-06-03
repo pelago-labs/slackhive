@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { McpServer, Permission } from '@slackhive/shared';
-import { agentHasBash, buildThreadOptions, buildCodexConfig } from '../backends/codex-config';
+import { agentHasBash, buildThreadOptions, buildCodexConfig, buildIdentityInstructions } from '../backends/codex-config';
 
 const mcp = (name: string, type: string, config: Record<string, unknown>): McpServer =>
   ({ id: name, name, type, config } as unknown as McpServer);
@@ -13,6 +13,32 @@ describe('codex-config / agentHasBash', () => {
   it('is true for plain Bash or a Bash(pattern)', () => {
     expect(agentHasBash({ allowedTools: ['Read', 'Bash'] } as Permission)).toBe(true);
     expect(agentHasBash({ allowedTools: ['Bash(git *)'] } as Permission)).toBe(true);
+  });
+});
+
+describe('codex-config / persona via developer_instructions', () => {
+  it('builds an in-character identity block from name + persona + description', () => {
+    const out = buildIdentityInstructions({ name: 'Gilfoyle', persona: 'Cold, deadpan engineer.', description: 'Data analyst.' });
+    expect(out).toContain('You are Gilfoyle');
+    expect(out).toContain('in character');
+    expect(out).toContain('Cold, deadpan engineer.');
+    expect(out).toContain('Data analyst.');
+  });
+
+  it('returns empty when there is no persona or description (nothing to assert)', () => {
+    expect(buildIdentityInstructions({ name: 'Bot', persona: null, description: null })).toBe('');
+    expect(buildIdentityInstructions({ name: 'Bot', persona: '  ', description: '' })).toBe('');
+  });
+
+  it('sets developer_instructions in the Codex config (high-priority channel, not just AGENTS.md)', () => {
+    const cfg = buildCodexConfig([], {}, () => undefined, buildIdentityInstructions({ name: 'Gilfoyle', persona: 'Deadpan.' }));
+    expect(cfg.developer_instructions).toContain('You are Gilfoyle');
+    expect(cfg.developer_instructions).toContain('Deadpan.');
+  });
+
+  it('omits developer_instructions when no identity is given', () => {
+    const cfg = buildCodexConfig([], {}, () => undefined, '');
+    expect(cfg.developer_instructions).toBeUndefined();
   });
 });
 

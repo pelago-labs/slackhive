@@ -30,7 +30,7 @@ import type { Agent, McpServer, McpStdioConfig, Permission, AgentBackend, Backen
 import { getSession, upsertSession, cleanupStaleSessions } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
-import { buildCodexConfig, buildThreadOptions, createCodexClient, resolveCodexModel } from './codex-config';
+import { buildCodexConfig, buildThreadOptions, createCodexClient, resolveCodexModel, buildIdentityInstructions } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -86,7 +86,12 @@ export class CodexBackend implements AgentBackend {
     if (!this.codex) {
       if (this.proxiesReady) await this.proxiesReady;
       this.codex = await createCodexClient(
-        buildCodexConfig(this.mcpServers, this.envVarValues, (name) => this.mcpManager.getStreamableUrl(name)),
+        buildCodexConfig(
+          this.mcpServers,
+          this.envVarValues,
+          (name) => this.mcpManager.getStreamableUrl(name),
+          buildIdentityInstructions(this.agent),
+        ),
         this.apiKey,
       );
     }

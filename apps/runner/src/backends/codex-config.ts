@@ -71,15 +71,39 @@ export function buildCodexConfig(
   mcpServers: McpServer[],
   envVarValues: Record<string, string>,
   proxyUrlFor: (name: string) => string | undefined,
+  developerInstructions?: string,
 ): ConfigObj {
   const config: ConfigObj = {
     cli_auth_credentials_store: 'file',
     project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
     memories: { use_memories: false },
   };
+  // The agent identity/persona. AGENTS.md (project doc) is low-priority context
+  // that Codex's own base "you are a coding agent" prompt overrides, so the
+  // persona/voice gets dropped. `developer_instructions` is a high-priority
+  // developer message — the Codex-native equivalent of Claude's system prompt
+  // (which Claude gets from CLAUDE.md via settingSources:['project']) — so the
+  // agent actually speaks in character. Verified via `codex exec --config`.
+  if (developerInstructions?.trim()) config.developer_instructions = developerInstructions.trim();
   const mcp = buildMcpServers(mcpServers, envVarValues, proxyUrlFor);
   if (Object.keys(mcp).length > 0) config.mcp_servers = mcp;
   return config;
+}
+
+/**
+ * Build the identity/persona block injected as `developer_instructions` so Codex
+ * adopts the agent's voice. Mirrors the Identity section compile-instructions
+ * writes at the top of AGENTS.md, but routed through the high-priority channel.
+ * Returns '' when the agent has no persona/description (nothing to assert).
+ */
+export function buildIdentityInstructions(agent: { name: string; persona?: string | null; description?: string | null }): string {
+  if (!agent.persona?.trim() && !agent.description?.trim()) return '';
+  const parts = [
+    `You are ${agent.name}. Respond fully in character — match this persona's voice, tone, and style in every message, not a generic assistant voice. Follow the detailed instructions in AGENTS.md.`,
+  ];
+  if (agent.persona?.trim()) parts.push(agent.persona.trim());
+  if (agent.description?.trim()) parts.push(agent.description.trim());
+  return parts.join('\n\n');
 }
 
 /**
