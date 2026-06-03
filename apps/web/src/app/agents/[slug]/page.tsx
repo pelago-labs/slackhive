@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -1696,15 +1696,25 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
     const actionable = canEdit && canAssign && mcp.enabled;
     return (
       <div key={mcp.id} style={{
-        border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)',
+        border: isConn ? '1px solid var(--border-2)' : '1px solid var(--border)', borderRadius: 14,
+        background: isConn ? 'var(--surface-2)' : 'var(--surface)',
         overflow: 'hidden', opacity: mcp.enabled ? 1 : 0.6,
       }}>
         <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
           <div style={{
-            width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex',
+            position: 'relative', width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex',
             alignItems: 'center', justifyContent: 'center',
-            background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)',
-          }}><Icon size={20} /></div>
+            background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)',
+          }}>
+            <Icon size={20} />
+            {isConn && (
+              <span style={{
+                position: 'absolute', right: -5, bottom: -5, width: 18, height: 18, borderRadius: '50%',
+                background: 'var(--accent)', color: 'var(--accent-fg)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface-2)',
+              }}><Check size={11} strokeWidth={3} /></span>
+            )}
+          </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
               <div style={{ minWidth: 0 }}>
