@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Hash, Calendar, UserCircle, ArrowRight, RotateCcw, Square } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -374,24 +374,13 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-/** Read-at-a-glance stat tile (icon + value + label) for the Overview summary. */
-function StatCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent?: string }) {
+/** Compact metric tile (icon + value + label) for the Details card grid. */
+function MiniStat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
   return (
-    <div style={{
-      flex: '1 1 140px', minWidth: 130,
-      border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px',
-      background: 'var(--surface)', boxShadow: 'var(--shadow-sm)',
-      display: 'flex', alignItems: 'center', gap: 12,
-    }}>
-      <div style={{
-        width: 34, height: 34, borderRadius: 9, flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: accent ? `${accent}14` : 'var(--surface-2)', color: accent ?? 'var(--muted)',
-      }}>{icon}</div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)', lineHeight: 1.1, textTransform: 'capitalize' }}>{value}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
-      </div>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 6px', textAlign: 'center', background: 'var(--surface-2)' }}>
+      <div style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center', marginBottom: 5 }}>{icon}</div>
+      <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>{label}</div>
     </div>
   );
 }
@@ -483,16 +472,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
 
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }} className="fade-up">
-      {/* Main column */}
-      <div style={{ flex: '1 1 540px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Summary stats (Status lives in the header pill — not repeated here) */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <StatCard icon={<BookOpen size={17} />}  label="Skills"   value={num(counts?.skills)} />
-          <StatCard icon={<Brain size={17} />}     label="Memories" value={num(counts?.memories)} />
-          <StatCard icon={<Database size={17} />}  label="Tools"    value={num(counts?.tools)} />
-        </div>
-
-        {/* Identity */}
+      {/* Identity (main) */}
+      <div style={{ flex: '1 1 540px', minWidth: 0 }}>
         <Card title="Identity" action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
           <Grid2>
             <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
@@ -512,17 +493,24 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
         </Card>
       </div>
 
-      {/* Right metadata panel — only details NOT already shown in the header */}
-      <aside style={{ flex: '0 0 280px', maxWidth: '100%' }}>
+      {/* Details (aside) — metrics + meta */}
+      <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
         <Card title="Details">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <MiniStat icon={<BookOpen size={15} />} value={num(counts?.skills)} label="Skills" />
+            <MiniStat icon={<Brain size={15} />} value={num(counts?.memories)} label="Memories" />
+            <MiniStat icon={<Database size={15} />} value={num(counts?.tools)} label="Tools" />
+          </div>
+          <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            <MetaRow icon={<Hash size={13} />} label="Agent ID" mono>{agent.id}</MetaRow>
+            <MetaRow icon={<Briefcase size={13} />} label="Role">{agent.isBoss ? 'Boss' : 'Standard'}</MetaRow>
+            <MetaRow icon={<MessageSquare size={13} />} label="Verbose">{agent.verbose ? 'On' : 'Off'}</MetaRow>
+            <MetaRow icon={<UserCircle size={13} />} label="Owner">{agent.createdBy}</MetaRow>
             <MetaRow icon={<Calendar size={13} />} label="Created">{fmtDate(agent.createdAt)}</MetaRow>
             <MetaRow icon={<Clock size={13} />} label="Updated">{fmtDate(agent.updatedAt)}</MetaRow>
-            <MetaRow icon={<UserCircle size={13} />} label="Owner">{agent.createdBy}</MetaRow>
           </div>
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12,
             padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,
             fontSize: 12.5, fontWeight: 500, color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-sans)',
           }}>
@@ -648,6 +636,10 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
             </div>
           );
         })()}
+      </Card>
+
+      <Card title="Capabilities">
+        <PermissionsTab agentId={agent.id} canEdit={canEdit} />
       </Card>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -1000,75 +992,61 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         />
       )}
 
-      {/* ── Toolbar: segmented switcher + labeled actions ───────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
-        <SegmentedControl
-          value={section}
-          onChange={setSection}
-          options={[
-            { id: 'system', label: 'System Prompt' },
-            { id: 'skills', label: 'Skills' },
-            { id: 'memory', label: 'Memory' },
-          ]}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {importError && <span style={{ fontSize: 11.5, color: 'var(--red)' }}>{importError}</span>}
-          {canEdit && <ActionBtn icon={<Download size={13} />} label="Export" onClick={handleExport} loading={exporting} />}
-          {canEdit && <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => setPersonaLibOpen(true)} />}
-          {canEdit && !agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => onOpenCoach?.()} primary />}
+      {/* ── Two-column: left sub-nav · right content ───────────────────── */}
+      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* sub-nav */}
+        <div style={{ width: 190, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {([
+            { id: 'system' as const, label: 'System Prompt', Icon: FileText },
+            { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
+            { id: 'memory' as const, label: 'Memory', Icon: Database },
+          ]).map(s => (
+            <button key={s.id} onClick={() => setSection(s.id)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 9, textAlign: 'left',
+              padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-sans)', fontSize: 13,
+              background: section === s.id ? 'var(--surface-2)' : 'transparent',
+              color: section === s.id ? 'var(--text)' : 'var(--muted)',
+              fontWeight: section === s.id ? 600 : 400,
+            }}><s.Icon size={15} />{s.label}</button>
+          ))}
+        </div>
+
+        {/* content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ minWidth: 0 }}>
+              <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>
+                {section === 'system' ? 'System Prompt' : section === 'skills' ? 'Skills' : 'Memory'}
+              </h2>
+              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
+                {section === 'system'
+                  ? (agent.isBoss
+                      ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
+                      : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
+                  : section === 'skills'
+                  ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
+                  : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {importError && <span style={{ fontSize: 11.5, color: 'var(--red)' }}>{importError}</span>}
+              {canEdit && <ActionBtn icon={<Download size={13} />} label="Export" onClick={handleExport} loading={exporting} />}
+              {canEdit && <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => setPersonaLibOpen(true)} />}
+              {canEdit && !agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => onOpenCoach?.()} primary />}
+            </div>
+          </div>
+
+          {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} />}
+          {section === 'skills' && <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />}
+          {section === 'memory' && <MemorySection agentId={agent.id} canEdit={canEdit} />}
         </div>
       </div>
-
-      {/* ── Active surface ──────────────────────────────────────────────── */}
-      {section === 'system' && (
-        <div>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
-            {agent.isBoss
-              ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
-              : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context."}
-          </p>
-          <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} />
-        </div>
-      )}
-      {section === 'skills' && (
-        <div>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
-            Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.
-          </p>
-          <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />
-        </div>
-      )}
-      {section === 'memory' && (
-        <div>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
-            Learned from conversations — the agent asks before saving. Open Coach to review and clean up.
-          </p>
-          <MemorySection agentId={agent.id} canEdit={canEdit} />
-        </div>
-      )}
     </div>
   );
 }
 
 /** Pill-style segmented switcher (System Prompt · Skills · Memory). */
-function SegmentedControl<T extends string>({ options, value, onChange }: { options: { id: T; label: string }[]; value: T; onChange: (v: T) => void }) {
-  return (
-    <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
-      {options.map(o => (
-        <button key={o.id} onClick={() => onChange(o.id)} style={{
-          padding: '6px 16px', fontSize: 13, borderRadius: 7, border: 'none',
-          cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          background: value === o.id ? 'var(--surface)' : 'transparent',
-          color: value === o.id ? 'var(--text)' : 'var(--muted)',
-          fontWeight: value === o.id ? 600 : 400,
-          boxShadow: value === o.id ? 'var(--shadow-sm)' : 'none',
-          transition: 'all 0.15s',
-        }}>{o.label}</button>
-      ))}
-    </div>
-  );
-}
-
 /** Labeled action button (icon + text) — used for the Instructions toolbar so
  *  Coach / Export / Persona Library aren't hidden behind bare icons. */
 function ActionBtn({ icon, label, onClick, loading, primary }: { icon: React.ReactNode; label: string; onClick?: () => void; loading?: boolean; primary?: boolean }) {
@@ -1570,23 +1548,10 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
 // ─── MCPs ─────────────────────────────────────────────────────────────────────
 
 function ToolsTab({ agentId, canEdit, canManageMcps, currentUsername }: { agentId: string; canEdit: boolean; canManageMcps: boolean; currentUsername: string }) {
+  // Connected Apps (MCP servers). Capabilities (internet/shell) moved to Settings.
   return (
     <div className="fade-up">
-      {/* Section 1: Connected Apps (MCPs) */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
-          Connected Apps
-        </div>
-        <McpsSection agentId={agentId} canEdit={canEdit} canManageMcps={canManageMcps} currentUsername={currentUsername} />
-      </div>
-
-      {/* Section 2: Capabilities */}
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
-          Capabilities
-        </div>
-        <PermissionsTab agentId={agentId} canEdit={canEdit} />
-      </div>
+      <McpsSection agentId={agentId} canEdit={canEdit} canManageMcps={canManageMcps} currentUsername={currentUsername} />
     </div>
   );
 }
