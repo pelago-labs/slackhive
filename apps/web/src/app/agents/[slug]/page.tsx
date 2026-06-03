@@ -16,6 +16,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
 import { PERSONA_CATALOG, searchPersonas, MODELS } from '@slackhive/shared';
 import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import { FilesChanged, type FileChange } from './diff-view';
@@ -381,6 +383,34 @@ function MiniStat({ icon, value, label }: { icon: React.ReactNode; value: string
       <div style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center', marginBottom: 5 }}>{icon}</div>
       <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>{label}</div>
+    </div>
+  );
+}
+
+/** Rendered-markdown view (GFM) for read-friendly previews of prompts/skills. */
+const MD_VIEW: Record<string, (p: any) => React.ReactElement> = {
+  h1: (p) => <h1 style={{ fontSize: 18, fontWeight: 700, margin: '18px 0 8px', color: 'var(--text)' }} {...p} />,
+  h2: (p) => <h2 style={{ fontSize: 16, fontWeight: 700, margin: '16px 0 6px', color: 'var(--text)' }} {...p} />,
+  h3: (p) => <h3 style={{ fontSize: 14, fontWeight: 600, margin: '14px 0 6px', color: 'var(--text)' }} {...p} />,
+  p:  (p) => <p style={{ margin: '0 0 10px', lineHeight: 1.65, color: 'var(--text-2)' }} {...p} />,
+  ul: (p) => <ul style={{ margin: '0 0 10px', paddingLeft: 20, lineHeight: 1.6 }} {...p} />,
+  ol: (p) => <ol style={{ margin: '0 0 10px', paddingLeft: 20, lineHeight: 1.6 }} {...p} />,
+  li: (p) => <li style={{ margin: '2px 0', color: 'var(--text-2)' }} {...p} />,
+  a:  (p) => <a style={{ color: 'var(--blue)', textDecoration: 'underline' }} target="_blank" rel="noreferrer" {...p} />,
+  code: ({ inline, children, ...rest }: any) => inline
+    ? <code style={{ fontFamily: 'var(--font-mono)', fontSize: 12, background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 4 }} {...rest}>{children}</code>
+    : <code style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} {...rest}>{children}</code>,
+  pre: (p) => <pre style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', overflow: 'auto', fontSize: 12, lineHeight: 1.6, margin: '0 0 12px' }} {...p} />,
+  blockquote: (p) => <blockquote style={{ borderLeft: '3px solid var(--border-2)', margin: '0 0 10px', padding: '2px 0 2px 14px', color: 'var(--muted)' }} {...p} />,
+  table: (p) => <table style={{ borderCollapse: 'collapse', width: '100%', margin: '0 0 12px', fontSize: 12.5 }} {...p} />,
+  th: (p) => <th style={{ border: '1px solid var(--border)', padding: '6px 10px', textAlign: 'left', background: 'var(--surface-2)' }} {...p} />,
+  td: (p) => <td style={{ border: '1px solid var(--border)', padding: '6px 10px' }} {...p} />,
+  hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '14px 0' }} />,
+};
+function MarkdownView({ children }: { children: string }) {
+  return (
+    <div style={{ fontSize: 13.5, color: 'var(--text)', wordBreak: 'break-word' }}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_VIEW as never}>{children || '_Nothing here yet._'}</ReactMarkdown>
     </div>
   );
 }
@@ -1072,6 +1102,7 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [view, setView] = useState<'edit' | 'preview'>(canEdit ? 'edit' : 'preview');
 
   const refetch = () => {
     setLoading(true);
@@ -1111,21 +1142,45 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
 
   return (
     <div style={{ position: 'relative' }}>
-      <textarea
-        value={content}
-        onChange={e => { setContent(e.target.value); setDirty(true); }}
-        readOnly={!canEdit}
-        placeholder="Write the agent's core instructions here — rules, workflows, response style..."
-        style={{
-          width: '100%', minHeight: 460, maxHeight: '75vh',
+      {/* Edit / Preview toggle */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 9 }}>
+          {(['edit', 'preview'] as const).map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              padding: '4px 13px', fontSize: 12, borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              background: view === v ? 'var(--surface)' : 'transparent',
+              color: view === v ? 'var(--text)' : 'var(--muted)',
+              fontWeight: view === v ? 600 : 400, boxShadow: view === v ? 'var(--shadow-sm)' : 'none',
+            }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
+          ))}
+        </div>
+      </div>
+
+      {view === 'edit' ? (
+        <textarea
+          value={content}
+          onChange={e => { setContent(e.target.value); setDirty(true); }}
+          readOnly={!canEdit}
+          placeholder="Write the agent's core instructions here — rules, workflows, response style..."
+          style={{
+            width: '100%', minHeight: 460, maxHeight: '75vh',
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
+            color: 'var(--text)', fontFamily: 'var(--font-mono)',
+            resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+          }}
+          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+          onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+        />
+      ) : (
+        <div style={{
+          minHeight: 460, maxHeight: '75vh', overflow: 'auto',
           background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 8, padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
-          color: 'var(--text)', fontFamily: 'var(--font-mono)',
-          resize: 'vertical', outline: 'none', boxSizing: 'border-box',
-        }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-      />
+          borderRadius: 8, padding: '14px 18px', boxSizing: 'border-box',
+        }}>
+          <MarkdownView>{content}</MarkdownView>
+        </div>
+      )}
       {(dirty || msg) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
           {canEdit && dirty && (
@@ -1722,26 +1777,19 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
 
   if (loading) {
     return (
-      <div style={{
-        maxWidth: 500, padding: '20px 22px',
-        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
-        display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13,
-      }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13, padding: '6px 0' }}>
         <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading capabilities…
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 500 }}>
-      <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, overflow: 'hidden',
-      }}>
+    <div>
+      <div>
         {/* Internet Access */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px', borderBottom: '1px solid var(--border)',
+          padding: '2px 0 14px', borderBottom: '1px solid var(--border)',
         }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Internet Access</div>
@@ -1769,7 +1817,7 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
         {/* Shell Access */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px',
+          padding: '14px 0 2px',
         }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Shell Access</div>
