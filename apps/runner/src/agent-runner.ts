@@ -25,7 +25,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { Agent, PlatformAdapter, ThreadMessage, AgentBackend } from '@slackhive/shared';
-import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND, CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL } from '@slackhive/shared';
+import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
+import { generateText } from './backends/generate-text';
 import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
@@ -53,7 +54,6 @@ import {
 import { summarizeSkill } from './summarize-skill';
 import { compileAgentWorkspace, getAgentWorkDir } from './compile-instructions';
 import { createAgentBackend } from './backends';
-import { ClaudeBackend } from './backends/claude-backend';
 import { MemoryWatcher } from './memory-watcher';
 import { logger } from './logger';
 import { dispatchCacheEvent } from './access-cache';
@@ -2906,106 +2906,11 @@ Return this JSON:
   }
 
   /**
-   * One-shot text generation for wiki/knowledge/analysis builders. Backend-aware:
-   * routes to Codex when that's the active backend, else Claude. (Named ...Claude...
-   * for history; it's the model-neutral generation helper.)
+   * One-shot text generation for wiki/knowledge/analysis builders. Backend-aware
+   * via the shared {@link generateText} helper (Codex or Claude). Kept as a thin
+   * method (historical name) so existing call sites are unchanged.
    */
   private async callClaudeWithRetry(prompt: string, onProgress?: (chars: number) => void): Promise<string> {
-    const backend = (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
-    if (backend === 'codex') return this.generateViaCodex(prompt, onProgress);
-
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    const os = await import('os');
-
-    const runQuery = async (): Promise<string> => {
-      let text = '';
-      for await (const msg of query({
-        prompt,
-        options: { maxTurns: 1, tools: [], allowedTools: [], permissionMode: 'acceptEdits', cwd: os.tmpdir() },
-      })) {
-        if (msg.type === 'assistant') {
-          const content: any[] = (msg as any).message?.content ?? [];
-          for (const block of content) {
-            if (block.type === 'text') {
-              text += block.text;
-              if (onProgress) onProgress(text.length);
-            }
-          }
-        }
-        if (msg.type === 'result') {
-          const r = (msg as any).result as string | undefined;
-          if (r?.includes('authentication_error') || r?.includes('Failed to authenticate')) throw new Error(r);
-          if (r) text = r;
-        }
-      }
-      return text;
-    };
-
-    // Attempt 1: direct call
-    try {
-      return await runQuery();
-    } catch (err1) {
-      const msg1 = (err1 as Error).message ?? '';
-      if (!msg1.includes('401') && !msg1.includes('auth') && !msg1.includes('credentials')) throw err1;
-      logger.warn('SDK auth failed, trying Keychain sync...', { error: msg1.slice(0, 100) });
-    }
-
-    // Attempt 2: sync from macOS Keychain, then retry
-    try {
-      const { execSync } = await import('child_process');
-      const fs = await import('fs');
-      const path = await import('path');
-      const creds = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
-        encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
-      if (creds) {
-        const credPath = path.join(process.env.HOME || '/tmp', '.claude', '.credentials.json');
-        fs.mkdirSync(path.dirname(credPath), { recursive: true });
-        fs.writeFileSync(credPath, creds, { mode: 0o600 });
-        logger.info('Synced fresh credentials from Keychain');
-        return await runQuery();
-      }
-    } catch {
-      logger.warn('Keychain sync failed or not on macOS, trying token refresh...');
-    }
-
-    // Attempt 3: refresh OAuth token, then retry
-    try {
-      const refreshed = await ClaudeBackend.refreshOAuthToken();
-      if (refreshed) {
-        logger.info('OAuth token refreshed');
-        return await runQuery();
-      }
-    } catch {
-      logger.warn('Token refresh failed');
-    }
-
-    // All retries exhausted
-    throw new Error('AUTH_NEEDS_LOGIN');
-  }
-
-  /** One-shot text generation via Codex (ESM-only SDK → dynamic import). */
-  private async generateViaCodex(prompt: string, onProgress?: (chars: number) => void): Promise<string> {
-    const os = await import('os');
-    const { Codex } = await import('@openai/codex-sdk');
-    const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined;
-    let model = (await getSetting(CODEX_MODEL_SETTING_KEY)) ?? DEFAULT_CODEX_MODEL;
-    if (/^claude/i.test(model)) model = DEFAULT_CODEX_MODEL;
-    const codex = new Codex({
-      ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
-      ...(apiKey ? { apiKey } : {}),
-      config: { cli_auth_credentials_store: 'file' },
-    });
-    const thread = codex.startThread({
-      workingDirectory: os.tmpdir(),
-      skipGitRepoCheck: true,
-      sandboxMode: 'read-only',
-      approvalPolicy: 'never',
-      model,
-    });
-    const turn = await thread.run(prompt);
-    const text = turn.finalResponse ?? '';
-    if (onProgress) onProgress(text.length);
-    return text;
+    return generateText(prompt, { onProgress });
   }
 }

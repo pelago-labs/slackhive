@@ -26,7 +26,7 @@ export const CODEX_AUTH_MODE_SETTING_KEY = 'codexAuthMode';
 /** Settings-table key holding the chosen Claude auth mode ('subscription' | 'apiKey'). */
 export const CLAUDE_AUTH_MODE_SETTING_KEY = 'claudeAuthMode';
 
-export const DEFAULT_CODEX_MODEL = 'gpt-5.4';
+export const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 
 /**
  * Curated fallback list of Codex models — used when the live model list can't be
