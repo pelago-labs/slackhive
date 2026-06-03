@@ -228,19 +228,19 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               const showSlackImage = !!agent.slackBotImageUrl && !avatarImgFailed;
               return (
                 <div style={{
-                  width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                  width: 44, height: 44, borderRadius: 12, flexShrink: 0,
                   background: showSlackImage ? 'var(--surface-2)' : palette.bg,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 14, fontWeight: 700, color: palette.fg,
-                  overflow: 'hidden',
+                  fontSize: 17, fontWeight: 700, color: palette.fg,
+                  overflow: 'hidden', border: '1px solid var(--border)',
                 }}>
                   {showSlackImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={agent.slackBotImageUrl}
                       alt={agent.name}
-                      width={36}
-                      height={36}
+                      width={44}
+                      height={44}
                       onError={() => setAvatarImgFailed(true)}
                       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     />
@@ -264,15 +264,20 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
                     textTransform: 'uppercase',
                   }}>Boss</span>
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }} title={staleTooltip}>
-                  <div
+                <span title={staleTooltip} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '3px 10px', borderRadius: 999,
+                  fontSize: 11.5, fontWeight: 600, textTransform: 'capitalize',
+                  background: `color-mix(in srgb, ${statusColor} 12%, transparent)`,
+                  color: statusColor,
+                  border: `1px solid color-mix(in srgb, ${statusColor} 28%, transparent)`,
+                }}>
+                  <span
                     className={displayStatus === 'running' ? 'status-running' : ''}
-                    style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }}
+                    style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }}
                   />
-                  <span style={{ fontSize: 12, color: statusColor, fontWeight: 500, textTransform: 'capitalize' }}>
-                    {displayStatus}
-                  </span>
-                </div>
+                  {displayStatus}
+                </span>
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
                 {agent.slackBotHandle ? `@${agent.slackBotHandle} · ` : ''}{agent.model.replace('claude-', '').split('-20')[0]}
@@ -354,7 +359,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab bar ──────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex', gap: 0, padding: '0 36px',
+        display: 'flex', gap: 0, padding: '0 40px',
         borderBottom: '1px solid var(--border)',
         background: 'var(--surface)',
         overflowX: 'auto', WebkitOverflowScrolling: 'touch',
@@ -366,7 +371,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
             className={tab === t.id ? 'tab-active' : ''}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              padding: '10px 14px', fontSize: 13,
+              padding: '12px 16px', fontSize: 13,
               color: tab === t.id ? 'var(--text)' : 'var(--muted)',
               fontWeight: tab === t.id ? 500 : 400,
               transition: 'color 0.15s',
@@ -379,7 +384,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       </div>
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
-      <div style={{ padding: '28px 36px' }}>
+      <div style={{ padding: '28px 40px' }}>
         {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
