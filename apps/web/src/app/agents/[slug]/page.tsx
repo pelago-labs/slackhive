@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Hash, Calendar, UserCircle, Cpu, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -36,13 +36,13 @@ interface AgentExportPayload {
   skills: { category: string; filename: string; content: string; sortOrder: number }[];
 }
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview',      label: 'Overview'      },
-  { id: 'instructions',  label: 'Instructions'  },
-  { id: 'tools',         label: 'Tools'         },
-  { id: 'knowledge',     label: 'Wiki'          },
-  { id: 'audiences',     label: 'Audiences'     },
-  { id: 'settings',      label: 'Settings'      },
+const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
+  { id: 'overview',      label: 'Overview',     Icon: Home },
+  { id: 'instructions',  label: 'Instructions', Icon: FileText },
+  { id: 'tools',         label: 'Tools',        Icon: Wrench },
+  { id: 'knowledge',     label: 'Wiki',         Icon: BookOpen },
+  { id: 'audiences',     label: 'Audiences',    Icon: Users },
+  { id: 'settings',      label: 'Settings',     Icon: SettingsIcon },
 ];
 
 const STATUS_COLOR = {
@@ -370,6 +370,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
             onClick={() => setTab(t.id)}
             className={tab === t.id ? 'tab-active' : ''}
             style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7,
               background: 'none', border: 'none', cursor: 'pointer',
               padding: '12px 16px', fontSize: 13,
               color: tab === t.id ? 'var(--text)' : 'var(--muted)',
@@ -378,6 +379,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               fontFamily: 'var(--font-sans)',
             }}
           >
+            <t.Icon size={14} />
             {t.label}
           </button>
         ))}
@@ -445,6 +447,43 @@ function Card({ title, action, children }: { title?: string; action?: React.Reac
   );
 }
 
+/** Agent avatar — Slack profile image if present, else a palette letter tile. */
+function AgentAvatar({ agent, size }: { agent: Agent; size: number }) {
+  const [failed, setFailed] = useState(false);
+  const p = avatarPalette(agent.name);
+  const showImg = !!agent.slackBotImageUrl && !failed;
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: Math.round(size * 0.28), flexShrink: 0,
+      overflow: 'hidden', border: '1px solid var(--border)',
+      background: showImg ? 'var(--surface-2)' : p.bg,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: Math.round(size * 0.4), fontWeight: 700, color: p.fg,
+    }}>
+      {showImg ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={agent.slackBotImageUrl} alt={agent.name} width={size} height={size}
+          onError={() => setFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      ) : agent.name.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+/** A labeled metadata row for the Overview side panel. */
+function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label: string; children: React.ReactNode; mono?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0' }}>
+      <span style={{ color: 'var(--subtle)', display: 'flex', flexShrink: 0 }}>{icon}</span>
+      <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{label}</span>
+      <span style={{
+        fontSize: 12.5, color: 'var(--text)', fontWeight: 500, marginLeft: 'auto',
+        fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
+        minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 170, textAlign: 'right',
+      }}>{children}</span>
+    </div>
+  );
+}
+
 /**
  * Overview — slimmed to the agent's identity + an at-a-glance summary. Operational
  * config (Slack, verbose, hierarchy), logs, history and delete now live under the
@@ -499,35 +538,65 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
 
   const statusAccent = agent.status === 'running' ? '#16a34a' : agent.status === 'error' ? '#ef4444' : 'var(--muted)';
   const num = (n: number | undefined) => counts ? String(n ?? 0) : '—';
+  const fmtDate = (d: Date | string | undefined) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
 
   return (
-    <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-up">
-      {/* Summary stats */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <StatCard icon={<ActivityIcon size={17} />} label="Status"   value={agent.status} accent={statusAccent} />
-        <StatCard icon={<BookOpen size={17} />}     label="Skills"   value={num(counts?.skills)}   accent="#2563eb" />
-        <StatCard icon={<Brain size={17} />}        label="Memories" value={num(counts?.memories)} accent="#7c3aed" />
-        <StatCard icon={<Database size={17} />}     label="Tools"    value={num(counts?.tools)}    accent="#059669" />
+    <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }} className="fade-up">
+      {/* Main column */}
+      <div style={{ flex: '1 1 540px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Summary stats — monochrome; Status keeps its semantic color */}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <StatCard icon={<ActivityIcon size={17} />} label="Status"   value={agent.status} accent={statusAccent} />
+          <StatCard icon={<BookOpen size={17} />}     label="Skills"   value={num(counts?.skills)} />
+          <StatCard icon={<Brain size={17} />}        label="Memories" value={num(counts?.memories)} />
+          <StatCard icon={<Database size={17} />}     label="Tools"    value={num(counts?.tools)} />
+        </div>
+
+        {/* Identity */}
+        <Card title="Identity" action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
+          <Grid2>
+            <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
+              hint="Internal agent name." />
+            <SelectField label="Model" value={form.model} options={modelOptions}
+              onChange={v => setForm(f => ({ ...f, model: v }))}
+              hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
+          </Grid2>
+          <Field label="Description" value={form.description}
+            onChange={v => setForm(f => ({ ...f, description: v }))}
+            hint="Short summary — used by boss agents for delegation." readOnly={!canEdit} />
+          <TagInput tags={form.tags} onChange={tags => setForm(f => ({ ...f, tags }))}
+            allTags={allAgents.flatMap(a => a.tags ?? [])} readOnly={!canEdit} />
+          <TextArea label="Persona" value={form.persona}
+            onChange={v => setForm(f => ({ ...f, persona: v }))}
+            hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
+        </Card>
       </div>
 
-      {/* Identity */}
-      <Card title="Identity" action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
-        <Grid2>
-          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
-            hint="Internal agent name." />
-          <SelectField label="Model" value={form.model} options={modelOptions}
-            onChange={v => setForm(f => ({ ...f, model: v }))}
-            hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
-        </Grid2>
-        <Field label="Description" value={form.description}
-          onChange={v => setForm(f => ({ ...f, description: v }))}
-          hint="Short summary — used by boss agents for delegation." readOnly={!canEdit} />
-        <TagInput tags={form.tags} onChange={tags => setForm(f => ({ ...f, tags }))}
-          allTags={allAgents.flatMap(a => a.tags ?? [])} readOnly={!canEdit} />
-        <TextArea label="Persona" value={form.persona}
-          onChange={v => setForm(f => ({ ...f, persona: v }))}
-          hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
-      </Card>
+      {/* Right metadata panel */}
+      <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
+        <Card>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+            <AgentAvatar agent={agent} size={64} />
+            <div style={{ textAlign: 'center', minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{agent.name}</div>
+              {agent.slackBotHandle && <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>@{agent.slackBotHandle}</div>}
+            </div>
+          </div>
+          <MetaRow icon={<Hash size={13} />} label="Agent ID" mono>{agent.id}</MetaRow>
+          <MetaRow icon={<Calendar size={13} />} label="Created">{fmtDate(agent.createdAt)}</MetaRow>
+          <MetaRow icon={<Clock size={13} />} label="Updated">{fmtDate(agent.updatedAt)}</MetaRow>
+          <MetaRow icon={<UserCircle size={13} />} label="Owner">{agent.createdBy}</MetaRow>
+          <MetaRow icon={<ActivityIcon size={13} />} label="Status"><span style={{ color: statusAccent, textTransform: 'capitalize' }}>{agent.status}</span></MetaRow>
+          <MetaRow icon={<Cpu size={13} />} label="Model" mono>{agent.model}</MetaRow>
+          <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14,
+            padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,
+            fontSize: 12.5, fontWeight: 500, color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-sans)',
+          }}>
+            View full activity <ArrowRight size={13} />
+          </Link>
+        </Card>
+      </aside>
     </div>
   );
 }

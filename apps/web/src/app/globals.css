@@ -80,6 +80,10 @@ input, textarea, select {
   border-color: var(--border);
 }
 
+/* Form controls don't inherit font-family by default — force the platform font
+   (Inter) everywhere so inputs/buttons match the rest of the UI. */
+input, textarea, select, button, option { font-family: inherit; }
+
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
