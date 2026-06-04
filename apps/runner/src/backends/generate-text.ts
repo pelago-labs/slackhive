@@ -85,11 +85,13 @@ async function generateViaClaude(prompt: string, opts: GenerateOpts): Promise<st
   };
 
   // Attempt 1: direct.
+  let authDetail = '';
   try {
     return await runQuery();
   } catch (err1) {
     const msg1 = (err1 as Error).message ?? '';
     if (!msg1.includes('401') && !msg1.includes('auth') && !msg1.includes('credentials')) throw err1;
+    authDetail = msg1;
     logger.warn('generateText(claude): auth failed, refreshing token', { error: msg1.slice(0, 100) });
   }
 
@@ -97,7 +99,11 @@ async function generateViaClaude(prompt: string, opts: GenerateOpts): Promise<st
   // then retry. (No host-Keychain fallback — auth is Settings-managed.)
   try {
     if (await ClaudeBackend.refreshOAuthToken()) return await runQuery();
-  } catch { /* fall through */ }
+  } catch (err2) {
+    authDetail = (err2 as Error).message || authDetail;
+  }
 
-  throw new Error('AUTH_NEEDS_LOGIN');
+  // Keep the AUTH_NEEDS_LOGIN marker (consumers match on .includes) but carry the
+  // original upstream auth error so failures are diagnosable instead of opaque.
+  throw new Error(`AUTH_NEEDS_LOGIN${authDetail ? `: ${authDetail.slice(0, 200)}` : ''}`);
 }

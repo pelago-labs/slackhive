@@ -17,7 +17,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { CoachProposal } from '@slackhive/shared';
+import type { CoachProposal, CheckConfig } from '@slackhive/shared';
 import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
 import type { Agent } from '@slackhive/shared';
 import { createCodexClient, baseCodexConfig, resolveCodexModel } from './backends/codex-config';
@@ -398,11 +398,19 @@ When you want to propose concrete changes, append EXACTLY ONE fenced block at th
 [
   { "kind": "instructions", "content": "<full new instructions>", "rationale": "<one sentence>" },
   { "kind": "skill", "action": "create|update|delete", "category": "<cat>", "filename": "<file.md>", "content": "<body>", "rationale": "<one sentence>" },
-  { "kind": "memory", "action": "update|delete", "memoryId": "<id>", "memoryName": "<name>", "memoryType": "user|feedback|project|reference", "content": "<body>", "rationale": "<one sentence>" }
+  { "kind": "memory", "action": "update|delete", "memoryId": "<id>", "memoryName": "<name>", "memoryType": "user|feedback|project|reference", "content": "<body>", "rationale": "<one sentence>" },
+  { "kind": "eval-case-check", "caseId": "<id>", "triage": "test_mismatch", "checks": [ <full replacement checks array> ], "rationale": "<one sentence>" }
 ]
 \`\`\`
 
-Rules: one proposal per distinct change; for skill/memory delete omit content; for update include the existing id (memoryId) / category+filename. Include the block ONLY if you have concrete changes — otherwise omit it entirely and write nothing after your prose.`;
+Rules: one proposal per distinct change; for skill/memory delete omit content; for update include the existing id (memoryId) / category+filename. Include the block ONLY if you have concrete changes — otherwise omit it entirely and write nothing after your prose.
+
+# Eval-failure triage
+When the user attaches an \`<eval_failure>\` block (a failing regression test for this agent — it carries \`case_id\`, the case question, the current \`checks\`, the agent's reply, observed tool calls, per-check verdicts, and any judge reasoning), classify the failure as exactly ONE of:
+- **skill_issue** — the agent behaved wrongly; the checks were reasonable. Fix by proposing an \`instructions\` or \`skill\` change (the existing kinds above).
+- **test_mismatch** — the agent's behavior was acceptable but the checks didn't capture it (over-narrow tool assertion, a different valid path, too-specific substring, wrong primitive). Fix by emitting an \`eval-case-check\` proposal with the \`case_id\` from the block and the FULL corrected \`checks\` array (it overwrites the existing one on Apply). Each check is one of: \`{ "primitive": "substring", "target": "final_reply", "must_contain": [...], "must_not_contain": [...] }\` | \`{ "primitive": "tool_called", "must_call": [...], "must_not_call": [...] }\` | \`{ "primitive": "llm_judge", "target": "final_reply", "rubric": "...", "groundtruth": "..." }\`.
+- **real_failure** — the test correctly caught a true failure but the right fix is unclear (ambiguous spec, missing context). Do NOT propose; ask ONE specific clarifying question.
+Read the relevant parts of the block before triaging — never propose a check change without understanding why the existing check fired.`;
 
 /**
  * Run one coach turn on the active backend over a read-only workspace, returning
@@ -545,6 +553,27 @@ async function mapAndApplyProposal(agentId: string, p: Record<string, any>, auto
       memoryId: p.memoryId, memoryName: p.memoryName ?? p.name ?? '(memory)',
       action: p.action, memoryType: p.memoryType,
       content: p.action === 'delete' ? undefined : p.content,
+      rationale, status: 'pending',
+    };
+  }
+
+  // Eval test-case check change (test_mismatch triage). The model supplies the
+  // full replacement `checks` array + caseId; we look up the case's question +
+  // current checks for the Before/After approval card. Always queued (never
+  // auto-applied) — the human Applies via the eval cases route.
+  if (p.kind === 'eval-case-check' && typeof p.caseId === 'string' && Array.isArray(p.checks)) {
+    const r = await getDb().query('SELECT question, checks FROM eval_cases WHERE id = $1 AND agent_id = $2', [p.caseId, agentId]);
+    if (r.rows.length === 0) return null;
+    const rawChecks = (r.rows[0] as { checks: unknown }).checks;
+    const before = (typeof rawChecks === 'string' ? JSON.parse(rawChecks) : rawChecks ?? []) as CheckConfig[];
+    const triage = (p.triage === 'skill_issue' || p.triage === 'real_failure') ? p.triage : 'test_mismatch';
+    return {
+      kind: 'eval-case-check', id,
+      caseId: p.caseId,
+      caseQuestion: (r.rows[0] as { question: string }).question,
+      triage,
+      before,
+      after: p.checks as CheckConfig[],
       rationale, status: 'pending',
     };
   }

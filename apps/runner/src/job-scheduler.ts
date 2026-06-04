@@ -144,11 +144,11 @@ export class JobScheduler {
       // Fresh session key per run (no resume)
       const sessionKey = `job-${job.id}-${Date.now()}`;
 
-      // Stream query to agent. We post only the FINAL assistant message — not the
-      // joined transcript. Reasoning models (Codex/gpt-5.5) narrate progress as
-      // separate `agent_message` items ("I'm checking the rules…"), and the
-      // backend's `result` concatenates all of them; for a scheduled job we want
-      // just the deliverable, which is the last substantive assistant text block.
+      // Stream the query and post the turn's final deliverable. The backend's
+      // `result` is the canonical final answer (on Codex it's the joined
+      // `agent_message` text — reasoning narration is already dropped upstream).
+      // Fall back to the last assistant text block for backends that don't emit
+      // a discrete result.
       let resultText = '';
       let lastMessage = '';
       for await (const msg of agent.backend.streamQuery(job.prompt, sessionKey)) {
@@ -166,9 +166,8 @@ export class JobScheduler {
         }
       }
 
-      // Prefer the final assistant message; fall back to the full result if we
-      // never captured a discrete message (e.g. a backend that only emits result).
-      let output = lastMessage || resultText;
+      // Prefer the discrete result; fall back to the last assistant message.
+      let output = resultText || lastMessage;
       if (!output) {
         output = '_Job completed with no output._';
       }

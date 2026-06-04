@@ -42,7 +42,8 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
 
     expect(backend.streamQuery).toHaveBeenCalledTimes(1);
     expect(backend.streamQuery.mock.calls[0][0]).toBe('Summarize today');
-    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' });
+    // 3rd arg is the thread parent ts — undefined for the first (parent) post.
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' }, undefined);
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'Here is your digest.');
   });
 
@@ -54,7 +55,7 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(dmJob);
 
     expect(adapter.openDm).toHaveBeenCalledWith('U9');
-    expect(adapter.postPayload).toHaveBeenCalledWith('dm-U9', { text: 'dm result' });
+    expect(adapter.postPayload).toHaveBeenCalledWith('dm-U9', { text: 'dm result' }, undefined);
   });
 
   it('skips silently when the target agent is not running', async () => {
