@@ -395,9 +395,9 @@ function MetaGroupLabel({ children }: { children: React.ReactNode }) {
 
 /** Rendered-markdown view (GFM) for read-friendly previews of prompts/skills. */
 const MD_VIEW: Record<string, (p: any) => React.ReactElement> = {
-  h1: (p) => <h1 style={{ fontSize: 15, fontWeight: 700, margin: '16px 0 7px', color: 'var(--text)' }} {...p} />,
-  h2: (p) => <h2 style={{ fontSize: 13.5, fontWeight: 700, margin: '14px 0 6px', color: 'var(--text)' }} {...p} />,
-  h3: (p) => <h3 style={{ fontSize: 12.5, fontWeight: 600, margin: '12px 0 5px', color: 'var(--text)' }} {...p} />,
+  h1: (p) => <h1 style={{ fontSize: 14, fontWeight: 700, margin: '15px 0 6px', color: 'var(--text)' }} {...p} />,
+  h2: (p) => <h2 style={{ fontSize: 12.5, fontWeight: 700, margin: '13px 0 5px', color: 'var(--text)' }} {...p} />,
+  h3: (p) => <h3 style={{ fontSize: 11.5, fontWeight: 600, margin: '11px 0 5px', color: 'var(--text)' }} {...p} />,
   p:  (p) => <p style={{ margin: '0 0 9px', lineHeight: 1.6, color: 'var(--text-2)' }} {...p} />,
   ul: (p) => <ul style={{ margin: '0 0 10px', paddingLeft: 20, lineHeight: 1.6 }} {...p} />,
   ol: (p) => <ol style={{ margin: '0 0 10px', paddingLeft: 20, lineHeight: 1.6 }} {...p} />,
@@ -415,7 +415,7 @@ const MD_VIEW: Record<string, (p: any) => React.ReactElement> = {
 };
 function MarkdownView({ children }: { children: string }) {
   return (
-    <div style={{ fontSize: 12.5, color: 'var(--text)', wordBreak: 'break-word' }}>
+    <div style={{ fontSize: 11.5, color: 'var(--text)', wordBreak: 'break-word' }}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_VIEW as never}>{children || '_Nothing here yet._'}</ReactMarkdown>
     </div>
   );
