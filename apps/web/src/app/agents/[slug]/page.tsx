@@ -1014,7 +1014,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
       return (
         <div style={{ padding: '28px 24px' }}>
           <div style={{ border: '2px dashed var(--border)', borderRadius: 12, padding: '40px 20px', textAlign: 'center' }}>
-            <Upload size={26} style={{ color: 'var(--border-2)' }} />
+            <Upload size={26} style={{ color: 'var(--border-2)', display: 'block', margin: '0 auto' }} />
             <p style={{ margin: '12px 0 4px', fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Import an exported config</p>
             <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)' }}>Choose a <code>.json</code> file exported from an agent — you’ll pick which parts to apply.</p>
             <button onClick={() => fileInputRef.current?.click()} style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Choose file</button>
