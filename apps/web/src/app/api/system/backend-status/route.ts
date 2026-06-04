@@ -15,6 +15,7 @@ import {
 } from '@slackhive/shared';
 import { getSetting } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
+import { ensureFreshClaudeToken } from '@/lib/claude-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,13 +38,9 @@ function formatExpiresIn(expiresAtMs: number): string {
 }
 
 async function claudeStatus(): Promise<BackendStatus> {
-  // Settings-only: read the credentials file the runner synced from Settings
-  // (~/.claude/.credentials.json) — no host Keychain / `claude login` read.
-  const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-  let oauth: { accessToken?: string; expiresAt?: number } | null = null;
-  try {
-    if (fs.existsSync(credPath)) oauth = JSON.parse(fs.readFileSync(credPath, 'utf-8'))?.claudeAiOauth ?? null;
-  } catch { /* ignore */ }
+  // Read ~/.claude/.credentials.json and self-heal: if the access token is
+  // expired but a refresh token exists, refresh it before reporting status.
+  const oauth = await ensureFreshClaudeToken();
 
   const base = { backend: 'claude', label: 'Claude', hint: 'Set credentials in Settings → Agent Backend.' };
   if (oauth?.accessToken) {

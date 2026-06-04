@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
+import { ensureFreshClaudeToken } from '@/lib/claude-auth';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -47,7 +48,8 @@ function formatExpiresIn(expiresAtMs: number): string {
 export async function GET(req: NextRequest): Promise<NextResponse<ClaudeStatus>> {
   const denied = guardAdmin(req);
   if (denied) return denied as NextResponse<ClaudeStatus>;
-  // 1. Credential file (synced from Settings by the runner).
+  // 1. Credential file — self-heal an expired access token via the refresh token.
+  await ensureFreshClaudeToken().catch(() => {});
   const oauth = readCredentialsFile();
   const source: ClaudeStatus['source'] = 'file';
 

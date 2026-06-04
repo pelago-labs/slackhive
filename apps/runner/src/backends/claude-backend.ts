@@ -433,12 +433,16 @@ export class ClaudeBackend implements AgentBackend {
 
       if (!resp.ok) return false;
 
-      const data = await resp.json() as { access_token?: string; refresh_token?: string };
+      const data = await resp.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
       if (!data.access_token) return false;
 
-      // Update credentials file so the SDK picks up the new token
+      // Update credentials file so the SDK picks up the new token. Crucially
+      // also refresh `expiresAt` from `expires_in` — otherwise the access token
+      // is renewed but the status check keeps reading the old (expired) time
+      // and reports "expired" even though auth works.
       creds.claudeAiOauth.accessToken = data.access_token;
       if (data.refresh_token) creds.claudeAiOauth.refreshToken = data.refresh_token;
+      creds.claudeAiOauth.expiresAt = Date.now() + (data.expires_in ? data.expires_in * 1000 : 8 * 60 * 60 * 1000);
       fs.writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
 
       return true;
