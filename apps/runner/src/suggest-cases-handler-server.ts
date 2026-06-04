@@ -17,8 +17,8 @@
  */
 
 import type { ServerResponse } from 'http';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SuggestedCaseWire } from '@slackhive/shared';
+import { generateText } from './backends/generate-text';
 import { logger } from './logger';
 
 interface SuggestCasesRequest {
@@ -62,27 +62,9 @@ export async function handleSuggestCases(
 
   let assistantText = '';
   try {
-    for await (const msg of query({
-      prompt,
-      options: {
-        model: req.model,
-        allowedTools: [],
-        permissionMode: 'dontAsk',
-        maxTurns: 1,
-      },
-    })) {
-      const m = msg as {
-        type?: string;
-        message?: { content?: Array<{ type?: string; text?: string }> };
-      };
-      if (m.type === 'assistant') {
-        for (const block of m.message?.content ?? []) {
-          if (block?.type === 'text' && typeof block.text === 'string') {
-            assistantText += block.text;
-          }
-        }
-      }
-    }
+    // Route through the active backend (Claude or Codex); the configured model
+    // follows that backend, so pass it for both.
+    assistantText = await generateText(prompt, { claudeModel: req.model, codexModel: req.model });
   } catch (err) {
     logger.error('Suggest-cases query failed', { error: (err as Error).message });
     writeJson(res, 500, { error: (err as Error).message });

@@ -19,6 +19,8 @@ export interface GenerateOpts {
   systemPrompt?: string;
   /** Claude model id to use on the Claude backend (ignored on Codex). */
   claudeModel?: string;
+  /** Codex model id to use on the Codex backend; falls back to the global Codex model. */
+  codexModel?: string;
   /** Progress callback (chars produced so far). */
   onProgress?: (chars: number) => void;
 }
@@ -33,7 +35,7 @@ export async function generateText(prompt: string, opts: GenerateOpts = {}): Pro
 
 async function generateViaCodex(prompt: string, opts: GenerateOpts): Promise<string> {
   const os = await import('os');
-  const model = resolveCodexModel(await getSetting(CODEX_MODEL_SETTING_KEY));
+  const model = resolveCodexModel(opts.codexModel ?? await getSetting(CODEX_MODEL_SETTING_KEY));
   const codex = await createCodexClient(baseCodexConfig());
   // Codex has no separate system-prompt param; prepend it to the turn input.
   const input = opts.systemPrompt ? `${opts.systemPrompt}\n\n${prompt}` : prompt;
