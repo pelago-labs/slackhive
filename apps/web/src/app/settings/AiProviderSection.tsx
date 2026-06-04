@@ -133,8 +133,18 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
 
   return (
     <div style={{ marginBottom: 22, paddingBottom: 22, borderBottom: '1px solid var(--border)' }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-        Agent Backend
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Agent Backend
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {toast && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{toast}</span>}
+          <button onClick={save} disabled={saving} style={{
+            background: saving ? 'var(--border)' : 'var(--accent)', color: 'var(--accent-fg)',
+            border: 'none', borderRadius: 7, padding: '7px 16px', fontSize: 13, fontWeight: 500,
+            cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
+          }}>{saving ? 'Saving…' : 'Save Backend'}</button>
+        </div>
       </div>
       <p style={{ ...hintStyle, marginBottom: 14 }}>The runtime all agents run on — only one is active at a time. Switching reloads every agent. Model is chosen per agent on each agent&apos;s page.</p>
 
@@ -196,19 +206,6 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
             </div>
           );
         })}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-          <button
-            onClick={save}
-            disabled={saving}
-            style={{
-              background: saving ? 'var(--border)' : 'var(--accent)', color: 'var(--accent-fg)',
-              border: 'none', borderRadius: 7, padding: '8px 18px', fontSize: 13, fontWeight: 500,
-              cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
-            }}
-          >{saving ? 'Saving...' : 'Save Backend'}</button>
-          {toast && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{toast}</span>}
-        </div>
       </div>
     </div>
   );

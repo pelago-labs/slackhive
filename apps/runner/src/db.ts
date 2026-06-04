@@ -703,6 +703,13 @@ export async function getSettingUpdatedAt(key: string): Promise<number | null> {
   if (!r.rows.length) return null;
   const v = (r.rows[0] as { updated_at: string | number | Date | null }).updated_at;
   if (v == null) return null;
-  const t = new Date(v as string | number | Date).getTime();
+  // SQLite's datetime('now') is UTC but has no timezone marker, so `new Date()`
+  // would parse it as LOCAL time and skew the comparison. Normalize to UTC.
+  let t: number;
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(v)) {
+    t = Date.parse(v.replace(' ', 'T') + 'Z');
+  } else {
+    t = new Date(v as string | number | Date).getTime();
+  }
   return Number.isNaN(t) ? null : t;
 }
