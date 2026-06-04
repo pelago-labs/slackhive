@@ -2885,16 +2885,15 @@ function PrimaryBtn({ children, onClick, loading }: {
   return (
     <button onClick={onClick} disabled={loading} style={{
       background: loading ? 'var(--border)' : 'var(--accent)',
-      color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
-      padding: '10px 22px', fontSize: 14, fontWeight: 600,
+      color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
+      padding: '7px 14px', fontSize: 13, fontWeight: 500,
       letterSpacing: '-0.01em',
       cursor: loading ? 'not-allowed' : 'pointer',
       fontFamily: 'var(--font-sans)',
-      boxShadow: loading ? 'none' : 'var(--shadow-sm)',
-      transition: 'opacity 0.15s, transform 0.15s, box-shadow 0.15s',
+      transition: 'opacity 0.15s',
     }}
-      onMouseEnter={e => { if (!loading) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; }}
+      onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
     >{loading ? 'Saving…' : children}</button>
   );
 }

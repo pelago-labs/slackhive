@@ -156,7 +156,7 @@ export default function JobsPage() {
           <button onClick={openCreate} style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             background: 'var(--accent)', color: 'var(--accent-fg)',
-            padding: '9px 18px', borderRadius: 8,
+            padding: '7px 14px', borderRadius: 8,
             fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer',
             fontFamily: 'var(--font-sans)',
           }}>
