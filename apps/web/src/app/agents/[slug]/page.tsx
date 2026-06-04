@@ -39,6 +39,15 @@ interface AgentExportPayload {
   memories?: { type: string; name: string; content: string }[];
 }
 
+/**
+ * A meaningful (non-empty, trimmed string) identity value, else undefined.
+ * Guards persona/description import-export: never export blank values and never
+ * apply a non-string or empty value that would silently overwrite a real one.
+ */
+function meaningfulStr(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+}
+
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'overview',      label: 'Overview',     Icon: Home },
   { id: 'instructions',  label: 'Instructions', Icon: FileText },
@@ -974,9 +983,9 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
 
   // Export chooser — pick which parts to include.
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportSel, setExportSel] = useState({ system: true, skills: true, memory: true });
+  const [exportSel, setExportSel] = useState({ identity: true, system: true, skills: true, memory: true });
   // Import selection — which parts of the loaded file to apply.
-  const [importSel, setImportSel] = useState({ system: true, skills: true, memory: true });
+  const [importSel, setImportSel] = useState({ identity: true, system: true, skills: true, memory: true });
 
   const doExport = async () => {
     setExporting(true);
@@ -984,9 +993,15 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
       const payload: AgentExportPayload = {
         version: 1,
         exportedAt: new Date().toISOString(),
-        persona: agent.persona ?? '',
-        description: agent.description ?? '',
       };
+      if (exportSel.identity) {
+        // Only export non-empty values so a persona-less agent's export can't
+        // later blank a target agent's real persona/description on import.
+        const persona = meaningfulStr(agent.persona);
+        const description = meaningfulStr(agent.description);
+        if (persona !== undefined) payload.persona = persona;
+        if (description !== undefined) payload.description = description;
+      }
       if (exportSel.system) {
         payload.claudeMd = await fetch(`/api/agents/${agent.id}/claude-md`).then(r => r.text());
       }
@@ -1031,10 +1046,11 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
       try {
         const data = JSON.parse(ev.target?.result as string);
         if (!data || typeof data !== 'object') { setImportError('Invalid file: not a JSON object'); return; }
+        const hasIdentity = meaningfulStr(data.persona) !== undefined || meaningfulStr(data.description) !== undefined;
         const hasMd = typeof data.claudeMd === 'string';
         const hasSkills = Array.isArray(data.skills) && data.skills.length > 0;
         const hasMems = Array.isArray(data.memories) && data.memories.length > 0;
-        if (!hasMd && !hasSkills && !hasMems) { setImportError('Nothing to import: file has no system prompt, skills, or memories'); return; }
+        if (!hasIdentity && !hasMd && !hasSkills && !hasMems) { setImportError('Nothing to import: file has no identity, system prompt, skills, or memories'); return; }
         if (hasSkills) {
           for (let i = 0; i < data.skills.length; i++) {
             const s = data.skills[i];
@@ -1044,30 +1060,37 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
           }
         }
         // Default selection = whatever the file actually contains.
-        setImportSel({ system: hasMd, skills: hasSkills, memory: hasMems });
+        setImportSel({ identity: hasIdentity, system: hasMd, skills: hasSkills, memory: hasMems });
         setImportPreview(data);
       } catch { setImportError('Could not parse file — must be valid JSON'); }
     };
     reader.readAsText(file);
   };
 
-  const applyImport = async (payload?: AgentExportPayload, selOverride?: { system: boolean; skills: boolean; memory: boolean }) => {
+  const applyImport = async (payload?: AgentExportPayload, selOverride?: { identity: boolean; system: boolean; skills: boolean; memory: boolean }) => {
     const data = payload ?? importPreview;
     if (!data) return;
     const sel = selOverride ?? importSel;
     setImporting(true);
     try {
-      // System Prompt: instructions body (+ persona/description if present).
-      if (sel.system && typeof data.claudeMd === 'string') {
-        if (data.persona !== undefined || data.description !== undefined) {
+      // Identity: persona + description (independent of the System Prompt body).
+      // Only apply meaningful (non-empty string) values — never blank a real one
+      // or send a non-string to the API.
+      if (sel.identity) {
+        const persona = meaningfulStr(data.persona);
+        const description = meaningfulStr(data.description);
+        if (persona !== undefined || description !== undefined) {
           await fetch(`/api/agents/${agent.id}`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              ...(data.persona !== undefined && { persona: data.persona }),
-              ...(data.description !== undefined && { description: data.description }),
+              ...(persona !== undefined && { persona }),
+              ...(description !== undefined && { description }),
             }),
           });
         }
+      }
+      // System Prompt: instructions body.
+      if (sel.system && typeof data.claudeMd === 'string') {
         await fetch(`/api/agents/${agent.id}/claude-md`, {
           method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: data.claudeMd,
         });
@@ -1111,10 +1134,11 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         </div>
       );
     }
+    const hasIdentity = meaningfulStr(importPreview.persona) !== undefined || meaningfulStr(importPreview.description) !== undefined;
     const hasMd = typeof importPreview.claudeMd === 'string';
     const nSkills = importPreview.skills?.length ?? 0;
     const nMems = importPreview.memories?.length ?? 0;
-    const none = !(importSel.system && hasMd) && !(importSel.skills && nSkills) && !(importSel.memory && nMems);
+    const none = !(importSel.identity && hasIdentity) && !(importSel.system && hasMd) && !(importSel.skills && nSkills) && !(importSel.memory && nMems);
     const row = (sel: boolean, onToggle: () => void, disabled: boolean, label: string, sub: string) => (
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, background: sel && !disabled ? 'var(--surface-2)' : 'var(--surface)' }}>
         <input type="checkbox" checked={sel} disabled={disabled} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
@@ -1124,9 +1148,10 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
     return (
       <div style={{ padding: '20px 24px' }}>
         <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Choose what to import{importPreview.exportedAt ? ` (exported ${new Date(importPreview.exportedAt).toLocaleDateString()})` : ''}. Selected parts overwrite current content — a snapshot is saved first.
+          Choose what to import{importPreview.exportedAt ? ` (exported ${new Date(importPreview.exportedAt).toLocaleDateString()})` : ''}. Selected parts overwrite current content; the system prompt is snapshotted before it&apos;s replaced.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+          {row(importSel.identity && hasIdentity, () => setImportSel(s => ({ ...s, identity: !s.identity })), !hasIdentity, 'Identity', hasIdentity ? 'Replaces persona & description' : 'Not in this file')}
           {row(importSel.system && hasMd, () => setImportSel(s => ({ ...s, system: !s.system })), !hasMd, 'System Prompt', hasMd ? 'Replaces the current instructions' : 'Not in this file')}
           {row(importSel.skills && nSkills > 0, () => setImportSel(s => ({ ...s, skills: !s.skills })), nSkills === 0, 'Skills', nSkills > 0 ? `${nSkills} skill${nSkills !== 1 ? 's' : ''} upserted` : 'Not in this file')}
           {row(importSel.memory && nMems > 0, () => setImportSel(s => ({ ...s, memory: !s.memory })), nMems === 0, 'Memories', nMems > 0 ? `${nMems} memor${nMems !== 1 ? 'ies' : 'y'} added` : 'Not in this file')}
@@ -1146,7 +1171,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
 
       {/* ── Export: choose which parts to include ────────────────────── */}
       {exportOpen && (() => {
-        const none = !exportSel.system && !exportSel.skills && !exportSel.memory;
+        const none = !exportSel.identity && !exportSel.system && !exportSel.skills && !exportSel.memory;
         const row = (sel: boolean, onToggle: () => void, label: string, sub: string) => (
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: 'pointer', background: sel ? 'var(--surface-2)' : 'var(--surface)' }}>
             <input type="checkbox" checked={sel} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
@@ -1160,6 +1185,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
                 <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>Export agent config</h3>
                 <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>Choose what to include in the downloaded JSON.</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                  {row(exportSel.identity, () => setExportSel(s => ({ ...s, identity: !s.identity })), 'Identity', 'Persona & description')}
                   {row(exportSel.system, () => setExportSel(s => ({ ...s, system: !s.system })), 'System Prompt', 'The agent instructions')}
                   {row(exportSel.skills, () => setExportSel(s => ({ ...s, skills: !s.skills })), 'Skills', 'All skill files')}
                   {row(exportSel.memory, () => setExportSel(s => ({ ...s, memory: !s.memory })), 'Memories', 'Learned memories')}
@@ -1212,7 +1238,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
                 description: template.description,
                 claudeMd: template.claudeMd,
                 skills: template.skills,
-              }, { system: true, skills: true, memory: false });
+              }, { identity: true, system: true, skills: true, memory: false });
             } finally {
               setLibApplying(false);
               setPersonaLibOpen(false);
