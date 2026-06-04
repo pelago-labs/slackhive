@@ -20,8 +20,31 @@ import {
 import { getSetting, setSetting, publishAgentEvent, getAllAgents, updateAgent } from '@/lib/db';
 import { getEncryptionKey } from '@/lib/secrets';
 import { guardAdmin } from '@/lib/api-guard';
+import { readClaudeOAuth } from '@/lib/claude-auth';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 export const dynamic = 'force-dynamic';
+
+/** Whether each backend already has usable credentials, and where from. */
+function detectCredentials(secretsSet: Record<string, boolean>): Record<string, { detected: boolean; source: string }> {
+  // Claude: macOS Keychain or file (live login), env, or stored secret.
+  let claude: { detected: boolean; source: string } = { detected: false, source: 'none' };
+  if (readClaudeOAuth()?.accessToken) claude = { detected: true, source: process.platform === 'darwin' ? 'login' : 'file' };
+  else if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) claude = { detected: true, source: 'env' };
+  else if (secretsSet.CLAUDE_CREDENTIALS_JSON || secretsSet.ANTHROPIC_API_KEY) claude = { detected: true, source: 'settings' };
+
+  // Codex: ~/.codex/auth.json (login), env, or stored secret.
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+  let codex: { detected: boolean; source: string } = { detected: false, source: 'none' };
+  try { if (fs.existsSync(path.join(codexHome, 'auth.json'))) codex = { detected: true, source: 'login' }; } catch { /* ignore */ }
+  if (!codex.detected) {
+    if (process.env.OPENAI_API_KEY || process.env.CODEX_API_KEY) codex = { detected: true, source: 'env' };
+    else if (secretsSet.CODEX_AUTH_JSON || secretsSet.OPENAI_API_KEY) codex = { detected: true, source: 'settings' };
+  }
+  return { claude, codex };
+}
 
 /** All credential field keys across every backend descriptor. */
 function allSecretKeys(): string[] {
@@ -49,6 +72,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       codexAuthMode: (await getSetting(CODEX_AUTH_MODE_SETTING_KEY)) ?? 'subscription',
     },
     secretsSet,
+    detected: detectCredentials(secretsSet),
   });
 }
 

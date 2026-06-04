@@ -15,6 +15,7 @@ interface ApiResponse {
   descriptors: BackendDescriptor[];
   current: { backend: string; claudeAuthMode: string; codexAuthMode: string };
   secretsSet: Record<string, boolean>;
+  detected?: Record<string, { detected: boolean; source: string }>;
 }
 
 const labelStyle = { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 } as const;
@@ -29,23 +30,40 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
   const [data, setData] = useState<ApiResponse | null>(null);
   const [backend, setBackend] = useState('claude');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showFields, setShowFields] = useState<Record<string, boolean>>({});
   const [authModes, setAuthModes] = useState<Record<string, string>>({});
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [connStatus, setConnStatus] = useState<{ label?: string; status: string } | null>(null);
+  const [detecting, setDetecting] = useState(false);
 
   const loadStatus = () => {
     fetch('/api/system/backend-status').then(r => r.ok ? r.json() : null).then(s => s && setConnStatus(s)).catch(() => {});
   };
 
-  useEffect(() => {
-    fetch('/api/system/backends').then(r => r.json()).then((d: ApiResponse) => {
+  // Re-fetch backend descriptors + credential detection (re-runs the server-side
+  // Keychain/file scan). Used on mount and by the "Detect" button after a login.
+  const loadBackends = async (init = false) => {
+    try {
+      const d: ApiResponse = await fetch('/api/system/backends', { cache: 'no-store' }).then(r => r.json());
       setData(d);
-      setBackend(d.current.backend);
-      setExpandedId(d.current.backend);
-      setAuthModes({ claude: d.current.claudeAuthMode, codex: d.current.codexAuthMode });
-    }).catch(() => {});
+      if (init) {
+        setBackend(d.current.backend);
+        setExpandedId(d.current.backend);
+        setAuthModes({ claude: d.current.claudeAuthMode, codex: d.current.codexAuthMode });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const detect = async () => {
+    setDetecting(true);
+    try { await Promise.all([loadBackends(), Promise.resolve(loadStatus())]); }
+    finally { setTimeout(() => setDetecting(false), 400); }
+  };
+
+  useEffect(() => {
+    loadBackends(true);
     loadStatus();
   }, []);
 
@@ -81,25 +99,34 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
     }
   }
 
-  // Auth config body for one backend card (auth mode + connect + credentials).
+  // Auth config body for one backend card. Detect-first: if the CLI login is
+  // already present we just confirm it; otherwise tell the user to log in from
+  // the terminal, with paste/API-key tucked under an "Advanced" toggle.
   const renderAuthConfig = (d: BackendDescriptor) => {
     const mode = authModes[d.id] ?? d.authOptions[0]?.mode;
     const activeAuth = d.authOptions.find(o => o.mode === mode) ?? d.authOptions[0];
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 14 }}>
+    const det = data.detected?.[d.id];
+    const isDetected = !!det?.detected;
+    const loginCmd = d.id === 'codex' ? 'codex login' : 'claude login';
+    const sourceText =
+      det?.source === 'login' ? `your ${d.label} login`
+      : det?.source === 'file' ? `your ${d.label} login file`
+      : det?.source === 'env' ? 'an environment variable'
+      : det?.source === 'settings' ? 'pasted credentials'
+      : 'your login';
+    const showAdv = showFields[d.id];
+
+    const codeChip: React.CSSProperties = { fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', display: 'inline-block', color: 'var(--text)', userSelect: 'all' };
+
+    const credentialFields = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--border)' }}>
         <div>
           <label style={labelStyle}>Authentication</label>
-          <select
-            style={{ ...controlStyle, cursor: 'pointer' }}
-            value={mode}
-            onChange={e => setAuthModes(m => ({ ...m, [d.id]: e.target.value }))}
-          >
+          <select style={{ ...controlStyle, cursor: 'pointer' }} value={mode} onChange={e => setAuthModes(m => ({ ...m, [d.id]: e.target.value }))}>
             {d.authOptions.map(o => <option key={o.mode} value={o.mode}>{o.label}</option>)}
           </select>
           {activeAuth?.hint && <p style={hintStyle}>{activeAuth.hint}</p>}
         </div>
-
-        {/* Credential fields for the selected auth mode */}
         {activeAuth?.fields.map(field => {
           const isSet = data.secretsSet[field.secretKey];
           const val = secretInputs[field.secretKey] ?? '';
@@ -109,24 +136,55 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
                 {field.label}{isSet && !val ? <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓ saved</span> : ''}
               </label>
               {field.kind === 'json' ? (
-                <textarea
-                  style={{ ...controlStyle, minHeight: 90, fontFamily: 'var(--font-mono, monospace)', resize: 'vertical' }}
+                <textarea style={{ ...controlStyle, minHeight: 90, fontFamily: 'var(--font-mono, monospace)', resize: 'vertical' }}
                   placeholder={isSet ? '•••••• (saved — paste to replace)' : field.placeholder}
-                  value={val}
-                  onChange={e => setSecretInputs(s => ({ ...s, [field.secretKey]: e.target.value }))}
-                />
+                  value={val} onChange={e => setSecretInputs(s => ({ ...s, [field.secretKey]: e.target.value }))} />
               ) : (
-                <input
-                  type="password"
-                  style={controlStyle}
+                <input type="password" style={controlStyle}
                   placeholder={isSet ? '•••••• (saved — type to replace)' : field.placeholder}
-                  value={val}
-                  onChange={e => setSecretInputs(s => ({ ...s, [field.secretKey]: e.target.value }))}
-                />
+                  value={val} onChange={e => setSecretInputs(s => ({ ...s, [field.secretKey]: e.target.value }))} />
               )}
             </div>
           );
         })}
+      </div>
+    );
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', paddingTop: 14 }}>
+        {isDetected ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text)' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+            Connected — using {sourceText}.
+          </div>
+        ) : (
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px', background: 'var(--surface)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Log in from your terminal</div>
+            <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+              Run this once on the machine running SlackHive, then click Detect:
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <code style={codeChip}>{loginCmd}</code>
+              <button onClick={detect} disabled={detecting} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--surface-2)', color: 'var(--text)',
+                border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px', fontSize: 12.5, fontWeight: 500,
+                cursor: detecting ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
+              }}>{detecting ? 'Detecting…' : 'Detect login'}</button>
+            </div>
+            <p style={{ ...hintStyle, marginTop: 10 }}>
+              No {d.label} installed (or running on a remote box)? Use <strong>Advanced</strong> below to paste credentials or an API key.
+            </p>
+          </div>
+        )}
+
+        <button onClick={() => setShowFields(s => ({ ...s, [d.id]: !s[d.id] }))} style={{
+          alignSelf: 'flex-start', marginTop: 10, background: 'none', border: 'none', padding: 0,
+          color: 'var(--muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', textDecoration: 'underline', textUnderlineOffset: 3,
+        }}>
+          {showAdv ? 'Hide advanced' : isDetected ? 'Replace credentials' : 'Advanced — paste credentials / API key'}
+        </button>
+
+        {showAdv && credentialFields}
       </div>
     );
   };
