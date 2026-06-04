@@ -534,30 +534,25 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
       {/* Details (aside) — metrics + meta */}
       <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
         <Card title="Details" fill>
-          {/* Counts — balanced 3-column stat tiles with hairline dividers */}
-          {(() => {
-            const stats = [
+          {/* Counts — wrapping stat chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {[
               { v: num(counts?.skills), l: 'Skills' },
               { v: num(counts?.memories), l: 'Memories' },
               { v: num(counts?.tools), l: 'Tools' },
               { v: num(counts?.wiki), l: 'Wiki' },
               { v: num(counts?.audiences), l: 'Audiences' },
-            ];
-            return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-                {stats.map((s, i) => (
-                  <div key={s.l} style={{
-                    padding: '12px 6px', textAlign: 'center',
-                    borderRight: (i % 3 !== 2 && i !== stats.length - 1) ? '1px solid var(--border)' : 'none',
-                    borderTop: i >= 3 ? '1px solid var(--border)' : 'none',
-                  }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', lineHeight: 1, letterSpacing: '-0.02em' }}>{s.v}</div>
-                    <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 5 }}>{s.l}</div>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
+            ].map(s => (
+              <span key={s.l} style={{
+                display: 'inline-flex', alignItems: 'baseline', gap: 5,
+                padding: '5px 11px', borderRadius: 99,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>{s.v}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.l}</span>
+              </span>
+            ))}
+          </div>
 
           <MetaGroupLabel>Configuration</MetaGroupLabel>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
