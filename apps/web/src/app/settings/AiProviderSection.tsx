@@ -15,7 +15,8 @@ interface ApiResponse {
   descriptors: BackendDescriptor[];
   current: { backend: string; claudeAuthMode: string; codexAuthMode: string };
   secretsSet: Record<string, boolean>;
-  detected?: Record<string, { detected: boolean; source: string }>;
+  // Expiry-aware per-backend credential state: connected / expired / none.
+  detected?: Record<string, { status: string; source: string }>;
 }
 
 const labelStyle = { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 } as const;
@@ -99,6 +100,7 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
       setData(d => d ? { ...d, secretsSet: { ...d.secretsSet, ...Object.fromEntries(Object.keys(secrets).map(k => [k, !!secrets[k]])) } } : d);
       setToast('Saved — agents reloading');
       loadStatus();
+      loadBackends(); // re-run credential detection so the card reflects the new state
       onSaved?.(); // let the parent (AI tab) refresh coach model / dependent state
     } catch {
       setToast('Save failed');
@@ -115,7 +117,9 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
     const mode = authModes[d.id] ?? d.authOptions[0]?.mode;
     const activeAuth = d.authOptions.find(o => o.mode === mode) ?? d.authOptions[0];
     const det = data.detected?.[d.id];
-    const isDetected = !!det?.detected;
+    const detStatus = det?.status ?? 'none';
+    const isDetected = detStatus === 'connected';
+    const isExpired = detStatus === 'expired';
     const loginCmd = d.id === 'codex' ? 'codex login' : 'claude login';
     const sourceText =
       det?.source === 'login' ? `your ${d.label} login`
@@ -169,6 +173,31 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
               marginLeft: 'auto', background: 'none', border: 'none', padding: 0,
               color: 'var(--red)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)',
             }}>Disconnect</button>
+          </div>
+        ) : isExpired ? (
+          <div style={{ border: '1px solid color-mix(in srgb, var(--amber, #f59e0b) 45%, var(--border))', borderRadius: 8, padding: '14px 16px', background: 'color-mix(in srgb, var(--amber, #f59e0b) 8%, var(--surface))' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
+              {d.label} session expired
+            </div>
+            <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+              The saved login is no longer valid. Re-authenticate on the machine running SlackHive, then click Detect:
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <code style={codeChip}>{loginCmd}</code>
+              <button onClick={detect} disabled={detecting} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--surface-2)', color: 'var(--text)',
+                border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px', fontSize: 12.5, fontWeight: 500,
+                cursor: detecting ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
+              }}>{detecting ? 'Detecting…' : 'Detect login'}</button>
+              <button onClick={() => disconnect(d.id, d.label)} style={{
+                marginLeft: 'auto', background: 'none', border: 'none', padding: 0,
+                color: 'var(--red)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}>Disconnect</button>
+            </div>
+            <p style={{ ...hintStyle, marginTop: 10 }}>
+              On a remote box? Use <strong>Advanced</strong> below to paste fresh credentials or an API key.
+            </p>
           </div>
         ) : (
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px', background: 'var(--surface)' }}>

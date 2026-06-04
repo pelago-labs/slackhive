@@ -47,7 +47,10 @@ export function translateItem(item: ThreadItem, finalParts: string[]): BackendMe
       return [assistant([{ type: 'text', text: item.text }])];
 
     case 'reasoning':
-      return [assistant([{ type: 'thinking', thinking: item.text }])];
+      // Codex reasoning is verbose narration. Drop it from the stream so verbose
+      // mode posts only tool activity + the actual answer (Claude-like). It's
+      // still logged at DEBUG in CodexBackend's event loop for inspection.
+      return [];
 
     case 'command_execution':
       return [
@@ -75,10 +78,9 @@ export function translateItem(item: ThreadItem, finalParts: string[]): BackendMe
         userResult(item.id, `Searched: ${item.query}`, false),
       ];
 
-    case 'todo_list': {
-      const lines = item.items.map((t) => `${t.completed ? '[x]' : '[ ]'} ${t.text}`).join('\n');
-      return lines ? [assistant([{ type: 'thinking', thinking: `Plan:\n${lines}` }])] : [];
-    }
+    case 'todo_list':
+      // Plan/todo narration is not posted (same rationale as `reasoning`).
+      return [];
 
     case 'error':
       return [assistant([{ type: 'text', text: item.message }])];

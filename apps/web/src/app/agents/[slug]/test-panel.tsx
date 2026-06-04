@@ -168,6 +168,24 @@ function ToolChip({ call, agentName }: { call: ToolCall; agentName?: string }) {
   );
 }
 
+/** Small round avatar — accent disc for agents, neutral disc for the user. */
+function Avatar({ label, kind }: { label: string; kind: 'user' | 'agent' }) {
+  return (
+    <div
+      style={{
+        width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 12, fontWeight: 600, userSelect: 'none',
+        background: kind === 'agent' ? 'var(--accent)' : 'var(--surface-2)',
+        color: kind === 'agent' ? 'var(--accent-fg)' : 'var(--text)',
+        border: kind === 'user' ? '1px solid var(--border)' : 'none',
+      }}
+    >
+      {(label || '?').charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
 export function TestPanel({
   agentId,
   agentName,
@@ -184,6 +202,15 @@ export function TestPanel({
   const [sending, setSending] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /** ChatGPT-style auto-grow: textarea height tracks content up to a cap. */
+  const autoGrow = () => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+  };
 
   // Map of slackBotUserId → agent display name, built from SSE events as they
   // arrive. Used to rewrite `<@Uxxx>` tokens in rendered markdown.
@@ -224,6 +251,7 @@ export function TestPanel({
     const userMsg: TestMessage = { id: uid(), role: 'user', text };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    if (taRef.current) taRef.current.style.height = 'auto';
     setSending(true);
 
     const controller = new AbortController();
@@ -365,17 +393,23 @@ export function TestPanel({
           {messages.length === 0 && !sending && (
             <div
               style={{
-                textAlign: 'center',
-                color: 'var(--muted)',
-                fontSize: 13,
-                lineHeight: 1.6,
-                padding: '80px 20px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                textAlign: 'center', color: 'var(--muted)', fontSize: 13, lineHeight: 1.6,
+                padding: '90px 20px',
               }}
             >
-              <div style={{ fontSize: 15, color: 'var(--text)', marginBottom: 8 }}>
-                Chat with your agent.
+              <div style={{
+                width: 52, height: 52, borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-fg)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 600, marginBottom: 16,
+              }}>
+                {(agentName || 'A').charAt(0).toUpperCase()}
               </div>
-              Preview only — nothing posts to connected platforms. Tools run live; memory writes aren&apos;t saved.
+              <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+                Chat with {agentName}
+              </div>
+              <div style={{ maxWidth: 380 }}>
+                Preview only — nothing posts to connected platforms. Tools run live; memory writes aren&apos;t saved.
+              </div>
             </div>
           )}
 
@@ -396,8 +430,9 @@ export function TestPanel({
 
           {sending && messages[messages.length - 1]?.role === 'user' && (
             /* Placeholder while waiting for the first SSE text chunk. */
-            <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-              <div style={{ maxWidth: '85%', color: 'var(--muted)', fontSize: 12, fontStyle: 'italic' }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <Avatar kind="agent" label={agentName} />
+              <div style={{ color: 'var(--muted)', fontSize: 13, fontStyle: 'italic', paddingTop: 4 }}>
                 <Loader2 size={12} style={{ display: 'inline', animation: 'spin 1s linear infinite', marginRight: 6, verticalAlign: 'middle' }} />
                 Thinking…
               </div>
@@ -406,63 +441,76 @@ export function TestPanel({
         </div>
       </div>
 
-      {/* Composer. */}
+      {/* Composer — ChatGPT-style rounded pill. */}
       <div
         style={{
-          borderTop: '1px solid var(--border)',
-          background: 'var(--surface)',
-          padding: '12px 20px',
+          background: 'var(--bg)',
+          padding: '8px 20px 16px',
           flexShrink: 0,
         }}
       >
-        <div style={{ maxWidth: 780, margin: '0 auto', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder="Type a message…"
-            rows={1}
-            disabled={sending}
+        <div style={{ maxWidth: 780, margin: '0 auto' }}>
+          <div
             style={{
-              flex: 1,
-              minHeight: 40,
-              maxHeight: 180,
-              padding: '10px 12px',
-              background: 'var(--bg)',
-              color: 'var(--text)',
+              display: 'flex', alignItems: 'flex-end', gap: 8,
+              background: 'var(--surface)',
               border: '1px solid var(--border)',
-              borderRadius: 8,
-              fontSize: 13.5,
-              lineHeight: 1.5,
-              resize: 'vertical',
-              fontFamily: 'inherit',
-            }}
-          />
-          <button
-            onClick={send}
-            disabled={sending || !input.trim()}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '10px 16px',
-              background: 'var(--accent)',
-              color: 'var(--accent-fg)',
-              border: 'none',
-              borderRadius: 8,
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: (sending || !input.trim()) ? 'not-allowed' : 'pointer',
-              opacity: (sending || !input.trim()) ? 0.5 : 1,
-              flexShrink: 0,
+              borderRadius: 24,
+              padding: '7px 7px 7px 16px',
+              boxShadow: 'var(--shadow-sm)',
             }}
           >
-            {sending ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
-            Send
-          </button>
+            <textarea
+              ref={taRef}
+              value={input}
+              onChange={(e) => { setInput(e.target.value); autoGrow(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              placeholder="Message your agent…"
+              rows={1}
+              disabled={sending}
+              style={{
+                flex: 1,
+                minHeight: 24,
+                maxHeight: 180,
+                padding: '6px 0',
+                background: 'transparent',
+                color: 'var(--text)',
+                border: 'none',
+                outline: 'none',
+                fontSize: 14,
+                lineHeight: 1.5,
+                resize: 'none',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button
+              onClick={send}
+              disabled={sending || !input.trim()}
+              title="Send"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 34, height: 34,
+                background: 'var(--accent)',
+                color: 'var(--accent-fg)',
+                border: 'none',
+                borderRadius: '50%',
+                cursor: (sending || !input.trim()) ? 'not-allowed' : 'pointer',
+                opacity: (sending || !input.trim()) ? 0.4 : 1,
+                flexShrink: 0,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              {sending ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={15} />}
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--subtle)', textAlign: 'center', marginTop: 8 }}>
+            Preview only · Enter to send, Shift+Enter for a new line
+          </div>
         </div>
       </div>
     </div>
@@ -487,10 +535,12 @@ function MessageBubble({
           className="user-bubble"
           style={{
             maxWidth: '75%',
-            padding: '10px 14px',
-            background: 'var(--accent)',
-            color: 'var(--accent-fg)',
-            borderRadius: 12,
+            padding: '10px 15px',
+            background: 'var(--surface-2)',
+            color: 'var(--text)',
+            border: '1px solid var(--border)',
+            borderRadius: 18,
+            borderBottomRightRadius: 5,
             fontSize: 13.5,
             lineHeight: 1.55,
             whiteSpace: 'pre-wrap',
@@ -509,40 +559,46 @@ function MessageBubble({
         ? 'Delegation chain too long — aborting. Check the boss\u2019s AGENTS.md or the specialist\u2019s reply pattern.'
         : m.text;
     return (
-      <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(220,38,38,0.12)', color: '#dc2626', fontWeight: 700, fontSize: 14,
+        }}>!</div>
         <div
           style={{
-            maxWidth: '85%',
+            flex: 1, minWidth: 0,
             padding: '10px 14px',
-            background: 'rgba(220, 38, 38, 0.08)',
-            border: '1px solid rgba(220, 38, 38, 0.35)',
+            background: 'rgba(220, 38, 38, 0.06)',
+            border: '1px solid rgba(220, 38, 38, 0.3)',
             color: 'var(--text)',
-            borderRadius: 12,
+            borderRadius: 10,
             fontSize: 13,
             lineHeight: 1.55,
           }}
         >
-          <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginBottom: 4 }}>ERROR</div>
+          <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>ERROR</div>
           {friendly}
         </div>
       </div>
     );
   }
 
-  // Agent bubble.
+  // Agent turn — ChatGPT style: avatar gutter + name header + full-width content.
   const rendered = m.text ? renameMentions(m.text, botIdToName) : '';
   return (
-    <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-      <div style={{ maxWidth: '85%', width: '100%' }}>
+    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+      {showAgentHeader
+        ? <Avatar kind="agent" label={m.agent?.name ?? 'Agent'} />
+        : <div style={{ width: 28, flexShrink: 0 }} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
         {showAgentHeader && (
           <div
             style={{
-              fontSize: 11,
-              color: 'var(--muted)',
-              marginBottom: 4,
+              fontSize: 13,
+              color: 'var(--text)',
+              marginBottom: 3,
               fontWeight: 600,
-              letterSpacing: 0.3,
-              textTransform: 'uppercase',
             }}
           >
             {m.agent?.name ?? 'Agent'}

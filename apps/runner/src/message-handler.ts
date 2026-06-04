@@ -168,7 +168,12 @@ export class MessageHandler {
     }
 
     const sessionKey = this.backend.getSessionKey(userId, channelId, threadId);
-    this.log.info('Processing message', { userId, channelId, threadId, sessionKey, textLength: text.length });
+    this.log.info('Processing message', {
+      userId, channelId, threadId, sessionKey,
+      textLength: text.length,
+      preview: text.slice(0, 160).replace(/\s+/g, ' ').trim(),
+      files: files?.length || undefined,
+    });
 
     // Abort any in-flight request for this session
     this.activeControllers.get(sessionKey)?.abort();
@@ -299,11 +304,15 @@ export class MessageHandler {
             }
           }
         } else if (message.type === 'result') {
+          const resultUsage = (message as any).usage;
+          const resultText = (message as any).result;
           this.log.info('Query completed', {
-            cost: (message as any).total_cost_usd,
-            duration_ms: (message as any).duration_ms,
             status: (message as any).subtype,
+            duration_ms: (message as any).duration_ms,
             num_turns: (message as any).num_turns,
+            ...(resultUsage && { tokensIn: resultUsage.input_tokens, tokensOut: resultUsage.output_tokens }),
+            ...((message as any).total_cost_usd ? { cost: (message as any).total_cost_usd } : {}),
+            ...(typeof resultText === 'string' && resultText.trim() && { reply: resultText.slice(0, 200).replace(/\s+/g, ' ').trim() }),
           });
 
           if (recorder) {

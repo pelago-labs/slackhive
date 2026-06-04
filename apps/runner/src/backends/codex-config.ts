@@ -76,34 +76,34 @@ export function agentHasBash(permissions: Permission | null): boolean {
  * `proxyUrlFor(name)` returns the local proxy's Streamable-HTTP URL for a stdio
  * server (the elicitation shield); stdio servers are wired to that URL so they
  * behave headlessly like they do under the Claude Agent SDK.
+ *
+ * NOTE: persona/identity is NOT set here. The SDK's `config` is only
+ * `--config key=value` CLI overrides, and Codex has no `developer_instructions`
+ * key (it's silently dropped). The persona is instead prepended to each turn's
+ * prompt in CodexBackend (see `buildIdentityInstructions`), the one channel the
+ * model reliably honors.
  */
 export function buildCodexConfig(
   mcpServers: McpServer[],
   envVarValues: Record<string, string>,
   proxyUrlFor: (name: string) => string | undefined,
-  developerInstructions?: string,
 ): ConfigObj {
   const config: ConfigObj = {
     ...baseCodexConfig(),
     project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
     memories: { use_memories: false },
   };
-  // The agent identity/persona. AGENTS.md (project doc) is low-priority context
-  // that Codex's own base "you are a coding agent" prompt overrides, so the
-  // persona/voice gets dropped. `developer_instructions` is a high-priority
-  // developer message — the Codex-native equivalent of Claude's system prompt
-  // (which Claude gets from CLAUDE.md via settingSources:['project']) — so the
-  // agent actually speaks in character. Verified via `codex exec --config`.
-  if (developerInstructions?.trim()) config.developer_instructions = developerInstructions.trim();
   const mcp = buildMcpServers(mcpServers, envVarValues, proxyUrlFor);
   if (Object.keys(mcp).length > 0) config.mcp_servers = mcp;
   return config;
 }
 
 /**
- * Build the identity/persona block injected as `developer_instructions` so Codex
- * adopts the agent's voice. Mirrors the Identity section compile-instructions
- * writes at the top of AGENTS.md, but routed through the high-priority channel.
+ * Build the identity/persona block prepended to each Codex turn's prompt so the
+ * agent adopts its voice. Codex's base "you are a coding agent" prompt outranks
+ * the AGENTS.md project doc, and the SDK exposes no system/developer channel —
+ * so the only reliable place is the prompt itself (conversation priority).
+ * Mirrors the Identity section compile-instructions writes atop AGENTS.md.
  * Returns '' when the agent has no persona/description (nothing to assert).
  */
 export function buildIdentityInstructions(agent: { name: string; persona?: string | null; description?: string | null }): string {

@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -95,6 +95,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const [canEdit, setCanEdit] = useState(false);
   const [viewOnly, setViewOnly] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   /** Full-main-window mode swap. `test` replaces the agent header + tabs +
    *  tab content with <TestPanel>. The global SlackHive sidebar (rendered by
    *  layout-shell.tsx) remains visible — clicking it navigates away and
@@ -371,12 +372,12 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 40px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} onConnectSlack={() => { setSettingsSection('slack'); setTab('settings'); }} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
         {tab === 'audiences'     && <AudiencesPanel    agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'settings'      && <AgentSettingsTab  agent={agent} onUpdate={setAgent} canEdit={canEdit} viewOnly={viewOnly} allAgents={allAgents} role={role} username={username} />}
+        {tab === 'settings'      && <AgentSettingsTab  agent={agent} onUpdate={setAgent} canEdit={canEdit} viewOnly={viewOnly} allAgents={allAgents} role={role} username={username} section={settingsSection} onSection={setSettingsSection} />}
       </div>
 
       {/* Coach is a slide-over — rendered once at page level so it floats over
@@ -465,7 +466,7 @@ function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label
  * config (Slack, verbose, hierarchy), logs, history and delete live under the
  * Settings tab. Identity edits PATCH only their own fields (updateAgent merges).
  */
-function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; onConnectSlack: () => void }) {
   const [form, setForm] = useState({
     name:        agent.name,
     description: agent.description ?? '',
@@ -478,6 +479,10 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
   const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number; wiki: number; audiences: number } | null>(null);
   const [usage, setUsage] = useState<{ queries30d: number; inputTokens: number; outputTokens: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
+  const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
+  // Socket Mode (how the runner connects) needs the bot token AND the app-level
+  // token; the signing secret is only for the HTTP Events API and is unused here.
+  const slackConfigured = !!(agent.slackBotToken && agent.slackAppToken);
 
   useEffect(() => {
     fetch('/api/system/models').then(r => r.ok ? r.json() : null)
@@ -510,6 +515,14 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
     return () => { cancelled = true; };
   }, [agent.id]);
 
+  useEffect(() => {
+    if (!slackConfigured) { setSlackInfo(null); return; }
+    let cancelled = false;
+    fetch(`/api/agents/${agent.id}/slack-info`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setSlackInfo(d); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id, slackConfigured]);
+
   const save = async () => {
     setSaving(true);
     try {
@@ -527,7 +540,54 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
   const fmtTokens = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n);
 
   return (
-    <div className="fade-up" style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap', maxWidth: 1100 }}>
+    <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1100 }}>
+      {/* Slack connection status / CTA */}
+      {slackConfigured ? (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 'var(--radius)',
+          border: '1px solid color-mix(in srgb, var(--green) 35%, var(--border))',
+          background: 'color-mix(in srgb, var(--green) 7%, var(--surface))',
+        }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: 'color-mix(in srgb, var(--green) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--green)' }}>
+            <Slack size={16} />
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Connected to Slack</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {slackInfo ? <>{slackInfo.teamName} · {slackInfo.displayName} <span style={{ fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span></> : 'Credentials configured'}
+            </div>
+          </div>
+          <button onClick={onConnectSlack} style={{
+            flexShrink: 0, background: 'none', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px',
+            fontSize: 12.5, fontWeight: 500, color: 'var(--text)', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+          }}>Manage</button>
+        </div>
+      ) : (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 'var(--radius)',
+          border: '1px solid color-mix(in srgb, var(--amber, #f59e0b) 40%, var(--border))',
+          background: 'color-mix(in srgb, var(--amber, #f59e0b) 8%, var(--surface))',
+        }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: 'color-mix(in srgb, var(--amber, #f59e0b) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--amber, #f59e0b)' }}>
+            <Slack size={16} />
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Slack not configured</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>This agent isn&apos;t connected to a Slack workspace yet — it can&apos;t receive or reply to messages.</div>
+          </div>
+          {canEdit && (
+            <button onClick={onConnectSlack} style={{
+              flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent)', color: 'var(--accent-fg)',
+              border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            }}><Plug size={13} /> Connect Slack</button>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
       {/* Identity (main) */}
       <div style={{ flex: '1 1 520px', minWidth: 0 }}>
         <Card title="Identity" fill action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
@@ -598,13 +658,14 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
           </Link>
         </Card>
       </aside>
+      </div>
     </div>
   );
 }
 
 // ─── Agent Settings (side-nav: General · Slack · Logs · History · Danger) ──────
 
-function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role, username }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; viewOnly: boolean; allAgents: Agent[]; role: string | null; username: string }) {
+function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role, username, section, onSection }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; viewOnly: boolean; allAgents: Agent[]; role: string | null; username: string; section: SettingsSection; onSection: (s: SettingsSection) => void }) {
   const isAdmin = role === 'admin' || role === 'superadmin';
   const canDelete = isAdmin || agent.createdBy === username;
   const sections: { id: SettingsSection; label: string }[] = [
@@ -613,7 +674,7 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
   ];
   if (!viewOnly) sections.push({ id: 'logs', label: 'Logs' }, { id: 'history', label: 'History' });
   if (canDelete) sections.push({ id: 'danger', label: 'Danger Zone' });
-  const [section, setSection] = useState<SettingsSection>('general');
+  const setSection = onSection;
 
   return (
     <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }} className="fade-up">
@@ -771,15 +832,46 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
     setShowManifest(true);
   };
 
+  const [disconnecting, setDisconnecting] = useState(false);
+  const disconnect = async () => {
+    if (!confirm('Disconnect Slack? This permanently removes this agent\'s bot token, app token, and signing secret, and stops it from posting to Slack. You can reconnect later by entering credentials again.')) return;
+    setDisconnecting(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}/slack`, { method: 'DELETE' });
+      if (r.ok) {
+        const data = await r.json().catch(() => null);
+        setForm({ slackBotToken: '', slackAppToken: '', slackSigningSecret: '' });
+        setSlackInfo(null);
+        onUpdate(data ?? { ...agent, slackBotToken: undefined, slackAppToken: undefined, slackSigningSecret: undefined, slackBotUserId: undefined });
+        setMsg('Disconnected');
+      } else setMsg('Disconnect failed');
+    } catch { setMsg('Disconnect failed'); }
+    finally { setDisconnecting(false); setTimeout(() => setMsg(''), 3000); }
+  };
+  const slackConfigured = !!(agent.slackBotToken || agent.slackAppToken || agent.slackSigningSecret);
+
   return (
     <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
+        <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
+        {canEdit && slackConfigured && (
+          <button onClick={disconnect} disabled={disconnecting} style={{
+            marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8,
+            border: '1px solid var(--red-soft-border, #fecaca)', background: 'var(--surface)', color: '#dc2626',
+            fontSize: 13, fontWeight: 500, cursor: disconnecting ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+          }}><Plug size={13} /> {disconnecting ? 'Disconnecting…' : 'Disconnect Slack'}</button>
+        )}
+        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+      </div>
+
       <Card title="Slack Credentials">
         <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
         <Field label="App-Level Token" value={form.slackAppToken ?? ''} onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
           hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
-        <Field label="Signing Secret" value={form.slackSigningSecret ?? ''} onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
-          hint="Basic Information → App Credentials → Signing Secret" />
+        <Field label="Signing Secret (optional)" value={form.slackSigningSecret ?? ''} onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
+          hint="Not used in Socket Mode (how agents connect) — only needed for the HTTP Events API. Basic Information → App Credentials → Signing Secret." />
         {slackInfo && (
           <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, padding: '10px 14px', fontSize: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -811,20 +903,16 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
           onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')} onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')} />
       </Card>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
-        <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
-        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
-      </div>
-
       {showManifest && (
-        <div style={{ marginTop: 20, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>slack-manifest.json</span>
-            <button onClick={() => navigator.clipboard.writeText(manifest)} style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Copy</button>
+        <Modal title="Slack App Manifest" width={680} onClose={() => setShowManifest(false)}>
+          <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>slack-manifest.json</span>
+              <button onClick={() => navigator.clipboard.writeText(manifest)} style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Copy</button>
+            </div>
+            <pre style={{ margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)', fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: '60vh' }}>{manifest}</pre>
           </div>
-          <pre style={{ margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)', fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 320 }}>{manifest}</pre>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -3013,8 +3101,8 @@ function GhostBtn({ children, onClick, loading }: { children: React.ReactNode; o
   return (
     <button onClick={onClick} disabled={loading} style={{
       background: 'transparent', color: 'var(--muted)',
-      border: '1.5px solid var(--border-2)', borderRadius: 'var(--radius)',
-      padding: '10px 20px', fontSize: 14, fontWeight: 500, fontFamily: 'var(--font-sans)',
+      border: '1px solid var(--border-2)', borderRadius: 8,
+      padding: '7px 14px', fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em', fontFamily: 'var(--font-sans)',
       cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
       transition: 'border-color 0.15s, color 0.15s',
     }}
@@ -3080,19 +3168,19 @@ function HeaderBtn({ icon, label, onClick, href, title, tone = 'default' }: {
   return <button onClick={onClick} title={title} style={style} onMouseEnter={enter} onMouseLeave={leave}>{icon}{label}</button>;
 }
 
-function Modal({ title, children, onClose }: {
-  title: string; children: React.ReactNode; onClose: () => void;
+function Modal({ title, children, onClose, width = 440 }: {
+  title: string; children: React.ReactNode; onClose: () => void; width?: number;
 }) {
   return (
     <Portal>
-    <div style={{
+    <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
       backdropFilter: 'blur(4px)',
     }}>
-      <div style={{
+      <div onClick={e => e.stopPropagation()} style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-lg)', padding: '28px', width: 440,
+        borderRadius: 'var(--radius-lg)', padding: '28px', width, maxWidth: '92vw',
         boxShadow: 'var(--shadow-modal)',
         display: 'flex', flexDirection: 'column', gap: 16,
         maxHeight: '90vh', overflow: 'auto',

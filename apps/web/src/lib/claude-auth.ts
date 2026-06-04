@@ -65,6 +65,59 @@ export function readClaudeOAuth(): ClaudeOAuth | null {
   return readClaudeFile();
 }
 
+/** Connected / expired / none — based on the live login's actual expiry. */
+export function claudeAuthState(): { status: 'connected' | 'expired' | 'none'; source: string } {
+  const o = readClaudeOAuth();
+  if (o?.accessToken) {
+    const source = process.platform === 'darwin' && readClaudeKeychain()?.accessToken ? 'login' : 'file';
+    if (o.expiresAt && Date.now() > o.expiresAt) return { status: 'expired', source };
+    return { status: 'connected', source };
+  }
+  if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) return { status: 'connected', source: 'env' };
+  return { status: 'none', source: 'none' };
+}
+
+/** Read-only endpoint that accepts a Claude OAuth bearer token (no inference cost). */
+const VALIDATE_URL = 'https://api.anthropic.com/v1/models';
+/** Cache live validation per access token so the 30s status poll doesn't hammer it. */
+const VALIDATE_CACHE_MS = 25_000;
+let validateCache: { token: string; state: { status: 'connected' | 'expired' | 'none'; source: string }; at: number } | null = null;
+
+/**
+ * Authoritative state: self-heals a stale token (refresh), then confirms the
+ * subscription OAuth token isn't revoked via a cached read-only API call — a
+ * `claude logout` / server-side revocation invalidates the token while its local
+ * `expiresAt` may still look fine. A 401 → expired; success → connected; anything
+ * inconclusive (network error, 429/5xx) falls back to the offline verdict so a
+ * blip never raises a false "expired". API-key/env auth is trusted as-is.
+ */
+export async function claudeAuthStateLive(): Promise<{ status: 'connected' | 'expired' | 'none'; source: string }> {
+  // Refresh a near-expired file token first so we validate the freshest token.
+  await ensureFreshClaudeToken().catch(() => null);
+  const base = claudeAuthState();
+  // Only OAuth login tokens (Keychain/file) can be silently revoked AND validated
+  // with a Bearer call; env (which may be an x-api-key) is trusted offline.
+  if (base.source !== 'login' && base.source !== 'file') return base;
+
+  const token = readClaudeOAuth()?.accessToken;
+  if (!token) return base;
+
+  const now = Date.now();
+  if (validateCache && validateCache.token === token && now - validateCache.at < VALIDATE_CACHE_MS) return validateCache.state;
+
+  let state = base;
+  try {
+    const r = await fetch(VALIDATE_URL, { headers: { Authorization: `Bearer ${token}`, 'anthropic-version': '2023-06-01' } });
+    if (r.status === 401 || r.status === 403) state = { status: 'expired', source: base.source };
+    else if (r.ok) state = { status: 'connected', source: base.source };
+    // else: inconclusive (429/5xx) — keep the offline verdict.
+  } catch {
+    // Network error — don't false-alarm; keep the offline verdict.
+  }
+  validateCache = { token, state, at: now };
+  return state;
+}
+
 /**
  * Refresh the Claude access token using the stored refresh token. Persists the
  * new token + expiry to the credentials file and the encrypted secret.

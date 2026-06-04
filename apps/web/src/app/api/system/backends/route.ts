@@ -20,30 +20,34 @@ import {
 import { getSetting, setSetting, publishAgentEvent, getAllAgents, updateAgent } from '@/lib/db';
 import { getEncryptionKey } from '@/lib/secrets';
 import { guardAdmin } from '@/lib/api-guard';
-import { readClaudeOAuth } from '@/lib/claude-auth';
+import { claudeAuthStateLive } from '@/lib/claude-auth';
+import { codexAuthStateLive } from '@/lib/codex-auth';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-/** Whether each backend already has usable credentials, and where from. */
-function detectCredentials(secretsSet: Record<string, boolean>): Record<string, { detected: boolean; source: string }> {
-  // Claude: macOS Keychain or file (live login), env, or stored secret.
-  let claude: { detected: boolean; source: string } = { detected: false, source: 'none' };
-  if (readClaudeOAuth()?.accessToken) claude = { detected: true, source: process.platform === 'darwin' ? 'login' : 'file' };
-  else if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) claude = { detected: true, source: 'env' };
-  else if (secretsSet.CLAUDE_CREDENTIALS_JSON || secretsSet.ANTHROPIC_API_KEY) claude = { detected: true, source: 'settings' };
-
-  // Codex: ~/.codex/auth.json (login), env, or stored secret.
-  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
-  let codex: { detected: boolean; source: string } = { detected: false, source: 'none' };
-  try { if (fs.existsSync(path.join(codexHome, 'auth.json'))) codex = { detected: true, source: 'login' }; } catch { /* ignore */ }
-  if (!codex.detected) {
-    if (process.env.OPENAI_API_KEY || process.env.CODEX_API_KEY) codex = { detected: true, source: 'env' };
-    else if (secretsSet.CODEX_AUTH_JSON || secretsSet.OPENAI_API_KEY) codex = { detected: true, source: 'settings' };
-  }
+/**
+ * Per-backend credential state, expiry-aware: connected / expired / none. Based
+ * on the LIVE login (Keychain or login file) and its real token expiry — a stale
+ * or expired credential reports `expired` (→ re-login/paste), not `connected`.
+ */
+async function detectCredentials(): Promise<Record<string, { status: string; source: string }>> {
+  const [claude, codex] = await Promise.all([claudeAuthStateLive(), codexAuthStateLive()]);
   return { claude, codex };
+}
+
+/**
+ * Login-file credential keys → the file the runner/CLI reads. Pasting these in
+ * Settings (remote box / no CLI) materializes the file immediately, since the
+ * runner no longer resurrects an absent login file on restart (so terminal
+ * logouts propagate). API-key fields aren't here — they're env vars, not files.
+ */
+function loginFilePath(secretKey: string): string | null {
+  if (secretKey === 'CODEX_AUTH_JSON') return path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'auth.json');
+  if (secretKey === 'CLAUDE_CREDENTIALS_JSON') return path.join(os.homedir(), '.claude', '.credentials.json');
+  return null;
 }
 
 /** All credential field keys across every backend descriptor. */
@@ -73,7 +77,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       codexAuthMode: (await getSetting(CODEX_AUTH_MODE_SETTING_KEY)) ?? 'subscription',
     },
     secretsSet,
-    detected: detectCredentials(secretsSet),
+    detected: await detectCredentials(),
   });
 }
 
@@ -153,6 +157,15 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
       if (!valid.has(key)) continue; // ignore unknown keys
       // Empty value clears the secret; otherwise store encrypted.
       await setSetting(`secret:${key}`, value ? encrypt(value, getEncryptionKey()) : '');
+      // For login-file creds, materialize (or remove) the file now — the runner
+      // won't resurrect it on restart, so a paste must take effect immediately.
+      const file = loginFilePath(key);
+      if (file) {
+        try {
+          if (value) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, value, { mode: 0o600 }); }
+          else fs.rmSync(file, { force: true });
+        } catch { /* best-effort; runner sync covers refresh-preserve */ }
+      }
     }
   }
 

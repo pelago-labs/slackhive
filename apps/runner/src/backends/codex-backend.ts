@@ -38,6 +38,16 @@ import type { Logger } from 'winston';
 const SESSION_MAX_AGE_MS = 30 * 60 * 1_000;
 const SESSION_CLEANUP_INTERVAL_MS = 10 * 60 * 1_000;
 
+/** Compact one-line preview of a tool's arguments for logs (truncated, secrets are redacted downstream). */
+function argPreview(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  let s: string;
+  try { s = typeof v === 'string' ? v : JSON.stringify(v); }
+  catch { s = String(v); }
+  s = s.replace(/\s+/g, ' ').trim();
+  return s.length > 200 ? s.slice(0, 200) + '…' : s;
+}
+
 export class CodexBackend implements AgentBackend {
   readonly backend = 'codex';
 
@@ -95,7 +105,6 @@ export class CodexBackend implements AgentBackend {
           this.mcpServers,
           this.envVarValues,
           (name) => this.mcpManager.getStreamableUrl(name),
-          buildIdentityInstructions(this.agent),
         ),
         this.apiKey,
       );
@@ -256,7 +265,18 @@ export class CodexBackend implements AgentBackend {
       // for parity; the workspace-write sandbox still confines the filesystem.
       networkAccess: true,
     });
-    const input = toCodexInput(prompt, sessionWorkDir);
+    let input = toCodexInput(prompt, sessionWorkDir);
+    // Persona/identity rides in the prompt itself — Codex's base prompt outranks
+    // AGENTS.md and the SDK has no system/developer channel, so this is the one
+    // place the model reliably adopts the agent's voice. Prepend every turn.
+    const identity = buildIdentityInstructions(this.agent);
+    if (identity) {
+      if (typeof input === 'string') {
+        input = input ? `${identity}\n\n---\n\n${input}` : identity;
+      } else {
+        input.unshift({ type: 'text', text: identity });
+      }
+    }
     const codex = await this.ensureCodex();
 
     this.log.debug('Streaming Codex query', {
@@ -274,15 +294,27 @@ export class CodexBackend implements AgentBackend {
 
       const startedAt = Date.now();
       const finalParts: string[] = [];
+      // Per-tool-call start times (keyed by item id) so we can log a duration.
+      const toolStart = new Map<string, number>();
 
       try {
         const { events } = await thread.runStreamed(input, { signal: abort.signal });
         for await (const event of events) {
           if (abort.signal.aborted) break;
-          // Diagnostic: surface MCP tool-call outcomes and turn/stream failures.
-          if (event.type === 'item.completed' && (event.item as { type?: string }).type === 'mcp_tool_call') {
-            const it = event.item as { server?: string; tool?: string; status?: string; error?: { message?: string } };
-            this.log.info('Codex MCP tool call', { server: it.server, tool: it.tool, status: it.status, error: it.error?.message });
+          // Diagnostic: surface MCP tool-call lifecycle and turn/stream failures.
+          if (event.type === 'item.started' && (event.item as { type?: string }).type === 'mcp_tool_call') {
+            const it = event.item as { id?: string; server?: string; tool?: string; arguments?: unknown; input?: unknown };
+            if (it.id) toolStart.set(it.id, Date.now());
+            this.log.info('Tool call started', { server: it.server, tool: it.tool, args: argPreview(it.arguments ?? it.input) });
+          } else if (event.type === 'item.completed' && (event.item as { type?: string }).type === 'mcp_tool_call') {
+            const it = event.item as { id?: string; server?: string; tool?: string; status?: string; arguments?: unknown; input?: unknown; error?: { message?: string } };
+            const durationMs = it.id && toolStart.has(it.id) ? Date.now() - toolStart.get(it.id)! : undefined;
+            const level = it.status === 'failed' ? 'warn' : 'info';
+            this.log[level]('Tool call finished', { server: it.server, tool: it.tool, status: it.status, durationMs, args: argPreview(it.arguments ?? it.input), error: it.error?.message });
+          } else if (event.type === 'item.completed' && (event.item as { type?: string }).type === 'reasoning') {
+            // Reasoning isn't posted to Slack (dropped in translateItem) — keep it
+            // inspectable here at DEBUG so the Logs tab can still surface it.
+            this.log.debug('Codex reasoning', { preview: argPreview((event.item as { text?: string }).text) });
           } else if (event.type === 'turn.failed') {
             this.log.warn('Codex turn failed', { error: (event as { error?: { message?: string } }).error?.message });
           } else if (event.type === 'error') {

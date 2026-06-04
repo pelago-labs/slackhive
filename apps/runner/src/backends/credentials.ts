@@ -45,23 +45,32 @@ function writeSecretFile(filePath: string, contents: string): void {
 }
 
 /**
- * Sync one OAuth credential file from its stored secret, but DON'T clobber a
- * file the CLI/SDK may have refreshed in place: only overwrite when the stored
- * secret is newer than the on-disk file (i.e. the operator re-saved creds in
- * Settings). Otherwise the live (rotated) refresh token survives restarts.
+ * Refresh an OAuth credential file from its stored secret — WITHOUT resurrecting
+ * a file the user deleted by logging out. The live terminal login is the source
+ * of truth:
+ *  - File ABSENT (logged out / never logged in here): leave it absent. We must
+ *    NOT recreate it — a `codex/claude logout` revokes the token server-side, so
+ *    the stored snapshot is dead and reviving it would falsely report
+ *    "connected". Remote/paste setups materialize the file at save time (in the
+ *    web Settings PUT), not lazily on restart.
+ *  - File PRESENT: don't clobber a token the CLI/SDK refreshed in place; only
+ *    overwrite when the stored secret was re-saved more recently (operator
+ *    pasted fresh creds in Settings).
  */
 async function syncCredFile(secretKey: string, filePath: string, label: string): Promise<void> {
   const contents = await readSecret(secretKey);
   if (!contents) return;
-  let write = true;
+  if (!fs.existsSync(filePath)) {
+    logger.info(`No on-disk ${label} — leaving absent (terminal login/logout is the source of truth)`);
+    return;
+  }
+  let write = false;
   try {
-    if (fs.existsSync(filePath)) {
-      const fileMtime = fs.statSync(filePath).mtimeMs;
-      const secretAt = await getSettingUpdatedAt(`secret:${secretKey}`);
-      // Keep the on-disk file unless the stored secret was updated more recently.
-      write = secretAt != null && secretAt > fileMtime;
-    }
-  } catch { /* fall through to write */ }
+    const fileMtime = fs.statSync(filePath).mtimeMs;
+    const secretAt = await getSettingUpdatedAt(`secret:${secretKey}`);
+    // Overwrite only if the stored secret is newer (operator re-saved creds).
+    write = secretAt != null && secretAt > fileMtime;
+  } catch { /* keep the on-disk file */ }
   if (write) {
     writeSecretFile(filePath, contents);
     logger.info(`Synced ${label} from settings`);

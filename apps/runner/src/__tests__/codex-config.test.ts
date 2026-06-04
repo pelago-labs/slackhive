@@ -30,14 +30,10 @@ describe('codex-config / persona via developer_instructions', () => {
     expect(buildIdentityInstructions({ name: 'Bot', persona: '  ', description: '' })).toBe('');
   });
 
-  it('sets developer_instructions in the Codex config (high-priority channel, not just AGENTS.md)', () => {
-    const cfg = buildCodexConfig([], {}, () => undefined, buildIdentityInstructions({ name: 'Gilfoyle', persona: 'Deadpan.' }));
-    expect(cfg.developer_instructions).toContain('You are Gilfoyle');
-    expect(cfg.developer_instructions).toContain('Deadpan.');
-  });
-
-  it('omits developer_instructions when no identity is given', () => {
-    const cfg = buildCodexConfig([], {}, () => undefined, '');
+  it('does not set persona in the Codex config (it rides in the prompt, not --config)', () => {
+    // `developer_instructions` is not a real Codex CLI config key — it was
+    // silently dropped. Persona is now prepended to the turn prompt instead.
+    const cfg = buildCodexConfig([], {}, () => undefined);
     expect(cfg.developer_instructions).toBeUndefined();
   });
 });

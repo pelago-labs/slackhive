@@ -10,28 +10,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
-import { ensureFreshClaudeToken } from '@/lib/claude-auth';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { claudeAuthStateLive, readClaudeOAuth } from '@/lib/claude-auth';
 
 export const dynamic = 'force-dynamic';
 
 interface ClaudeStatus {
   status: 'connected' | 'disconnected' | 'expired';
-  source: 'file' | 'keychain' | 'env' | 'none';
+  source: string;
   expiresAt?: number;
   expiresIn?: string;
   error?: string;
-}
-
-function readCredentialsFile(): { accessToken?: string; expiresAt?: number } | null {
-  const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-  try {
-    if (!fs.existsSync(credPath)) return null;
-    const content = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
-    return content?.claudeAiOauth ?? null;
-  } catch { return null; }
 }
 
 function formatExpiresIn(expiresAtMs: number): string {
@@ -48,25 +36,23 @@ function formatExpiresIn(expiresAtMs: number): string {
 export async function GET(req: NextRequest): Promise<NextResponse<ClaudeStatus>> {
   const denied = guardAdmin(req);
   if (denied) return denied as NextResponse<ClaudeStatus>;
-  // 1. Live creds (macOS Keychain first, else file) + self-heal an expired token.
-  const oauth = (await ensureFreshClaudeToken().catch(() => null)) ?? readCredentialsFile();
-  const source: ClaudeStatus['source'] = 'file';
+  // Self-heals (refresh) then confirms the token isn't revoked via a live check.
+  const st = await claudeAuthStateLive();
+  const o = readClaudeOAuth();
 
-  // 2. Env var fallback.
-  if (!oauth?.accessToken) {
-    const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
-    if (envToken) return NextResponse.json({ status: 'connected', source: 'env' });
-    return NextResponse.json({ status: 'disconnected', source: 'none' });
+  if (st.status === 'expired') {
+    return NextResponse.json({
+      status: 'expired',
+      source: st.source,
+      ...(o?.expiresAt && { expiresAt: o.expiresAt, expiresIn: 'expired' }),
+      error: 'Claude session expired — run `claude login` on this machine, or paste fresh credentials.',
+    });
   }
+  if (st.status === 'none') return NextResponse.json({ status: 'disconnected', source: 'none' });
 
-  // `expiresAt` is a refresh hint, not a hard server expiry — the token keeps
-  // working past it. Report connected when a token exists; if past the hint and
-  // auto-refresh failed, flag that renewal needs a re-login (don't cry "expired").
-  const stale = !!(oauth.expiresAt && Date.now() > oauth.expiresAt);
   return NextResponse.json({
     status: 'connected',
-    source,
-    ...(oauth.expiresAt && { expiresAt: oauth.expiresAt, expiresIn: stale ? 'renew on re-login' : formatExpiresIn(oauth.expiresAt) }),
-    ...(stale && { error: 'Token works, but auto-refresh is unavailable — re-enter Claude credentials to restore renewal.' }),
+    source: st.source,
+    ...(o?.expiresAt && { expiresAt: o.expiresAt, expiresIn: formatExpiresIn(o.expiresAt) }),
   });
 }

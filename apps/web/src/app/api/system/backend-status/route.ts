@@ -7,15 +7,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import {
   AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND, getBackendDescriptor,
 } from '@slackhive/shared';
 import { getSetting } from '@/lib/db';
 import { guardAdmin } from '@/lib/api-guard';
-import { ensureFreshClaudeToken } from '@/lib/claude-auth';
+import { claudeAuthStateLive, readClaudeOAuth } from '@/lib/claude-auth';
+import { codexAuthStateLive } from '@/lib/codex-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +21,7 @@ interface BackendStatus {
   backend: string;
   label: string;
   status: 'connected' | 'disconnected' | 'expired';
-  source?: 'file' | 'keychain' | 'env' | 'settings' | 'none';
+  source?: string;
   expiresIn?: string;
   hint?: string;
 }
@@ -38,29 +36,26 @@ function formatExpiresIn(expiresAtMs: number): string {
 }
 
 async function claudeStatus(): Promise<BackendStatus> {
-  // Read ~/.claude/.credentials.json and self-heal: if the access token is
-  // expired but a refresh token exists, refresh it before reporting status.
-  const oauth = await ensureFreshClaudeToken();
-
   const base = { backend: 'claude', label: 'Claude', hint: 'Set credentials in Settings → Agent Backend.' };
-  if (oauth?.accessToken) {
-    // `expiresAt` is Claude Code's refresh hint, not a hard server expiry — the
-    // access token keeps working past it. So a present token = connected. If it's
-    // past the hint and we couldn't auto-refresh (refresh token invalid), keep
-    // showing connected but flag that renewal needs a re-login. Real auth
-    // failures surface at agent run time (AUTH_EXPIRED).
-    const stale = !!(oauth.expiresAt && Date.now() > oauth.expiresAt);
+  // Self-heals (refresh) then confirms the token isn't revoked via a live check.
+  const st = await claudeAuthStateLive();
+  if (st.status === 'connected') {
+    const o = readClaudeOAuth();
+    return { ...base, status: 'connected', source: st.source, ...(o?.expiresAt && { expiresIn: formatExpiresIn(o.expiresAt) }) };
+  }
+  if (st.status === 'expired') {
     return {
       ...base,
-      status: 'connected',
-      source: 'file',
-      ...(oauth.expiresAt && { expiresIn: stale ? 'renew on re-login' : formatExpiresIn(oauth.expiresAt) }),
-      ...(stale && { hint: 'Token works, but auto-refresh is unavailable — re-enter Claude credentials in Settings to restore renewal.' }),
+      status: 'expired',
+      source: st.source,
+      hint: 'Claude session expired — run `claude login` on this machine (then Detect), or paste fresh credentials in Settings → Agent Backend.',
     };
   }
-  if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) return { ...base, status: 'connected', source: 'env' };
-  // Credentials stored in Settings (synced to disk by the runner on next start).
-  if ((await getSetting('secret:CLAUDE_CREDENTIALS_JSON')) || (await getSetting('secret:ANTHROPIC_API_KEY'))) {
+  // A stored API key is a deliberate, non-expiring credential the runner will
+  // use — count it. But a stored OAuth-JSON secret is NOT proof of a working
+  // login: it may hold a revoked/expired token (the live check above already had
+  // its say), so it must not fake "connected".
+  if (await getSetting('secret:ANTHROPIC_API_KEY')) {
     return { ...base, status: 'connected', source: 'settings' };
   }
   return { ...base, status: 'disconnected', source: 'none' };
@@ -68,11 +63,20 @@ async function claudeStatus(): Promise<BackendStatus> {
 
 async function codexStatus(): Promise<BackendStatus> {
   const base = { backend: 'codex', label: 'Codex', hint: 'Set ChatGPT login or an API key in Settings → Agent Backend.' };
-  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
-  if (fs.existsSync(path.join(codexHome, 'auth.json'))) return { ...base, status: 'connected', source: 'file' };
-  if (process.env.OPENAI_API_KEY || process.env.CODEX_API_KEY) return { ...base, status: 'connected', source: 'env' };
-  // Credentials stored in Settings (synced to disk/env by the runner on next start).
-  if ((await getSetting('secret:CODEX_AUTH_JSON')) || (await getSetting('secret:OPENAI_API_KEY'))) {
+  const st = await codexAuthStateLive();
+  if (st.status === 'connected') return { ...base, status: 'connected', source: st.source };
+  if (st.status === 'expired') {
+    return {
+      ...base,
+      status: 'expired',
+      source: st.source,
+      hint: 'Codex session expired — run `codex login` on this machine (then Detect), or paste a fresh auth.json in Settings → Agent Backend.',
+    };
+  }
+  // A stored API key counts (deliberate, non-expiring). A stored OAuth-JSON
+  // secret does NOT — it may be a revoked/expired token, so it must not fake
+  // "connected" (the live check above is authoritative for the login token).
+  if (await getSetting('secret:OPENAI_API_KEY')) {
     return { ...base, status: 'connected', source: 'settings' };
   }
   return { ...base, status: 'disconnected', source: 'none' };
