@@ -60,19 +60,14 @@ export async function GET(req: NextRequest): Promise<NextResponse<ClaudeStatus>>
     return NextResponse.json({ status: 'disconnected', source: 'none' });
   }
 
-  // 3. Expiry.
-  if (oauth.expiresAt && Date.now() > oauth.expiresAt) {
-    return NextResponse.json({
-      status: 'expired',
-      source,
-      expiresAt: oauth.expiresAt,
-      error: 'Token expired. Re-enter Claude credentials in Settings → Agent Backend.',
-    });
-  }
-
+  // `expiresAt` is a refresh hint, not a hard server expiry — the token keeps
+  // working past it. Report connected when a token exists; if past the hint and
+  // auto-refresh failed, flag that renewal needs a re-login (don't cry "expired").
+  const stale = !!(oauth.expiresAt && Date.now() > oauth.expiresAt);
   return NextResponse.json({
     status: 'connected',
     source,
-    ...(oauth.expiresAt && { expiresAt: oauth.expiresAt, expiresIn: formatExpiresIn(oauth.expiresAt) }),
+    ...(oauth.expiresAt && { expiresAt: oauth.expiresAt, expiresIn: stale ? 'renew on re-login' : formatExpiresIn(oauth.expiresAt) }),
+    ...(stale && { error: 'Token works, but auto-refresh is unavailable — re-enter Claude credentials to restore renewal.' }),
   });
 }

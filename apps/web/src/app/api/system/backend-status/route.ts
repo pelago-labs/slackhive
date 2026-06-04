@@ -44,8 +44,19 @@ async function claudeStatus(): Promise<BackendStatus> {
 
   const base = { backend: 'claude', label: 'Claude', hint: 'Set credentials in Settings → Agent Backend.' };
   if (oauth?.accessToken) {
-    if (oauth.expiresAt && Date.now() > oauth.expiresAt) return { ...base, status: 'expired', source: 'file' };
-    return { ...base, status: 'connected', source: 'file', ...(oauth.expiresAt && { expiresIn: formatExpiresIn(oauth.expiresAt) }) };
+    // `expiresAt` is Claude Code's refresh hint, not a hard server expiry — the
+    // access token keeps working past it. So a present token = connected. If it's
+    // past the hint and we couldn't auto-refresh (refresh token invalid), keep
+    // showing connected but flag that renewal needs a re-login. Real auth
+    // failures surface at agent run time (AUTH_EXPIRED).
+    const stale = !!(oauth.expiresAt && Date.now() > oauth.expiresAt);
+    return {
+      ...base,
+      status: 'connected',
+      source: 'file',
+      ...(oauth.expiresAt && { expiresIn: stale ? 'renew on re-login' : formatExpiresIn(oauth.expiresAt) }),
+      ...(stale && { hint: 'Token works, but auto-refresh is unavailable — re-enter Claude credentials in Settings to restore renewal.' }),
+    };
   }
   if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) return { ...base, status: 'connected', source: 'env' };
   // Credentials stored in Settings (synced to disk by the runner on next start).
