@@ -687,3 +687,22 @@ export async function setResult(key: string, value: string): Promise<void> {
     [key, value]
   );
 }
+
+/** Upsert a setting value by exact key (used to persist refreshed credentials). */
+export async function setSetting(key: string, value: string): Promise<void> {
+  await getDb().query(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, value]
+  );
+}
+
+/** Epoch-ms timestamp of a setting's last write, or null if absent. */
+export async function getSettingUpdatedAt(key: string): Promise<number | null> {
+  const r = await getDb().query('SELECT updated_at FROM settings WHERE key = $1', [key]);
+  if (!r.rows.length) return null;
+  const v = (r.rows[0] as { updated_at: string | number | Date | null }).updated_at;
+  if (v == null) return null;
+  const t = new Date(v as string | number | Date).getTime();
+  return Number.isNaN(t) ? null : t;
+}

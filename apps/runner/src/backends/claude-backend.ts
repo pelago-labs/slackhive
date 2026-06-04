@@ -443,7 +443,18 @@ export class ClaudeBackend implements AgentBackend {
       creds.claudeAiOauth.accessToken = data.access_token;
       if (data.refresh_token) creds.claudeAiOauth.refreshToken = data.refresh_token;
       creds.claudeAiOauth.expiresAt = Date.now() + (data.expires_in ? data.expires_in * 1000 : 8 * 60 * 60 * 1000);
-      fs.writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+      const json = JSON.stringify(creds, null, 2);
+      fs.writeFileSync(credPath, json, { mode: 0o600 });
+
+      // Persist the (rotated) credentials back to the encrypted secret too —
+      // otherwise the next runner restart re-syncs the stale snapshot over the
+      // file and the rotated refresh token is lost (→ invalid_grant).
+      try {
+        const { encrypt } = await import('@slackhive/shared');
+        const { getEncryptionKey } = await import('../secrets');
+        const { setSetting } = await import('../db');
+        await setSetting('secret:CLAUDE_CREDENTIALS_JSON', encrypt(json, getEncryptionKey()));
+      } catch { /* best-effort persistence */ }
 
       return true;
     } catch {

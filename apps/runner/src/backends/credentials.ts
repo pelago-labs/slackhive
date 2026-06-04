@@ -17,7 +17,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { decrypt } from '@slackhive/shared';
-import { getSetting } from '../db';
+import { getSetting, getSettingUpdatedAt } from '../db';
 import { getEncryptionKey } from '../secrets';
 import { logger } from '../logger';
 
@@ -45,29 +45,47 @@ function writeSecretFile(filePath: string, contents: string): void {
 }
 
 /**
+ * Sync one OAuth credential file from its stored secret, but DON'T clobber a
+ * file the CLI/SDK may have refreshed in place: only overwrite when the stored
+ * secret is newer than the on-disk file (i.e. the operator re-saved creds in
+ * Settings). Otherwise the live (rotated) refresh token survives restarts.
+ */
+async function syncCredFile(secretKey: string, filePath: string, label: string): Promise<void> {
+  const contents = await readSecret(secretKey);
+  if (!contents) return;
+  let write = true;
+  try {
+    if (fs.existsSync(filePath)) {
+      const fileMtime = fs.statSync(filePath).mtimeMs;
+      const secretAt = await getSettingUpdatedAt(`secret:${secretKey}`);
+      // Keep the on-disk file unless the stored secret was updated more recently.
+      write = secretAt != null && secretAt > fileMtime;
+    }
+  } catch { /* fall through to write */ }
+  if (write) {
+    writeSecretFile(filePath, contents);
+    logger.info(`Synced ${label} from settings`);
+  } else {
+    logger.info(`Kept on-disk ${label} (newer than stored snapshot — preserving refreshed token)`);
+  }
+}
+
+/**
  * Sync backend credentials from Settings to disk/env. Idempotent — safe to call
  * on every runner startup. Missing secrets are skipped (e.g. only the active
  * backend's credentials are usually present).
  */
 export async function syncBackendCredentials(): Promise<void> {
-  // Codex
-  const codexAuth = await readSecret('CODEX_AUTH_JSON');
-  if (codexAuth) {
-    writeSecretFile(path.join(codexHome(), 'auth.json'), codexAuth);
-    logger.info('Synced Codex auth.json from settings', { dir: codexHome() });
-  }
+  // Codex — don't clobber an auth.json the Codex CLI refreshed in place.
+  await syncCredFile('CODEX_AUTH_JSON', path.join(codexHome(), 'auth.json'), 'Codex auth.json');
   const openaiKey = await readSecret('OPENAI_API_KEY');
   if (openaiKey) {
     process.env.OPENAI_API_KEY = openaiKey;
     logger.info('Loaded OPENAI_API_KEY from settings');
   }
 
-  // Claude
-  const claudeCreds = await readSecret('CLAUDE_CREDENTIALS_JSON');
-  if (claudeCreds) {
-    writeSecretFile(path.join(claudeHome(), '.credentials.json'), claudeCreds);
-    logger.info('Synced Claude credentials.json from settings');
-  }
+  // Claude — don't clobber a credentials.json the SDK refreshed in place.
+  await syncCredFile('CLAUDE_CREDENTIALS_JSON', path.join(claudeHome(), '.credentials.json'), 'Claude credentials.json');
   const anthropicKey = await readSecret('ANTHROPIC_API_KEY');
   if (anthropicKey) {
     process.env.ANTHROPIC_API_KEY = anthropicKey;
