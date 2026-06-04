@@ -178,9 +178,14 @@ export class JobScheduler {
         ? await agent.adapter.openDm(job.targetId)
         : job.targetId;
 
+      // Post all payloads under a single thread: the first message becomes the
+      // thread parent, the rest are posted as replies so the job output stays
+      // grouped instead of scattering loose messages across the channel.
       const payloads = agent.adapter.buildPayloads(output);
+      let threadId: string | undefined;
       for (const payload of payloads) {
-        await agent.adapter.postPayload(targetChannelId, payload);
+        const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
+        if (!threadId) threadId = ts;
       }
 
       await updateJobRun(runId, 'success', output.slice(0, 2000));

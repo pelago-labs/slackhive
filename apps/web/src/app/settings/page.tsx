@@ -10,7 +10,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { KeyRound, SlidersHorizontal, Bot, ShieldCheck, LogIn, Users } from 'lucide-react';
-import { MODELS, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from '@slackhive/shared';
+import {
+  MODELS,
+  DEFAULT_COACH_MODEL,
+  COACH_MODEL_SETTING_KEY,
+  DEFAULT_EVAL_JUDGE_MODEL,
+  EVAL_JUDGE_MODEL_SETTING_KEY,
+} from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import AiProviderSection from './AiProviderSection';
@@ -38,6 +44,7 @@ const DEFAULTS: Record<string, string> = {
   logoUrl: '',
   dashboardTitle: 'Welcome to SlackHive',
   [COACH_MODEL_SETTING_KEY]: DEFAULT_COACH_MODEL,
+  [EVAL_JUDGE_MODEL_SETTING_KEY]: DEFAULT_EVAL_JUDGE_MODEL,
 };
 
 /**
@@ -194,12 +201,14 @@ function GeneralTab() {
 
 function AITab() {
   const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
-  // Coach runs on the active backend, so its model options follow that backend.
+  const [evalJudgeModel, setEvalJudgeModel] = useState(DEFAULTS[EVAL_JUDGE_MODEL_SETTING_KEY]);
+  // Coach + judge run on the active backend, so their model options follow it.
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
 
   const load = () => {
     fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
       if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
+      if (s[EVAL_JUDGE_MODEL_SETTING_KEY]) setEvalJudgeModel(s[EVAL_JUDGE_MODEL_SETTING_KEY]);
     }).catch(() => {});
     fetch('/api/system/models').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.models?.length) setModelOptions(d.models);
@@ -211,11 +220,16 @@ function AITab() {
     setCoachModel(v);
     fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: COACH_MODEL_SETTING_KEY, value: v }) }).catch(() => {});
   };
+  const saveJudge = (v: string) => {
+    setEvalJudgeModel(v);
+    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: EVAL_JUDGE_MODEL_SETTING_KEY, value: v }) }).catch(() => {});
+  };
 
-  // If the saved coach model isn't valid for the active backend, default to its first model.
+  // If a saved model isn't valid for the active backend, default to its first model.
   useEffect(() => {
     if (!modelOptions.length) return;
     setCoachModel(cm => modelOptions.some(m => m.value === cm) ? cm : modelOptions[0].value);
+    setEvalJudgeModel(jm => modelOptions.some(m => m.value === jm) ? jm : modelOptions[0].value);
   }, [modelOptions]);
 
   return (
@@ -228,6 +242,15 @@ function AITab() {
           options={modelOptions}
           onChange={saveCoach}
           hint="Model Coach uses to generate prompts and skills — follows the active agent backend."
+        />
+      </Section>
+      <Section title="Evals">
+        <SelectField
+          label="Evals Judge Model"
+          value={evalJudgeModel}
+          options={modelOptions}
+          onChange={saveJudge}
+          hint="Model the Tier 2 regression evals use to judge agent responses against rubrics — follows the active agent backend. Called once per case per run; a cheaper model keeps cost low."
         />
       </Section>
     </>

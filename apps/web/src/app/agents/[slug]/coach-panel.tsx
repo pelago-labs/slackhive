@@ -13,10 +13,11 @@
  * @module web/app/agents/[slug]/coach-panel
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Send, Loader2, RotateCcw, Wand2, ChevronDown, ChevronRight, Check, FileText, History, ArrowLeft, BookOpen, Paperclip, Download } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { CoachMessage, CoachProposal, Skill, Memory, KnowledgeSource } from '@slackhive/shared';
+import type { CoachMessage, CoachProposal, Skill, Memory, KnowledgeSource, CheckConfig } from '@slackhive/shared';
 
 /** Shape of one archived conversation returned by `/coach?archive=1`. */
 interface ArchivedConversation {
@@ -199,12 +200,20 @@ export function CoachPanel({
   open,
   onClose,
   canEdit,
+  seed,
 }: {
   agentId: string;
   agentName: string;
   open: boolean;
   onClose: () => void;
   canEdit: boolean;
+  /**
+   * External trigger to auto-send a message when the panel opens (e.g. the
+   * "Ask Coach" button on a failing eval row). `token` must change for each
+   * distinct send — Coach watches the token, not the message, so identical
+   * seeds from two different rows still fire.
+   */
+  seed?: { token: string; message: string } | null;
 }) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState('');
@@ -236,6 +245,10 @@ export function CoachPanel({
   // until the server closes, `sending` stays true, and the composer is
   // permanently locked — see bug report).
   const abortRef = useRef<AbortController | null>(null);
+  // Flips true after the first loadSession tick completes for this open cycle.
+  // Gates the seed-message effect so optimistic state from send() isn't
+  // overwritten by the session-snapshot setMessages(next) that the GET fires.
+  const [sessionLoaded, setSessionLoaded] = useState(false);
 
   // Fetch agent context once per panel open for smart suggestions.
   useEffect(() => {
@@ -285,7 +298,11 @@ export function CoachPanel({
   // When drafting finishes, fire a global refresh event so the claude.md /
   // skills / memory sections re-fetch without a manual page reload.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Reset on close so the next open cycle re-gates the seed effect.
+      setSessionLoaded(false);
+      return;
+    }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
@@ -299,6 +316,7 @@ export function CoachPanel({
         const next: CoachMessage[] = Array.isArray(d.messages) ? d.messages : [];
         if (cancelled) return;
         setMessages(next);
+        setSessionLoaded(true);
         const tail = next[next.length - 1];
         const stillDrafting = isLiveDraft(tail);
         if (wasDrafting && !stillDrafting) {
@@ -432,6 +450,31 @@ export function CoachPanel({
     }
   };
 
+  /**
+   * Auto-fire a seeded message (from "Ask Coach" on a failing eval row) once
+   * per token. The ref-based dedup means closing and re-opening the panel with
+   * the same seed doesn't re-ask the same question — the page bumps the token
+   * for each distinct Ask-Coach click.
+   *
+   * `sessionLoaded` gate: the loadSession effect above does setMessages(next)
+   * after its GET resolves; firing send() before that would race — the GET's
+   * setMessages would overwrite our optimistic [userMsg, draft], and incoming
+   * SSE deltas would either be dropped (empty tail) or append to a stale
+   * assistant message (prior conversation). Wait for the first tick to settle.
+   */
+  const lastSeedTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open || !seed) return;
+    if (!sessionLoaded) return;
+    if (seed.token === lastSeedTokenRef.current) return;
+    if (sending) return;
+    lastSeedTokenRef.current = seed.token;
+    void send(seed.message);
+    // send is intentionally excluded — it's recreated every render and
+    // including it would re-fire on every keystroke in the composer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, seed, sending, sessionLoaded]);
+
   /** Archive the current conversation and start a fresh one (non-destructive —
    *  the active row is moved into `coach-archive:<id>` before being cleared).
    *  If a turn is still streaming, abort the client fetch so the composer
@@ -526,6 +569,11 @@ export function CoachPanel({
           }),
         });
       }
+    } else if (proposal.kind === 'eval-case-check') {
+      res = await fetch(`/api/agents/${agentId}/evals/cases/${proposal.caseId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checks: proposal.after }),
+      });
     } else if (proposal.action === 'delete') {
       // Delete flow needs the skill id — look it up.
       const sr = await fetch(`/api/agents/${agentId}/skills`);
@@ -548,6 +596,9 @@ export function CoachPanel({
 
     setMessages(prev => patchProposal(prev, messageIndex, proposal.id, 'applied'));
     window.dispatchEvent(new Event('slackhive:instructions-refresh'));
+    if (proposal.kind === 'eval-case-check') {
+      window.dispatchEvent(new Event('slackhive:evals-refresh'));
+    }
   };
 
   const rejectProposal = async (messageIndex: number, proposal: CoachProposal) => {
@@ -585,7 +636,12 @@ export function CoachPanel({
   const bootstrapDrafting = isLiveDraft(messages[messages.length - 1]);
   const composerDisabled = !canEdit || sending || bootstrapDrafting;
 
-  return (
+  // Portal to document.body so the panel escapes any transformed ancestor
+  // (e.g. the AgentPage wrapper carries `.fade-up`, which leaves a persistent
+  // `transform: translateY(0)` via `animation-fill-mode: both` — that creates
+  // a new containing block and would otherwise pin `position: fixed; top: 0`
+  // to the scrolled-past page top instead of the viewport.
+  return createPortal((
     <>
       <div
         onClick={onClose}
@@ -827,6 +883,7 @@ export function CoachPanel({
               placeholder={
                 !canEdit ? 'Read-only — you lack edit access'
                 : bootstrapDrafting ? 'Claude is drafting your initial setup…'
+                : sending ? 'Coach is replying…'
                 : 'Ask anything about this agent…'
               }
               disabled={composerDisabled}
@@ -852,9 +909,23 @@ export function CoachPanel({
                 <Paperclip size={14} />
               </button>
               <span style={{ flex: 1 }} />
-              <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)' }}>
-                ↵ send · ⇧↵ newline
-              </span>
+              {(sending || bootstrapDrafting) ? (
+                <span
+                  title="Coach is replying"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    fontSize: 11, fontWeight: 600, color: 'var(--accent)',
+                    fontFamily: 'var(--font-sans)',
+                  }}
+                >
+                  <DraftingIndicator color="var(--accent)" size={5} />
+                  Coach is replying
+                </span>
+              ) : (
+                <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)' }}>
+                  ↵ send · ⇧↵ newline
+                </span>
+              )}
               <button
                 onClick={() => send(input)}
                 disabled={composerDisabled || !input.trim()}
@@ -889,7 +960,7 @@ export function CoachPanel({
         }
       `}</style>
     </>
-  );
+  ), document.body);
 }
 
 const iconBtn: React.CSSProperties = {
@@ -964,14 +1035,24 @@ function MessageBubble({
       {!isUser && message.proposals && message.proposals.length > 0 && (
         <div style={{ marginTop: 8, width: '100%' }}>
           {message.proposals.map(p => (
-            <ProposalCard
-              key={p.id}
-              proposal={p}
-              canEdit={canEdit}
-              onApply={() => onApply(p)}
-              onReject={() => onReject(p)}
-              before={getBefore(p)}
-            />
+            p.kind === 'eval-case-check' ? (
+              <EvalCheckProposalCard
+                key={p.id}
+                proposal={p}
+                canEdit={canEdit}
+                onApply={() => onApply(p)}
+                onReject={() => onReject(p)}
+              />
+            ) : (
+              <ProposalCard
+                key={p.id}
+                proposal={p}
+                canEdit={canEdit}
+                onApply={() => onApply(p)}
+                onReject={() => onReject(p)}
+                before={getBefore(p)}
+              />
+            )
           ))}
         </div>
       )}
@@ -982,7 +1063,8 @@ function MessageBubble({
 function ProposalCard({
   proposal, canEdit, onApply, onReject, before,
 }: {
-  proposal: CoachProposal;
+  /** Eval-check proposals are routed to EvalCheckProposalCard upstream. */
+  proposal: Exclude<CoachProposal, { kind: 'eval-case-check' }>;
   canEdit: boolean;
   onApply: () => void;
   onReject: () => void;
@@ -1141,12 +1223,217 @@ function ProposalCard({
   );
 }
 
+/**
+ * Approval card for an `eval-case-check` proposal — uses the same chip
+ * vocabulary as the case editor (no JSON diff). Renders the Before checks in
+ * a red-striped block and the After checks in a green-striped block.
+ */
+function EvalCheckProposalCard({
+  proposal, canEdit, onApply, onReject,
+}: {
+  proposal: Extract<CoachProposal, { kind: 'eval-case-check' }>;
+  canEdit: boolean;
+  onApply: () => void;
+  onReject: () => void;
+}) {
+  const applied = proposal.status === 'applied';
+  const rejected = proposal.status === 'rejected';
+  const triageLabel = proposal.triage === 'skill_issue' ? 'Skill issue'
+    : proposal.triage === 'test_mismatch' ? 'Test mismatch'
+    : 'Real failure';
+
+  return (
+    <div style={{
+      border: '1px solid var(--border)', borderRadius: 8,
+      background: 'var(--surface)',
+      padding: 10, marginBottom: 8,
+      opacity: rejected ? 0.55 : 1,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+        <FileText size={13} style={{ color: 'var(--muted)' }} />
+        <span style={{
+          fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
+          background: 'rgba(99,102,241,0.12)', color: 'var(--accent)',
+        }}>{triageLabel.toUpperCase()}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)' }}>
+          Test case checks
+        </span>
+      </div>
+      <div style={{
+        fontSize: 12, color: 'var(--text-2)', margin: '2px 0 6px',
+        fontFamily: 'var(--font-mono)',
+        background: 'var(--surface-2)', padding: '4px 8px', borderRadius: 4,
+        border: '1px solid var(--border)',
+      }}>
+        &ldquo;{proposal.caseQuestion}&rdquo;
+      </div>
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '2px 0 8px', lineHeight: 1.5 }}>
+        {proposal.rationale}
+      </p>
+
+      <CheckList label="Before" variant="before" checks={proposal.before} />
+      <CheckList label="After"  variant="after"  checks={proposal.after} />
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+        {applied ? (
+          <span style={{
+            fontSize: 12, fontWeight: 500, color: 'var(--green)',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}><Check size={13} /> Applied</span>
+        ) : rejected ? (
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Rejected</span>
+        ) : (
+          <>
+            <button
+              onClick={onApply}
+              disabled={!canEdit}
+              style={{
+                fontSize: 12, fontWeight: 500, padding: '5px 13px', borderRadius: 5,
+                background: canEdit ? 'var(--accent)' : 'var(--surface-2)',
+                color: canEdit ? 'var(--accent-fg)' : 'var(--muted)',
+                border: 'none', cursor: canEdit ? 'pointer' : 'not-allowed',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >Apply</button>
+            <button
+              onClick={onReject}
+              style={{
+                fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 5,
+                background: 'transparent', color: 'var(--muted)',
+                border: '1px solid var(--border)', cursor: 'pointer',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >Reject</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CheckList({ label, variant, checks }: {
+  label: string;
+  variant: 'before' | 'after';
+  checks: CheckConfig[];
+}) {
+  if (checks.length === 0) {
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div style={sectionLabelStyle}>{label}</div>
+        <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic', padding: '4px 0' }}>
+          (no checks)
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={sectionLabelStyle}>{label}</div>
+      {checks.map((c, i) => <CheckRow key={i} check={c} variant={variant} />)}
+    </div>
+  );
+}
+
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em',
+  color: 'var(--muted)', fontWeight: 700, marginBottom: 4,
+};
+
+function CheckRow({ check, variant }: { check: CheckConfig; variant: 'before' | 'after' }) {
+  const stripe = variant === 'before' ? 'var(--red)' : 'var(--green)';
+  const bg = variant === 'before' ? 'var(--red-soft-bg, rgba(239,68,68,0.06))' : 'rgba(16,185,129,0.06)';
+  return (
+    <div style={{
+      border: '1px solid var(--border)',
+      borderLeft: `3px solid ${stripe}`,
+      borderRadius: 6, padding: '7px 10px',
+      background: bg,
+      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+      marginBottom: 4,
+    }}>
+      <span style={{
+        fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)',
+        background: 'rgba(99,102,241,0.12)', color: 'var(--accent)',
+        border: '1px solid rgba(99,102,241,0.25)',
+        padding: '1px 6px', borderRadius: 4, flexShrink: 0,
+      }}>{check.primitive}</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, flex: 1, fontSize: 12 }}>
+        {renderCheckValue(check)}
+      </div>
+    </div>
+  );
+}
+
+function renderCheckValue(check: CheckConfig): React.ReactNode {
+  if (check.primitive === 'tool_called') {
+    const must = check.must_call ?? [];
+    const not = check.must_not_call ?? [];
+    return (
+      <>
+        {must.map((t, i) => (
+          <React.Fragment key={`mc-${i}`}>
+            {i > 0 && <span style={connectorStyle}>or</span>}
+            <span style={toolChipStyle}>{t}</span>
+          </React.Fragment>
+        ))}
+        {not.map((t, i) => (
+          <React.Fragment key={`nc-${i}`}>
+            <span style={connectorStyle}>not</span>
+            <span style={toolChipStyle}>{t}</span>
+          </React.Fragment>
+        ))}
+        {must.length === 0 && not.length === 0 && (
+          <span style={{ color: 'var(--subtle)', fontStyle: 'italic' }}>(no tools)</span>
+        )}
+      </>
+    );
+  }
+  if (check.primitive === 'substring') {
+    const must = check.must_contain ?? [];
+    const not = check.must_not_contain ?? [];
+    return (
+      <>
+        {must.map((s, i) => (
+          <React.Fragment key={`mc-${i}`}>
+            {i > 0 && <span style={connectorStyle}>and</span>}
+            <span style={toolChipStyle}>contains &ldquo;{s}&rdquo;</span>
+          </React.Fragment>
+        ))}
+        {not.map((s, i) => (
+          <React.Fragment key={`nc-${i}`}>
+            <span style={connectorStyle}>not</span>
+            <span style={toolChipStyle}>&ldquo;{s}&rdquo;</span>
+          </React.Fragment>
+        ))}
+      </>
+    );
+  }
+  // llm_judge
+  return (
+    <span style={{ fontStyle: 'italic', color: 'var(--text)' }}>
+      &ldquo;{check.rubric}&rdquo;
+    </span>
+  );
+}
+
+const toolChipStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center',
+  padding: '2px 7px', borderRadius: 4,
+  background: 'var(--surface-2)', border: '1px solid var(--border)',
+  color: 'var(--text)',
+  fontFamily: 'var(--font-mono)', fontSize: 11.5,
+};
+const connectorStyle: React.CSSProperties = {
+  fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em',
+  color: 'var(--subtle)', fontWeight: 700,
+};
+
 /** Three-dot thinking indicator (iMessage/Slack style). Keyframes for the
  *  dot animation live in the <style> block at the bottom of the panel. */
-function DraftingIndicator() {
+function DraftingIndicator({ color = 'var(--muted)', size = 6 }: { color?: string; size?: number } = {}) {
   const dot: React.CSSProperties = {
-    width: 6, height: 6, borderRadius: '50%',
-    background: 'var(--muted)',
+    width: size, height: size, borderRadius: '50%',
+    background: color,
     animation: 'coachDot 1.2s infinite ease-in-out',
   };
   return (

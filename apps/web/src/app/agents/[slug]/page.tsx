@@ -23,10 +23,11 @@ import { useAuth } from '@/lib/auth-context';
 import { FilesChanged, type FileChange } from './diff-view';
 import { CoachPanel } from './coach-panel';
 import { TestPanel } from './test-panel';
+import { EvalsPanel } from './evals-panel';
 import { AudiencesPanel } from './audiences-panel';
 
 type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'settings';
-type SettingsSection = 'general' | 'slack' | 'logs' | 'history' | 'danger';
+type SettingsSection = 'general' | 'slack' | 'evals' | 'logs' | 'history' | 'danger';
 
 interface AgentExportPayload {
   version: number;
@@ -98,6 +99,10 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const router = useRouter();
   const [coachOpen, setCoachOpen] = useState(false);
   const [pendingCoachOpen, setPendingCoachOpen] = useState(coachArmedFromWizard);
+  // Each Ask-Coach click bumps this token; CoachPanel watches it and fires the
+  // seed message once per change. Tokens (not message equality) drive resends
+  // so identical seeds from two different rows still trigger.
+  const [coachSeed, setCoachSeed] = useState<{ token: string; message: string } | null>(null);
   const [agent, setAgent] = useState<Agent | null>(null);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [avatarImgFailed, setAvatarImgFailed] = useState(false);
@@ -386,7 +391,9 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
         {tab === 'audiences'     && <AudiencesPanel    agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'settings'      && <AgentSettingsTab  agent={agent} onUpdate={setAgent} canEdit={canEdit} viewOnly={viewOnly} allAgents={allAgents} role={role} username={username} section={settingsSection} onSection={setSettingsSection} />}
+        {tab === 'settings'      && <AgentSettingsTab  agent={agent} onUpdate={setAgent} canEdit={canEdit} viewOnly={viewOnly} allAgents={allAgents} role={role} username={username} section={settingsSection} onSection={setSettingsSection}
+          onAskCoach={(message) => { setCoachSeed({ token: crypto.randomUUID(), message }); setCoachOpen(true); }}
+          onOpenCoach={() => setCoachOpen(true)} />}
       </div>
 
       {/* Coach is a slide-over — rendered once at page level so it floats over
@@ -397,6 +404,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         open={coachOpen}
         onClose={() => setCoachOpen(false)}
         canEdit={canEdit && !agent.isBoss}
+        seed={coachSeed}
       />
     </div>
   );
@@ -674,14 +682,14 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { 
 
 // ─── Agent Settings (side-nav: General · Slack · Logs · History · Danger) ──────
 
-function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role, username, section, onSection }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; viewOnly: boolean; allAgents: Agent[]; role: string | null; username: string; section: SettingsSection; onSection: (s: SettingsSection) => void }) {
+function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role, username, section, onSection, onAskCoach, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; viewOnly: boolean; allAgents: Agent[]; role: string | null; username: string; section: SettingsSection; onSection: (s: SettingsSection) => void; onAskCoach: (message: string) => void; onOpenCoach: () => void }) {
   const isAdmin = role === 'admin' || role === 'superadmin';
   const canDelete = isAdmin || agent.createdBy === username;
   const sections: { id: SettingsSection; label: string }[] = [
     { id: 'general', label: 'General' },
     { id: 'slack', label: 'Slack' },
   ];
-  if (!viewOnly) sections.push({ id: 'logs', label: 'Logs' }, { id: 'history', label: 'History' });
+  if (!viewOnly) sections.push({ id: 'evals', label: 'Evals' }, { id: 'logs', label: 'Logs' }, { id: 'history', label: 'History' });
   if (canDelete) sections.push({ id: 'danger', label: 'Danger Zone' });
   const setSection = onSection;
 
@@ -701,6 +709,7 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
       <div style={{ flex: 1, minWidth: 320 }}>
         {section === 'general' && <GeneralSettingsSection agent={agent} onUpdate={onUpdate} canEdit={canEdit} allAgents={allAgents} />}
         {section === 'slack'   && <SlackSettingsSection   agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
+        {section === 'evals'   && <EvalsPanel agent={agent} onAskCoach={onAskCoach} onOpenCoach={onOpenCoach} />}
         {section === 'logs'    && <LogsTab    agentId={agent.id} slug={agent.slug} />}
         {section === 'history' && <HistoryTab agentId={agent.id} canEdit={canEdit} />}
         {section === 'danger'  && <DangerSection agent={agent} canDelete={canDelete} />}
