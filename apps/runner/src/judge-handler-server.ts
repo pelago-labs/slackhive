@@ -110,7 +110,7 @@ function buildJudgePrompt(req: JudgeRequest): string {
 }
 
 function parseJudgeOutput(text: string): JudgeResponse {
-  // Strip markdown fences if Claude added them despite instructions.
+  // Strip markdown fences the model may add despite instructions.
   const cleaned = text.replace(/```(?:json)?/gi, '').trim();
   // Take from first { to last } — robust to leading/trailing prose.
   const start = cleaned.indexOf('{');

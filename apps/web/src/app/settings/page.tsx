@@ -205,32 +205,33 @@ function AITab() {
   // Coach + judge run on the active backend, so their model options follow it.
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
 
-  const load = () => {
-    fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
-      if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
-      if (s[EVAL_JUDGE_MODEL_SETTING_KEY]) setEvalJudgeModel(s[EVAL_JUDGE_MODEL_SETTING_KEY]);
-    }).catch(() => {});
-    fetch('/api/system/models').then(r => r.ok ? r.json() : null).then(d => {
-      if (d?.models?.length) setModelOptions(d.models);
-    }).catch(() => {});
-  };
-  useEffect(() => { load(); }, []);
+  const persist = (key: string, value: string) =>
+    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) }).catch(() => {});
 
-  const saveCoach = (v: string) => {
-    setCoachModel(v);
-    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: COACH_MODEL_SETTING_KEY, value: v }) }).catch(() => {});
-  };
-  const saveJudge = (v: string) => {
-    setEvalJudgeModel(v);
-    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: EVAL_JUDGE_MODEL_SETTING_KEY, value: v }) }).catch(() => {});
-  };
+  // Load settings + the active backend's model list together, then reconcile: if a
+  // stored model isn't valid for the current backend, switch to its first model AND
+  // persist that correction (so the stored value never diverges from what's shown).
+  const load = async () => {
+    const [s, d] = await Promise.all([
+      fetch('/api/settings').then(r => r.json()).catch(() => ({} as Record<string, string>)),
+      fetch('/api/system/models').then(r => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
+    const opts: { value: string; label: string; sub?: string }[] = d?.models?.length ? d.models : [...MODELS];
+    setModelOptions(opts);
+    const valid = (v: string) => opts.some(m => m.value === v);
 
-  // If a saved model isn't valid for the active backend, default to its first model.
-  useEffect(() => {
-    if (!modelOptions.length) return;
-    setCoachModel(cm => modelOptions.some(m => m.value === cm) ? cm : modelOptions[0].value);
-    setEvalJudgeModel(jm => modelOptions.some(m => m.value === jm) ? jm : modelOptions[0].value);
-  }, [modelOptions]);
+    let cm = s[COACH_MODEL_SETTING_KEY] || DEFAULTS[COACH_MODEL_SETTING_KEY];
+    if (!valid(cm)) { cm = opts[0].value; persist(COACH_MODEL_SETTING_KEY, cm); }
+    setCoachModel(cm);
+
+    let jm = s[EVAL_JUDGE_MODEL_SETTING_KEY] || DEFAULTS[EVAL_JUDGE_MODEL_SETTING_KEY];
+    if (!valid(jm)) { jm = opts[0].value; persist(EVAL_JUDGE_MODEL_SETTING_KEY, jm); }
+    setEvalJudgeModel(jm);
+  };
+  useEffect(() => { void load(); }, []);
+
+  const saveCoach = (v: string) => { setCoachModel(v); persist(COACH_MODEL_SETTING_KEY, v); };
+  const saveJudge = (v: string) => { setEvalJudgeModel(v); persist(EVAL_JUDGE_MODEL_SETTING_KEY, v); };
 
   return (
     <>

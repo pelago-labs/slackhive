@@ -2,7 +2,7 @@
  * @fileoverview Runner endpoint for LLM-generated test case suggestions.
  *
  * One-shot JSON in, JSON out. Takes the agent's full picture (description,
- * persona, claudeMd, skills, wiki sources, linked MCPs) and asks Claude
+ * persona, claudeMd, skills, wiki sources, linked MCPs) and asks the model
  * to design N test cases composed of the 5 user-facing check types.
  *
  * Output is in the UI's check-type vocabulary (substring_contain,
@@ -10,8 +10,8 @@
  * the web side translates these into framework CheckConfig shapes
  * before persisting.
  *
- * Uses the same Claude Agent SDK pattern as /judge — no tools, no MCP,
- * maxTurns: 1, plain text-in/text-out.
+ * Runs via `generateText` on the ACTIVE agent backend (Claude or Codex),
+ * same as /judge — no tools, no MCP, plain text-in/text-out.
  *
  * @module runner/suggest-cases-handler-server
  */

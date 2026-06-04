@@ -680,7 +680,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { 
   );
 }
 
-// ─── Agent Settings (side-nav: General · Slack · Logs · History · Danger) ──────
+// ─── Agent Settings (side-nav: General · Slack · Evals · Logs · History · Danger) ──
 
 function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role, username, section, onSection, onAskCoach, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; viewOnly: boolean; allAgents: Agent[]; role: string | null; username: string; section: SettingsSection; onSection: (s: SettingsSection) => void; onAskCoach: (message: string) => void; onOpenCoach: () => void }) {
   const isAdmin = role === 'admin' || role === 'superadmin';

@@ -28,6 +28,9 @@ import type {
 import {
   DEFAULT_EVAL_JUDGE_MODEL,
   EVAL_JUDGE_MODEL_SETTING_KEY,
+  AGENT_BACKEND_SETTING_KEY,
+  DEFAULT_AGENT_BACKEND,
+  DEFAULT_CODEX_MODEL,
 } from '@slackhive/shared';
 import { getSetting } from '@/lib/db';
 import { evaluateStaticCheck } from './check-primitives';
@@ -121,11 +124,18 @@ export async function executeCase(caseRow: EvalCase): Promise<CaseExecution> {
     (r) => r !== null && (r.verdict === 'FAIL' || r.verdict === 'INFRA'),
   );
 
-  // Load judge model only if we'll actually need it.
+  // Load judge model only if we'll actually need it. When unset, pick a default
+  // appropriate to the ACTIVE backend (the global judge default is a Claude id;
+  // on Codex that'd otherwise be coerced to the Codex default downstream).
   let judgeModel: string | null = null;
   if (judgeIndices.length > 0 && !anyStaticFailed) {
-    judgeModel =
-      (await getSetting(EVAL_JUDGE_MODEL_SETTING_KEY)) ?? DEFAULT_EVAL_JUDGE_MODEL;
+    const stored = await getSetting(EVAL_JUDGE_MODEL_SETTING_KEY);
+    if (stored) {
+      judgeModel = stored;
+    } else {
+      const backend = (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+      judgeModel = backend === 'codex' ? DEFAULT_CODEX_MODEL : DEFAULT_EVAL_JUDGE_MODEL;
+    }
   }
 
   for (const i of judgeIndices) {
