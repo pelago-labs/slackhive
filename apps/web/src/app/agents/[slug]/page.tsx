@@ -34,8 +34,9 @@ interface AgentExportPayload {
   name?: string;
   persona?: string;
   description?: string;
-  claudeMd: string;
-  skills: { category: string; filename: string; content: string; sortOrder: number }[];
+  claudeMd?: string;
+  skills?: { category: string; filename: string; content: string; sortOrder: number }[];
+  memories?: { type: string; name: string; content: string }[];
 }
 
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
@@ -356,6 +357,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Instructions actions — only on the Instructions tab */}
         {tab === 'instructions' && canEdit && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <ActionBtn icon={<Library size={13} />} label="Templates" onClick={() => window.dispatchEvent(new Event('instr:templates'))} subtle />
             <ActionBtn icon={<Download size={13} />} label="Export" onClick={() => window.dispatchEvent(new Event('instr:export'))} subtle />
             <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => window.dispatchEvent(new Event('instr:import'))} subtle />
             {!agent.isBoss && (
@@ -882,41 +884,55 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
   const [libSkillSel, setLibSkillSel] = useState<Set<string>>(new Set());
   const [libApplying, setLibApplying] = useState(false);
 
-  const handleExport = async () => {
+  // Export chooser — pick which parts to include.
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportSel, setExportSel] = useState({ system: true, skills: true, memory: true });
+  // Import selection — which parts of the loaded file to apply.
+  const [importSel, setImportSel] = useState({ system: true, skills: true, memory: true });
+
+  const doExport = async () => {
     setExporting(true);
     try {
-      const [skillsRes, mdRes] = await Promise.all([
-        fetch(`/api/agents/${agent.id}/skills`),
-        fetch(`/api/agents/${agent.id}/claude-md`),
-      ]);
-      const skills: Skill[] = await skillsRes.json();
-      const claudeMd = await mdRes.text();
       const payload: AgentExportPayload = {
         version: 1,
         exportedAt: new Date().toISOString(),
         persona: agent.persona ?? '',
         description: agent.description ?? '',
-        claudeMd,
-        skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
       };
+      if (exportSel.system) {
+        payload.claudeMd = await fetch(`/api/agents/${agent.id}/claude-md`).then(r => r.text());
+      }
+      if (exportSel.skills) {
+        const skills: Skill[] = await fetch(`/api/agents/${agent.id}/skills`).then(r => r.json());
+        payload.skills = skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder }));
+      }
+      if (exportSel.memory) {
+        const mems: Memory[] = await fetch(`/api/agents/${agent.id}/memories`).then(r => r.ok ? r.json() : []).catch(() => []);
+        payload.memories = mems.map(m => ({ type: m.type, name: m.name, content: m.content }));
+      }
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `${agent.slug}-export.json`; a.click();
       URL.revokeObjectURL(url);
+      setExportOpen(false);
     } finally { setExporting(false); }
   };
 
   // Export/Import are triggered from the tab-bar actions (rendered at page level,
   // only on this tab) via window events; we keep the handlers + modals here.
-  const exportRef = useRef(handleExport);
-  exportRef.current = handleExport;
   useEffect(() => {
-    const onExport = () => { void exportRef.current(); };
-    const onImport = () => setPersonaLibOpen(true);
+    const onExport = () => setExportOpen(true);
+    const onImport = () => fileInputRef.current?.click();
+    const onTemplates = () => setPersonaLibOpen(true);
     window.addEventListener('instr:export', onExport);
     window.addEventListener('instr:import', onImport);
-    return () => { window.removeEventListener('instr:export', onExport); window.removeEventListener('instr:import', onImport); };
+    window.addEventListener('instr:templates', onTemplates);
+    return () => {
+      window.removeEventListener('instr:export', onExport);
+      window.removeEventListener('instr:import', onImport);
+      window.removeEventListener('instr:templates', onTemplates);
+    };
   }, []);
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -930,14 +946,20 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
       try {
         const data = JSON.parse(ev.target?.result as string);
         if (!data || typeof data !== 'object') { setImportError('Invalid file: not a JSON object'); return; }
-        if (typeof data.claudeMd !== 'string') { setImportError('Invalid file: missing claudeMd field'); return; }
-        if (!Array.isArray(data.skills)) { setImportError('Invalid file: missing skills array'); return; }
-        for (let i = 0; i < data.skills.length; i++) {
-          const s = data.skills[i];
-          if (!s.category || typeof s.category !== 'string') { setImportError(`Invalid skill #${i + 1}: missing category`); return; }
-          if (!s.filename || typeof s.filename !== 'string') { setImportError(`Invalid skill #${i + 1}: missing filename`); return; }
-          if (typeof s.content !== 'string') { setImportError(`Invalid skill #${i + 1}: missing content`); return; }
+        const hasMd = typeof data.claudeMd === 'string';
+        const hasSkills = Array.isArray(data.skills) && data.skills.length > 0;
+        const hasMems = Array.isArray(data.memories) && data.memories.length > 0;
+        if (!hasMd && !hasSkills && !hasMems) { setImportError('Nothing to import: file has no system prompt, skills, or memories'); return; }
+        if (hasSkills) {
+          for (let i = 0; i < data.skills.length; i++) {
+            const s = data.skills[i];
+            if (!s.category || typeof s.category !== 'string') { setImportError(`Invalid skill #${i + 1}: missing category`); return; }
+            if (!s.filename || typeof s.filename !== 'string') { setImportError(`Invalid skill #${i + 1}: missing filename`); return; }
+            if (typeof s.content !== 'string') { setImportError(`Invalid skill #${i + 1}: missing content`); return; }
+          }
         }
+        // Default selection = whatever the file actually contains.
+        setImportSel({ system: hasMd, skills: hasSkills, memory: hasMems });
         setImportPreview(data);
       } catch { setImportError('Could not parse file — must be valid JSON'); }
     };
@@ -949,23 +971,38 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
     if (!data) return;
     setImporting(true);
     try {
-      if (data.persona !== undefined || data.description !== undefined) {
-        await fetch(`/api/agents/${agent.id}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...(data.persona !== undefined && { persona: data.persona }),
-            ...(data.description !== undefined && { description: data.description }),
-          }),
+      // System Prompt: instructions body (+ persona/description if present).
+      if (importSel.system && typeof data.claudeMd === 'string') {
+        if (data.persona !== undefined || data.description !== undefined) {
+          await fetch(`/api/agents/${agent.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...(data.persona !== undefined && { persona: data.persona }),
+              ...(data.description !== undefined && { description: data.description }),
+            }),
+          });
+        }
+        await fetch(`/api/agents/${agent.id}/claude-md`, {
+          method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: data.claudeMd,
         });
       }
-      await fetch(`/api/agents/${agent.id}/claude-md`, {
-        method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: data.claudeMd,
-      });
-      await Promise.all(data.skills.map(s =>
-        fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
-        })
-      ));
+      // Skills: upsert each.
+      if (importSel.skills && Array.isArray(data.skills)) {
+        await Promise.all(data.skills.map(s =>
+          fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
+          })
+        ));
+      }
+      // Memories: create each (POST upserts by name).
+      if (importSel.memory && Array.isArray(data.memories)) {
+        await Promise.all(data.memories.map(m =>
+          fetch(`/api/agents/${agent.id}/memories`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: m.type, name: m.name, content: m.content }),
+          })
+        ));
+      }
       const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
       onAgentUpdate(updated);
       setImportPreview(null);
@@ -977,47 +1014,70 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
     <div className="fade-up">
       <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
 
-      {/* ── Import confirmation modal ────────────────────────────────── */}
-      {importPreview && (
-        <Portal>
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }} onClick={() => setImportPreview(null)}>
-            <div style={{
-              background: 'var(--surface)', borderRadius: 14, padding: '28px 32px',
-              maxWidth: 480, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-            }} onClick={e => e.stopPropagation()}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-                Import agent config
-              </h3>
-              <div style={{
-                display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
-                background: 'var(--surface-2)', border: '1.5px solid var(--red-soft-border)', borderRadius: 8,
-              }}>
-                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
-                    This will overwrite current AGENTS.md and skills
-                  </div>
-                  <div style={{ fontSize: 12, color: '#9f1239' }}>
-                    Existing AGENTS.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
-                  </div>
+      {/* ── Import: choose which parts to apply ──────────────────────── */}
+      {importPreview && (() => {
+        const hasMd = typeof importPreview.claudeMd === 'string';
+        const nSkills = importPreview.skills?.length ?? 0;
+        const nMems = importPreview.memories?.length ?? 0;
+        const none = !(importSel.system && hasMd) && !(importSel.skills && nSkills) && !(importSel.memory && nMems);
+        const row = (sel: boolean, onToggle: () => void, disabled: boolean, label: string, sub: string) => (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, background: sel && !disabled ? 'var(--surface-2)' : 'var(--surface)' }}>
+            <input type="checkbox" checked={sel} disabled={disabled} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{sub}</div></div>
+          </label>
+        );
+        return (
+          <Portal>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setImportPreview(null)}>
+              <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '26px 28px', maxWidth: 460, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>Import agent config</h3>
+                <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  Choose what to import{importPreview.exportedAt ? ` (exported ${new Date(importPreview.exportedAt).toLocaleDateString()})` : ''}. Selected parts overwrite current content — a snapshot is saved first.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                  {row(importSel.system && hasMd, () => setImportSel(s => ({ ...s, system: !s.system })), !hasMd, 'System Prompt', hasMd ? 'Replaces the current instructions' : 'Not in this file')}
+                  {row(importSel.skills && nSkills > 0, () => setImportSel(s => ({ ...s, skills: !s.skills })), nSkills === 0, 'Skills', nSkills > 0 ? `${nSkills} skill${nSkills !== 1 ? 's' : ''} upserted` : 'Not in this file')}
+                  {row(importSel.memory && nMems > 0, () => setImportSel(s => ({ ...s, memory: !s.memory })), nMems === 0, 'Memories', nMems > 0 ? `${nMems} memor${nMems !== 1 ? 'ies' : 'y'} added` : 'Not in this file')}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <PrimaryBtn onClick={() => applyImport()} loading={importing}>{none ? 'Select something' : 'Import'}</PrimaryBtn>
+                  <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
-                <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <PrimaryBtn onClick={() => applyImport()} loading={importing}>Apply Import</PrimaryBtn>
-                <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
+            </div>
+          </Portal>
+        );
+      })()}
+
+      {/* ── Export: choose which parts to include ────────────────────── */}
+      {exportOpen && (() => {
+        const none = !exportSel.system && !exportSel.skills && !exportSel.memory;
+        const row = (sel: boolean, onToggle: () => void, label: string, sub: string) => (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: 'pointer', background: sel ? 'var(--surface-2)' : 'var(--surface)' }}>
+            <input type="checkbox" checked={sel} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{sub}</div></div>
+          </label>
+        );
+        return (
+          <Portal>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setExportOpen(false)}>
+              <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '26px 28px', maxWidth: 460, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>Export agent config</h3>
+                <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>Choose what to include in the downloaded JSON.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                  {row(exportSel.system, () => setExportSel(s => ({ ...s, system: !s.system })), 'System Prompt', 'The agent instructions')}
+                  {row(exportSel.skills, () => setExportSel(s => ({ ...s, skills: !s.skills })), 'Skills', 'All skill files')}
+                  {row(exportSel.memory, () => setExportSel(s => ({ ...s, memory: !s.memory })), 'Memories', 'Learned memories')}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <PrimaryBtn onClick={doExport} loading={exporting}>{none ? 'Select something' : 'Download'}</PrimaryBtn>
+                  <GhostBtn onClick={() => setExportOpen(false)}>Cancel</GhostBtn>
+                </div>
               </div>
             </div>
-          </div>
-        </Portal>
-      )}
+          </Portal>
+        );
+      })()}
 
       {/* ── Persona Library modal ────────────────────────────────────── */}
       {personaLibOpen && (
