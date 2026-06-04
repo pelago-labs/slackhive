@@ -354,7 +354,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
         {/* Instructions actions — only on the Instructions tab */}
         {tab === 'instructions' && canEdit && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, paddingBottom: 7 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, padding: '8px 0' }}>
             <ActionBtn icon={<Download size={13} />} label="Export" onClick={() => window.dispatchEvent(new Event('instr:export'))} />
             <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => window.dispatchEvent(new Event('instr:import'))} />
             {!agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => setCoachOpen(true)} primary />}
