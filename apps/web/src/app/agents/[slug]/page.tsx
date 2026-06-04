@@ -451,77 +451,10 @@ function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label
   );
 }
 
-/** Role & Hierarchy — editable boss toggle + reports-to. Saves isBoss + reportsTo only. */
-function RoleHierarchyCard({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
-  const [form, setForm] = useState({ isBoss: agent.isBoss, reportsTo: agent.reportsTo ?? [] as string[] });
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState('');
-  const norm = (a: string[]) => [...a].sort().join(',');
-  const dirty = form.isBoss !== agent.isBoss || norm(form.reportsTo) !== norm(agent.reportsTo ?? []);
-  const save = async () => {
-    setSaving(true);
-    try {
-      const r = await fetch(`/api/agents/${agent.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isBoss: form.isBoss, reportsTo: form.reportsTo }),
-      });
-      const data = await r.json();
-      if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
-    } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
-  };
-  return (
-    <Card title="Role & Hierarchy" action={canEdit && dirty ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : (msg ? <span style={{ fontSize: 12, color: 'var(--green)' }}>{msg}</span> : undefined)}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks.</div>
-        </div>
-        <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} style={{
-          width: 44, height: 24, borderRadius: 12, border: 'none', background: form.isBoss ? '#d97706' : 'var(--border-2)',
-          cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-        }}>
-          <div style={{ position: 'absolute', top: 3, left: form.isBoss ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
-        </button>
-      </div>
-      {!form.isBoss && (() => {
-        const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
-        if (bosses.length === 0) return (
-          <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>No boss agents available. Create a boss agent first.</div>
-        );
-        return (
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
-              {bosses.map(boss => {
-                const checked = form.reportsTo.includes(boss.id);
-                return (
-                  <label key={boss.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8,
-                    border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
-                    background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
-                    cursor: canEdit ? 'pointer' : 'default', transition: 'all 0.15s',
-                  }}>
-                    <input type="checkbox" checked={checked} disabled={!canEdit}
-                      onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
-                      style={{ accentColor: '#d97706', width: 14, height: 14 }} />
-                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--accent-fg)', flexShrink: 0 }}>{boss.name.charAt(0).toUpperCase()}</div>
-                    <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{boss.name}</div></div>
-                  </label>
-                );
-              })}
-            </div>
-            <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>An agent can report to multiple bosses.</div>
-          </div>
-        );
-      })()}
-    </Card>
-  );
-}
-
 /**
- * Overview — identity + at-a-glance summary + role/hierarchy. Other operational
- * config (Slack, verbose, capabilities), logs, history and delete live under the
- * Settings tab. Each section PATCHes only its own fields (updateAgent merges).
+ * Overview — slimmed to the agent's identity + an at-a-glance summary. Operational
+ * config (Slack, verbose, hierarchy), logs, history and delete live under the
+ * Settings tab. Identity edits PATCH only their own fields (updateAgent merges).
  */
 function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
   const [form, setForm] = useState({
@@ -585,11 +518,10 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
   const fmtTokens = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n);
 
   return (
-    <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1100 }}>
-     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+    <div className="fade-up" style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap', maxWidth: 1100 }}>
       {/* Identity (main) */}
       <div style={{ flex: '1 1 520px', minWidth: 0 }}>
-        <Card title="Identity" action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
+        <Card title="Identity" fill action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
           <Grid2>
             <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
               hint="Internal agent name." />
@@ -610,7 +542,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
 
       {/* Details (aside) — metrics + meta */}
       <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
-        <Card title="Details">
+        <Card title="Details" fill>
           {/* Counts — compact two-column grid in one bordered box */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 14, rowGap: 2, border: '1px solid var(--border)', borderRadius: 10, padding: '8px 14px' }}>
             <MiniStat value={num(counts?.skills)} label="Skills" />
@@ -638,7 +570,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
           </div>
 
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 'auto',
             padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,
             fontSize: 12.5, fontWeight: 500, color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-sans)',
           }}>
@@ -646,10 +578,6 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
           </Link>
         </Card>
       </aside>
-     </div>
-
-     {/* Role & Hierarchy */}
-     <RoleHierarchyCard agent={agent} onUpdate={onUpdate} canEdit={canEdit} allAgents={allAgents} />
     </div>
   );
 }
@@ -691,8 +619,8 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
   );
 }
 
-function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
-  const [form, setForm] = useState({ verbose: agent.verbose ?? true });
+function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
+  const [form, setForm] = useState({ isBoss: agent.isBoss, verbose: agent.verbose ?? true, reportsTo: agent.reportsTo ?? [] as string[] });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const save = async () => {
@@ -700,7 +628,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
     try {
       const r = await fetch(`/api/agents/${agent.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ verbose: form.verbose }),
+        body: JSON.stringify({ isBoss: form.isBoss, verbose: form.verbose, reportsTo: form.reportsTo }),
       });
       const data = await r.json();
       if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
@@ -723,6 +651,52 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
         </div>
       </Card>
 
+      <Card title="Role & Hierarchy">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks</div>
+          </div>
+          <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', background: form.isBoss ? '#d97706' : 'var(--border-2)',
+            cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          }}>
+            <div style={{ position: 'absolute', top: 3, left: form.isBoss ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+          </button>
+        </div>
+        {!form.isBoss && (() => {
+          const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
+          if (bosses.length === 0) return (
+            <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>No boss agents available. Create a boss agent first.</div>
+          );
+          return (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {bosses.map(boss => {
+                  const checked = form.reportsTo.includes(boss.id);
+                  return (
+                    <label key={boss.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8,
+                      border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
+                      background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
+                      cursor: canEdit ? 'pointer' : 'default', transition: 'all 0.15s',
+                    }}>
+                      <input type="checkbox" checked={checked} disabled={!canEdit}
+                        onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
+                        style={{ accentColor: '#d97706', width: 14, height: 14 }} />
+                      <div style={{ width: 24, height: 24, borderRadius: 6, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--accent-fg)', flexShrink: 0 }}>{boss.name.charAt(0).toUpperCase()}</div>
+                      <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{boss.name}</div></div>
+                      {checked && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, color: '#d97706', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Reports to</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>An agent can report to multiple bosses.</div>
+            </div>
+          );
+        })()}
+      </Card>
 
       <Card title="Capabilities">
         <PermissionsTab agentId={agent.id} canEdit={canEdit} />
