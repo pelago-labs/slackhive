@@ -325,30 +325,41 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab bar ──────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex', gap: 0, padding: '0 40px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '0 40px',
         borderBottom: '1px solid var(--border)',
         background: 'var(--surface)',
         overflowX: 'auto', WebkitOverflowScrolling: 'touch',
       }}>
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={tab === t.id ? 'tab-active' : ''}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7,
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: '12px 16px', fontSize: 13,
-              color: tab === t.id ? 'var(--text)' : 'var(--muted)',
-              fontWeight: tab === t.id ? 500 : 400,
-              transition: 'color 0.15s',
-              fontFamily: 'var(--font-sans)',
-            }}
-          >
-            <t.Icon size={14} />
-            {t.label}
-          </button>
-        ))}
+        <div style={{ display: 'flex' }}>
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={tab === t.id ? 'tab-active' : ''}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                background: 'none', border: 'none', cursor: 'pointer',
+                padding: '12px 16px', fontSize: 13,
+                color: tab === t.id ? 'var(--text)' : 'var(--muted)',
+                fontWeight: tab === t.id ? 500 : 400,
+                transition: 'color 0.15s',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >
+              <t.Icon size={14} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Instructions actions — only on the Instructions tab */}
+        {tab === 'instructions' && canEdit && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, paddingBottom: 7 }}>
+            <ActionBtn icon={<Download size={13} />} label="Export" onClick={() => window.dispatchEvent(new Event('instr:export'))} />
+            <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => window.dispatchEvent(new Event('instr:import'))} />
+            {!agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => setCoachOpen(true)} primary />}
+          </div>
+        )}
       </div>
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
@@ -890,6 +901,18 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
     } finally { setExporting(false); }
   };
 
+  // Export/Import are triggered from the tab-bar actions (rendered at page level,
+  // only on this tab) via window events; we keep the handlers + modals here.
+  const exportRef = useRef(handleExport);
+  exportRef.current = handleExport;
+  useEffect(() => {
+    const onExport = () => { void exportRef.current(); };
+    const onImport = () => setPersonaLibOpen(true);
+    window.addEventListener('instr:export', onExport);
+    window.addEventListener('instr:import', onImport);
+    return () => { window.removeEventListener('instr:export', onExport); window.removeEventListener('instr:import', onImport); };
+  }, []);
+
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1076,28 +1099,21 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
 
         {/* Content column */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Header: title + description · actions */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
-            <div style={{ minWidth: 0 }}>
-              <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>
-                {section === 'system' ? 'System Prompt' : section === 'skills' ? 'Skills' : 'Memory'}
-              </h2>
-              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
-                {section === 'system'
-                  ? (agent.isBoss
-                      ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
-                      : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
-                  : section === 'skills'
-                  ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
-                  : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
-              </p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {importError && <span style={{ fontSize: 11.5, color: 'var(--red)' }}>{importError}</span>}
-              {canEdit && <ActionBtn icon={<Download size={13} />} label="Export" onClick={handleExport} loading={exporting} />}
-              {canEdit && <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => setPersonaLibOpen(true)} />}
-              {canEdit && !agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => onOpenCoach?.()} primary />}
-            </div>
+          {/* Header: title + description (actions live in the tab bar) */}
+          <div style={{ marginBottom: 14 }}>
+            <h2 style={{ margin: '0 0 3px', fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>
+              {section === 'system' ? 'System Prompt' : section === 'skills' ? 'Skills' : 'Memory'}
+            </h2>
+            <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 620 }}>
+              {section === 'system'
+                ? (agent.isBoss
+                    ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
+                    : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
+                : section === 'skills'
+                ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
+                : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
+              {importError && <span style={{ color: 'var(--red)', marginLeft: 8 }}>{importError}</span>}
+            </p>
           </div>
 
           {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} updatedAt={agent.updatedAt} />}
@@ -1175,11 +1191,15 @@ function ClaudeMdSection({ agentId, canEdit, updatedAt }: { agentId: string; can
   if (loading) return <p style={{ color: 'var(--muted)', fontSize: 14 }}>Loading...</p>;
 
   return (
-    <div style={{ position: 'relative' }}>
-      {/* Top bar: Save + Edit/Preview toggle, right-aligned */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 10 }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', overflow: 'hidden' }}>
+      {/* Slim toolbar — Last updated / save status (left) · Save + Edit/Preview (right) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontSize: 11.5, color: 'var(--subtle)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {msg
+            ? <span style={{ color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>
+            : (updatedAt ? `Last updated ${new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '')}
+        </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
           {canEdit && view === 'edit' && dirty && (
             <button onClick={save} disabled={saving} style={{
               background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
@@ -1187,16 +1207,16 @@ function ClaudeMdSection({ agentId, canEdit, updatedAt }: { agentId: string; can
               cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
             }}>{saving ? 'Saving…' : 'Save'}</button>
           )}
-        <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 9 }}>
-          {(['edit', 'preview'] as const).map(v => (
-            <button key={v} onClick={() => setView(v)} style={{
-              padding: '4px 13px', fontSize: 12, borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              background: view === v ? 'var(--surface)' : 'transparent',
-              color: view === v ? 'var(--text)' : 'var(--muted)',
-              fontWeight: view === v ? 600 : 400, boxShadow: view === v ? 'var(--shadow-sm)' : 'none',
-            }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
-          ))}
-        </div>
+          <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 9 }}>
+            {(['edit', 'preview'] as const).map(v => (
+              <button key={v} onClick={() => setView(v)} style={{
+                padding: '4px 13px', fontSize: 12, borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                background: view === v ? 'var(--surface)' : 'transparent',
+                color: view === v ? 'var(--text)' : 'var(--muted)',
+                fontWeight: view === v ? 600 : 400, boxShadow: view === v ? 'var(--shadow-sm)' : 'none',
+              }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1207,30 +1227,23 @@ function ClaudeMdSection({ agentId, canEdit, updatedAt }: { agentId: string; can
           readOnly={!canEdit}
           placeholder="Write the agent's core instructions here — rules, workflows, response style..."
           style={{
-            width: '100%', minHeight: 460, maxHeight: '75vh',
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
+            display: 'block', width: '100%', minHeight: 440, maxHeight: '72vh',
+            background: 'var(--surface)', border: 'none',
+            padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
             color: 'var(--text)', fontFamily: 'var(--font-mono)',
             resize: 'vertical', outline: 'none', boxSizing: 'border-box',
           }}
-          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-          onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
         />
       ) : (
-        <div style={{
-          minHeight: 460, maxHeight: '75vh', overflow: 'auto',
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 8, padding: '14px 18px', boxSizing: 'border-box',
-        }}>
+        <div style={{ minHeight: 440, maxHeight: '72vh', overflow: 'auto', padding: '14px 18px', boxSizing: 'border-box' }}>
           <MarkdownView>{content}</MarkdownView>
         </div>
       )}
 
       {/* Footer metadata */}
       {!loading && (
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingTop: 14, marginTop: 14, borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', padding: '11px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
           {[
-            ['Last updated', updatedAt ? new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'],
             ['Characters', content.length.toLocaleString()],
             ['Words', content.trim() ? content.trim().split(/\s+/).length.toLocaleString() : '0'],
           ].map(([l, v]) => (
