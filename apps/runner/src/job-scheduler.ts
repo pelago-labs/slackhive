@@ -144,15 +144,31 @@ export class JobScheduler {
       // Fresh session key per run (no resume)
       const sessionKey = `job-${job.id}-${Date.now()}`;
 
-      // Stream query to agent
-      let output = '';
+      // Stream query to agent. We post only the FINAL assistant message — not the
+      // joined transcript. Reasoning models (Codex/gpt-5.5) narrate progress as
+      // separate `agent_message` items ("I'm checking the rules…"), and the
+      // backend's `result` concatenates all of them; for a scheduled job we want
+      // just the deliverable, which is the last substantive assistant text block.
+      let resultText = '';
+      let lastMessage = '';
       for await (const msg of agent.backend.streamQuery(job.prompt, sessionKey)) {
-        const m = msg as Record<string, unknown>;
+        const m = msg as { type?: string; subtype?: string; result?: string; message?: { content?: { type: string; text?: string }[] } };
+        if (m.type === 'assistant') {
+          const text = (m.message?.content ?? [])
+            .filter(b => b.type === 'text' && b.text)
+            .map(b => b.text)
+            .join('')
+            .trim();
+          if (text) lastMessage = text;
+        }
         if (m.type === 'result' && m.subtype === 'success') {
-          output = (m.result as string) ?? '';
+          resultText = (m.result as string) ?? '';
         }
       }
 
+      // Prefer the final assistant message; fall back to the full result if we
+      // never captured a discrete message (e.g. a backend that only emits result).
+      let output = lastMessage || resultText;
       if (!output) {
         output = '_Job completed with no output._';
       }
