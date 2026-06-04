@@ -1078,6 +1078,11 @@ export class AgentRunner {
             logger.error('Failed to reload jobs', { error: (err as Error).message })
           );
           break;
+        case 'run-job':
+          this.jobScheduler.runNow(event.jobId).catch((err) =>
+            logger.error('Failed to run job', { jobId: event.jobId, error: (err as Error).message })
+          );
+          break;
         case 'skill-saved':
           this.summarizeSkillIfNeeded(event.agentId, event.skillId).catch((err) =>
             logger.warn('Skill summarize failed', { skillId: event.skillId, error: err.message })
@@ -1245,6 +1250,11 @@ export class AgentRunner {
               break;
             case 'reload-jobs':
               await this.jobScheduler.reload();
+              break;
+            case 'run-job':
+              this.jobScheduler.runNow(event.jobId).catch((err) =>
+                logger.error('Failed to run job', { jobId: event.jobId, error: (err as Error).message })
+              );
               break;
             case 'skill-saved':
               this.summarizeSkillIfNeeded(event.agentId, event.skillId).catch((err) =>

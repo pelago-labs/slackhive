@@ -83,6 +83,7 @@ export default function JobsPage() {
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [runs, setRuns] = useState<Record<string, JobRun[]>>({});
+  const [runningNow, setRunningNow] = useState<Set<string>>(new Set());
 
   const load = () => {
     setLoading(true);
@@ -107,6 +108,18 @@ export default function JobsPage() {
       }
     }
     setExpandedRuns(next);
+  };
+
+  const runNow = async (job: Job) => {
+    setRunningNow(prev => new Set(prev).add(job.id));
+    try {
+      const r = await fetch(`/api/jobs/${job.id}/run`, { method: 'POST' });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error ?? 'Failed to trigger run'); return; }
+      // Give the runner a moment to insert the run row, then refresh.
+      setTimeout(load, 1200);
+    } finally {
+      setTimeout(() => setRunningNow(prev => { const n = new Set(prev); n.delete(job.id); return n; }), 1500);
+    }
   };
 
   const toggleEnabled = async (job: Job) => {
@@ -266,6 +279,18 @@ export default function JobsPage() {
                   </button>
                   {canEdit && (
                     <>
+                      {/* Run now (manual test trigger) */}
+                      <button onClick={() => runNow(job)} disabled={runningNow.has(job.id)} title="Run now (manual test)" style={{
+                        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                        width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: runningNow.has(job.id) ? 'default' : 'pointer', color: 'var(--text)', opacity: runningNow.has(job.id) ? 0.5 : 1,
+                      }}>
+                        {runningNow.has(job.id) ? (
+                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ animation: 'spin 0.8s linear infinite' }}><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.6" strokeDasharray="28" strokeDashoffset="10" strokeLinecap="round"/></svg>
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.4" stroke="currentColor" strokeWidth="1.2"/><path d="M6.5 5.4l4 2.6-4 2.6V5.4z" fill="currentColor"/></svg>
+                        )}
+                      </button>
                       {/* Toggle enabled */}
                       <button onClick={() => toggleEnabled(job)} title={job.enabled ? 'Pause' : 'Enable'} style={{
                         background: 'none', border: '1px solid var(--border)', borderRadius: 6,

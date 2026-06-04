@@ -12,7 +12,7 @@
 
 import cron from 'node-cron';
 import type { ScheduledJob, PlatformAdapter } from '@slackhive/shared';
-import { getAllEnabledJobs, insertJobRun, updateJobRun } from './db';
+import { getAllEnabledJobs, getScheduledJobById, failOrphanedJobRuns, insertJobRun, updateJobRun } from './db';
 import type { AgentBackend } from '@slackhive/shared';
 import { logger } from './logger';
 
@@ -44,8 +44,30 @@ export class JobScheduler {
    * Loads all enabled jobs from DB and schedules them.
    */
   async start(): Promise<void> {
+    // Reconcile runs orphaned by a previous crash/restart so they don't show
+    // as "running" forever in the UI.
+    try {
+      const reconciled = await failOrphanedJobRuns();
+      if (reconciled > 0) logger.info('Reconciled orphaned job runs on startup', { count: reconciled });
+    } catch (err) {
+      logger.warn('Failed to reconcile orphaned job runs', { error: (err as Error).message });
+    }
     await this.reload();
     logger.info('Job scheduler started');
+  }
+
+  /**
+   * Run a job immediately, on demand (manual "Run now" — for testing).
+   * Loads the job fresh so it works even if not currently scheduled/enabled.
+   */
+  async runNow(jobId: string): Promise<void> {
+    const job = await getScheduledJobById(jobId);
+    if (!job) {
+      logger.warn('Manual run: job not found', { jobId });
+      return;
+    }
+    logger.info('Manual job run triggered', { jobId, name: job.name });
+    await this.executeJob(job);
   }
 
   /**

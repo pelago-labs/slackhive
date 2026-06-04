@@ -461,6 +461,12 @@ export interface JobsReloadEvent {
   type: 'reload-jobs';
 }
 
+/** Event to trigger an immediate, one-off (manual) run of a job — for testing. */
+export interface JobRunNowEvent {
+  type: 'run-job';
+  jobId: string;
+}
+
 /**
  * Event fired when a skill is created or updated. The runner picks this up,
  * generates a one-line description with Sonnet, and writes it back to the DB.
@@ -504,6 +510,7 @@ export type AgentEvent =
   | AgentStartEvent
   | AgentStopEvent
   | JobsReloadEvent
+  | JobRunNowEvent
   | SkillSavedEvent
   | UserAccessChangedEvent
   | EnvVarsChangedEvent;

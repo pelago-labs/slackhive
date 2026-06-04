@@ -489,6 +489,38 @@ export async function getAllEnabledJobs(): Promise<ScheduledJob[]> {
   }));
 }
 
+/** Load one scheduled job by id (regardless of enabled state) — for manual "Run now". */
+export async function getScheduledJobById(id: string): Promise<ScheduledJob | null> {
+  const r = await getDb().query('SELECT * FROM scheduled_jobs WHERE id = $1', [id]);
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    name: row.name as string,
+    prompt: row.prompt as string,
+    cronSchedule: row.cron_schedule as string,
+    targetType: row.target_type as 'channel' | 'dm',
+    targetId: row.target_id as string,
+    enabled: row.enabled !== false && row.enabled !== 0,
+    createdBy: (row.created_by as string) ?? 'system',
+    createdAt: row.created_at as Date,
+    updatedAt: row.updated_at as Date,
+  };
+}
+
+/**
+ * Mark any job_runs still 'running' as failed. Called on scheduler startup to
+ * reconcile runs orphaned by a runner crash/restart (which can't write their own
+ * terminal status). Returns the number of rows reconciled.
+ */
+export async function failOrphanedJobRuns(): Promise<number> {
+  const r = await getDb().query(
+    "UPDATE job_runs SET status = 'error', finished_at = now(), error = 'Interrupted by a runner restart' WHERE status = 'running'",
+  );
+  return r.rowCount ?? 0;
+}
+
 export async function insertJobRun(jobId: string): Promise<string> {
   const id = randomUUID();
   await getDb().query(
