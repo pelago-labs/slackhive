@@ -34,7 +34,7 @@ const defTool = tool as unknown as <S extends Record<string, unknown>>(
   handler: (args: any, extra: unknown) => Promise<{ content: { type: 'text'; text: string }[] }>,
   extras?: { annotations?: Record<string, unknown> },
 ) => SdkTool;
-import type { CoachProposal } from '@slackhive/shared';
+import type { CoachProposal, CheckConfig } from '@slackhive/shared';
 import { getDb, DEFAULT_COACH_MODEL, COACH_MODEL_SETTING_KEY } from '@slackhive/shared';
 import {
   getAgentById,
@@ -206,6 +206,17 @@ For a "review everything" request: sequence — memories first, then CLAUDE.md, 
 11. **CLAUDE.md bloat** — identify the largest extractable block (procedure → skill, reference → file source) and propose it.
 
 If nothing needs fixing anywhere, reply in ONE short line (e.g. "All clean — 3 memories at 8% budget, CLAUDE.md 420 words, 2 skills, no file sources."). Do not recap every criterion checked.
+
+# Eval-failure triage
+When the user attaches an \`<eval_failure>\` block (a failing regression test for this agent), classify the failure as exactly ONE of:
+
+- **skill_issue** — the agent's behavior was wrong on this case. The checks were reasonable. Fix by editing CLAUDE.md or a skill via the existing \`propose_claude_md_update\` / \`propose_skill_change\` tools.
+- **test_mismatch** — the agent's behavior was acceptable but the checks didn't capture it (over-narrow tool assertion, the agent took a different valid path, the substring was too specific, wrong primitive). Fix by emitting \`propose_eval_case_check_change\` with a corrected full \`checks\` array.
+- **real_failure** — the test correctly caught a true failure that needs more information before you can draft a fix (ambiguous spec, missing domain context, the right behavior is unclear). Do not propose. Ask ONE specific clarifying question.
+
+Open your reply with one short line stating the bucket and why ("Test mismatch — the agent used \`search_entities\` which is equally valid here; the assertion only allows \`query_redshift\`."). Then emit at most one proposal (the appropriate kind) and stop. If the user pushes back and supplies missing intent, switch buckets and emit a new proposal.
+
+The \`<eval_failure>\` block carries the case prompt, existing checks, the agent's final reply, observed tool calls, per-check verdicts, and any LLM-judge reasoning. Read the relevant parts before triaging — do not propose a check change without understanding *why* the existing check fired.
 
 # Rules
 - You can ONLY propose. Apply is always the human's click. (Exception: bootstrap mode — see any appendix at the bottom of this prompt.)
@@ -554,7 +565,79 @@ function buildToolbox(ctx: ToolContext) {
     { annotations: { readOnlyHint: true } }
   );
 
-  return [readClaudeMd, listSkills, readSkill, listMcps, readMemories, proposeClaudeMd, proposeSkill, proposeMemory, listFileSources, readFileSource];
+  // ── Eval test case proposal ─────────────────────────────────────────────
+  // Coach uses this when triaging a failing eval as `test_mismatch` — the
+  // agent's behavior was acceptable but the checks didn't capture it
+  // (over-narrow tool assertion, missing alt path, wrong primitive). Snapshots
+  // the case's current question + checks so the approval card can render a
+  // Before/After view without re-fetching.
+
+  // Mirror the CheckConfig discriminated union from @slackhive/shared so the
+  // MCP layer rejects malformed proposals before they reach the approval card.
+  // PATCH /evals/cases/[caseId] does not validate inner shape (only
+  // non-empty), so without this guard a hallucinated shape would land in DB
+  // and break the next eval run.
+  const checkConfigSchema = z.discriminatedUnion('primitive', [
+    z.object({
+      primitive: z.literal('substring'),
+      target: z.literal('final_reply'),
+      must_contain: z.array(z.string()).optional(),
+      must_not_contain: z.array(z.string()).optional(),
+    }),
+    z.object({
+      primitive: z.literal('tool_called'),
+      must_call: z.array(z.string()).optional(),
+      must_not_call: z.array(z.string()).optional(),
+    }),
+    z.object({
+      primitive: z.literal('llm_judge'),
+      target: z.literal('final_reply'),
+      rubric: z.string().min(1),
+      groundtruth: z.string().optional(),
+    }),
+  ]);
+
+  const proposeEvalCheckChange = defTool(
+    'propose_eval_case_check_change',
+    "Propose a new `checks` array for an existing eval test case. Use this ONLY when the failure is a `test_mismatch` (the agent did the right thing but the assertions didn't capture it). Provide the FULL replacement checks array — the existing array is overwritten on Apply. Each check is a discriminated union: {primitive:'substring',target:'final_reply',must_contain?,must_not_contain?} | {primitive:'tool_called',must_call?,must_not_call?} | {primitive:'llm_judge',target:'final_reply',rubric,groundtruth?}. Surfaces an approval card; no edit is applied until the human clicks Apply.",
+    {
+      caseId: z.string().min(1),
+      triage: z.enum(['skill_issue', 'test_mismatch', 'real_failure']),
+      checks: z.array(checkConfigSchema).min(1, 'at least one check required'),
+      rationale: z.string().min(1),
+    },
+    wrap('propose_eval_case_check_change', async ({ caseId, triage, checks, rationale }) => {
+      const r = await getDb().query(
+        'SELECT question, checks FROM eval_cases WHERE id = $1 AND agent_id = $2',
+        [caseId, ctx.agentId],
+      );
+      if (r.rows.length === 0) throw new Error(`eval case not found: ${caseId}`);
+      const caseQuestion = r.rows[0].question as string;
+      // `eval_cases.checks` is a jsonb column. The pg driver in this app
+      // returns it as a JSON string (see safeJsonParse usage in lib/db.ts),
+      // so we parse defensively — accept either string or already-parsed.
+      const rawChecks = r.rows[0].checks;
+      const before = (typeof rawChecks === 'string'
+        ? JSON.parse(rawChecks)
+        : rawChecks ?? []) as CheckConfig[];
+      const id = randomUUID();
+      ctx.proposals.push({
+        kind: 'eval-case-check',
+        id,
+        caseId,
+        caseQuestion,
+        triage,
+        before,
+        after: checks as CheckConfig[],
+        rationale,
+        status: 'pending',
+      });
+      return textResult(`Proposal queued (id=${id}) — ${triage} on case ${caseId}.`);
+    }),
+    { annotations: { readOnlyHint: false, destructiveHint: false } }
+  );
+
+  return [readClaudeMd, listSkills, readSkill, listMcps, readMemories, proposeClaudeMd, proposeSkill, proposeMemory, listFileSources, readFileSource, proposeEvalCheckChange];
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -619,6 +702,7 @@ export async function runCoachTurn(input: CoachTurnInput): Promise<{
     'mcp__coach__propose_claude_md_update',
     'mcp__coach__propose_skill_change',
     'mcp__coach__propose_memory_change',
+    'mcp__coach__propose_eval_case_check_change',
     'WebFetch',
     'WebSearch',
   ];
