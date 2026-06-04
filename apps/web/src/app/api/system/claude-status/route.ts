@@ -48,9 +48,8 @@ function formatExpiresIn(expiresAtMs: number): string {
 export async function GET(req: NextRequest): Promise<NextResponse<ClaudeStatus>> {
   const denied = guardAdmin(req);
   if (denied) return denied as NextResponse<ClaudeStatus>;
-  // 1. Credential file — self-heal an expired access token via the refresh token.
-  await ensureFreshClaudeToken().catch(() => {});
-  const oauth = readCredentialsFile();
+  // 1. Live creds (macOS Keychain first, else file) + self-heal an expired token.
+  const oauth = (await ensureFreshClaudeToken().catch(() => null)) ?? readCredentialsFile();
   const source: ClaudeStatus['source'] = 'file';
 
   // 2. Env var fallback.

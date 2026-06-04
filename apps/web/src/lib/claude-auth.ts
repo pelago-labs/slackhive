@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { encrypt } from '@slackhive/shared';
 import { getEncryptionKey } from './secrets';
 import { setSetting } from './db';
@@ -31,12 +32,37 @@ function credPath(): string {
   return path.join(os.homedir(), '.claude', '.credentials.json');
 }
 
-export function readClaudeOAuth(): ClaudeOAuth | null {
+/**
+ * On macOS, Claude Code stores the LIVE credentials in the login Keychain and
+ * leaves only a stale copy in ~/.claude/.credentials.json. The terminal `claude`
+ * and the Agent SDK read the Keychain (auto-refreshed); reading the file alone
+ * makes us report a false "expired". So prefer the Keychain when present.
+ */
+function readClaudeKeychain(): ClaudeOAuth | null {
+  if (process.platform !== 'darwin') return null;
+  try {
+    const out = execFileSync('security', ['find-generic-password', '-s', 'Claude Code-credentials', '-w'], {
+      encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 4000,
+    });
+    return JSON.parse(out)?.claudeAiOauth ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function readClaudeFile(): ClaudeOAuth | null {
   try {
     return JSON.parse(fs.readFileSync(credPath(), 'utf-8'))?.claudeAiOauth ?? null;
   } catch {
     return null;
   }
+}
+
+export function readClaudeOAuth(): ClaudeOAuth | null {
+  // Keychain (live on macOS) wins over the on-disk snapshot.
+  const kc = readClaudeKeychain();
+  if (kc?.accessToken) return kc;
+  return readClaudeFile();
 }
 
 /**
