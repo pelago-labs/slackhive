@@ -326,6 +326,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       {/* ── Tab bar ──────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '0 40px',
+        minHeight: 48,
         borderBottom: '1px solid var(--border)',
         background: 'var(--surface)',
         overflowX: 'auto', WebkitOverflowScrolling: 'touch',
@@ -354,10 +355,15 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
         {/* Instructions actions — only on the Instructions tab */}
         {tab === 'instructions' && canEdit && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, padding: '8px 0' }}>
-            <ActionBtn icon={<Download size={13} />} label="Export" onClick={() => window.dispatchEvent(new Event('instr:export'))} />
-            <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => window.dispatchEvent(new Event('instr:import'))} />
-            {!agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => setCoachOpen(true)} primary />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <ActionBtn icon={<Download size={13} />} label="Export" onClick={() => window.dispatchEvent(new Event('instr:export'))} subtle />
+            <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => window.dispatchEvent(new Event('instr:import'))} subtle />
+            {!agent.isBoss && (
+              <>
+                <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+                <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => setCoachOpen(true)} primary />
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1128,15 +1134,15 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
 /** Pill-style segmented switcher (System Prompt · Skills · Memory). */
 /** Labeled action button (icon + text) — used for the Instructions toolbar so
  *  Coach / Export / Persona Library aren't hidden behind bare icons. */
-function ActionBtn({ icon, label, onClick, loading, primary }: { icon: React.ReactNode; label: string; onClick?: () => void; loading?: boolean; primary?: boolean }) {
+function ActionBtn({ icon, label, onClick, loading, primary, subtle }: { icon: React.ReactNode; label: string; onClick?: () => void; loading?: boolean; primary?: boolean; subtle?: boolean }) {
   return (
     <button onClick={onClick} disabled={loading} style={{
       display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px',
       fontSize: 12.5, fontWeight: 500, borderRadius: 8, fontFamily: 'var(--font-sans)',
       cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
       border: primary ? '1px solid transparent' : '1px solid var(--border)',
-      background: primary ? 'var(--accent)' : 'var(--surface)',
-      color: primary ? 'var(--accent-fg)' : 'var(--text)',
+      background: primary ? 'var(--accent)' : subtle ? 'transparent' : 'var(--surface)',
+      color: primary ? 'var(--accent-fg)' : subtle ? 'var(--muted)' : 'var(--text)',
       boxShadow: primary ? '0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--shadow-sm)' : 'none',
       transition: 'all 0.15s',
     }}>
