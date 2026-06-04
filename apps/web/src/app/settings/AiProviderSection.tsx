@@ -62,6 +62,15 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
     finally { setTimeout(() => setDetecting(false), 400); }
   };
 
+  const disconnect = async (id: string, label: string) => {
+    if (!window.confirm(`Disconnect ${label}? This clears SlackHive's saved credentials and removes its login file. Your terminal login (if any) is untouched — re-detect after logging in again.`)) return;
+    await fetch('/api/system/backends', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disconnect: id }),
+    }).catch(() => {});
+    await detect();
+  };
+
   useEffect(() => {
     loadBackends(true);
     loadStatus();
@@ -156,6 +165,10 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text)' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
             Connected — using {sourceText}.
+            <button onClick={() => disconnect(d.id, d.label)} style={{
+              marginLeft: 'auto', background: 'none', border: 'none', padding: 0,
+              color: 'var(--red)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            }}>Disconnect</button>
           </div>
         ) : (
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px', background: 'var(--surface)' }}>

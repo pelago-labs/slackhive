@@ -61,7 +61,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const secretsSet: Record<string, boolean> = {};
   for (const key of allSecretKeys()) {
-    secretsSet[key] = (await getSetting(`secret:${key}`)) != null;
+    const v = await getSetting(`secret:${key}`);
+    secretsSet[key] = v != null && v !== ''; // a cleared secret is stored as '' — treat as unset
   }
 
   return NextResponse.json({
@@ -82,6 +83,8 @@ interface PutBody {
   codexAuthMode?: string;
   /** secretKey → plaintext value (encrypted before storage). Empty string clears. */
   secrets?: Record<string, string>;
+  /** Backend id to disconnect: clears its stored secrets + removes the materialized file. */
+  disconnect?: string;
 }
 
 /**
@@ -111,6 +114,27 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
   if (denied) return denied;
 
   const body = (await req.json()) as PutBody;
+
+  // Disconnect: forget SlackHive's stored credentials for a backend AND remove
+  // the materialized login file, so a terminal logout is reflected (no stale
+  // copy resurrecting it on restart). The live Keychain login (Claude on macOS)
+  // is the user's own and is left untouched.
+  if (body.disconnect) {
+    const desc = getBackendDescriptor(body.disconnect);
+    if (desc) {
+      for (const opt of desc.authOptions) for (const f of opt.fields) {
+        await setSetting(`secret:${f.secretKey}`, '');
+      }
+      try {
+        const home = os.homedir();
+        const file = body.disconnect === 'codex'
+          ? path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'auth.json')
+          : path.join(home, '.claude', '.credentials.json');
+        fs.rmSync(file, { force: true });
+      } catch { /* ignore */ }
+    }
+    return NextResponse.json({ ok: true });
+  }
 
   if (body.backend !== undefined) {
     if (!getBackendDescriptor(body.backend)) {
