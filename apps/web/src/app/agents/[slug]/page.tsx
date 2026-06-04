@@ -1054,49 +1054,57 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         />
       )}
 
-      {/* ── Top sub-tabs (saves the horizontal space a left rail would eat) ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 4 }}>
+      {/* ── Left rail + content ────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* Sub-nav rail */}
+        <nav style={{ width: 188, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
           {([
             { id: 'system' as const, label: 'System Prompt', Icon: FileText },
             { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
             { id: 'memory' as const, label: 'Memory', Icon: Database },
           ]).map(s => (
             <button key={s.id} onClick={() => setSection(s.id)} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7, marginBottom: -1,
-              padding: '9px 14px', border: 'none', cursor: 'pointer',
-              borderBottom: section === s.id ? '2px solid var(--accent)' : '2px solid transparent',
-              fontFamily: 'var(--font-sans)', fontSize: 13, background: 'transparent',
+              display: 'inline-flex', alignItems: 'center', gap: 9, textAlign: 'left',
+              padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-sans)', fontSize: 13,
+              background: section === s.id ? 'var(--surface-2)' : 'transparent',
               color: section === s.id ? 'var(--text)' : 'var(--muted)',
               fontWeight: section === s.id ? 600 : 500,
             }}><s.Icon size={15} />{s.label}</button>
           ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingBottom: 6 }}>
-          {importError && <span style={{ fontSize: 11.5, color: 'var(--red)' }}>{importError}</span>}
-          {canEdit && <ActionBtn icon={<Download size={13} />} label="Export" onClick={handleExport} loading={exporting} />}
-          {canEdit && <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => setPersonaLibOpen(true)} />}
-          {canEdit && !agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => onOpenCoach?.()} primary />}
+        </nav>
+
+        {/* Content column */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Header: title + description · actions */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ minWidth: 0 }}>
+              <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>
+                {section === 'system' ? 'System Prompt' : section === 'skills' ? 'Skills' : 'Memory'}
+              </h2>
+              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
+                {section === 'system'
+                  ? (agent.isBoss
+                      ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
+                      : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
+                  : section === 'skills'
+                  ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
+                  : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {importError && <span style={{ fontSize: 11.5, color: 'var(--red)' }}>{importError}</span>}
+              {canEdit && <ActionBtn icon={<Download size={13} />} label="Export" onClick={handleExport} loading={exporting} />}
+              {canEdit && <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => setPersonaLibOpen(true)} />}
+              {canEdit && !agent.isBoss && <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => onOpenCoach?.()} primary />}
+            </div>
+          </div>
+
+          {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} updatedAt={agent.updatedAt} />}
+          {section === 'skills' && <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />}
+          {section === 'memory' && <MemorySection agentId={agent.id} canEdit={canEdit} />}
         </div>
       </div>
-
-      {/* ── Active section description ──────────────────────────────────── */}
-      {/* System Prompt renders its description inline with the editor toolbar
-          (see ClaudeMdSection) so the toggle row doesn't waste vertical space. */}
-      {section !== 'system' && (
-        <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 620 }}>
-          {section === 'skills'
-            ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
-            : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
-        </p>
-      )}
-
-      {/* ── Full-width content ─────────────────────────────────────────── */}
-      {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} description={agent.isBoss
-        ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
-        : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context."} />}
-      {section === 'skills' && <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />}
-      {section === 'memory' && <MemorySection agentId={agent.id} canEdit={canEdit} />}
     </div>
   );
 }
@@ -1113,6 +1121,7 @@ function ActionBtn({ icon, label, onClick, loading, primary }: { icon: React.Rea
       border: primary ? '1px solid transparent' : '1px solid var(--border)',
       background: primary ? 'var(--accent)' : 'var(--surface)',
       color: primary ? 'var(--accent-fg)' : 'var(--text)',
+      boxShadow: primary ? '0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--shadow-sm)' : 'none',
       transition: 'all 0.15s',
     }}>
       {loading ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : icon}
@@ -1121,7 +1130,7 @@ function ActionBtn({ icon, label, onClick, loading, primary }: { icon: React.Rea
   );
 }
 
-function ClaudeMdSection({ agentId, canEdit, description }: { agentId: string; canEdit: boolean; description?: string }) {
+function ClaudeMdSection({ agentId, canEdit, updatedAt }: { agentId: string; canEdit: boolean; updatedAt?: Date | string }) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1167,11 +1176,8 @@ function ClaudeMdSection({ agentId, canEdit, description }: { agentId: string; c
 
   return (
     <div style={{ position: 'relative' }}>
-      {/* Top bar: section description on the left; Save + Edit/Preview on the right */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 10 }}>
-        {description
-          ? <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 620, flex: 1, minWidth: 0 }}>{description}</p>
-          : <span style={{ flex: 1 }} />}
+      {/* Top bar: Save + Edit/Preview toggle, right-aligned */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
           {canEdit && view === 'edit' && dirty && (
@@ -1217,6 +1223,22 @@ function ClaudeMdSection({ agentId, canEdit, description }: { agentId: string; c
           borderRadius: 8, padding: '14px 18px', boxSizing: 'border-box',
         }}>
           <MarkdownView>{content}</MarkdownView>
+        </div>
+      )}
+
+      {/* Footer metadata */}
+      {!loading && (
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingTop: 14, marginTop: 14, borderTop: '1px solid var(--border)' }}>
+          {[
+            ['Last updated', updatedAt ? new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'],
+            ['Characters', content.length.toLocaleString()],
+            ['Words', content.trim() ? content.trim().split(/\s+/).length.toLocaleString() : '0'],
+          ].map(([l, v]) => (
+            <div key={l}>
+              <div style={{ fontSize: 10.5, color: 'var(--subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{l}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 500 }}>{v}</div>
+            </div>
+          ))}
         </div>
       )}
     </div>
