@@ -377,15 +377,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
 /** Compact metric tile (icon + value + label) for the Details card grid. */
-function MiniStat({ value, label }: { value: string; label: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, padding: '6px 2px' }}>
-      <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>{value}</span>
-      <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-    </div>
-  );
-}
-
 /** Uppercase group label for the Details side panel. */
 function MetaGroupLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -543,14 +534,30 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; on
       {/* Details (aside) — metrics + meta */}
       <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
         <Card title="Details" fill>
-          {/* Counts — compact two-column grid in one bordered box */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 14, rowGap: 2, border: '1px solid var(--border)', borderRadius: 10, padding: '8px 14px' }}>
-            <MiniStat value={num(counts?.skills)} label="Skills" />
-            <MiniStat value={num(counts?.memories)} label="Memories" />
-            <MiniStat value={num(counts?.tools)} label="Tools" />
-            <MiniStat value={num(counts?.wiki)} label="Wiki" />
-            <MiniStat value={num(counts?.audiences)} label="Audiences" />
-          </div>
+          {/* Counts — balanced 3-column stat tiles with hairline dividers */}
+          {(() => {
+            const stats = [
+              { v: num(counts?.skills), l: 'Skills' },
+              { v: num(counts?.memories), l: 'Memories' },
+              { v: num(counts?.tools), l: 'Tools' },
+              { v: num(counts?.wiki), l: 'Wiki' },
+              { v: num(counts?.audiences), l: 'Audiences' },
+            ];
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                {stats.map((s, i) => (
+                  <div key={s.l} style={{
+                    padding: '12px 6px', textAlign: 'center',
+                    borderRight: (i % 3 !== 2 && i !== stats.length - 1) ? '1px solid var(--border)' : 'none',
+                    borderTop: i >= 3 ? '1px solid var(--border)' : 'none',
+                  }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', lineHeight: 1, letterSpacing: '-0.02em' }}>{s.v}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 5 }}>{s.l}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
           <MetaGroupLabel>Configuration</MetaGroupLabel>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
