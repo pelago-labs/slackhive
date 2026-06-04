@@ -357,7 +357,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         {/* Instructions actions — only on the Instructions tab */}
         {tab === 'instructions' && canEdit && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <ActionBtn icon={<Library size={13} />} label="Templates" onClick={() => window.dispatchEvent(new Event('instr:templates'))} subtle />
             <ActionBtn icon={<Download size={13} />} label="Export" onClick={() => window.dispatchEvent(new Event('instr:export'))} subtle />
             <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => window.dispatchEvent(new Event('instr:import'))} subtle />
             {!agent.isBoss && (
@@ -876,8 +875,9 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
   // cleaner and gives each surface the full width.
   const [section, setSection] = useState<'system' | 'skills' | 'memory'>('system');
 
-  // Persona library
+  // Persona library / import modal
   const [personaLibOpen, setPersonaLibOpen] = useState(false);
+  const [libTab, setLibTab] = useState<'json' | 'template'>('json');
   const [libSearch, setLibSearch] = useState('');
   const [libCategory, setLibCategory] = useState<PersonaCategory | 'all'>('all');
   const [libSelected, setLibSelected] = useState<PersonaTemplate | null>(null);
@@ -923,15 +923,12 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
   // only on this tab) via window events; we keep the handlers + modals here.
   useEffect(() => {
     const onExport = () => setExportOpen(true);
-    const onImport = () => fileInputRef.current?.click();
-    const onTemplates = () => setPersonaLibOpen(true);
+    const onImport = () => { setImportPreview(null); setImportError(''); setPersonaLibOpen(true); };
     window.addEventListener('instr:export', onExport);
     window.addEventListener('instr:import', onImport);
-    window.addEventListener('instr:templates', onTemplates);
     return () => {
       window.removeEventListener('instr:export', onExport);
       window.removeEventListener('instr:import', onImport);
-      window.removeEventListener('instr:templates', onTemplates);
     };
   }, []);
 
@@ -966,13 +963,14 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
     reader.readAsText(file);
   };
 
-  const applyImport = async (payload?: AgentExportPayload) => {
+  const applyImport = async (payload?: AgentExportPayload, selOverride?: { system: boolean; skills: boolean; memory: boolean }) => {
     const data = payload ?? importPreview;
     if (!data) return;
+    const sel = selOverride ?? importSel;
     setImporting(true);
     try {
       // System Prompt: instructions body (+ persona/description if present).
-      if (importSel.system && typeof data.claudeMd === 'string') {
+      if (sel.system && typeof data.claudeMd === 'string') {
         if (data.persona !== undefined || data.description !== undefined) {
           await fetch(`/api/agents/${agent.id}`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -987,7 +985,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         });
       }
       // Skills: upsert each.
-      if (importSel.skills && Array.isArray(data.skills)) {
+      if (sel.skills && Array.isArray(data.skills)) {
         await Promise.all(data.skills.map(s =>
           fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
@@ -995,7 +993,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         ));
       }
       // Memories: create each (POST upserts by name).
-      if (importSel.memory && Array.isArray(data.memories)) {
+      if (sel.memory && Array.isArray(data.memories)) {
         await Promise.all(data.memories.map(m =>
           fetch(`/api/agents/${agent.id}/memories`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1010,44 +1008,53 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
     } finally { setImporting(false); }
   };
 
+  // The "Import JSON" tab body for the import modal (file picker → part chooser).
+  const jsonPanel = (() => {
+    if (!importPreview) {
+      return (
+        <div style={{ padding: '28px 24px' }}>
+          <div style={{ border: '2px dashed var(--border)', borderRadius: 12, padding: '40px 20px', textAlign: 'center' }}>
+            <Upload size={26} style={{ color: 'var(--border-2)' }} />
+            <p style={{ margin: '12px 0 4px', fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Import an exported config</p>
+            <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)' }}>Choose a <code>.json</code> file exported from an agent — you’ll pick which parts to apply.</p>
+            <button onClick={() => fileInputRef.current?.click()} style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Choose file</button>
+            {importError && <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--red)' }}>{importError}</p>}
+          </div>
+        </div>
+      );
+    }
+    const hasMd = typeof importPreview.claudeMd === 'string';
+    const nSkills = importPreview.skills?.length ?? 0;
+    const nMems = importPreview.memories?.length ?? 0;
+    const none = !(importSel.system && hasMd) && !(importSel.skills && nSkills) && !(importSel.memory && nMems);
+    const row = (sel: boolean, onToggle: () => void, disabled: boolean, label: string, sub: string) => (
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, background: sel && !disabled ? 'var(--surface-2)' : 'var(--surface)' }}>
+        <input type="checkbox" checked={sel} disabled={disabled} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
+        <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{sub}</div></div>
+      </label>
+    );
+    return (
+      <div style={{ padding: '20px 24px' }}>
+        <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Choose what to import{importPreview.exportedAt ? ` (exported ${new Date(importPreview.exportedAt).toLocaleDateString()})` : ''}. Selected parts overwrite current content — a snapshot is saved first.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+          {row(importSel.system && hasMd, () => setImportSel(s => ({ ...s, system: !s.system })), !hasMd, 'System Prompt', hasMd ? 'Replaces the current instructions' : 'Not in this file')}
+          {row(importSel.skills && nSkills > 0, () => setImportSel(s => ({ ...s, skills: !s.skills })), nSkills === 0, 'Skills', nSkills > 0 ? `${nSkills} skill${nSkills !== 1 ? 's' : ''} upserted` : 'Not in this file')}
+          {row(importSel.memory && nMems > 0, () => setImportSel(s => ({ ...s, memory: !s.memory })), nMems === 0, 'Memories', nMems > 0 ? `${nMems} memor${nMems !== 1 ? 'ies' : 'y'} added` : 'Not in this file')}
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <PrimaryBtn onClick={async () => { await applyImport(); setPersonaLibOpen(false); }} loading={importing}>{none ? 'Select something' : 'Import'}</PrimaryBtn>
+          <GhostBtn onClick={() => { setImportPreview(null); setImportError(''); }}>Choose another file</GhostBtn>
+        </div>
+      </div>
+    );
+  })();
+
   return (
     <div className="fade-up">
       <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
 
-      {/* ── Import: choose which parts to apply ──────────────────────── */}
-      {importPreview && (() => {
-        const hasMd = typeof importPreview.claudeMd === 'string';
-        const nSkills = importPreview.skills?.length ?? 0;
-        const nMems = importPreview.memories?.length ?? 0;
-        const none = !(importSel.system && hasMd) && !(importSel.skills && nSkills) && !(importSel.memory && nMems);
-        const row = (sel: boolean, onToggle: () => void, disabled: boolean, label: string, sub: string) => (
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, background: sel && !disabled ? 'var(--surface-2)' : 'var(--surface)' }}>
-            <input type="checkbox" checked={sel} disabled={disabled} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
-            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{sub}</div></div>
-          </label>
-        );
-        return (
-          <Portal>
-            <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setImportPreview(null)}>
-              <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '26px 28px', maxWidth: 460, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
-                <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>Import agent config</h3>
-                <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  Choose what to import{importPreview.exportedAt ? ` (exported ${new Date(importPreview.exportedAt).toLocaleDateString()})` : ''}. Selected parts overwrite current content — a snapshot is saved first.
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                  {row(importSel.system && hasMd, () => setImportSel(s => ({ ...s, system: !s.system })), !hasMd, 'System Prompt', hasMd ? 'Replaces the current instructions' : 'Not in this file')}
-                  {row(importSel.skills && nSkills > 0, () => setImportSel(s => ({ ...s, skills: !s.skills })), nSkills === 0, 'Skills', nSkills > 0 ? `${nSkills} skill${nSkills !== 1 ? 's' : ''} upserted` : 'Not in this file')}
-                  {row(importSel.memory && nMems > 0, () => setImportSel(s => ({ ...s, memory: !s.memory })), nMems === 0, 'Memories', nMems > 0 ? `${nMems} memor${nMems !== 1 ? 'ies' : 'y'} added` : 'Not in this file')}
-                </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <PrimaryBtn onClick={() => applyImport()} loading={importing}>{none ? 'Select something' : 'Import'}</PrimaryBtn>
-                  <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
-                </div>
-              </div>
-            </div>
-          </Portal>
-        );
-      })()}
 
       {/* ── Export: choose which parts to include ────────────────────── */}
       {exportOpen && (() => {
@@ -1083,6 +1090,9 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
       {personaLibOpen && (
         <PersonaLibraryModal
           agentId={agent.id}
+          tab={libTab}
+          onTabChange={setLibTab}
+          jsonPanel={jsonPanel}
           fileInputRef={fileInputRef}
           applying={libApplying}
           search={libSearch}
@@ -1114,7 +1124,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
                 description: template.description,
                 claudeMd: template.claudeMd,
                 skills: template.skills,
-              });
+              }, { system: true, skills: true, memory: false });
             } finally {
               setLibApplying(false);
               setPersonaLibOpen(false);
@@ -3148,6 +3158,9 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
 
 function PersonaLibraryModal({
   agentId,
+  tab,
+  onTabChange,
+  jsonPanel,
   fileInputRef,
   applying,
   search,
@@ -3164,6 +3177,9 @@ function PersonaLibraryModal({
   onClose,
 }: {
   agentId: string;
+  tab: 'json' | 'template';
+  onTabChange: (t: 'json' | 'template') => void;
+  jsonPanel: React.ReactNode;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   applying: boolean;
   search: string;
@@ -3209,19 +3225,23 @@ function PersonaLibraryModal({
             padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
             display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
           }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.3px' }}>
-                Persona Library
-              </h2>
-              <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--muted)' }}>
-                {PERSONA_CATALOG.length} pre-built personas — click to preview and import
-              </p>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['json', 'template'] as const).map(id => (
+                <button key={id} onClick={() => onTabChange(id)} style={{
+                  padding: '7px 14px', fontSize: 13, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                  background: tab === id ? 'var(--surface-2)' : 'transparent',
+                  color: tab === id ? 'var(--text)' : 'var(--muted)', fontWeight: tab === id ? 600 : 500,
+                }}>{id === 'json' ? 'Import JSON' : 'Choose Template'}</button>
+              ))}
             </div>
             <button onClick={onClose} style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: 'var(--muted)', padding: 4, marginTop: -2,
             }}><X size={18} /></button>
           </div>
+
+          {tab === 'json' && jsonPanel}
+          {tab === 'template' && (<>
 
           {/* ── Search bar ───────────────────────────────────────────────── */}
           <div style={{
@@ -3248,14 +3268,6 @@ function PersonaLibraryModal({
                 }}
               />
             </div>
-            <button onClick={() => { onClose(); fileInputRef.current?.click(); }} style={{
-              background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-              cursor: 'pointer', color: 'var(--muted)', fontSize: 12,
-              padding: '6px 12px', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
-            }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
-            >Import JSON</button>
           </div>
 
           {/* ── Body: sidebar + main ─────────────────────────────────────── */}
@@ -3568,6 +3580,7 @@ function PersonaLibraryModal({
               </div>
             )}
           </div>
+          </>)}
         </div>
       </div>
     </Portal>
