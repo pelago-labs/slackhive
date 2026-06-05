@@ -21,6 +21,7 @@ import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment, MessagePayload,
   SlackCredentials,
 } from '@slackhive/shared';
+import { recordMessageFeedback } from '@slackhive/shared';
 import { agentLogger } from '../logger';
 import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
@@ -188,6 +189,56 @@ export class SlackAdapter implements PlatformAdapter {
       } catch { /* non-fatal */ }
     });
 
+    // ── Message feedback (👍/👎 buttons under the agent's final reply) ──
+    this.app.action('fb_up', async ({ ack, body, action, client }) => {
+      await ack();
+      await this.recordFeedbackClick('up', body as any, action as any, client);
+    });
+    this.app.action('fb_down', async ({ ack, body, action, client }) => {
+      await ack();
+      // Record 👎 immediately (note is optional), then open the note modal.
+      await this.recordFeedbackClick('down', body as any, action as any, client);
+      const b = body as any;
+      const ctx = this.parseFbValue(action as any);
+      try {
+        await client.views.open({
+          trigger_id: b.trigger_id,
+          view: {
+            type: 'modal',
+            callback_id: 'fb_note',
+            private_metadata: JSON.stringify({
+              ...ctx,
+              channel: b.channel?.id ?? b.message?.channel,
+              ts: b.message?.ts,
+            }),
+            title: { type: 'plain_text', text: 'Feedback' },
+            submit: { type: 'plain_text', text: 'Send' },
+            close: { type: 'plain_text', text: 'Skip' },
+            blocks: [{
+              type: 'input', block_id: 'note', optional: true,
+              label: { type: 'plain_text', text: 'What went wrong? (optional)' },
+              element: { type: 'plain_text_input', action_id: 'note_input', multiline: true },
+            }],
+          },
+        });
+      } catch (err) { this.log.warn('Feedback modal open failed', { error: (err as Error).message }); }
+    });
+    this.app.view('fb_note', async ({ ack, body, view, client }) => {
+      await ack();
+      try {
+        const meta = JSON.parse(view.private_metadata || '{}');
+        const note = (view.state.values?.note as any)?.note_input?.value ?? '';
+        if (!note.trim()) return; // 👎 already recorded on click; nothing to add
+        const handle = await this.handleFor(client, (body as any).user?.id);
+        await recordMessageFeedback({
+          agentId: meta.agentId, activityId: meta.activityId ?? null,
+          channel: meta.channel ?? null, messageTs: meta.ts ?? null,
+          raterUserId: (body as any).user?.id ?? null, raterHandle: handle,
+          sentiment: 'down', note: note.trim(),
+        });
+      } catch (err) { this.log.warn('Feedback note submit failed', { error: (err as Error).message }); }
+    });
+
     await this.app.start();
     this.log.info('Slack adapter started', { botUserId: this.botUserId });
   }
@@ -281,6 +332,66 @@ export class SlackAdapter implements PlatformAdapter {
     try {
       await this.app.client.reactions.remove({ channel: channelId, timestamp: messageId, name: emoji });
     } catch { /* non-fatal */ }
+  }
+
+  // ─── Feedback (👍/👎) ───────────────────────────────────────────────
+
+  /** Post the "Was this helpful?" prompt with 👍/👎 buttons under a reply. */
+  async postFeedbackPrompt(
+    channelId: string,
+    threadId: string | undefined,
+    ctx: { agentId: string; activityId?: string | null },
+  ): Promise<void> {
+    const value = JSON.stringify({ agentId: ctx.agentId, activityId: ctx.activityId ?? null });
+    try {
+      await this.app.client.chat.postMessage({
+        channel: channelId,
+        ...(threadId ? { thread_ts: threadId } : {}),
+        text: 'Was this helpful?',
+        blocks: [{
+          type: 'actions',
+          elements: [
+            { type: 'button', action_id: 'fb_up',   text: { type: 'plain_text', text: '👍 Helpful', emoji: true }, value },
+            { type: 'button', action_id: 'fb_down', text: { type: 'plain_text', text: '👎 Not helpful', emoji: true }, value },
+          ],
+        }],
+      });
+    } catch (err) { this.log.warn('Feedback prompt post failed', { error: (err as Error).message }); }
+  }
+
+  /** Parse the {agentId, activityId} context off a feedback button's value. */
+  private parseFbValue(action: { value?: string }): { agentId: string; activityId?: string | null } {
+    try { return JSON.parse(action?.value ?? '{}'); } catch { return { agentId: '' }; }
+  }
+
+  /** Best-effort Slack display name for a user id (for the feedback note list). */
+  private async handleFor(client: { users: { info: (a: { user: string }) => Promise<any> } }, userId?: string): Promise<string | null> {
+    if (!userId) return null;
+    try {
+      const r = await client.users.info({ user: userId });
+      return (r.user?.profile?.display_name || r.user?.real_name || r.user?.name) ?? null;
+    } catch { return null; }
+  }
+
+  /** Record a 👍/👎 button click and collapse the prompt into a thank-you. */
+  private async recordFeedbackClick(sentiment: 'up' | 'down', body: any, action: any, client: any): Promise<void> {
+    const ctx = this.parseFbValue(action);
+    const channel = body.channel?.id ?? body.message?.channel;
+    const ts = body.message?.ts;
+    try {
+      const handle = await this.handleFor(client, body.user?.id);
+      await recordMessageFeedback({
+        agentId: ctx.agentId, activityId: ctx.activityId ?? null,
+        channel: channel ?? null, messageTs: ts ?? null,
+        raterUserId: body.user?.id ?? null, raterHandle: handle, sentiment,
+      });
+    } catch (err) { this.log.warn('Feedback record failed', { error: (err as Error).message }); }
+    if (channel && ts) {
+      const thanks = sentiment === 'up'
+        ? '✅ Thanks for your feedback!'
+        : '📝 Thanks — your feedback helps us improve.';
+      await client.chat.update({ channel, ts, text: thanks, blocks: [] }).catch(() => {});
+    }
   }
 
   async uploadFile(channelId: string, content: string | Buffer, filename: string, threadId?: string): Promise<void> {

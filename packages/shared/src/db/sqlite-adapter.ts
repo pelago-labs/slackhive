@@ -600,6 +600,23 @@ CREATE INDEX IF NOT EXISTS idx_eval_cases_agent_status ON eval_cases(agent_id, s
 CREATE INDEX IF NOT EXISTS idx_eval_runs_agent_started ON eval_runs(agent_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_eval_run_results_run    ON eval_run_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_run_results_case   ON eval_run_results(case_id);
+
+-- 👍/👎 feedback on an agent's final reply (Slack buttons). One row per
+-- (message, rater); re-rating updates it. note is captured via the 👎 modal.
+CREATE TABLE IF NOT EXISTS message_feedback (
+  id            TEXT PRIMARY KEY,
+  agent_id      TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  activity_id   TEXT REFERENCES activities(id) ON DELETE SET NULL,
+  channel       TEXT,
+  message_ts    TEXT,
+  rater_user_id TEXT,
+  rater_handle  TEXT,
+  sentiment     TEXT NOT NULL CHECK (sentiment IN ('up', 'down')),
+  note          TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (message_ts, rater_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_message_feedback_agent ON message_feedback(agent_id, created_at DESC);
 `;
 
 // =============================================================================

@@ -366,6 +366,16 @@ export class MessageHandler {
       if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':white_check_mark:').catch(() => {});
       await this.swapReaction(channelId, messageId, sessionKey, 'white_check_mark');
 
+      // Feedback prompt (👍/👎) under the final answer — Slack-only (optional
+      // adapter method; absent on the test adapter). Only when a real answer
+      // was posted, never on empty/aborted turns.
+      if (sentMessages.length > 0) {
+        await this.adapter.postFeedbackPrompt?.(channelId, threadId, {
+          agentId: this.agent.id,
+          activityId: recorder?.activityId ?? null,
+        }).catch(() => {});
+      }
+
       if (recorder) await this.closeActivity(recorder.activityId, 'done');
 
     } catch (error: any) {

@@ -670,3 +670,94 @@ export async function getTopUsers(
   }));
 }
 
+// =============================================================================
+// Message feedback (👍/👎 on an agent's final reply)
+// =============================================================================
+
+export interface MessageFeedbackInput {
+  agentId: string;
+  activityId?: string | null;
+  channel?: string | null;
+  messageTs?: string | null;
+  raterUserId?: string | null;
+  raterHandle?: string | null;
+  sentiment: 'up' | 'down';
+  note?: string | null;
+}
+
+export interface AgentFeedbackReport {
+  up: number;
+  down: number;
+  total: number;
+  /** Satisfaction = up / (up + down), 0–100. 0 when no ratings. */
+  scorePercent: number;
+  recentNotes: { note: string; raterHandle: string | null; createdAt: string }[];
+}
+
+/**
+ * Record one 👍/👎 rating, keyed by (message_ts, rater_user_id) so a user
+ * re-rating the same message updates their row. The 👎 modal calls this again
+ * with the note, which is merged onto the existing row. Best-effort — never
+ * break the Slack interaction path.
+ */
+export async function recordMessageFeedback(input: MessageFeedbackInput): Promise<void> {
+  const db = getDb();
+  const id = randomUUID();
+  await db.query(
+    `INSERT INTO message_feedback
+       (id, agent_id, activity_id, channel, message_ts, rater_user_id, rater_handle, sentiment, note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT (message_ts, rater_user_id) DO UPDATE SET
+       sentiment  = excluded.sentiment,
+       note       = COALESCE(excluded.note, message_feedback.note),
+       created_at = datetime('now')`,
+    [
+      id, input.agentId, input.activityId ?? null, input.channel ?? null,
+      input.messageTs ?? null, input.raterUserId ?? null, input.raterHandle ?? null,
+      input.sentiment, input.note ?? null,
+    ],
+  );
+}
+
+/** Per-agent feedback summary (satisfaction score, counts, recent 👎 notes). */
+export async function getFeedbackReport(agentId: string, since?: string): Promise<AgentFeedbackReport> {
+  const db = getDb();
+  const wheres = ['agent_id = $1'];
+  const params: unknown[] = [agentId];
+  if (since) {
+    wheres.push(`created_at >= $${params.length + 1}`);
+    params.push(since);
+  }
+  const whereSql = wheres.join(' AND ');
+
+  const { rows } = await db.query(
+    `SELECT COALESCE(SUM(CASE WHEN sentiment = 'up'   THEN 1 ELSE 0 END), 0) AS up_count,
+            COALESCE(SUM(CASE WHEN sentiment = 'down' THEN 1 ELSE 0 END), 0) AS down_count,
+            COUNT(*) AS total
+       FROM message_feedback
+      WHERE ${whereSql}`,
+    params,
+  );
+  const r = rows[0] ?? {};
+  const up = Number(r.up_count ?? 0);
+  const down = Number(r.down_count ?? 0);
+  const total = Number(r.total ?? 0);
+  const scorePercent = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
+
+  const notesRes = await db.query(
+    `SELECT note, rater_handle, created_at
+       FROM message_feedback
+      WHERE ${whereSql} AND sentiment = 'down' AND note IS NOT NULL AND note <> ''
+      ORDER BY created_at DESC
+      LIMIT $${params.length + 1}`,
+    [...params, 5],
+  );
+  const recentNotes = notesRes.rows.map(n => ({
+    note: n.note as string,
+    raterHandle: (n.rater_handle as string | null) ?? null,
+    createdAt: n.created_at as string,
+  }));
+
+  return { up, down, total, scorePercent, recentNotes };
+}
+

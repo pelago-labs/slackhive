@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
@@ -27,7 +27,7 @@ import { EvalsPanel } from './evals-panel';
 import { AudiencesPanel } from './audiences-panel';
 
 type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'settings';
-type SettingsSection = 'general' | 'slack' | 'evals' | 'logs' | 'history' | 'danger';
+type SettingsSection = 'general' | 'slack' | 'evals' | 'feedback' | 'logs' | 'history' | 'danger';
 
 interface AgentExportPayload {
   version: number;
@@ -496,6 +496,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { 
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
   const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number; wiki: number; audiences: number } | null>(null);
   const [usage, setUsage] = useState<{ queries30d: number; inputTokens: number; outputTokens: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
+  const [feedback, setFeedback] = useState<{ up: number; down: number; total: number; scorePercent: number } | null>(null);
   const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
   // Socket Mode (how the runner connects) needs the bot token AND the app-level
   // token; the signing secret is only for the HTTP Events API and is unused here.
@@ -529,6 +530,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { 
     let cancelled = false;
     fetch(`/api/agents/${agent.id}/usage`).then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled && d) setUsage(d); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/agents/${agent.id}/feedback`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setFeedback(d); }).catch(() => {});
     return () => { cancelled = true; };
   }, [agent.id]);
 
@@ -664,6 +672,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { 
             <MetaRow icon={<ArrowRight size={13} />} label="Tokens in">{usage ? fmtTokens(usage.inputTokens) : '—'}</MetaRow>
             <MetaRow icon={<ArrowLeft size={13} />} label="Tokens out">{usage ? fmtTokens(usage.outputTokens) : '—'}</MetaRow>
             <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
+            <MetaRow icon={<ThumbsUp size={13} />} label="Satisfaction">{feedback && feedback.total > 0 ? `${feedback.scorePercent}% · ${feedback.up}/${feedback.total}` : 'No ratings'}</MetaRow>
           </div>
 
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
@@ -689,7 +698,7 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
     { id: 'general', label: 'General' },
     { id: 'slack', label: 'Slack' },
   ];
-  if (!viewOnly) sections.push({ id: 'evals', label: 'Evals' }, { id: 'logs', label: 'Logs' }, { id: 'history', label: 'History' });
+  if (!viewOnly) sections.push({ id: 'evals', label: 'Evals' }, { id: 'feedback', label: 'Feedback' }, { id: 'logs', label: 'Logs' }, { id: 'history', label: 'History' });
   if (canDelete) sections.push({ id: 'danger', label: 'Danger Zone' });
   const setSection = onSection;
 
@@ -710,6 +719,7 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
         {section === 'general' && <GeneralSettingsSection agent={agent} onUpdate={onUpdate} canEdit={canEdit} allAgents={allAgents} />}
         {section === 'slack'   && <SlackSettingsSection   agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
         {section === 'evals'   && <EvalsPanel agent={agent} onAskCoach={onAskCoach} onOpenCoach={onOpenCoach} />}
+        {section === 'feedback' && <FeedbackPanel agent={agent} />}
         {section === 'logs'    && <LogsTab    agentId={agent.id} slug={agent.slug} />}
         {section === 'history' && <HistoryTab agentId={agent.id} canEdit={canEdit} />}
         {section === 'danger'  && <DangerSection agent={agent} canDelete={canDelete} />}
@@ -963,6 +973,91 @@ function DangerSection({ agent, canDelete }: { agent: Agent; canDelete: boolean 
         }}>{deleting ? 'Deleting…' : 'Delete Agent'}</button>
       </div>
       {msg && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 10 }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ─── Feedback report card (Settings → Feedback) ───────────────────────────────
+
+function FeedbackPanel({ agent }: { agent: Agent }) {
+  const [data, setData] = useState<{ up: number; down: number; total: number; scorePercent: number; recentNotes: { note: string; raterHandle: string | null; createdAt: string }[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/agents/${agent.id}/feedback`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled) { setData(d); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
+  const total = data?.total ?? 0;
+  const up = data?.up ?? 0;
+  const down = data?.down ?? 0;
+  const score = data?.scorePercent ?? 0;
+  const grade = total === 0 ? '—' : score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
+  const gradeColor = total === 0 ? 'var(--muted)' : score >= 75 ? '#16a34a' : score >= 50 ? '#d97706' : '#dc2626';
+  const upPct = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
+  const fmtDate = (s: string) => { const d = new Date(s.replace(' ', 'T') + 'Z'); return isNaN(d.getTime()) ? s : d.toLocaleDateString(); };
+
+  return (
+    <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-up">
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Feedback</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>👍/👎 ratings users gave this agent&apos;s replies in Slack.</div>
+      </div>
+
+      {loading ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+      ) : total === 0 ? (
+        <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
+          No ratings yet. When this agent replies in Slack, a <strong>Was this helpful? 👍 👎</strong> prompt lets users rate it — results show up here.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', flexWrap: 'wrap' }}>
+            {/* Score + grade + split bar */}
+            <div style={{ flex: '1 1 240px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px', boxShadow: 'var(--shadow-sm)' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Satisfaction</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
+                <span style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-0.02em', color: gradeColor, lineHeight: 1 }}>{score}%</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: gradeColor }}>{grade}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>{total} rating{total !== 1 ? 's' : ''}</div>
+              <div style={{ display: 'flex', height: 8, borderRadius: 99, overflow: 'hidden', marginTop: 12, background: 'var(--surface-2)' }}>
+                <div style={{ width: `${upPct}%`, background: '#16a34a' }} />
+                <div style={{ width: `${100 - upPct}%`, background: '#dc2626' }} />
+              </div>
+            </div>
+            {/* Up / down counts */}
+            <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ flex: 1, background: 'color-mix(in srgb, #16a34a 8%, var(--surface))', border: '1px solid color-mix(in srgb, #16a34a 30%, var(--border))', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <ThumbsUp size={20} style={{ color: '#16a34a' }} />
+                <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{up}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>Helpful</div></div>
+              </div>
+              <div style={{ flex: 1, background: 'color-mix(in srgb, #dc2626 8%, var(--surface))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--border))', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <ThumbsDown size={20} style={{ color: '#dc2626' }} />
+                <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{down}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>Not helpful</div></div>
+              </div>
+            </div>
+          </div>
+
+          <Card title="Recent feedback notes">
+            {data!.recentNotes.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>No written notes yet — they appear here when a user adds detail on a 👎.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {data!.recentNotes.map((n, i) => (
+                  <div key={i} style={{ borderLeft: '3px solid #dc2626', padding: '2px 0 2px 12px' }}>
+                    <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{n.note}</div>
+                    <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 3 }}>{n.raterHandle ? `@${n.raterHandle}` : 'anonymous'} · {fmtDate(n.createdAt)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   );
 }
