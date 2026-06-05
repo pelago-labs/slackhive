@@ -14,7 +14,7 @@ import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2,
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot, AgentFeedbackReport, FeedbackRating } from '@slackhive/shared';
-import { PERSONA_CATALOG, searchPersonas, MODELS } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared';
 import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -514,7 +514,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
   });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
+  // Start empty (not a Claude-model placeholder): the reset effect below snaps
+  // form.model to options[0] whenever the saved value isn't in the list. If we
+  // seed with the wrong-backend list, it clobbers the agent's real model (e.g.
+  // gpt-5.5:high → "Balanced") before the correct list loads — and would persist
+  // that downgrade on the next Save. The `!modelOptions.length` guard defers the
+  // reset until the fetched, backend-correct list arrives.
+  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([]);
   const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number; wiki: number; audiences: number } | null>(null);
   const [usage, setUsage] = useState<{ queries30d: number; inputTokens: number; outputTokens: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
   const [feedback, setFeedback] = useState<AgentFeedbackReport | null>(null);
