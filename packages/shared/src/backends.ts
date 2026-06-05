@@ -39,8 +39,9 @@ export const DEFAULT_CODEX_MODEL = 'gpt-5.5';
  * API-key auth bypasses this list (it gets the real /v1/models list from OpenAI).
  */
 export const CODEX_MODELS: readonly ModelOption[] = [
+  // Default first — SelectField marks the first option as "(default)".
+  { value: 'gpt-5.5',       label: 'GPT-5.5',          sub: 'Balanced' },
   { value: 'gpt-5.5:low',   label: 'GPT-5.5 Instant',  sub: 'Fast, light reasoning' },
-  { value: 'gpt-5.5',       label: 'GPT-5.5',          sub: 'Balanced (default)' },
   { value: 'gpt-5.5:high',  label: 'GPT-5.5 Thinking', sub: 'Deep reasoning' },
   { value: 'gpt-5.5:xhigh', label: 'GPT-5.5 Max',      sub: 'Max reasoning (slowest)' },
 ];

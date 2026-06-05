@@ -20,8 +20,9 @@ export interface ModelOption {
 }
 
 export const MODELS: readonly ModelOption[] = [
-  { value: 'claude-opus-4-8',           label: 'Opus 4.8',   sub: 'Most capable' },
+  // Default first — SelectField marks the first option as "(default)".
   { value: 'claude-sonnet-4-6',         label: 'Sonnet 4.6', sub: 'Balanced' },
+  { value: 'claude-opus-4-8',           label: 'Opus 4.8',   sub: 'Most capable' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5',  sub: 'Fastest' },
 ];
 
