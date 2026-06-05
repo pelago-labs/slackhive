@@ -21,8 +21,14 @@ import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment, MessagePayload,
   SlackCredentials,
 } from '@slackhive/shared';
-import { recordMessageFeedback } from '@slackhive/shared';
+import { recordMessageFeedback, updateMessageFeedbackNote, deleteMessageFeedback } from '@slackhive/shared';
 import { agentLogger } from '../logger';
+
+/** Slack reaction names (incl. aliases) → feedback sentiment. */
+const FB_REACTION: Record<string, 'up' | 'down'> = {
+  '+1': 'up', thumbsup: 'up',
+  '-1': 'down', thumbsdown: 'down',
+};
 import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
 
@@ -78,9 +84,15 @@ export class SlackAdapter implements PlatformAdapter {
   private botUserId?: string;
   private messageHandler?: (msg: IncomingMessage) => Promise<void>;
   private credentials: SlackCredentials;
+  private readonly agentId: string;
+  /** Replies we seeded with 👍/👎 reactions → their activityId. Keyed `${channel}:${ts}`.
+   *  Only reactions on these messages count as feedback. In-memory (forward-looking;
+   *  reactions on pre-restart replies aren't recorded). Capped to avoid unbounded growth. */
+  private feedbackTargets = new Map<string, { activityId: string | null; threadTs?: string | null }>();
 
-  constructor(credentials: SlackCredentials, agentSlug: string) {
+  constructor(credentials: SlackCredentials, agentSlug: string, agentId = '') {
     this.credentials = credentials;
+    this.agentId = agentId;
     this.log = agentLogger(agentSlug);
     // Don't construct Bolt's App here — it spins up a SocketModeReceiver
     // that eagerly validates tokens in the background and orphans any
@@ -189,55 +201,84 @@ export class SlackAdapter implements PlatformAdapter {
       } catch { /* non-fatal */ }
     });
 
-    // ── Message feedback (👍/👎 buttons under the agent's final reply) ──
-    this.app.action('fb_up', async ({ ack, body, action, client }) => {
-      await ack();
-      await this.recordFeedbackClick('up', body as any, action as any, client);
+    // ── Message feedback (👍/👎 reactions on the agent's final reply) ──
+    // We seed 👍/👎 on our reply (seedFeedbackReactions); a user tapping one
+    // records the rating. Only reactions on seeded replies (and not our own
+    // seed) count. Un-reacting retracts the rating.
+    this.app.event('reaction_added', async ({ event }) => {
+      const ev = event as any;
+      if (ev.user === this.botUserId) return;
+      const sentiment = FB_REACTION[ev.reaction as string];
+      if (!sentiment) return;
+      const target = this.feedbackTargets.get(`${ev.item?.channel}:${ev.item?.ts}`);
+      if (!target) return;
+      try {
+        const handle = await this.handleFor(this.app.client, ev.user);
+        await recordMessageFeedback({
+          agentId: this.agentId, activityId: target.activityId ?? null,
+          channel: ev.item.channel, messageTs: ev.item.ts,
+          raterUserId: ev.user, raterHandle: handle, sentiment,
+        });
+        // Private acknowledgment (only the rater sees it). On 👎, offer to add a
+        // note — the button click gives a trigger_id to open the modal (a
+        // reaction event can't open one directly). Keeps the channel uncluttered.
+        const ephemeral: any = { channel: ev.item.channel, user: ev.user };
+        if (target.threadTs) ephemeral.thread_ts = target.threadTs;
+        if (sentiment === 'up') {
+          ephemeral.text = 'Thanks for the feedback 🙂';
+        } else {
+          ephemeral.text = 'Thanks for the feedback 🙂 — anything we should improve?';
+          ephemeral.blocks = [
+            { type: 'section', text: { type: 'mrkdwn', text: 'Thanks for the feedback 🙂 — anything we should improve?' } },
+            { type: 'actions', elements: [
+              { type: 'button', action_id: 'fb_note_open', text: { type: 'plain_text', text: 'Add a note', emoji: true }, value: JSON.stringify({ ts: ev.item.ts }) },
+            ] },
+          ];
+        }
+        await this.app.client.chat.postEphemeral(ephemeral).catch(() => {});
+      } catch (err) { this.log.warn('Feedback reaction record failed', { error: (err as Error).message }); }
     });
-    this.app.action('fb_down', async ({ ack, body, action, client }) => {
+    this.app.event('reaction_removed', async ({ event }) => {
+      const ev = event as any;
+      if (ev.user === this.botUserId || !FB_REACTION[ev.reaction as string]) return;
+      if (!this.feedbackTargets.has(`${ev.item?.channel}:${ev.item?.ts}`)) return;
+      try { await deleteMessageFeedback(ev.item.ts, ev.user); }
+      catch (err) { this.log.warn('Feedback reaction remove failed', { error: (err as Error).message }); }
+    });
+    // "Add a note" button on the 👎 ephemeral → open the note modal (the button
+    // click provides the trigger_id a reaction event lacks).
+    this.app.action('fb_note_open', async ({ ack, body, action, client }) => {
       await ack();
       const b = body as any;
-      const ctx = this.parseFbValue(action as any);
-      // Open the modal FIRST — the Slack trigger_id is only valid for a few
-      // seconds, so do it before the slower DB write / users.info / chat.update.
+      let ts = '';
+      try { ts = JSON.parse((action as any).value ?? '{}').ts ?? ''; } catch { /* ignore */ }
       try {
         await client.views.open({
           trigger_id: b.trigger_id,
           view: {
             type: 'modal',
             callback_id: 'fb_note',
-            private_metadata: JSON.stringify({
-              ...ctx,
-              channel: b.channel?.id ?? b.message?.channel,
-              ts: b.message?.ts,
-            }),
+            private_metadata: JSON.stringify({ ts }),
             title: { type: 'plain_text', text: 'Feedback' },
             submit: { type: 'plain_text', text: 'Send' },
-            close: { type: 'plain_text', text: 'Skip' },
+            close: { type: 'plain_text', text: 'Cancel' },
             blocks: [{
-              type: 'input', block_id: 'note', optional: true,
-              label: { type: 'plain_text', text: 'What went wrong? (optional)' },
+              type: 'input', block_id: 'note', optional: false,
+              label: { type: 'plain_text', text: 'What should we improve?' },
               element: { type: 'plain_text_input', action_id: 'note_input', multiline: true },
             }],
           },
         });
       } catch (err) { this.log.warn('Feedback modal open failed', { error: (err as Error).message }); }
-      // Record the 👎 + collapse the prompt (the note merges on modal submit).
-      await this.recordFeedbackClick('down', b, action as any, client);
     });
-    this.app.view('fb_note', async ({ ack, body, view, client }) => {
+    this.app.view('fb_note', async ({ ack, body, view }) => {
       await ack();
       try {
         const meta = JSON.parse(view.private_metadata || '{}');
         const note = (view.state.values?.note as any)?.note_input?.value ?? '';
-        if (!note.trim()) return; // 👎 already recorded on click; nothing to add
-        const handle = await this.handleFor(client, (body as any).user?.id);
-        await recordMessageFeedback({
-          agentId: meta.agentId, activityId: meta.activityId ?? null,
-          channel: meta.channel ?? null, messageTs: meta.ts ?? null,
-          raterUserId: (body as any).user?.id ?? null, raterHandle: handle,
-          sentiment: 'down', note: note.trim(),
-        });
+        if (!note.trim()) return;
+        // UPDATE-only: attach the note to the 👎 row the reaction already wrote.
+        await updateMessageFeedbackNote(meta.ts, (body as any).user?.id, note.trim());
       } catch (err) { this.log.warn('Feedback note submit failed', { error: (err as Error).message }); }
     });
 
@@ -336,34 +377,25 @@ export class SlackAdapter implements PlatformAdapter {
     } catch { /* non-fatal */ }
   }
 
-  // ─── Feedback (👍/👎) ───────────────────────────────────────────────
+  // ─── Feedback (👍/👎 reactions) ─────────────────────────────────────
 
-  /** Post the "Was this helpful?" prompt with 👍/👎 buttons under a reply. */
-  async postFeedbackPrompt(
+  /** Seed 👍/👎 reactions on the agent's reply so users can tap to rate it. */
+  async seedFeedbackReactions(
     channelId: string,
-    threadId: string | undefined,
-    ctx: { agentId: string; activityId?: string | null },
+    messageTs: string,
+    ctx: { activityId?: string | null; threadTs?: string | null },
   ): Promise<void> {
-    const value = JSON.stringify({ agentId: ctx.agentId, activityId: ctx.activityId ?? null });
+    if (!messageTs) return;
+    // Remember this reply so reaction_added/removed only count seeded messages.
+    // Cap the map so a long-lived process doesn't grow it unboundedly.
+    if (this.feedbackTargets.size > 2000) {
+      this.feedbackTargets.delete(this.feedbackTargets.keys().next().value as string);
+    }
+    this.feedbackTargets.set(`${channelId}:${messageTs}`, { activityId: ctx.activityId ?? null, threadTs: ctx.threadTs ?? null });
     try {
-      await this.app.client.chat.postMessage({
-        channel: channelId,
-        ...(threadId ? { thread_ts: threadId } : {}),
-        text: 'Was this helpful?',
-        blocks: [{
-          type: 'actions',
-          elements: [
-            { type: 'button', action_id: 'fb_up',   text: { type: 'plain_text', text: '👍', emoji: true }, value },
-            { type: 'button', action_id: 'fb_down', text: { type: 'plain_text', text: '👎', emoji: true }, value },
-          ],
-        }],
-      });
-    } catch (err) { this.log.warn('Feedback prompt post failed', { error: (err as Error).message }); }
-  }
-
-  /** Parse the {agentId, activityId} context off a feedback button's value. */
-  private parseFbValue(action: { value?: string }): { agentId: string; activityId?: string | null } {
-    try { return JSON.parse(action?.value ?? '{}'); } catch { return { agentId: '' }; }
+      await this.app.client.reactions.add({ channel: channelId, timestamp: messageTs, name: 'thumbsup' });
+      await this.app.client.reactions.add({ channel: channelId, timestamp: messageTs, name: 'thumbsdown' });
+    } catch (err) { this.log.warn('Feedback reaction seed failed', { error: (err as Error).message }); }
   }
 
   /** Best-effort Slack display name for a user id (for the feedback note list). */
@@ -373,27 +405,6 @@ export class SlackAdapter implements PlatformAdapter {
       const r = await client.users.info({ user: userId });
       return (r.user?.profile?.display_name || r.user?.real_name || r.user?.name) ?? null;
     } catch { return null; }
-  }
-
-  /** Record a 👍/👎 button click and collapse the prompt into a thank-you. */
-  private async recordFeedbackClick(sentiment: 'up' | 'down', body: any, action: any, client: any): Promise<void> {
-    const ctx = this.parseFbValue(action);
-    const channel = body.channel?.id ?? body.message?.channel;
-    const ts = body.message?.ts;
-    try {
-      const handle = await this.handleFor(client, body.user?.id);
-      await recordMessageFeedback({
-        agentId: ctx.agentId, activityId: ctx.activityId ?? null,
-        channel: channel ?? null, messageTs: ts ?? null,
-        raterUserId: body.user?.id ?? null, raterHandle: handle, sentiment,
-      });
-    } catch (err) { this.log.warn('Feedback record failed', { error: (err as Error).message }); }
-    if (channel && ts) {
-      const thanks = sentiment === 'up'
-        ? '✅ Thanks for your feedback!'
-        : '📝 Thanks — your feedback helps us improve.';
-      await client.chat.update({ channel, ts, text: thanks, blocks: [] }).catch(() => {});
-    }
   }
 
   async uploadFile(channelId: string, content: string | Buffer, filename: string, threadId?: string): Promise<void> {

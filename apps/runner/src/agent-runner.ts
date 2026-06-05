@@ -796,6 +796,7 @@ export class AgentRunner {
     const adapter = new SlackAdapter(
       { platform: 'slack', botToken: integration.credentials.botToken, appToken: integration.credentials.appToken, signingSecret: integration.credentials.signingSecret },
       agent.slug,
+      agent.id,
     );
 
     // Compile CLAUDE.md with platform-specific formatting rules.

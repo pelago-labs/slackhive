@@ -49,6 +49,17 @@ function meaningfulStr(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
 }
 
+/** Single source of truth for the satisfaction-score → rating mapping (emoji,
+ *  label, A–F grade, color). Used by the Overview report card + Settings panel. */
+function feedbackTier(score: number, has: boolean): { emoji: string; label: string; grade: string; color: string } {
+  if (!has)        return { emoji: '💬', label: 'No ratings yet', grade: '—', color: 'var(--muted)' };
+  if (score >= 90) return { emoji: '🌟', label: 'Excellent',      grade: 'A', color: '#16a34a' };
+  if (score >= 75) return { emoji: '😀', label: 'Very good',      grade: 'B', color: '#16a34a' };
+  if (score >= 60) return { emoji: '🙂', label: 'Good',           grade: 'C', color: '#d97706' };
+  if (score >= 40) return { emoji: '😐', label: 'OK',             grade: 'D', color: '#d97706' };
+  return                  { emoji: '😟', label: 'Needs work',     grade: 'F', color: '#dc2626' };
+}
+
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'overview',      label: 'Overview',     Icon: Home },
   { id: 'instructions',  label: 'Instructions', Icon: FileText },
@@ -535,7 +546,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/agents/${agent.id}/feedback`).then(r => r.ok ? r.json() : null)
+    fetch(`/api/agents/${agent.id}/feedback?notesLimit=0`).then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled && d) setFeedback(d); }).catch(() => {});
     return () => { cancelled = true; };
   }, [agent.id]);
@@ -642,19 +653,13 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
           const has = !!(f && f.total > 0);
           const score = f?.scorePercent ?? 0;
           const up = f?.up ?? 0, down = f?.down ?? 0;
-          const tier = !has
-            ? { emoji: '💬', label: 'No ratings yet', col: 'var(--muted)' }
-            : score >= 90 ? { emoji: '🌟', label: 'Excellent',  col: '#16a34a' }
-            : score >= 75 ? { emoji: '😀', label: 'Very good',  col: '#16a34a' }
-            : score >= 60 ? { emoji: '🙂', label: 'Good',       col: '#d97706' }
-            : score >= 40 ? { emoji: '😐', label: 'OK',         col: '#d97706' }
-            :               { emoji: '😟', label: 'Needs work', col: '#dc2626' };
+          const tier = feedbackTier(score, has);
           return (
             <button onClick={onViewFeedback} style={{
               width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 12,
-              border: `1px solid color-mix(in srgb, ${tier.col} 22%, var(--border))`, borderRadius: 14,
+              border: `1px solid color-mix(in srgb, ${tier.color} 22%, var(--border))`, borderRadius: 14,
               boxShadow: 'var(--shadow-sm)', padding: '16px 18px', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              background: `linear-gradient(135deg, var(--surface) 0%, color-mix(in srgb, ${tier.col} 9%, var(--surface)) 100%)`,
+              background: `linear-gradient(135deg, var(--surface) 0%, color-mix(in srgb, ${tier.color} 9%, var(--surface)) 100%)`,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Report card</span>
@@ -663,8 +668,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ fontSize: 36, lineHeight: 1 }}>{tier.emoji}</span>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: tier.col, letterSpacing: '-0.01em' }}>{tier.label}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{has ? `${score}% satisfaction` : 'No ratings yet'}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: tier.color, letterSpacing: '-0.01em' }}>{tier.label}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{has ? `${score}% satisfaction · all-time` : 'No ratings yet'}</div>
                 </div>
               </div>
               {has && (
@@ -1046,8 +1051,7 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
   const up = data?.up ?? 0;
   const down = data?.down ?? 0;
   const score = data?.scorePercent ?? 0;
-  const grade = total === 0 ? '—' : score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
-  const gradeColor = total === 0 ? 'var(--muted)' : score >= 75 ? '#16a34a' : score >= 50 ? '#d97706' : '#dc2626';
+  const tier = feedbackTier(score, total > 0);
   const upPct = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
   const fmtDate = (s: string) => { const d = new Date(s.replace(' ', 'T') + 'Z'); return isNaN(d.getTime()) ? s : d.toLocaleDateString(); };
 
@@ -1071,10 +1075,12 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
             <div style={{ flex: '1 1 240px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px', boxShadow: 'var(--shadow-sm)' }}>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Satisfaction</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
-                <span style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-0.02em', color: gradeColor, lineHeight: 1 }}>{score}%</span>
-                <span style={{ fontSize: 20, fontWeight: 700, color: gradeColor }}>{grade}</span>
+                <span style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-0.02em', color: tier.color, lineHeight: 1 }}>{score}%</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: tier.color }}>{tier.grade}</span>
+                <span style={{ fontSize: 22, marginLeft: 'auto' }}>{tier.emoji}</span>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>{total} rating{total !== 1 ? 's' : ''}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: tier.color, marginTop: 8 }}>{tier.label}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{total} rating{total !== 1 ? 's' : ''} · all-time</div>
               <div style={{ display: 'flex', height: 8, borderRadius: 99, overflow: 'hidden', marginTop: 12, background: 'var(--surface-2)' }}>
                 <div style={{ width: `${upPct}%`, background: '#16a34a' }} />
                 <div style={{ width: `${100 - upPct}%`, background: '#dc2626' }} />

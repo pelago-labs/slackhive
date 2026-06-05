@@ -56,11 +56,11 @@ export interface PlatformAdapter {
   removeReaction(channelId: string, messageId: string, emoji: string): Promise<void>;
 
   /**
-   * Optional, platform-specific: post a 👍/👎 feedback prompt under an agent's
-   * final reply (Slack uses Block Kit buttons + a modal). Adapters that don't
+   * Optional, platform-specific: seed 👍/👎 feedback reactions on an agent's
+   * final reply (Slack adds the two emoji to the message). Adapters that don't
    * support interactive feedback (e.g. the test adapter) simply omit this.
    */
-  postFeedbackPrompt?(channelId: string, threadId: string | undefined, ctx: { agentId: string; activityId?: string | null }): Promise<void>;
+  seedFeedbackReactions?(channelId: string, messageTs: string, ctx: { activityId?: string | null; threadTs?: string | null }): Promise<void>;
 
   /** Upload a file to a channel/thread. */
   uploadFile(channelId: string, content: string | Buffer, filename: string, threadId?: string): Promise<void>;

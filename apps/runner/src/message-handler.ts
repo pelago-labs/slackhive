@@ -198,6 +198,7 @@ export class MessageHandler {
     let sentMessages: string[] = [];
     let lastAssistantText: string | null = null;
     let lastToolResultText: string | null = null;
+    let lastReplyTs: string | undefined;  // ts of the final posted reply (for 👍/👎 reactions)
 
     try {
       for await (const message of this.backend.streamQuery(prompt, sessionKey, abortController)) {
@@ -257,7 +258,7 @@ export class MessageHandler {
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
                 if (safeText) sentMessages.push(safeText);
-                await this.postFormattedMessage(channelId, threadId, verbosePost);
+                lastReplyTs = await this.postFormattedMessage(channelId, threadId, verbosePost);
               }
             }
           } else if (textContent || thinkingContent) {
@@ -269,7 +270,7 @@ export class MessageHandler {
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
                 if (textContent) sentMessages.push(textContent);
-                await this.postFormattedMessage(channelId, threadId, verbosePost);
+                lastReplyTs = await this.postFormattedMessage(channelId, threadId, verbosePost);
               }
             }
             // non-verbose: lastAssistantText already updated above; fallback posts it at end
@@ -338,7 +339,7 @@ export class MessageHandler {
             const alreadyStreamed = this.agent.verbose && sentMessages.length > 0;
             if (finalResult && !alreadyStreamed && !sentMessages.includes(finalResult)) {
               sentMessages.push(finalResult);
-              await this.postFormattedMessage(channelId, threadId, finalResult);
+              lastReplyTs = await this.postFormattedMessage(channelId, threadId, finalResult);
             }
           }
         }
@@ -360,19 +361,21 @@ export class MessageHandler {
       if (sentMessages.length === 0) {
         const fallback = lastAssistantText ?? lastToolResultText ?? '_No response generated._';
         this.log.info('No messages sent, using fallback');
-        await this.postFormattedMessage(channelId, threadId, fallback);
+        lastReplyTs = await this.postFormattedMessage(channelId, threadId, fallback);
       }
 
       if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':white_check_mark:').catch(() => {});
       await this.swapReaction(channelId, messageId, sessionKey, 'white_check_mark');
 
-      // Feedback prompt (👍/👎) under the final answer — Slack-only (optional
-      // adapter method; absent on the test adapter). Only when a real answer
-      // was posted, never on empty/aborted turns.
-      if (sentMessages.length > 0) {
-        await this.adapter.postFeedbackPrompt?.(channelId, threadId, {
-          agentId: this.agent.id,
+      // Seed 👍/👎 feedback reactions on the final reply — Slack-only (optional
+      // adapter method; absent on the test adapter). Only when a real answer was
+      // posted, and only for HUMAN-initiated turns: skip bot/agent traffic
+      // (boss↔specialist delegation) so internal chatter isn't rated — the human
+      // rates only the agent they messaged.
+      if (lastReplyTs && !hasBotMarker) {
+        await this.adapter.seedFeedbackReactions?.(channelId, lastReplyTs, {
           activityId: recorder?.activityId ?? null,
+          threadTs: threadId,
         }).catch(() => {});
       }
 
@@ -471,11 +474,14 @@ export class MessageHandler {
   // ─── Private helpers ───────────────────────────────────────────────
 
   /** Post a message formatted for the platform (with rich blocks if supported). */
-  private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<void> {
+  /** Posts the message (possibly split into payloads) and returns the LAST ts. */
+  private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<string | undefined> {
     const payloads = this.adapter.buildPayloads(text);
+    let lastTs: string | undefined;
     for (const payload of payloads) {
-      await this.adapter.postPayload(channelId, payload, threadId);
+      lastTs = await this.adapter.postPayload(channelId, payload, threadId);
     }
+    return lastTs;
   }
 
   /** Swap reaction — remove old, add new. */

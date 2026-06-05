@@ -722,6 +722,28 @@ export async function recordMessageFeedback(input: MessageFeedbackInput): Promis
   );
 }
 
+/** Retract a rating when a user removes their 👍/👎 reaction. No-op if keys missing. */
+export async function deleteMessageFeedback(messageTs: string | null | undefined, raterUserId: string | null | undefined): Promise<void> {
+  if (!messageTs || !raterUserId) return;
+  const db = getDb();
+  await db.query(`DELETE FROM message_feedback WHERE message_ts = $1 AND rater_user_id = $2`, [messageTs, raterUserId]);
+}
+
+/**
+ * Attach a note to an existing 👎 row (the modal submit), keyed by the same
+ * (message_ts, rater_user_id) the click recorded. UPDATE-only — it never
+ * inserts, so it can't create a duplicate row even when the UNIQUE index can't
+ * dedupe (e.g. a NULL key). No-op when the keys are missing.
+ */
+export async function updateMessageFeedbackNote(messageTs: string | null | undefined, raterUserId: string | null | undefined, note: string): Promise<void> {
+  if (!messageTs || !raterUserId) return;
+  const db = getDb();
+  await db.query(
+    `UPDATE message_feedback SET note = $1 WHERE message_ts = $2 AND rater_user_id = $3`,
+    [note, messageTs, raterUserId],
+  );
+}
+
 /**
  * Per-agent feedback summary (satisfaction score, counts) + a page of 👎 notes.
  * `notesLimit`/`notesOffset` paginate the notes; `noteCount` is the total so the
@@ -732,8 +754,12 @@ export async function getFeedbackReport(
   opts: { since?: string; notesLimit?: number; notesOffset?: number } = {},
 ): Promise<AgentFeedbackReport> {
   const db = getDb();
-  const notesLimit = Math.min(Math.max(opts.notesLimit ?? 5, 1), 50);
-  const notesOffset = Math.max(opts.notesOffset ?? 0, 0);
+  // notesLimit === 0 → caller wants counts only (e.g. the Overview); skip the
+  // notes query entirely. NaN/garbage falls back to the default page size.
+  const rawLimit = Number.isFinite(opts.notesLimit) ? (opts.notesLimit as number) : 5;
+  const wantNotes = rawLimit !== 0;
+  const notesLimit = Math.min(Math.max(rawLimit || 5, 1), 50);
+  const notesOffset = Math.max(Number.isFinite(opts.notesOffset) ? (opts.notesOffset as number) : 0, 0);
 
   const wheres = ['agent_id = $1'];
   const params: unknown[] = [agentId];
@@ -759,19 +785,22 @@ export async function getFeedbackReport(
   const noteCount = Number(r.note_count ?? 0);
   const scorePercent = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
 
-  const notesRes = await db.query(
-    `SELECT note, rater_handle, created_at
-       FROM message_feedback
-      WHERE ${whereSql} AND sentiment = 'down' AND note IS NOT NULL AND note <> ''
-      ORDER BY created_at DESC
-      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-    [...params, notesLimit, notesOffset],
-  );
-  const recentNotes = notesRes.rows.map(n => ({
-    note: n.note as string,
-    raterHandle: (n.rater_handle as string | null) ?? null,
-    createdAt: n.created_at as string,
-  }));
+  let recentNotes: AgentFeedbackReport['recentNotes'] = [];
+  if (wantNotes) {
+    const notesRes = await db.query(
+      `SELECT note, rater_handle, created_at
+         FROM message_feedback
+        WHERE ${whereSql} AND sentiment = 'down' AND note IS NOT NULL AND note <> ''
+        ORDER BY created_at DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, notesLimit, notesOffset],
+    );
+    recentNotes = notesRes.rows.map(n => ({
+      note: n.note as string,
+      raterHandle: (n.rater_handle as string | null) ?? null,
+      createdAt: n.created_at as string,
+    }));
+  }
 
   return { up, down, total, scorePercent, noteCount, recentNotes };
 }
