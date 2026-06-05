@@ -626,38 +626,50 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
       </div>
 
       {/* Details (aside) — metrics + meta */}
-      <aside style={{ flex: '0 0 300px', maxWidth: '100%' }}>
-        <Card title="Details" fill>
-          {/* Performance — friendly rating + emoji; click → Settings → Feedback. */}
-          {(() => {
-            const f = feedback;
-            const has = !!(f && f.total > 0);
-            const score = f?.scorePercent ?? 0;
-            const tier = !has
-              ? { emoji: '💬', label: 'No ratings yet', col: 'var(--muted)' }
-              : score >= 90 ? { emoji: '🌟', label: 'Excellent',  col: '#16a34a' }
-              : score >= 75 ? { emoji: '😀', label: 'Very good',  col: '#16a34a' }
-              : score >= 60 ? { emoji: '🙂', label: 'Good',       col: '#d97706' }
-              : score >= 40 ? { emoji: '😐', label: 'OK',         col: '#d97706' }
-              :               { emoji: '😟', label: 'Needs work', col: '#dc2626' };
-            return (
-              <button onClick={onViewFeedback} style={{
-                width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 11,
-                padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)',
-                background: 'var(--surface-2)', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              }}>
-                <span style={{ fontSize: 24, lineHeight: 1 }}>{tier.emoji}</span>
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: tier.col }}>{tier.label}</span>
-                  <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
-                    {has ? `${score}% satisfaction · ${f!.total} rating${f!.total !== 1 ? 's' : ''}` : 'Performance from 👍/👎'}
-                  </span>
-                </span>
-                <ArrowRight size={14} style={{ color: 'var(--subtle)', flexShrink: 0 }} />
-              </button>
-            );
-          })()}
+      <aside style={{ flex: '0 0 300px', maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Report card — friendly performance rating; click → Settings → Feedback. */}
+        {(() => {
+          const f = feedback;
+          const has = !!(f && f.total > 0);
+          const score = f?.scorePercent ?? 0;
+          const up = f?.up ?? 0, down = f?.down ?? 0;
+          const tier = !has
+            ? { emoji: '💬', label: 'No ratings yet', col: 'var(--muted)' }
+            : score >= 90 ? { emoji: '🌟', label: 'Excellent',  col: '#16a34a' }
+            : score >= 75 ? { emoji: '😀', label: 'Very good',  col: '#16a34a' }
+            : score >= 60 ? { emoji: '🙂', label: 'Good',       col: '#d97706' }
+            : score >= 40 ? { emoji: '😐', label: 'OK',         col: '#d97706' }
+            :               { emoji: '😟', label: 'Needs work', col: '#dc2626' };
+          return (
+            <button onClick={onViewFeedback} style={{
+              width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 12,
+              border: `1px solid color-mix(in srgb, ${tier.col} 22%, var(--border))`, borderRadius: 14,
+              boxShadow: 'var(--shadow-sm)', padding: '16px 18px', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              background: `linear-gradient(135deg, var(--surface) 0%, color-mix(in srgb, ${tier.col} 9%, var(--surface)) 100%)`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Report card</span>
+                <ArrowRight size={14} style={{ color: 'var(--subtle)' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 36, lineHeight: 1 }}>{tier.emoji}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: tier.col, letterSpacing: '-0.01em' }}>{tier.label}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{has ? `${score}% satisfaction` : 'No ratings yet'}</div>
+                </div>
+              </div>
+              {has && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12.5, color: 'var(--muted)' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsUp size={13} style={{ color: '#16a34a' }} /> {up}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsDown size={13} style={{ color: '#dc2626' }} /> {down}</span>
+                  <span style={{ marginLeft: 'auto', color: 'var(--subtle)' }}>{f!.total} rating{f!.total !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+            </button>
+          );
+        })()}
 
+        <Card title="Details">
           {/* Counts — wrapping stat chips */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {[
