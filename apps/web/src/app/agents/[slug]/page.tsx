@@ -623,9 +623,9 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
               onChange={v => setForm(f => ({ ...f, model: v }))}
               hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
           </Grid2>
-          <Field label="Description" value={form.description}
+          <TextArea label="Description" value={form.description}
             onChange={v => setForm(f => ({ ...f, description: v }))}
-            hint="Short summary — used by boss agents for delegation." readOnly={!canEdit} />
+            hint="Short summary — used by boss agents for delegation." rows={2} readOnly={!canEdit} />
           <TagInput tags={form.tags} onChange={tags => setForm(f => ({ ...f, tags }))}
             allTags={allAgents.flatMap(a => a.tags ?? [])} readOnly={!canEdit} />
           <TextArea label="Persona" value={form.persona}
@@ -3201,10 +3201,10 @@ function Field({ label, value, onChange, hint, type = 'text', readOnly }: {
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
           fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
-          transition: 'border-color 0.15s',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
         }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+        onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent)'; }}
+        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
       />
       {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
@@ -3228,7 +3228,10 @@ function SelectField({ label, value, options, onChange, hint, readOnly }: {
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
           fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
           cursor: readOnly ? 'default' : 'pointer',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
         }}
+        onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent)'; }}
+        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
       >
         {options.map((o, i) => (
           <option key={o.value} value={o.value}>{o.label}{o.sub ? ` — ${o.sub}` : ''}{i === 0 ? ' (default)' : ''}</option>
@@ -3255,11 +3258,11 @@ function TextArea({ label, value, onChange, hint, rows = 3, readOnly, grow }: {
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
           fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
-          transition: 'border-color 0.15s', boxSizing: 'border-box',
+          transition: 'border-color 0.15s, box-shadow 0.15s', boxSizing: 'border-box',
           ...(grow ? { flex: 1, minHeight: 140 } : {}),
         }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+        onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent)'; }}
+        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
       />
       {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
