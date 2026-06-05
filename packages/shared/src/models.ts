@@ -26,7 +26,7 @@ export const MODELS: readonly ModelOption[] = [
 ];
 
 /** Default model assigned to a newly created agent. */
-export const DEFAULT_AGENT_MODEL = 'claude-opus-4-8';
+export const DEFAULT_AGENT_MODEL = 'claude-sonnet-4-6';
 
 /** Default model used by the Coach feature when the user hasn't picked one. */
 export const DEFAULT_COACH_MODEL = 'claude-sonnet-4-6';
