@@ -513,7 +513,10 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
     `UPDATE agents SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
     values
   );
-  return r.rows.length ? rowToAgent(r.rows[0]) : null;
+  // Hydrate platform (Slack) credentials like getAgentById — otherwise callers
+  // (e.g. the agent page) overwrite their state with an agent missing slack*
+  // fields, falsely showing "Slack not configured" after an unrelated edit.
+  return enrichAgentWithPlatform(r.rows.length ? rowToAgent(r.rows[0]) : null);
 }
 
 /**
