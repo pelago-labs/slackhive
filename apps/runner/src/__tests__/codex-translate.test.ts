@@ -83,4 +83,21 @@ describe('codex-translate / translateEvent', () => {
     const out = translateEvent({ type: 'turn.failed', error: { message: 'rate limited' } }, []);
     expect(out[0]).toMatchObject({ type: 'result', subtype: 'error', result: 'rate limited' });
   });
+
+  it('keeps only the last agent_message in the final result (preambles are verbose-only)', () => {
+    const finalParts: string[] = [];
+    const events: ThreadEvent[] = [
+      { type: 'item.completed', item: { id: 'p1', type: 'agent_message', text: 'Let me check the table grain first.' } },
+      { type: 'item.completed', item: { id: 't1', type: 'mcp_tool_call', server: 'redshift', tool: 'query', arguments: {}, result: { content: [{ type: 'text', text: 'ok' }], structured_content: null }, status: 'completed' } },
+      { type: 'item.completed', item: { id: 'a1', type: 'agent_message', text: 'There are 42 customers.' } },
+      { type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } },
+    ] as ThreadEvent[];
+    const out = events.flatMap((e) => translateEvent(e, finalParts));
+    // Both agent_messages are still emitted as assistant blocks (verbose streams them live)...
+    const texts = out.filter((m) => (m as any).type === 'assistant' && (m as any).message.content[0]?.type === 'text').map((m) => (m as any).message.content[0].text);
+    expect(texts).toEqual(['Let me check the table grain first.', 'There are 42 customers.']);
+    // ...but the non-verbose final result is ONLY the last one — no preamble.
+    const result = out.find((m) => (m as any).type === 'result') as any;
+    expect(result.result).toBe('There are 42 customers.');
+  });
 });

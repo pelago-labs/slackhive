@@ -43,6 +43,13 @@ function mcpResultText(result: { content: Array<{ type: string; text?: string }>
 export function translateItem(item: ThreadItem, finalParts: string[]): BackendMessage[] {
   switch (item.type) {
     case 'agent_message':
+      // Only the LAST agent_message is the turn's deliverable; earlier ones are
+      // progress preambles Codex emits as it works. They're streamed live in
+      // verbose mode (each agent_message → an assistant text block below), but
+      // must NOT leak into the non-verbose final result — otherwise "verbose off"
+      // still posts all the narration. Mirror the SDK's own `finalResponse`, which
+      // keeps only the last agent_message: reset rather than accumulate.
+      finalParts.length = 0;
       finalParts.push(item.text);
       return [assistant([{ type: 'text', text: item.text }])];
 
