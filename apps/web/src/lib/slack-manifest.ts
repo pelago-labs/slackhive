@@ -72,10 +72,15 @@ export function generateSlackManifest(opts: {
           'message.groups',
           'message.im',
           'member_joined_channel',
+          // 👍/👎 feedback on agent replies.
+          'reaction_added',
+          'reaction_removed',
         ],
       },
       interactivity: {
-        is_enabled: false,
+        // Needed for the 👎 "Add a note" button + feedback modal (delivered over
+        // Socket Mode, so no request URL is required).
+        is_enabled: true,
       },
       socket_mode_enabled: true,
       token_rotation_enabled: false,

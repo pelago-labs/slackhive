@@ -75,6 +75,8 @@ describe('generateSlackManifest', () => {
     expect(events).toContain('message.channels');
     expect(events).toContain('message.groups');
     expect(events).toContain('member_joined_channel');
+    expect(events).toContain('reaction_added');
+    expect(events).toContain('reaction_removed');
   });
 
   it('sets bot always_online to true', () => {
@@ -82,9 +84,9 @@ describe('generateSlackManifest', () => {
     expect(m.features.bot_user.always_online).toBe(true);
   });
 
-  it('disables interactivity', () => {
+  it('enables interactivity (for the feedback note button + modal)', () => {
     const m = generateSlackManifest({ name: 'Bot' });
-    expect(m.settings.interactivity.is_enabled).toBe(false);
+    expect(m.settings.interactivity.is_enabled).toBe(true);
   });
 
   it('disables token rotation', () => {
