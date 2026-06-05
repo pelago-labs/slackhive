@@ -618,22 +618,23 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
         const has = !!(f && f.total > 0);
         const score = f?.scorePercent ?? 0;
         const up = f?.up ?? 0, down = f?.down ?? 0;
-        const upPct = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
         const grade = !has ? '' : score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
         const col = !has ? 'var(--muted)' : score >= 75 ? '#16a34a' : score >= 50 ? '#d97706' : '#dc2626';
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12.5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
             {has ? (
               <>
-                <span style={{ fontWeight: 700, color: col }}>{score}%{grade && <span style={{ marginLeft: 5 }}>{grade}</span>}</span>
-                <span style={{ color: 'var(--muted)' }}>satisfaction</span>
-                <div style={{ display: 'flex', height: 5, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', flex: '0 1 180px', minWidth: 90 }}>
-                  <div style={{ width: `${upPct}%`, background: '#16a34a' }} />
-                  <div style={{ width: `${100 - upPct}%`, background: '#dc2626' }} />
-                </div>
-                <span style={{ color: 'var(--muted)', display: 'inline-flex', gap: 10 }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsUp size={12} style={{ color: '#16a34a' }} />{up}</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsDown size={12} style={{ color: '#dc2626' }} />{down}</span>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999,
+                  background: `color-mix(in srgb, ${col} 12%, transparent)`, color: col, fontWeight: 600,
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: col }} />
+                  {score}%{grade && <span style={{ opacity: 0.85 }}>· {grade}</span>}
+                </span>
+                <span style={{ color: 'var(--muted)' }}>satisfaction · {f!.total} rating{f!.total !== 1 ? 's' : ''}</span>
+                <span style={{ color: 'var(--subtle)', display: 'inline-flex', gap: 9 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsUp size={12} />{up}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsDown size={12} />{down}</span>
                 </span>
               </>
             ) : (
