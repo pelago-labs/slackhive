@@ -27,11 +27,11 @@ import { execFileSync } from 'child_process';
 // `Codex` class via dynamic import() — tsx preserves it as a real ESM import.
 import type { Codex as CodexClient } from '@openai/codex-sdk';
 import type { Agent, McpServer, McpStdioConfig, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
-import { CODEX_MODEL_SETTING_KEY } from '@slackhive/shared';
+import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, splitCodexModel, type CodexReasoningEffort } from '@slackhive/shared';
 import { getSession, upsertSession, cleanupStaleSessions, getSetting } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
-import { buildCodexConfig, buildThreadOptions, createCodexClient, resolveCodexModel, buildIdentityInstructions } from './codex-config';
+import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -210,9 +210,15 @@ export class CodexBackend implements AgentBackend {
    * picker), so the global setting is what normally applies — read live each turn
    * so a Settings change takes effect on the next message without a reload.
    */
-  private async getModel(): Promise<string> {
-    if (this.agent.model && !/^claude/i.test(this.agent.model)) return this.agent.model;
-    return resolveCodexModel(await getSetting(CODEX_MODEL_SETTING_KEY));
+  private async getModel(): Promise<{ model: string; effort?: CodexReasoningEffort }> {
+    // Per-agent model wins (unless it still holds the default Claude id); else the
+    // global codexModel setting. Either may carry a `:<effort>` reasoning suffix
+    // (e.g. gpt-5.5:high) which we split into the model + reasoning effort.
+    const stored = (this.agent.model && !/^claude/i.test(this.agent.model))
+      ? this.agent.model
+      : ((await getSetting(CODEX_MODEL_SETTING_KEY)) ?? DEFAULT_CODEX_MODEL);
+    const { model, effort } = splitCodexModel(stored);
+    return { model: /^claude/i.test(model) ? DEFAULT_CODEX_MODEL : model, effort };
   }
 
   async *streamQuery(
@@ -254,11 +260,12 @@ export class CodexBackend implements AgentBackend {
     }
 
     const sessionWorkDir = this.getSessionWorkDir(sessionKey);
-    const model = await this.getModel();
+    const { model, effort } = await this.getModel();
     const threadOptions = buildThreadOptions({
       sessionWorkDir,
       workDir: this.workDir,
       model,
+      reasoningEffort: effort,
       // Claude agents run with unrestricted network (only curl/wget are command-
       // denied), and MCP servers (e.g. Pelago) need to reach their APIs — a
       // network-sandboxed MCP call surfaces as "user cancelled". So enable network

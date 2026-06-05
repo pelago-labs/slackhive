@@ -9,7 +9,7 @@
 
 import type { Codex as CodexClient, ThreadOptions } from '@openai/codex-sdk';
 import type { McpServer, McpStdioConfig, Permission } from '@slackhive/shared';
-import { DEFAULT_CODEX_MODEL, agentIdentityBody } from '@slackhive/shared';
+import { DEFAULT_CODEX_MODEL, agentIdentityBody, splitCodexModel, type CodexReasoningEffort } from '@slackhive/shared';
 
 /** 1 MiB — generous so the inlined-memory AGENTS.md is never truncated (Codex default is 32 KiB). */
 const PROJECT_DOC_MAX_BYTES = 1_048_576;
@@ -52,12 +52,13 @@ export async function createCodexClient(config: ConfigObj, apiKey?: string): Pro
 }
 
 /**
- * Resolve the effective Codex model id from a stored setting: fall back to the
- * default when unset, and guard against a Claude model id leaking in from a
- * backend switch (the agent's `model` column holds a Claude id).
+ * Resolve the effective Codex model id from a stored setting: strip any
+ * `:<effort>` reasoning suffix (see splitCodexModel), fall back to the default
+ * when unset, and guard against a Claude model id leaking in from a backend
+ * switch (the agent's `model` column holds a Claude id).
  */
 export function resolveCodexModel(stored: string | null | undefined): string {
-  const model = stored ?? DEFAULT_CODEX_MODEL;
+  const { model } = splitCodexModel(stored ?? DEFAULT_CODEX_MODEL);
   return /^claude/i.test(model) ? DEFAULT_CODEX_MODEL : model;
 }
 
@@ -128,6 +129,7 @@ export function buildThreadOptions(opts: {
   workDir: string;
   model: string;
   networkAccess: boolean;
+  reasoningEffort?: CodexReasoningEffort;
 }): ThreadOptions {
   return {
     workingDirectory: opts.sessionWorkDir,
@@ -139,6 +141,7 @@ export function buildThreadOptions(opts: {
     webSearchEnabled: true,
     webSearchMode: 'live',
     model: opts.model,
+    ...(opts.reasoningEffort && { modelReasoningEffort: opts.reasoningEffort }),
   };
 }
 

@@ -29,19 +29,39 @@ export const CLAUDE_AUTH_MODE_SETTING_KEY = 'claudeAuthMode';
 export const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 
 /**
- * Curated fallback list of Codex models — shown when the live model list can't be
- * fetched (subscription auth has no models API). Only models that actually work
- * under a **ChatGPT-account login** are listed, verified via `codex exec`. The
- * `*-codex` coding models (e.g. gpt-5.3-codex) are intentionally excluded: Codex
- * rejects them on a ChatGPT account ("not supported when using Codex with a
- * ChatGPT account") — they're API-key-only, and API-key auth gets the real list
- * from OpenAI's /v1/models endpoint instead of this fallback.
+ * Curated list of Codex models for a ChatGPT-account login (subscription auth has
+ * no models API). Codex exposes ONE flagship model (`gpt-5.5`) plus a reasoning
+ * level — "Instant/Thinking" are NOT separate models (that's the ChatGPT app's
+ * naming). We surface the reasoning levels as friendly choices and encode them as
+ * `<model>:<effort>`; the runner splits that into `model` + `modelReasoningEffort`
+ * (see splitCodexModel / buildThreadOptions). A bare `<model>` = the model's
+ * default effort (medium). `gpt-5.4*` are legacy (the server migrates 5.4 → 5.5).
+ * API-key auth bypasses this list (it gets the real /v1/models list from OpenAI).
  */
 export const CODEX_MODELS: readonly ModelOption[] = [
-  { value: 'gpt-5.5',       label: 'GPT-5.5',       sub: 'Most capable' },
-  { value: 'gpt-5.4',       label: 'GPT-5.4',       sub: 'Balanced' },
-  { value: 'gpt-5.4-mini',  label: 'GPT-5.4 mini',  sub: 'Fastest' },
+  { value: 'gpt-5.5:low',   label: 'GPT-5.5 Instant',  sub: 'Fast, light reasoning' },
+  { value: 'gpt-5.5',       label: 'GPT-5.5',          sub: 'Balanced (default)' },
+  { value: 'gpt-5.5:high',  label: 'GPT-5.5 Thinking', sub: 'Deep reasoning' },
+  { value: 'gpt-5.5:xhigh', label: 'GPT-5.5 Max',      sub: 'Max reasoning (slowest)' },
 ];
+
+/** Valid Codex reasoning efforts (Codex SDK `ModelReasoningEffort`). */
+export const CODEX_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
+
+/**
+ * Split a stored Codex model value into its model slug + optional reasoning
+ * effort. Values are `<model>` or `<model>:<effort>` (e.g. `gpt-5.5:high`).
+ * An unrecognized suffix is treated as part of the model (returned as-is).
+ */
+export function splitCodexModel(value: string | null | undefined): { model: string; effort?: CodexReasoningEffort } {
+  const v = value ?? DEFAULT_CODEX_MODEL;
+  const idx = v.indexOf(':');
+  if (idx === -1) return { model: v };
+  const model = v.slice(0, idx);
+  const effort = v.slice(idx + 1) as CodexReasoningEffort;
+  return (CODEX_REASONING_EFFORTS as readonly string[]).includes(effort) ? { model, effort } : { model: v };
+}
 
 export type BackendAuthMode = 'subscription' | 'apiKey';
 
