@@ -46,7 +46,7 @@ describe('getFeedbackReport', () => {
   it('returns zeros for an agent with no feedback', async () => {
     const agentId = await seedAgent();
     const r = await getFeedbackReport(agentId);
-    expect(r).toEqual({ up: 0, down: 0, total: 0, scorePercent: 0, recentNotes: [] });
+    expect(r).toEqual({ up: 0, down: 0, total: 0, scorePercent: 0, noteCount: 0, recentNotes: [] });
   });
 
   it('scores 3 up / 1 down as 75%', async () => {

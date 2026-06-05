@@ -23,7 +23,10 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Ne
   if (denied) return denied;
   try {
     const { id } = await params;
-    const report = await getFeedbackReport(id);
+    const sp = req.nextUrl.searchParams;
+    const notesLimit = sp.get('notesLimit') ? parseInt(sp.get('notesLimit')!, 10) : undefined;
+    const notesOffset = sp.get('notesOffset') ? parseInt(sp.get('notesOffset')!, 10) : undefined;
+    const report = await getFeedbackReport(id, { notesLimit, notesOffset });
     return NextResponse.json(report);
   } catch (err) {
     return apiError('agents/[id]/feedback', err);

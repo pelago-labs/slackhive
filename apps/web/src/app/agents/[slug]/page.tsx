@@ -386,7 +386,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 40px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} onConnectSlack={() => { setSettingsSection('slack'); setTab('settings'); }} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} onConnectSlack={() => { setSettingsSection('slack'); setTab('settings'); }} onViewFeedback={() => { setSettingsSection('feedback'); setTab('settings'); }} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
@@ -483,7 +483,7 @@ function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label
  * config (Slack, verbose, hierarchy), logs, history and delete live under the
  * Settings tab. Identity edits PATCH only their own fields (updateAgent merges).
  */
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; onConnectSlack: () => void }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onViewFeedback }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; onConnectSlack: () => void; onViewFeedback: () => void }) {
   const [form, setForm] = useState({
     name:        agent.name,
     description: agent.description ?? '',
@@ -612,6 +612,54 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { 
         </div>
       )}
 
+      {/* Performance — how the agent is rated in Slack (👍/👎). */}
+      {(() => {
+        const f = feedback;
+        const has = !!(f && f.total > 0);
+        const score = f?.scorePercent ?? 0;
+        const up = f?.up ?? 0, down = f?.down ?? 0;
+        const upPct = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
+        const grade = !has ? '—' : score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
+        const col = !has ? 'var(--muted)' : score >= 75 ? '#16a34a' : score >= 50 ? '#d97706' : '#dc2626';
+        return (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap',
+            padding: '16px 20px', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+            background: 'var(--surface)', boxShadow: 'var(--shadow-sm)',
+          }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase', flexShrink: 0 }}>Performance</div>
+            {has ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.02em', color: col, lineHeight: 1 }}>{score}%</span>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: col }}>{grade}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: '1 1 200px', minWidth: 160 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Satisfaction · {f!.total} rating{f!.total !== 1 ? 's' : ''}</div>
+                  <div style={{ display: 'flex', height: 8, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                    <div style={{ width: `${upPct}%`, background: '#16a34a' }} />
+                    <div style={{ width: `${100 - upPct}%`, background: '#dc2626' }} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 14, flexShrink: 0 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}><ThumbsUp size={14} style={{ color: '#16a34a' }} /> {up}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}><ThumbsDown size={14} style={{ color: '#dc2626' }} /> {down}</span>
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ThumbsUp size={15} style={{ color: 'var(--subtle)' }} /> No ratings yet — 👍/👎 feedback from Slack shows up here.
+              </div>
+            )}
+            <button onClick={onViewFeedback} style={{
+              marginLeft: 'auto', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+              background: 'none', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px',
+              fontSize: 12.5, fontWeight: 500, color: 'var(--text)', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            }}>Report card <ArrowRight size={13} /></button>
+          </div>
+        );
+      })()}
+
       <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
       {/* Identity (main) */}
       <div style={{ flex: '1 1 520px', minWidth: 0 }}>
@@ -672,7 +720,6 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack }: { 
             <MetaRow icon={<ArrowRight size={13} />} label="Tokens in">{usage ? fmtTokens(usage.inputTokens) : '—'}</MetaRow>
             <MetaRow icon={<ArrowLeft size={13} />} label="Tokens out">{usage ? fmtTokens(usage.outputTokens) : '—'}</MetaRow>
             <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
-            <MetaRow icon={<ThumbsUp size={13} />} label="Satisfaction">{feedback && feedback.total > 0 ? `${feedback.scorePercent}% · ${feedback.up}/${feedback.total}` : 'No ratings'}</MetaRow>
           </div>
 
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
@@ -979,17 +1026,28 @@ function DangerSection({ agent, canDelete }: { agent: Agent; canDelete: boolean 
 
 // ─── Feedback report card (Settings → Feedback) ───────────────────────────────
 
+type FbNote = { note: string; raterHandle: string | null; createdAt: string };
 function FeedbackPanel({ agent }: { agent: Agent }) {
-  const [data, setData] = useState<{ up: number; down: number; total: number; scorePercent: number; recentNotes: { note: string; raterHandle: string | null; createdAt: string }[] } | null>(null);
+  const [data, setData] = useState<{ up: number; down: number; total: number; scorePercent: number; noteCount: number; recentNotes: FbNote[] } | null>(null);
+  const [notes, setNotes] = useState<FbNote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/agents/${agent.id}/feedback`).then(r => r.ok ? r.json() : null)
-      .then(d => { if (!cancelled) { setData(d); setLoading(false); } })
+      .then(d => { if (!cancelled) { setData(d); setNotes(d?.recentNotes ?? []); setLoading(false); } })
       .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [agent.id]);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}/feedback?notesOffset=${notes.length}&notesLimit=10`);
+      if (r.ok) { const d = await r.json(); setNotes(prev => [...prev, ...(d.recentNotes ?? [])]); }
+    } finally { setLoadingMore(false); }
+  };
 
   const total = data?.total ?? 0;
   const up = data?.up ?? 0;
@@ -1042,17 +1100,24 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
             </div>
           </div>
 
-          <Card title="Recent feedback notes">
-            {data!.recentNotes.length === 0 ? (
+          <Card title={`Feedback notes${data!.noteCount ? ` (${data!.noteCount})` : ''}`}>
+            {notes.length === 0 ? (
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>No written notes yet — they appear here when a user adds detail on a 👎.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {data!.recentNotes.map((n, i) => (
+                {notes.map((n, i) => (
                   <div key={i} style={{ borderLeft: '3px solid #dc2626', padding: '2px 0 2px 12px' }}>
                     <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{n.note}</div>
                     <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 3 }}>{n.raterHandle ? `@${n.raterHandle}` : 'anonymous'} · {fmtDate(n.createdAt)}</div>
                   </div>
                 ))}
+                {notes.length < data!.noteCount && (
+                  <button onClick={loadMore} disabled={loadingMore} style={{
+                    alignSelf: 'flex-start', marginTop: 2, background: 'none', border: '1px solid var(--border)',
+                    borderRadius: 7, padding: '6px 12px', fontSize: 12.5, fontWeight: 500, color: 'var(--text)',
+                    cursor: loadingMore ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
+                  }}>{loadingMore ? 'Loading…' : `Load more (${data!.noteCount - notes.length})`}</button>
+                )}
               </div>
             )}
           </Card>

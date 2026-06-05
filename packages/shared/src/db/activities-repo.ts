@@ -691,6 +691,9 @@ export interface AgentFeedbackReport {
   total: number;
   /** Satisfaction = up / (up + down), 0–100. 0 when no ratings. */
   scorePercent: number;
+  /** Total 👎 notes available (for pagination). */
+  noteCount: number;
+  /** This page of 👎 notes (newest first). */
   recentNotes: { note: string; raterHandle: string | null; createdAt: string }[];
 }
 
@@ -719,21 +722,32 @@ export async function recordMessageFeedback(input: MessageFeedbackInput): Promis
   );
 }
 
-/** Per-agent feedback summary (satisfaction score, counts, recent 👎 notes). */
-export async function getFeedbackReport(agentId: string, since?: string): Promise<AgentFeedbackReport> {
+/**
+ * Per-agent feedback summary (satisfaction score, counts) + a page of 👎 notes.
+ * `notesLimit`/`notesOffset` paginate the notes; `noteCount` is the total so the
+ * UI knows whether to show "Load more".
+ */
+export async function getFeedbackReport(
+  agentId: string,
+  opts: { since?: string; notesLimit?: number; notesOffset?: number } = {},
+): Promise<AgentFeedbackReport> {
   const db = getDb();
+  const notesLimit = Math.min(Math.max(opts.notesLimit ?? 5, 1), 50);
+  const notesOffset = Math.max(opts.notesOffset ?? 0, 0);
+
   const wheres = ['agent_id = $1'];
   const params: unknown[] = [agentId];
-  if (since) {
+  if (opts.since) {
     wheres.push(`created_at >= $${params.length + 1}`);
-    params.push(since);
+    params.push(opts.since);
   }
   const whereSql = wheres.join(' AND ');
 
   const { rows } = await db.query(
     `SELECT COALESCE(SUM(CASE WHEN sentiment = 'up'   THEN 1 ELSE 0 END), 0) AS up_count,
             COALESCE(SUM(CASE WHEN sentiment = 'down' THEN 1 ELSE 0 END), 0) AS down_count,
-            COUNT(*) AS total
+            COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN sentiment = 'down' AND note IS NOT NULL AND note <> '' THEN 1 ELSE 0 END), 0) AS note_count
        FROM message_feedback
       WHERE ${whereSql}`,
     params,
@@ -742,6 +756,7 @@ export async function getFeedbackReport(agentId: string, since?: string): Promis
   const up = Number(r.up_count ?? 0);
   const down = Number(r.down_count ?? 0);
   const total = Number(r.total ?? 0);
+  const noteCount = Number(r.note_count ?? 0);
   const scorePercent = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
 
   const notesRes = await db.query(
@@ -749,8 +764,8 @@ export async function getFeedbackReport(agentId: string, since?: string): Promis
        FROM message_feedback
       WHERE ${whereSql} AND sentiment = 'down' AND note IS NOT NULL AND note <> ''
       ORDER BY created_at DESC
-      LIMIT $${params.length + 1}`,
-    [...params, 5],
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, notesLimit, notesOffset],
   );
   const recentNotes = notesRes.rows.map(n => ({
     note: n.note as string,
@@ -758,6 +773,6 @@ export async function getFeedbackReport(agentId: string, since?: string): Promis
     createdAt: n.created_at as string,
   }));
 
-  return { up, down, total, scorePercent, recentNotes };
+  return { up, down, total, scorePercent, noteCount, recentNotes };
 }
 
