@@ -466,7 +466,7 @@ function Card({ title, action, children, fill }: { title?: string; action?: Reac
 /** A labeled metadata row for the Overview side panel. */
 function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label: string; children: React.ReactNode; mono?: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
       <span style={{ color: 'var(--subtle)', display: 'flex', flexShrink: 0 }}>{icon}</span>
       <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{label}</span>
       <span style={{
@@ -569,36 +569,45 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
       {/* Slack connection status / CTA */}
       {slackConfigured ? (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5,
-          border: '1px solid color-mix(in srgb, var(--green) 30%, var(--border))',
-          background: 'color-mix(in srgb, var(--green) 6%, var(--surface))',
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 'var(--radius)',
+          border: '1px solid color-mix(in srgb, var(--green) 35%, var(--border))',
+          background: 'color-mix(in srgb, var(--green) 7%, var(--surface))',
         }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-          <span style={{ fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>Connected to Slack</span>
-          {slackInfo && (
-            <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-              · {slackInfo.teamName} <span style={{ fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span>
-            </span>
-          )}
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: 'color-mix(in srgb, var(--green) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--green)' }}>
+            <Slack size={16} />
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Connected to Slack</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {slackInfo ? <>{slackInfo.teamName} · {slackInfo.displayName} <span style={{ fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span></> : 'Credentials configured'}
+            </div>
+          </div>
           <button onClick={onConnectSlack} style={{
-            marginLeft: 'auto', flexShrink: 0, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-            fontSize: 12.5, fontWeight: 500, color: 'var(--accent)', fontFamily: 'var(--font-sans)',
+            flexShrink: 0, background: 'none', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px',
+            fontSize: 12.5, fontWeight: 500, color: 'var(--text)', cursor: 'pointer', fontFamily: 'var(--font-sans)',
           }}>Manage</button>
         </div>
       ) : (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5,
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 'var(--radius)',
           border: '1px solid color-mix(in srgb, var(--amber, #f59e0b) 40%, var(--border))',
-          background: 'color-mix(in srgb, var(--amber, #f59e0b) 7%, var(--surface))',
+          background: 'color-mix(in srgb, var(--amber, #f59e0b) 8%, var(--surface))',
         }}>
-          <Slack size={13} style={{ color: 'var(--amber, #f59e0b)', flexShrink: 0 }} />
-          <span style={{ fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>Slack not configured</span>
-          <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>· can&apos;t receive or reply yet</span>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: 'color-mix(in srgb, var(--amber, #f59e0b) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--amber, #f59e0b)' }}>
+            <Slack size={16} />
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Slack not configured</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>This agent isn&apos;t connected to a Slack workspace yet — it can&apos;t receive or reply to messages.</div>
+          </div>
           {canEdit && (
             <button onClick={onConnectSlack} style={{
-              marginLeft: 'auto', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--accent)', color: 'var(--accent-fg)',
-              border: 'none', borderRadius: 6, padding: '5px 11px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}><Plug size={12} /> Connect</button>
+              flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent)', color: 'var(--accent-fg)',
+              border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            }}><Plug size={13} /> Connect Slack</button>
           )}
         </div>
       )}
@@ -702,8 +711,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
           <MetaGroupLabel>Activity</MetaGroupLabel>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             <MetaRow icon={<MessageSquare size={13} />} label="Queries (30d)">{usage ? String(usage.queries30d) : '—'}</MetaRow>
-            <MetaRow icon={<ArrowRight size={13} />} label="Tokens in">{usage ? fmtTokens(usage.inputTokens) : '—'}</MetaRow>
-            <MetaRow icon={<ArrowLeft size={13} />} label="Tokens out">{usage ? fmtTokens(usage.outputTokens) : '—'}</MetaRow>
+            <MetaRow icon={<Layers size={13} />} label="Tokens">{usage ? `${fmtTokens(usage.inputTokens)} in · ${fmtTokens(usage.outputTokens)} out` : '—'}</MetaRow>
             <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
           </div>
 
