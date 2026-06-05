@@ -612,50 +612,38 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
         </div>
       )}
 
-      {/* Performance — how the agent is rated in Slack (👍/👎). */}
+      {/* Performance — a light one-line satisfaction strip (full card in Settings → Feedback). */}
       {(() => {
         const f = feedback;
         const has = !!(f && f.total > 0);
         const score = f?.scorePercent ?? 0;
         const up = f?.up ?? 0, down = f?.down ?? 0;
         const upPct = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
-        const grade = !has ? '—' : score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
+        const grade = !has ? '' : score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
         const col = !has ? 'var(--muted)' : score >= 75 ? '#16a34a' : score >= 50 ? '#d97706' : '#dc2626';
         return (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap',
-            padding: '16px 20px', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-            background: 'var(--surface)', boxShadow: 'var(--shadow-sm)',
-          }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase', flexShrink: 0 }}>Performance</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12.5 }}>
             {has ? (
               <>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <span style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.02em', color: col, lineHeight: 1 }}>{score}%</span>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: col }}>{grade}</span>
+                <span style={{ fontWeight: 700, color: col }}>{score}%{grade && <span style={{ marginLeft: 5 }}>{grade}</span>}</span>
+                <span style={{ color: 'var(--muted)' }}>satisfaction</span>
+                <div style={{ display: 'flex', height: 5, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', flex: '0 1 180px', minWidth: 90 }}>
+                  <div style={{ width: `${upPct}%`, background: '#16a34a' }} />
+                  <div style={{ width: `${100 - upPct}%`, background: '#dc2626' }} />
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: '1 1 200px', minWidth: 160 }}>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Satisfaction · {f!.total} rating{f!.total !== 1 ? 's' : ''}</div>
-                  <div style={{ display: 'flex', height: 8, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)' }}>
-                    <div style={{ width: `${upPct}%`, background: '#16a34a' }} />
-                    <div style={{ width: `${100 - upPct}%`, background: '#dc2626' }} />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 14, flexShrink: 0 }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}><ThumbsUp size={14} style={{ color: '#16a34a' }} /> {up}</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}><ThumbsDown size={14} style={{ color: '#dc2626' }} /> {down}</span>
-                </div>
+                <span style={{ color: 'var(--muted)', display: 'inline-flex', gap: 10 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsUp size={12} style={{ color: '#16a34a' }} />{up}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsDown size={12} style={{ color: '#dc2626' }} />{down}</span>
+                </span>
               </>
             ) : (
-              <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <ThumbsUp size={15} style={{ color: 'var(--subtle)' }} /> No ratings yet — 👍/👎 feedback from Slack shows up here.
-              </div>
+              <span style={{ color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><ThumbsUp size={13} style={{ color: 'var(--subtle)' }} /> No ratings yet</span>
             )}
             <button onClick={onViewFeedback} style={{
-              marginLeft: 'auto', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
-              background: 'none', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px',
-              fontSize: 12.5, fontWeight: 500, color: 'var(--text)', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>Report card <ArrowRight size={13} /></button>
+              marginLeft: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              fontSize: 12.5, fontWeight: 500, color: 'var(--accent)', fontFamily: 'var(--font-sans)',
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+            }}>Report card <ArrowRight size={12} /></button>
           </div>
         );
       })()}
