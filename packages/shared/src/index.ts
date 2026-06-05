@@ -41,7 +41,7 @@ export {
   listTasks, getTaskWithDetails, countInProgressByAgent,
   sweepStaleActivities,
   recordActivityUsage, getTokensByAgent, getTopUsers,
-  recordMessageFeedback, updateMessageFeedbackNote, deleteMessageFeedback, getFeedbackReport,
+  recordMessageFeedback, getFeedbackReport,
 } from './db/activities-repo';
 export type {
   BeginActivityInput, BeginToolCallInput, TaskListColumn, TaskListResult,

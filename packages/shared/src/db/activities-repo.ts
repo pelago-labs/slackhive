@@ -722,28 +722,6 @@ export async function recordMessageFeedback(input: MessageFeedbackInput): Promis
   );
 }
 
-/** Retract a rating when a user removes their 👍/👎 reaction. No-op if keys missing. */
-export async function deleteMessageFeedback(messageTs: string | null | undefined, raterUserId: string | null | undefined): Promise<void> {
-  if (!messageTs || !raterUserId) return;
-  const db = getDb();
-  await db.query(`DELETE FROM message_feedback WHERE message_ts = $1 AND rater_user_id = $2`, [messageTs, raterUserId]);
-}
-
-/**
- * Attach a note to an existing 👎 row (the modal submit), keyed by the same
- * (message_ts, rater_user_id) the click recorded. UPDATE-only — it never
- * inserts, so it can't create a duplicate row even when the UNIQUE index can't
- * dedupe (e.g. a NULL key). No-op when the keys are missing.
- */
-export async function updateMessageFeedbackNote(messageTs: string | null | undefined, raterUserId: string | null | undefined, note: string): Promise<void> {
-  if (!messageTs || !raterUserId) return;
-  const db = getDb();
-  await db.query(
-    `UPDATE message_feedback SET note = $1 WHERE message_ts = $2 AND rater_user_id = $3`,
-    [note, messageTs, raterUserId],
-  );
-}
-
 /**
  * Per-agent feedback summary (satisfaction score, counts) + a page of 👎 notes.
  * `notesLimit`/`notesOffset` paginate the notes; `noteCount` is the total so the

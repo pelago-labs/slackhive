@@ -3,8 +3,9 @@
  * report card. Agent-scoped (any authenticated user via guardAuth), mirroring
  * /api/agents/[id]/usage.
  *
- * GET → { up, down, total, scorePercent, recentNotes }  (all-time, no window
- * filter — feedback volume is low; the report card shows the lifetime score).
+ * GET → { up, down, total, scorePercent, noteCount, recentNotes }
+ * Optional `?window=7d|30d|90d` narrows to a time range; omit (or any other
+ * value) for all-time.
  *
  * @module web/api/agents/[id]/feedback
  */
@@ -13,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getFeedbackReport } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { guardAuth } from '@/lib/api-guard';
+import { windowFloor } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +28,8 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Ne
     const sp = req.nextUrl.searchParams;
     const notesLimit = sp.get('notesLimit') ? parseInt(sp.get('notesLimit')!, 10) : undefined;
     const notesOffset = sp.get('notesOffset') ? parseInt(sp.get('notesOffset')!, 10) : undefined;
-    const report = await getFeedbackReport(id, { notesLimit, notesOffset });
+    const since = windowFloor(sp.get('window')); // undefined for missing/invalid → all-time
+    const report = await getFeedbackReport(id, { since, notesLimit, notesOffset });
     return NextResponse.json(report);
   } catch (err) {
     return apiError('agents/[id]/feedback', err);

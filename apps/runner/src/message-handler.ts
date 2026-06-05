@@ -195,10 +195,9 @@ export class MessageHandler {
     const recorder = await this.openActivity(msg, text);
     const toolUseIdToDbId = new Map<string, string>();
 
-    let sentMessages: string[] = [];
+    const sentMessages: string[] = [];
     let lastAssistantText: string | null = null;
     let lastToolResultText: string | null = null;
-    let lastReplyTs: string | undefined;  // ts of the final posted reply (for 👍/👎 reactions)
 
     try {
       for await (const message of this.backend.streamQuery(prompt, sessionKey, abortController)) {
@@ -258,7 +257,7 @@ export class MessageHandler {
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
                 if (safeText) sentMessages.push(safeText);
-                lastReplyTs = await this.postFormattedMessage(channelId, threadId, verbosePost);
+                await this.postFormattedMessage(channelId, threadId, verbosePost);
               }
             }
           } else if (textContent || thinkingContent) {
@@ -270,7 +269,7 @@ export class MessageHandler {
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
                 if (textContent) sentMessages.push(textContent);
-                lastReplyTs = await this.postFormattedMessage(channelId, threadId, verbosePost);
+                await this.postFormattedMessage(channelId, threadId, verbosePost);
               }
             }
             // non-verbose: lastAssistantText already updated above; fallback posts it at end
@@ -339,7 +338,7 @@ export class MessageHandler {
             const alreadyStreamed = this.agent.verbose && sentMessages.length > 0;
             if (finalResult && !alreadyStreamed && !sentMessages.includes(finalResult)) {
               sentMessages.push(finalResult);
-              lastReplyTs = await this.postFormattedMessage(channelId, threadId, finalResult);
+              await this.postFormattedMessage(channelId, threadId, finalResult);
             }
           }
         }
@@ -359,23 +358,26 @@ export class MessageHandler {
 
       // Fallback if no messages were sent
       if (sentMessages.length === 0) {
-        const fallback = lastAssistantText ?? lastToolResultText ?? '_No response generated._';
+        const real = lastAssistantText ?? lastToolResultText;
+        const fallback = real ?? '_No response generated._';
         this.log.info('No messages sent, using fallback');
-        lastReplyTs = await this.postFormattedMessage(channelId, threadId, fallback);
+        await this.postFormattedMessage(channelId, threadId, fallback);
+        // A real fallback answer still deserves feedback controls; the empty
+        // placeholder does not. Record it so the gate below fires for the former.
+        if (real) sentMessages.push(real);
       }
 
       if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':white_check_mark:').catch(() => {});
       await this.swapReaction(channelId, messageId, sessionKey, 'white_check_mark');
 
-      // Seed 👍/👎 feedback reactions on the final reply — Slack-only (optional
-      // adapter method; absent on the test adapter). Only when a real answer was
-      // posted, and only for HUMAN-initiated turns: skip bot/agent traffic
-      // (boss↔specialist delegation) so internal chatter isn't rated — the human
-      // rates only the agent they messaged.
-      if (lastReplyTs && !hasBotMarker) {
-        await this.adapter.seedFeedbackReactions?.(channelId, lastReplyTs, {
+      // Post native 👍/👎 feedback controls under the final reply — Slack-only
+      // (optional adapter method; absent on the test adapter). Only when a real
+      // answer was posted, and only for HUMAN-initiated turns: skip bot/agent
+      // traffic (boss↔specialist delegation) so internal chatter isn't rated —
+      // the human rates only the agent they messaged.
+      if (sentMessages.length > 0 && !hasBotMarker) {
+        await this.adapter.postFeedbackControls?.(channelId, threadId, {
           activityId: recorder?.activityId ?? null,
-          threadTs: threadId,
         }).catch(() => {});
       }
 

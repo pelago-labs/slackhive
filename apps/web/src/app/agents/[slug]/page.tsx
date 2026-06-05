@@ -546,7 +546,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/agents/${agent.id}/feedback?notesLimit=0`).then(r => r.ok ? r.json() : null)
+    fetch(`/api/agents/${agent.id}/feedback?notesLimit=0&window=30d`).then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled && d) setFeedback(d); }).catch(() => {});
     return () => { cancelled = true; };
   }, [agent.id]);
@@ -669,7 +669,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
                 <span style={{ fontSize: 36, lineHeight: 1 }}>{tier.emoji}</span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: tier.color, letterSpacing: '-0.01em' }}>{tier.label}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{has ? `${score}% satisfaction · all-time` : 'No ratings yet'}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{has ? `${score}% satisfaction · last 30 days` : 'No ratings yet'}</div>
                 </div>
               </div>
               {has && (
@@ -1025,24 +1025,42 @@ function DangerSection({ agent, canDelete }: { agent: Agent; canDelete: boolean 
 // ─── Feedback report card (Settings → Feedback) ───────────────────────────────
 
 type FbNote = { note: string; raterHandle: string | null; createdAt: string };
+type FbWindow = '7d' | '30d' | '90d' | 'all';
+const FB_WINDOWS: { k: FbWindow; label: string }[] = [
+  { k: '7d', label: '7d' }, { k: '30d', label: '30d' }, { k: '90d', label: '90d' }, { k: 'all', label: 'All' },
+];
+const FB_WINDOW_LABEL: Record<FbWindow, string> = {
+  '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days', 'all': 'all-time',
+};
 function FeedbackPanel({ agent }: { agent: Agent }) {
   const [data, setData] = useState<{ up: number; down: number; total: number; scorePercent: number; noteCount: number; recentNotes: FbNote[] } | null>(null);
   const [notes, setNotes] = useState<FbNote[]>([]);
+  const [win, setWin] = useState<FbWindow>('30d');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // Build the query for the active window ('all' → no param → all-time).
+  const winQuery = (extra?: Record<string, string>) => {
+    const p = new URLSearchParams(extra);
+    if (win !== 'all') p.set('window', win);
+    const s = p.toString();
+    return s ? `?${s}` : '';
+  };
+
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/agents/${agent.id}/feedback`).then(r => r.ok ? r.json() : null)
+    setLoading(true);
+    fetch(`/api/agents/${agent.id}/feedback${winQuery()}`).then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled) { setData(d); setNotes(d?.recentNotes ?? []); setLoading(false); } })
       .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [agent.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id, win]);
 
   const loadMore = async () => {
     setLoadingMore(true);
     try {
-      const r = await fetch(`/api/agents/${agent.id}/feedback?notesOffset=${notes.length}&notesLimit=10`);
+      const r = await fetch(`/api/agents/${agent.id}/feedback${winQuery({ notesOffset: String(notes.length), notesLimit: '10' })}`);
       if (r.ok) { const d = await r.json(); setNotes(prev => [...prev, ...(d.recentNotes ?? [])]); }
     } finally { setLoadingMore(false); }
   };
@@ -1052,74 +1070,80 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
   const down = data?.down ?? 0;
   const score = data?.scorePercent ?? 0;
   const tier = feedbackTier(score, total > 0);
-  const upPct = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
   const fmtDate = (s: string) => { const d = new Date(s.replace(' ', 'T') + 'Z'); return isNaN(d.getTime()) ? s : d.toLocaleDateString(); };
+
+  const filterUI = (
+    <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
+      {FB_WINDOWS.map(w => (
+        <button key={w.k} onClick={() => setWin(w.k)} style={{
+          border: 'none', background: win === w.k ? 'var(--surface)' : 'transparent',
+          color: win === w.k ? 'var(--text)' : 'var(--muted)', borderRadius: 6, padding: '4px 11px',
+          fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+          boxShadow: win === w.k ? 'var(--shadow-sm)' : 'none',
+        }}>{w.label}</button>
+      ))}
+    </div>
+  );
 
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-up">
-      <div>
-        <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Feedback</div>
-        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>👍/👎 ratings users gave this agent&apos;s replies in Slack.</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Feedback</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>👍/👎 ratings users gave this agent&apos;s replies in Slack.</div>
+        </div>
+        {filterUI}
       </div>
 
       {loading ? (
         <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
       ) : total === 0 ? (
         <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
-          No ratings yet. When this agent replies in Slack, a <strong>Was this helpful? 👍 👎</strong> prompt lets users rate it — results show up here.
+          {win === 'all'
+            ? <>No ratings yet. When this agent replies in Slack, a <strong>Was this helpful? 👍 👎</strong> prompt lets users rate it — results show up here.</>
+            : <>No ratings in the {FB_WINDOW_LABEL[win]}. Try a wider range.</>}
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', flexWrap: 'wrap' }}>
-            {/* Score + grade + split bar */}
-            <div style={{ flex: '1 1 240px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px', boxShadow: 'var(--shadow-sm)' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Satisfaction</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
-                <span style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-0.02em', color: tier.color, lineHeight: 1 }}>{score}%</span>
-                <span style={{ fontSize: 20, fontWeight: 700, color: tier.color }}>{tier.grade}</span>
-                <span style={{ fontSize: 22, marginLeft: 'auto' }}>{tier.emoji}</span>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: tier.color, marginTop: 8 }}>{tier.label}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{total} rating{total !== 1 ? 's' : ''} · all-time</div>
-              <div style={{ display: 'flex', height: 8, borderRadius: 99, overflow: 'hidden', marginTop: 12, background: 'var(--surface-2)' }}>
-                <div style={{ width: `${upPct}%`, background: '#16a34a' }} />
-                <div style={{ width: `${100 - upPct}%`, background: '#dc2626' }} />
+          {/* Summary — one quiet row: score, label, up/down counts. */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 36, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--text)', lineHeight: 1 }}>{score}%</span>
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{tier.label}</span>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 18, fontSize: 14, color: 'var(--muted)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ThumbsUp size={15} /> {up}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ThumbsDown size={15} /> {down}</span>
               </div>
             </div>
-            {/* Up / down counts */}
-            <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ flex: 1, background: 'color-mix(in srgb, #16a34a 8%, var(--surface))', border: '1px solid color-mix(in srgb, #16a34a 30%, var(--border))', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <ThumbsUp size={20} style={{ color: '#16a34a' }} />
-                <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{up}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>Helpful</div></div>
-              </div>
-              <div style={{ flex: 1, background: 'color-mix(in srgb, #dc2626 8%, var(--surface))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--border))', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <ThumbsDown size={20} style={{ color: '#dc2626' }} />
-                <div><div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{down}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>Not helpful</div></div>
-              </div>
+            <div style={{ display: 'flex', height: 4, borderRadius: 99, overflow: 'hidden', marginTop: 12, background: 'var(--surface-2)' }}>
+              <div style={{ width: `${score}%`, background: tier.color }} />
             </div>
+            <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 8 }}>{total} rating{total !== 1 ? 's' : ''} · {FB_WINDOW_LABEL[win]}</div>
           </div>
 
-          <Card title={`Feedback notes${data!.noteCount ? ` (${data!.noteCount})` : ''}`}>
+          {/* Notes — a plain divided list, no card chrome. */}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Notes{data!.noteCount ? ` (${data!.noteCount})` : ''}</div>
             {notes.length === 0 ? (
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>No written notes yet — they appear here when a user adds detail on a 👎.</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {notes.map((n, i) => (
-                  <div key={i} style={{ borderLeft: '3px solid #dc2626', padding: '2px 0 2px 12px' }}>
+                  <div key={i} style={{ padding: '12px 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
                     <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{n.note}</div>
-                    <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 3 }}>{n.raterHandle ? `@${n.raterHandle}` : 'anonymous'} · {fmtDate(n.createdAt)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 4 }}>{n.raterHandle ? `@${n.raterHandle}` : 'anonymous'} · {fmtDate(n.createdAt)}</div>
                   </div>
                 ))}
                 {notes.length < data!.noteCount && (
                   <button onClick={loadMore} disabled={loadingMore} style={{
-                    alignSelf: 'flex-start', marginTop: 2, background: 'none', border: '1px solid var(--border)',
+                    alignSelf: 'flex-start', marginTop: 12, background: 'none', border: '1px solid var(--border)',
                     borderRadius: 7, padding: '6px 12px', fontSize: 12.5, fontWeight: 500, color: 'var(--text)',
                     cursor: loadingMore ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
                   }}>{loadingMore ? 'Loading…' : `Load more (${data!.noteCount - notes.length})`}</button>
                 )}
               </div>
             )}
-          </Card>
+          </div>
         </>
       )}
     </div>

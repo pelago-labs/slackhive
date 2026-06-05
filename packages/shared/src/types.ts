@@ -684,6 +684,13 @@ export interface SlackAppManifest {
       messages_tab_enabled: boolean;
       messages_tab_read_only_enabled: boolean;
     };
+    /**
+     * Enables the "Agents & AI Apps" feature — required for Slack to render the
+     * native 👍/👎 `feedback_buttons` control on the agent's replies.
+     */
+    assistant_view?: {
+      assistant_description: string;
+    };
   };
   oauth_config: {
     scopes: {
@@ -721,6 +728,8 @@ export const DEFAULT_SLACK_BOT_SCOPES: string[] = [
   'reactions:read',
   'reactions:write',
   'users:read',
+  // Required for the "Agents & AI Apps" feature → native 👍/👎 feedback_buttons.
+  'assistant:write',
 ];
 
 /** Additional scopes required specifically by the boss agent. */
