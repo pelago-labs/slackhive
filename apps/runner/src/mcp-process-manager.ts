@@ -135,38 +135,46 @@ export class McpProcessManager {
 
     const caps = client.getServerCapabilities() ?? {};
 
-    // Build a proxy MCP Server that forwards calls to the client
-    const proxyServer = new Server(
-      { name, version: '1.0.0' },
-      { capabilities: caps }
-    );
-
-    if (caps.tools) {
-      proxyServer.setRequestHandler(ListToolsRequestSchema, () => client.listTools());
-      proxyServer.setRequestHandler(CallToolRequestSchema, (req) =>
-        client.callTool({ name: req.params.name, arguments: req.params.arguments ?? {} })
+    // Build a fresh proxy MCP Server (forwarding to the shared upstream `client`)
+    // for each transport. The SDK's Server/Protocol can only be connected to ONE
+    // transport at a time — a second connect() throws "Already connected to a
+    // transport". Codex opens a new Streamable-HTTP session per turn (and SSE +
+    // HTTP can be live at once), so a single shared Server breaks on the second
+    // connect. Minting one Server per transport sidesteps that; the upstream
+    // `client` is shared and multiplexes concurrent requests over its own ids.
+    const createProxyServer = (): Server => {
+      const proxyServer = new Server(
+        { name, version: '1.0.0' },
+        { capabilities: caps }
       );
-    }
-    if (caps.resources) {
-      proxyServer.setRequestHandler(ListResourcesRequestSchema, () => client.listResources());
-      proxyServer.setRequestHandler(ReadResourceRequestSchema, (req) =>
-        client.readResource({ uri: req.params.uri })
-      );
-    }
-    if (caps.prompts) {
-      proxyServer.setRequestHandler(ListPromptsRequestSchema, () => client.listPrompts());
-      proxyServer.setRequestHandler(GetPromptRequestSchema, (req) =>
-        client.getPrompt({ name: req.params.name, arguments: req.params.arguments })
-      );
-    }
+      if (caps.tools) {
+        proxyServer.setRequestHandler(ListToolsRequestSchema, () => client.listTools());
+        proxyServer.setRequestHandler(CallToolRequestSchema, (req) =>
+          client.callTool({ name: req.params.name, arguments: req.params.arguments ?? {} })
+        );
+      }
+      if (caps.resources) {
+        proxyServer.setRequestHandler(ListResourcesRequestSchema, () => client.listResources());
+        proxyServer.setRequestHandler(ReadResourceRequestSchema, (req) =>
+          client.readResource({ uri: req.params.uri })
+        );
+      }
+      if (caps.prompts) {
+        proxyServer.setRequestHandler(ListPromptsRequestSchema, () => client.listPrompts());
+        proxyServer.setRequestHandler(GetPromptRequestSchema, (req) =>
+          client.getPrompt({ name: req.params.name, arguments: req.params.arguments })
+        );
+      }
+      return proxyServer;
+    };
 
     // Serve the proxy over SSE on a local port.
     // Use a mutable port holder so the closures reference the port actually bound
     // after the retry loop (not the first one we tried).
     const portRef = { port: this.nextPort };
     const sseTransports = new Map<string, SSEServerTransport>();
-    // Streamable-HTTP sessions (Codex). Same proxyServer, second transport — the
-    // SDK Server supports multiple concurrent transports (as the SSE path does).
+    // Streamable-HTTP sessions (Codex). Each gets its own proxy Server via
+    // createProxyServer() — the SDK Server can't be shared across transports.
     const httpTransports = new Map<string, StreamableHTTPServerTransport>();
 
     const httpServer = http.createServer(async (req, res) => {
@@ -176,7 +184,7 @@ export class McpProcessManager {
           const sseTransport = new SSEServerTransport('/message', res);
           sseTransports.set(sseTransport.sessionId, sseTransport);
           res.on('close', () => sseTransports.delete(sseTransport.sessionId));
-          await proxyServer.connect(sseTransport);
+          await createProxyServer().connect(sseTransport);
         } else if (req.method === 'POST' && req.url?.startsWith('/message')) {
           const sessionId = new URL(req.url, `http://127.0.0.1:${portRef.port}`).searchParams.get('sessionId') ?? '';
           const sseTransport = sseTransports.get(sessionId);
@@ -201,7 +209,7 @@ export class McpProcessManager {
                 onsessioninitialized: (sid) => { httpTransports.set(sid, transport!); },
               });
               transport.onclose = () => { if (transport!.sessionId) httpTransports.delete(transport!.sessionId); };
-              await proxyServer.connect(transport);
+              await createProxyServer().connect(transport);
             }
             if (!transport) { res.writeHead(400).end('No valid MCP session'); return; }
             await transport.handleRequest(req, res, body);
