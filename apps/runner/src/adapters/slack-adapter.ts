@@ -241,6 +241,19 @@ export class SlackAdapter implements PlatformAdapter {
           raterUserId: b.user?.id, raterHandle: handle, sentiment,
         });
       } catch (err) { this.log.warn('Feedback record failed', { error: (err as Error).message }); }
+      // One-shot: replace the buttons with a personalized thank-you so the reply
+      // can't be re-rated (one feedback per reply, by the first rater).
+      try {
+        const mention = b.user?.id ? `<@${b.user.id}> ` : '';
+        const thanks = sentiment === 'up'
+          ? `${mention}I'm glad you found my response helpful :)`
+          : `${mention}thanks for the feedback — I'll work on improving :)`;
+        await client.chat.update({
+          channel, ts, text: thanks,
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text: thanks } }],
+        });
+        this.feedbackTargets.delete(`${channel}:${ts}`);
+      } catch (err) { this.log.warn('Feedback control update failed', { error: (err as Error).message }); }
     });
     this.app.view('fb_note', async ({ ack, body, view, client }) => {
       await ack();
