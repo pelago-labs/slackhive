@@ -79,6 +79,11 @@ if (isNativeMode) {
       filename: path.join(logDir, 'runner.log'),
       maxsize: 10 * 1024 * 1024, // 10MB
       maxFiles: 3,
+      // Keep runner.log as the NEWEST file across rotations (older logs get the
+      // higher-numbered names). Without this, winston rolls active writes to
+      // runner1.log/runner2.log and freezes runner.log — but the web UI's log
+      // SSE tails runner.log, so it would silently go stale after the first 10MB.
+      tailable: true,
       format: combine(redact, timestamp(), json()),
     })
   );
