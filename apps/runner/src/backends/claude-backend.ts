@@ -650,9 +650,15 @@ export class ClaudeBackend implements AgentBackend {
         break; // completed successfully
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
+        // A resumed transcript whose persisted `thinking`/`redacted_thinking` blocks no
+        // longer match the original response is permanently rejected by the API (HTTP 400:
+        // "thinking blocks ... cannot be modified"). This poisons the thread — every later
+        // turn resumes the same bad transcript and fails identically. Treat it like a stale
+        // session: drop the resume and retry once as a fresh conversation.
+        const poisonedThinking = errMsg.includes('thinking') && errMsg.includes('cannot be modified');
         // Retry once on stale session — only if we haven't already retried
-        if (!retried && claudeSessionId && (errMsg.includes('No conversation found') || errMsg.includes('session') || errMsg.includes('exited with code 1'))) {
-          this.log.warn('Stale session, retrying as new', { sessionKey, staleSessionId: claudeSessionId });
+        if (!retried && claudeSessionId && (errMsg.includes('No conversation found') || errMsg.includes('session') || errMsg.includes('exited with code 1') || poisonedThinking)) {
+          this.log.warn(poisonedThinking ? 'Corrupted thinking block in resumed session, retrying as new' : 'Stale session, retrying as new', { sessionKey, staleSessionId: claudeSessionId });
           this.sessionCache.delete(sessionKey);
           claudeSessionId = undefined;
           newSessionId = undefined;
