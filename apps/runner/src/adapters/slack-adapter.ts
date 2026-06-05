@@ -79,10 +79,14 @@ export class SlackAdapter implements PlatformAdapter {
   private messageHandler?: (msg: IncomingMessage) => Promise<void>;
   private credentials: SlackCredentials;
   private readonly agentId: string;
-  /** Feedback-control messages we posted → their activityId. Keyed `${channel}:${ts}`.
-   *  A `feedback_buttons` click is attributed to the activity via this map. In-memory
-   *  (forward-looking; clicks on pre-restart controls aren't recorded). Capped. */
-  private feedbackTargets = new Map<string, { activityId: string | null }>();
+  /** Feedback-control messages we posted → their activityId + thread permalink.
+   *  A `feedback_buttons` click is attributed to the activity via this map, and the
+   *  permalink (resolved once at post time, against the thread root) is read here
+   *  instead of an API call per click. In-memory (forward-looking; clicks on
+   *  pre-restart controls aren't recorded). Capped. */
+  private feedbackTargets = new Map<string, { activityId: string | null; permalink: string | null }>();
+  /** Cache rater display names so users.info is hit at most once per user. */
+  private handleCache = new Map<string, string | null>();
 
   constructor(credentials: SlackCredentials, agentSlug: string, agentId = '') {
     this.credentials = credentials;
@@ -204,11 +208,19 @@ export class SlackAdapter implements PlatformAdapter {
       await ack();
       const b = body as any;
       const a = action as any;
-      // The clicked button's value, set in postFeedbackControls ('up' | 'down').
-      const sentiment: 'up' | 'down' = a.value === 'down' ? 'down' : 'up';
+      const userId: string | undefined = b.user?.id;
       const channel: string = b.channel?.id ?? b.container?.channel_id ?? '';
       const ts: string = b.message?.ts ?? b.container?.message_ts ?? '';
-      const activityId = this.feedbackTargets.get(`${channel}:${ts}`)?.activityId ?? null;
+      // Without a rater id and message ts the (message_ts, rater_user_id) unique
+      // key can't dedupe (SQLite treats NULLs as distinct → duplicate rows), so
+      // skip recording entirely rather than corrupt the counts.
+      if (!userId || !ts) { this.log.warn('Feedback click missing user/ts', { userId, ts }); return; }
+      // The clicked button's value, set in postFeedbackControls ('up' | 'down').
+      const sentiment: 'up' | 'down' = a.value === 'down' ? 'down' : 'up';
+      // Permalink + activity were resolved once when we posted the control.
+      const target = this.feedbackTargets.get(`${channel}:${ts}`);
+      const activityId = target?.activityId ?? null;
+      const permalink = target?.permalink ?? null;
       // On 👎, open the note modal FIRST — trigger_id is valid only briefly. The
       // modal carries everything needed to upsert the row itself (see fb_note),
       // so the note never depends on the click-record below having landed.
@@ -219,7 +231,7 @@ export class SlackAdapter implements PlatformAdapter {
             view: {
               type: 'modal',
               callback_id: 'fb_note',
-              private_metadata: JSON.stringify({ ts, channel, activityId }),
+              private_metadata: JSON.stringify({ ts, channel, activityId, permalink }),
               title: { type: 'plain_text', text: 'Feedback' },
               submit: { type: 'plain_text', text: 'Send' },
               close: { type: 'plain_text', text: 'Cancel' },
@@ -234,20 +246,19 @@ export class SlackAdapter implements PlatformAdapter {
       }
       // Record the vote immediately so a 👎 still counts even if no note follows.
       try {
-        const handle = await this.handleFor(client, b.user?.id);
         await recordMessageFeedback({
           agentId: this.agentId, activityId,
           channel, messageTs: ts,
-          raterUserId: b.user?.id, raterHandle: handle, sentiment,
+          raterUserId: userId, raterHandle: await this.handleFor(client, userId),
+          sentiment, permalink,
         });
       } catch (err) { this.log.warn('Feedback record failed', { error: (err as Error).message }); }
       // One-shot: replace the buttons with a personalized thank-you so the reply
       // can't be re-rated (one feedback per reply, by the first rater).
       try {
-        const mention = b.user?.id ? `<@${b.user.id}> ` : '';
         const thanks = sentiment === 'up'
-          ? `${mention}I'm glad you found my response helpful :)`
-          : `${mention}thanks for the feedback — I'll work on improving :)`;
+          ? `<@${userId}> I'm glad you found my response helpful :)`
+          : `<@${userId}> thanks for the feedback — I'll work on improving :)`;
         await client.chat.update({
           channel, ts, text: thanks,
           blocks: [{ type: 'section', text: { type: 'mrkdwn', text: thanks } }],
@@ -262,14 +273,15 @@ export class SlackAdapter implements PlatformAdapter {
         if (!note) return;
         const meta = JSON.parse(view.private_metadata || '{}');
         const userId = (body as any).user?.id;
+        if (!userId || !meta.ts) return;
         // Full upsert (not UPDATE-only): if the click-record hasn't landed yet —
         // or failed — this still writes the 👎 row with the note; otherwise the
-        // ON CONFLICT merge attaches the note to the existing row.
+        // ON CONFLICT merge attaches the note (and keeps the permalink).
         await recordMessageFeedback({
           agentId: this.agentId, activityId: meta.activityId ?? null,
           channel: meta.channel, messageTs: meta.ts,
           raterUserId: userId, raterHandle: await this.handleFor(client, userId),
-          sentiment: 'down', note,
+          sentiment: 'down', note, permalink: meta.permalink ?? null,
         });
       } catch (err) { this.log.warn('Feedback note submit failed', { error: (err as Error).message }); }
     });
@@ -407,21 +419,33 @@ export class SlackAdapter implements PlatformAdapter {
       } as any);
       const ts = (res as any).ts as string | undefined;
       if (!ts) return;
+      // Resolve a permalink ONCE (against the thread root so it lands on the
+      // conversation, not the soon-to-be-overwritten control message). Read from
+      // the map on each click — no per-click getPermalink call.
+      let permalink: string | null = null;
+      try {
+        const pl = await this.app.client.chat.getPermalink({ channel: channelId, message_ts: threadId ?? ts });
+        permalink = (pl.permalink as string | undefined) ?? null;
+      } catch { /* best-effort */ }
       // Cap the map so a long-lived process doesn't grow it unboundedly.
       if (this.feedbackTargets.size > 2000) {
         this.feedbackTargets.delete(this.feedbackTargets.keys().next().value as string);
       }
-      this.feedbackTargets.set(`${channelId}:${ts}`, { activityId: ctx.activityId ?? null });
+      this.feedbackTargets.set(`${channelId}:${ts}`, { activityId: ctx.activityId ?? null, permalink });
     } catch (err) { this.log.warn('Feedback controls post failed', { error: (err as Error).message }); }
   }
 
-  /** Best-effort Slack display name for a user id (for the feedback note list). */
+  /** Best-effort Slack display name for a user id (cached — users.info once per user). */
   private async handleFor(client: { users: { info: (a: { user: string }) => Promise<any> } }, userId?: string): Promise<string | null> {
     if (!userId) return null;
+    if (this.handleCache.has(userId)) return this.handleCache.get(userId) ?? null;
+    let handle: string | null = null;
     try {
       const r = await client.users.info({ user: userId });
-      return (r.user?.profile?.display_name || r.user?.real_name || r.user?.name) ?? null;
-    } catch { return null; }
+      handle = (r.user?.profile?.display_name || r.user?.real_name || r.user?.name) ?? null;
+    } catch { /* leave null */ }
+    this.handleCache.set(userId, handle);
+    return handle;
   }
 
   async uploadFile(channelId: string, content: string | Buffer, filename: string, threadId?: string): Promise<void> {

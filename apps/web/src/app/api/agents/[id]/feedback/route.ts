@@ -3,9 +3,10 @@
  * report card. Agent-scoped (any authenticated user via guardAuth), mirroring
  * /api/agents/[id]/usage.
  *
- * GET → { up, down, total, scorePercent, noteCount, recentNotes }
- * Optional `?window=7d|30d|90d` narrows to a time range; omit (or any other
- * value) for all-time.
+ * GET → { up, down, total, scorePercent, ratingCount, recentRatings }
+ * Optional `?window=7d|30d|90d` narrows to a time range (omit for all-time);
+ * `?sentiment=up|down` filters the ratings list; `?limit`/`?offset` paginate
+ * it (`limit=0` → counts only).
  *
  * @module web/api/agents/[id]/feedback
  */
@@ -26,10 +27,12 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Ne
   try {
     const { id } = await params;
     const sp = req.nextUrl.searchParams;
-    const notesLimit = sp.get('notesLimit') ? parseInt(sp.get('notesLimit')!, 10) : undefined;
-    const notesOffset = sp.get('notesOffset') ? parseInt(sp.get('notesOffset')!, 10) : undefined;
+    const limit = sp.get('limit') ? parseInt(sp.get('limit')!, 10) : undefined;
+    const offset = sp.get('offset') ? parseInt(sp.get('offset')!, 10) : undefined;
     const since = windowFloor(sp.get('window')); // undefined for missing/invalid → all-time
-    const report = await getFeedbackReport(id, { since, notesLimit, notesOffset });
+    const sentimentParam = sp.get('sentiment');
+    const sentiment = sentimentParam === 'up' || sentimentParam === 'down' ? sentimentParam : undefined;
+    const report = await getFeedbackReport(id, { since, sentiment, limit, offset });
     return NextResponse.json(report);
   } catch (err) {
     return apiError('agents/[id]/feedback', err);

@@ -46,7 +46,7 @@ describe('getFeedbackReport', () => {
   it('returns zeros for an agent with no feedback', async () => {
     const agentId = await seedAgent();
     const r = await getFeedbackReport(agentId);
-    expect(r).toEqual({ up: 0, down: 0, total: 0, scorePercent: 0, noteCount: 0, recentNotes: [] });
+    expect(r).toEqual({ up: 0, down: 0, total: 0, scorePercent: 0, ratingCount: 0, recentRatings: [] });
   });
 
   it('scores 3 up / 1 down as 75%', async () => {
@@ -61,7 +61,23 @@ describe('getFeedbackReport', () => {
     expect(r.down).toBe(1);
     expect(r.total).toBe(4);
     expect(r.scorePercent).toBe(75);
-    expect(r.recentNotes.map(n => n.note)).toEqual(['too slow']);
+    // All 4 ratings appear (newest first); only the 👎 carries a note.
+    expect(r.ratingCount).toBe(4);
+    expect(r.recentRatings.map(rt => rt.sentiment).sort()).toEqual(['down', 'up', 'up', 'up']);
+    expect(r.recentRatings.find(rt => rt.sentiment === 'down')?.note).toBe('too slow');
+  });
+
+  it('filters the ratings list by sentiment without changing the score', async () => {
+    const agentId = await seedAgent();
+    for (let i = 0; i < 3; i++) {
+      await recordMessageFeedback({ agentId, messageTs: `m${i}`, raterUserId: `u${i}`, sentiment: 'up' });
+    }
+    await recordMessageFeedback({ agentId, messageTs: 'm3', raterUserId: 'u3', sentiment: 'down', note: 'too slow' });
+
+    const downOnly = await getFeedbackReport(agentId, { sentiment: 'down' });
+    expect(downOnly.scorePercent).toBe(75); // summary unaffected by the filter
+    expect(downOnly.ratingCount).toBe(1);
+    expect(downOnly.recentRatings.every(rt => rt.sentiment === 'down')).toBe(true);
   });
 
   it('re-rating the same (message, rater) updates instead of duplicating, and merges the note', async () => {
@@ -73,7 +89,7 @@ describe('getFeedbackReport', () => {
     const r = await getFeedbackReport(agentId);
     expect(r.total).toBe(1);
     expect(r.down).toBe(1);
-    expect(r.recentNotes).toEqual([expect.objectContaining({ note: 'wrong number' })]);
+    expect(r.recentRatings).toEqual([expect.objectContaining({ note: 'wrong number' })]);
   });
 
   it('does not leak feedback across agents', async () => {

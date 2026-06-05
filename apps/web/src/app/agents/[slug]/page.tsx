@@ -13,7 +13,7 @@ import React, { useEffect, useState, useRef, use, useMemo } from 'react';
 import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
+import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot, AgentFeedbackReport, FeedbackRating } from '@slackhive/shared';
 import { PERSONA_CATALOG, searchPersonas, MODELS } from '@slackhive/shared';
 import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import ReactMarkdown from 'react-markdown';
@@ -47,6 +47,16 @@ interface AgentExportPayload {
  */
 function meaningfulStr(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+}
+
+/** Format a date for agent panels. Accepts a Date, an ISO string, or SQLite's
+ *  `YYYY-MM-DD HH:MM:SS` (UTC, no tz) — normalizing the latter so it isn't parsed
+ *  as local time. Single helper so the Overview + Feedback panels agree. */
+function fmtAgentDate(d: Date | string | undefined): string {
+  if (!d) return '—';
+  const iso = typeof d === 'string' && d.includes(' ') && !d.includes('T') ? `${d.replace(' ', 'T')}Z` : d;
+  const dt = new Date(iso);
+  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 /** Single source of truth for the satisfaction-score → rating mapping (emoji,
@@ -507,7 +517,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
   const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number; wiki: number; audiences: number } | null>(null);
   const [usage, setUsage] = useState<{ queries30d: number; inputTokens: number; outputTokens: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
-  const [feedback, setFeedback] = useState<{ up: number; down: number; total: number; scorePercent: number } | null>(null);
+  const [feedback, setFeedback] = useState<AgentFeedbackReport | null>(null);
   const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
   // Socket Mode (how the runner connects) needs the bot token AND the app-level
   // token; the signing secret is only for the HTTP Events API and is unused here.
@@ -546,7 +556,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/agents/${agent.id}/feedback?notesLimit=0&window=30d`).then(r => r.ok ? r.json() : null)
+    fetch(`/api/agents/${agent.id}/feedback?limit=0&window=30d`).then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled && d) setFeedback(d); }).catch(() => {});
     return () => { cancelled = true; };
   }, [agent.id]);
@@ -572,7 +582,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
   };
 
   const num = (n: number | undefined) => counts ? String(n ?? 0) : '—';
-  const fmtDate = (d: Date | string | undefined) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const fmtDate = fmtAgentDate;
   const fmtTokens = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n);
 
   return (
@@ -1024,8 +1034,8 @@ function DangerSection({ agent, canDelete }: { agent: Agent; canDelete: boolean 
 
 // ─── Feedback report card (Settings → Feedback) ───────────────────────────────
 
-type FbNote = { note: string; raterHandle: string | null; createdAt: string };
 type FbWindow = '7d' | '30d' | '90d' | 'all';
+type FbSentiment = 'all' | 'up' | 'down';
 const FB_WINDOWS: { k: FbWindow; label: string }[] = [
   { k: '7d', label: '7d' }, { k: '30d', label: '30d' }, { k: '90d', label: '90d' }, { k: 'all', label: 'All' },
 ];
@@ -1033,115 +1043,167 @@ const FB_WINDOW_LABEL: Record<FbWindow, string> = {
   '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days', 'all': 'all-time',
 };
 function FeedbackPanel({ agent }: { agent: Agent }) {
-  const [data, setData] = useState<{ up: number; down: number; total: number; scorePercent: number; noteCount: number; recentNotes: FbNote[] } | null>(null);
-  const [notes, setNotes] = useState<FbNote[]>([]);
+  const [data, setData] = useState<AgentFeedbackReport | null>(null);
+  const [list, setList] = useState<FeedbackRating[]>([]);
   const [win, setWin] = useState<FbWindow>('30d');
+  const [sent, setSent] = useState<FbSentiment>('all');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped whenever the filters change; a stale loadMore checks it before
+  // appending so it can't merge a previous filter's rows into the new list.
+  const genRef = useRef(0);
 
-  // Build the query for the active window ('all' → no param → all-time).
-  const winQuery = (extra?: Record<string, string>) => {
+  // Build the query for the active window + sentiment filter.
+  const query = (extra?: Record<string, string>) => {
     const p = new URLSearchParams(extra);
     if (win !== 'all') p.set('window', win);
+    if (sent !== 'all') p.set('sentiment', sent);
     const s = p.toString();
     return s ? `?${s}` : '';
   };
 
   useEffect(() => {
     let cancelled = false;
+    const gen = ++genRef.current;
     setLoading(true);
-    fetch(`/api/agents/${agent.id}/feedback${winQuery()}`).then(r => r.ok ? r.json() : null)
-      .then(d => { if (!cancelled) { setData(d); setNotes(d?.recentNotes ?? []); setLoading(false); } })
+    fetch(`/api/agents/${agent.id}/feedback${query()}`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && gen === genRef.current) { setData(d); setList(d?.recentRatings ?? []); setLoading(false); } })
       .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent.id, win]);
+  }, [agent.id, win, sent]);
 
   const loadMore = async () => {
+    const gen = genRef.current;
     setLoadingMore(true);
     try {
-      const r = await fetch(`/api/agents/${agent.id}/feedback${winQuery({ notesOffset: String(notes.length), notesLimit: '10' })}`);
-      if (r.ok) { const d = await r.json(); setNotes(prev => [...prev, ...(d.recentNotes ?? [])]); }
-    } finally { setLoadingMore(false); }
+      const r = await fetch(`/api/agents/${agent.id}/feedback${query({ offset: String(list.length), limit: '10' })}`);
+      // Drop the response if the filters changed while it was in flight.
+      if (r.ok && gen === genRef.current) { const d = await r.json(); setList(prev => [...prev, ...(d.recentRatings ?? [])]); }
+    } finally { if (gen === genRef.current) setLoadingMore(false); }
   };
 
   const total = data?.total ?? 0;
   const up = data?.up ?? 0;
   const down = data?.down ?? 0;
   const score = data?.scorePercent ?? 0;
+  const ratingCount = data?.ratingCount ?? 0;
   const tier = feedbackTier(score, total > 0);
-  const fmtDate = (s: string) => { const d = new Date(s.replace(' ', 'T') + 'Z'); return isNaN(d.getTime()) ? s : d.toLocaleDateString(); };
 
-  const filterUI = (
+  const pill = (active: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 5, border: 'none',
+    background: active ? 'var(--surface)' : 'transparent', color: active ? 'var(--text)' : 'var(--muted)',
+    borderRadius: 6, padding: '4px 11px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+    fontFamily: 'var(--font-sans)', boxShadow: active ? 'var(--shadow-sm)' : 'none',
+  });
+
+  const windowUI = (
     <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
       {FB_WINDOWS.map(w => (
-        <button key={w.k} onClick={() => setWin(w.k)} style={{
-          border: 'none', background: win === w.k ? 'var(--surface)' : 'transparent',
-          color: win === w.k ? 'var(--text)' : 'var(--muted)', borderRadius: 6, padding: '4px 11px',
-          fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          boxShadow: win === w.k ? 'var(--shadow-sm)' : 'none',
-        }}>{w.label}</button>
+        <button key={w.k} onClick={() => setWin(w.k)} style={pill(win === w.k)}>{w.label}</button>
       ))}
     </div>
   );
 
+  const sentimentUI = (
+    <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
+      <button onClick={() => setSent('all')} style={pill(sent === 'all')}>All</button>
+      <button onClick={() => setSent('up')} style={pill(sent === 'up')} aria-label="Thumbs up only"><ThumbsUp size={13} /></button>
+      <button onClick={() => setSent('down')} style={pill(sent === 'down')} aria-label="Thumbs down only"><ThumbsDown size={13} /></button>
+    </div>
+  );
+
+  const GREEN = '#16a34a', RED = '#dc2626';
+
   return (
-    <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-up">
+    <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-up">
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Feedback</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>👍/👎 ratings users gave this agent&apos;s replies in Slack.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Ratings users gave this agent&apos;s replies in Slack.</div>
         </div>
-        {filterUI}
+        {windowUI}
       </div>
 
       {loading ? (
         <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
       ) : total === 0 ? (
-        <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
+        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '48px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
           {win === 'all'
-            ? <>No ratings yet. When this agent replies in Slack, a <strong>Was this helpful? 👍 👎</strong> prompt lets users rate it — results show up here.</>
+            ? <>No ratings yet. When this agent replies in Slack, a feedback prompt lets users rate it — results show up here.</>
             : <>No ratings in the {FB_WINDOW_LABEL[win]}. Try a wider range.</>}
         </div>
       ) : (
         <>
-          {/* Summary — one quiet row: score, label, up/down counts. */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 36, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--text)', lineHeight: 1 }}>{score}%</span>
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{tier.label}</span>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 18, fontSize: 14, color: 'var(--muted)' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ThumbsUp size={15} /> {up}</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ThumbsDown size={15} /> {down}</span>
+          {/* Summary card — score, grade, satisfaction bar, and stat tiles. */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: 22 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)' }}>Satisfaction</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
+                  <span style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.02em', color: tier.color, lineHeight: 1 }}>{score}%</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: tier.color, background: `color-mix(in srgb, ${tier.color} 12%, transparent)`, borderRadius: 6, padding: '2px 8px' }}>{tier.label}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 8 }}>{total} rating{total !== 1 ? 's' : ''} · {FB_WINDOW_LABEL[win]}</div>
               </div>
-            </div>
-            <div style={{ display: 'flex', height: 4, borderRadius: 99, overflow: 'hidden', marginTop: 12, background: 'var(--surface-2)' }}>
-              <div style={{ width: `${score}%`, background: tier.color }} />
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 8 }}>{total} rating{total !== 1 ? 's' : ''} · {FB_WINDOW_LABEL[win]}</div>
-          </div>
-
-          {/* Notes — a plain divided list, no card chrome. */}
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Notes{data!.noteCount ? ` (${data!.noteCount})` : ''}</div>
-            {notes.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--muted)' }}>No written notes yet — they appear here when a user adds detail on a 👎.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {notes.map((n, i) => (
-                  <div key={i} style={{ padding: '12px 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
-                    <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{n.note}</div>
-                    <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 4 }}>{n.raterHandle ? `@${n.raterHandle}` : 'anonymous'} · {fmtDate(n.createdAt)}</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {[{ icon: <ThumbsUp size={16} style={{ color: GREEN }} />, n: up, label: 'Helpful', c: GREEN },
+                  { icon: <ThumbsDown size={16} style={{ color: RED }} />, n: down, label: 'Not helpful', c: RED }].map((s, i) => (
+                  <div key={i} style={{ minWidth: 96, border: '1px solid var(--border)', borderRadius: 12, padding: '12px 14px', background: 'var(--surface-2)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>{s.icon}<span style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{s.n}</span></div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>{s.label}</div>
                   </div>
                 ))}
-                {notes.length < data!.noteCount && (
-                  <button onClick={loadMore} disabled={loadingMore} style={{
-                    alignSelf: 'flex-start', marginTop: 12, background: 'none', border: '1px solid var(--border)',
-                    borderRadius: 7, padding: '6px 12px', fontSize: 12.5, fontWeight: 500, color: 'var(--text)',
-                    cursor: loadingMore ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
-                  }}>{loadingMore ? 'Loading…' : `Load more (${data!.noteCount - notes.length})`}</button>
-                )}
               </div>
+            </div>
+            <div style={{ display: 'flex', height: 6, borderRadius: 99, overflow: 'hidden', marginTop: 18, background: `color-mix(in srgb, ${RED} 22%, var(--surface-2))` }}>
+              <div style={{ width: `${score}%`, background: GREEN }} />
+            </div>
+          </div>
+
+          {/* Ratings feed — rater, sentiment, note, and a thread link. */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Ratings{ratingCount ? ` (${ratingCount})` : ''}</div>
+              {sentimentUI}
+            </div>
+            {list.length === 0 ? (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '28px 20px', textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>
+                No {sent === 'up' ? 'positive' : sent === 'down' ? 'negative' : ''} ratings in this range.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', background: 'var(--surface)' }}>
+                {list.map((rt, i) => {
+                  const c = rt.sentiment === 'up' ? GREEN : RED;
+                  const handle = rt.raterHandle || 'Anonymous';
+                  return (
+                    <div key={i} style={{ display: 'flex', gap: 12, padding: '14px 16px', borderTop: i ? '1px solid var(--border)' : 'none' }}>
+                      <div style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${c} 14%, transparent)` }}>
+                        {rt.sentiment === 'up' ? <ThumbsUp size={15} style={{ color: c }} /> : <ThumbsDown size={15} style={{ color: c }} />}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{handle}</span>
+                          <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{fmtAgentDate(rt.createdAt)}</span>
+                          {rt.permalink && (
+                            <a href={rt.permalink} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'var(--accent)', textDecoration: 'none' }}>
+                              View thread <ExternalLink size={12} />
+                            </a>
+                          )}
+                        </div>
+                        {rt.note && <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, marginTop: 5 }}>{rt.note}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {list.length < ratingCount && (
+              <button onClick={loadMore} disabled={loadingMore} style={{
+                marginTop: 12, background: 'none', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 500, color: 'var(--text)',
+                cursor: loadingMore ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
+              }}>{loadingMore ? 'Loading…' : `Load more (${ratingCount - list.length})`}</button>
             )}
           </div>
         </>

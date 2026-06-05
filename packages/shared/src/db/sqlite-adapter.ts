@@ -613,6 +613,7 @@ CREATE TABLE IF NOT EXISTS message_feedback (
   rater_handle  TEXT,
   sentiment     TEXT NOT NULL CHECK (sentiment IN ('up', 'down')),
   note          TEXT,
+  permalink     TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (message_ts, rater_user_id)
 );
@@ -715,6 +716,11 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   }
   if (!mcpServerCols.includes('tool_list_cached_at')) {
     db.exec('ALTER TABLE mcp_servers ADD COLUMN tool_list_cached_at TEXT');
+  }
+
+  const feedbackCols = (db.pragma('table_info(message_feedback)') as { name: string }[]).map(c => c.name);
+  if (!feedbackCols.includes('permalink')) {
+    db.exec('ALTER TABLE message_feedback ADD COLUMN permalink TEXT');
   }
 
   // Rebuild wiki_sources if its status CHECK constraint pre-dates 'stale'.

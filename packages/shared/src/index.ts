@@ -47,7 +47,7 @@ export type {
   BeginActivityInput, BeginToolCallInput, TaskListColumn, TaskListResult,
   TaskWithDetails,
   ActivityUsageInput, AgentTokenUsage, UserActivitySummary,
-  MessageFeedbackInput, AgentFeedbackReport,
+  MessageFeedbackInput, AgentFeedbackReport, FeedbackRating,
 } from './db/activities-repo';
 export {
   MODELS,
