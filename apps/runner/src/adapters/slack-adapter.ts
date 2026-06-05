@@ -196,10 +196,10 @@ export class SlackAdapter implements PlatformAdapter {
     });
     this.app.action('fb_down', async ({ ack, body, action, client }) => {
       await ack();
-      // Record 👎 immediately (note is optional), then open the note modal.
-      await this.recordFeedbackClick('down', body as any, action as any, client);
       const b = body as any;
       const ctx = this.parseFbValue(action as any);
+      // Open the modal FIRST — the Slack trigger_id is only valid for a few
+      // seconds, so do it before the slower DB write / users.info / chat.update.
       try {
         await client.views.open({
           trigger_id: b.trigger_id,
@@ -222,6 +222,8 @@ export class SlackAdapter implements PlatformAdapter {
           },
         });
       } catch (err) { this.log.warn('Feedback modal open failed', { error: (err as Error).message }); }
+      // Record the 👎 + collapse the prompt (the note merges on modal submit).
+      await this.recordFeedbackClick('down', b, action as any, client);
     });
     this.app.view('fb_note', async ({ ack, body, view, client }) => {
       await ack();
@@ -351,8 +353,8 @@ export class SlackAdapter implements PlatformAdapter {
         blocks: [{
           type: 'actions',
           elements: [
-            { type: 'button', action_id: 'fb_up',   text: { type: 'plain_text', text: '👍 Helpful', emoji: true }, value },
-            { type: 'button', action_id: 'fb_down', text: { type: 'plain_text', text: '👎 Not helpful', emoji: true }, value },
+            { type: 'button', action_id: 'fb_up',   text: { type: 'plain_text', text: '👍', emoji: true }, value },
+            { type: 'button', action_id: 'fb_down', text: { type: 'plain_text', text: '👎', emoji: true }, value },
           ],
         }],
       });
