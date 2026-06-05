@@ -10,7 +10,7 @@
  * @module runner/message-handler
  */
 
-import type { PlatformAdapter, IncomingMessage, FileAttachment } from '@slackhive/shared';
+import type { PlatformAdapter, IncomingMessage, FileAttachment, MessagePayload } from '@slackhive/shared';
 import { extractSlackPermalinkUrls } from './adapters/slack-adapter';
 import type { Agent, Restriction, Platform } from '@slackhive/shared';
 import {
@@ -198,6 +198,8 @@ export class MessageHandler {
     const sentMessages: string[] = [];
     let lastAssistantText: string | null = null;
     let lastToolResultText: string | null = null;
+    // The last reply we posted (id + payload) — feedback controls attach to it.
+    let lastReply: { ts: string; payload: MessagePayload } | undefined;
 
     try {
       for await (const message of this.backend.streamQuery(prompt, sessionKey, abortController)) {
@@ -256,8 +258,10 @@ export class MessageHandler {
                 safeText,
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
-                if (safeText) sentMessages.push(safeText);
-                await this.postFormattedMessage(channelId, threadId, verbosePost);
+                const posted = await this.postFormattedMessage(channelId, threadId, verbosePost);
+                // Only a post with real answer text counts as the final reply —
+                // a trailing thinking-only chunk must not steal the feedback buttons.
+                if (safeText) { sentMessages.push(safeText); lastReply = posted; }
               }
             }
           } else if (textContent || thinkingContent) {
@@ -268,8 +272,8 @@ export class MessageHandler {
                 textContent,
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
-                if (textContent) sentMessages.push(textContent);
-                await this.postFormattedMessage(channelId, threadId, verbosePost);
+                const posted = await this.postFormattedMessage(channelId, threadId, verbosePost);
+                if (textContent) { sentMessages.push(textContent); lastReply = posted; }
               }
             }
             // non-verbose: lastAssistantText already updated above; fallback posts it at end
@@ -338,7 +342,7 @@ export class MessageHandler {
             const alreadyStreamed = this.agent.verbose && sentMessages.length > 0;
             if (finalResult && !alreadyStreamed && !sentMessages.includes(finalResult)) {
               sentMessages.push(finalResult);
-              await this.postFormattedMessage(channelId, threadId, finalResult);
+              lastReply = await this.postFormattedMessage(channelId, threadId, finalResult);
             }
           }
         }
@@ -361,7 +365,7 @@ export class MessageHandler {
         const real = lastAssistantText ?? lastToolResultText;
         const fallback = real ?? '_No response generated._';
         this.log.info('No messages sent, using fallback');
-        await this.postFormattedMessage(channelId, threadId, fallback);
+        lastReply = await this.postFormattedMessage(channelId, threadId, fallback);
         // A real fallback answer still deserves feedback controls; the empty
         // placeholder does not. Record it so the gate below fires for the former.
         if (real) sentMessages.push(real);
@@ -370,13 +374,13 @@ export class MessageHandler {
       if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':white_check_mark:').catch(() => {});
       await this.swapReaction(channelId, messageId, sessionKey, 'white_check_mark');
 
-      // Post native 👍/👎 feedback controls under the final reply — Slack-only
-      // (optional adapter method; absent on the test adapter). Only when a real
-      // answer was posted, and only for HUMAN-initiated turns: skip bot/agent
-      // traffic (boss↔specialist delegation) so internal chatter isn't rated —
-      // the human rates only the agent they messaged.
-      if (sentMessages.length > 0 && !hasBotMarker) {
-        await this.adapter.postFeedbackControls?.(channelId, threadId, {
+      // Attach native 👍/👎 feedback controls to the final reply itself (no
+      // separate message) — Slack-only (optional adapter method; absent on the
+      // test adapter). Only when a real answer was posted, and only for HUMAN-
+      // initiated turns: skip bot/agent traffic (boss↔specialist delegation) so
+      // internal chatter isn't rated — the human rates only the agent they messaged.
+      if (sentMessages.length > 0 && lastReply && !hasBotMarker) {
+        await this.adapter.attachFeedbackControls?.(channelId, lastReply.ts, lastReply.payload, threadId, {
           activityId: recorder?.activityId ?? null,
         }).catch(() => {});
       }
@@ -475,15 +479,20 @@ export class MessageHandler {
 
   // ─── Private helpers ───────────────────────────────────────────────
 
-  /** Post a message formatted for the platform (with rich blocks if supported). */
-  /** Posts the message (possibly split into payloads) and returns the LAST ts. */
-  private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<string | undefined> {
+  /**
+   * Post a message formatted for the platform (split into payloads if needed).
+   * Returns the LAST posted message's id + the payload it was posted with, so the
+   * caller can attach feedback controls to that final reply.
+   */
+  private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<{ ts: string; payload: MessagePayload }> {
     const payloads = this.adapter.buildPayloads(text);
-    let lastTs: string | undefined;
+    let last: { ts: string; payload: MessagePayload } | undefined;
     for (const payload of payloads) {
-      lastTs = await this.adapter.postPayload(channelId, payload, threadId);
+      const ts = await this.adapter.postPayload(channelId, payload, threadId);
+      last = { ts, payload };
     }
-    return lastTs;
+    // buildPayloads always yields ≥1 payload; the fallback keeps the return honest.
+    return last ?? { ts: '', payload: { text } };
   }
 
   /** Swap reaction — remove old, add new. */
