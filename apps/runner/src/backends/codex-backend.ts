@@ -303,6 +303,10 @@ export class CodexBackend implements AgentBackend {
       const finalParts: string[] = [];
       // Per-tool-call start times (keyed by item id) so we can log a duration.
       const toolStart = new Map<string, number>();
+      // The precise failure Codex emits as a turn.failed/error event (e.g. a usage
+      // limit). The SDK throws a generic "Codex Exec exited with code N" AFTER the
+      // stream ends, masking this — so we stash it and prefer it in the catch.
+      let turnError: string | undefined;
 
       try {
         const { events } = await thread.runStreamed(input, { signal: abort.signal });
@@ -323,9 +327,11 @@ export class CodexBackend implements AgentBackend {
             // inspectable here at DEBUG so the Logs tab can still surface it.
             this.log.debug('Codex reasoning', { preview: argPreview((event.item as { text?: string }).text) });
           } else if (event.type === 'turn.failed') {
-            this.log.warn('Codex turn failed', { error: (event as { error?: { message?: string } }).error?.message });
+            turnError = (event as { error?: { message?: string } }).error?.message;
+            this.log.warn('Codex turn failed', { error: turnError });
           } else if (event.type === 'error') {
-            this.log.warn('Codex stream error', { message: (event as { message?: string }).message });
+            turnError = (event as { message?: string }).message;
+            this.log.warn('Codex stream error', { message: turnError });
           }
           for (const msg of translateEvent(event, finalParts)) {
             // Persist the thread id as soon as it's known.
@@ -342,7 +348,12 @@ export class CodexBackend implements AgentBackend {
         }
         break; // completed
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        // The SDK throws a generic "Codex Exec exited with code N: <stderr>" after
+        // the stream ends, even when Codex already reported a precise reason via a
+        // turn.failed/error event (usage limit, auth, etc.). Prefer that real reason
+        // so logs and Slack show why the turn failed — not just the exit code.
+        const errMsg = /exited with (code|signal)/i.test(rawMsg) && turnError ? turnError : rawMsg;
         // Stale thread → retry once as a fresh thread.
         if (!retried && threadId && /thread|session|not found|no conversation/i.test(errMsg)) {
           this.log.warn('Stale Codex thread, retrying as new', { sessionKey, staleThreadId: threadId });
@@ -352,7 +363,7 @@ export class CodexBackend implements AgentBackend {
           continue outer;
         }
         this.log.error('Codex query failed', { sessionKey, error: errMsg });
-        throw err;
+        throw err instanceof Error && errMsg !== rawMsg ? new Error(errMsg) : err;
       }
     }
 
