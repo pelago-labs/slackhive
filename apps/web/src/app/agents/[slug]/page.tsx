@@ -973,9 +973,13 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
 
       <Card title="Slack Credentials">
         <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
-          hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
+          hint={form.slackBotToken && !form.slackBotToken.startsWith('xoxb-')
+            ? <span style={{ color: 'var(--red)' }}>Bot tokens start with <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>xoxb-</code> — did you paste the wrong one?</span>
+            : <>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
         <Field label="App-Level Token" value={form.slackAppToken ?? ''} onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
-          hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
+          hint={form.slackAppToken && !form.slackAppToken.startsWith('xapp-')
+            ? <span style={{ color: 'var(--red)' }}>App-level tokens start with <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>xapp-</code> — did you paste the wrong one?</span>
+            : <>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
         <Field label="Signing Secret (optional)" value={form.slackSigningSecret ?? ''} onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
           hint="Not used in Socket Mode (how agents connect) — only needed for the HTTP Events API. Basic Information → App Credentials → Signing Secret." />
         {slackInfo && (

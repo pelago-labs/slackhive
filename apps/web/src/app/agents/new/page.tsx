@@ -24,7 +24,6 @@ import { PERSONA_CATALOG, searchPersonas, DEFAULT_AGENT_MODEL } from '@slackhive
 interface AgentExportPayload {
   version: number;
   exportedAt?: string;
-  name?: string;
   persona?: string;
   description?: string;
   claudeMd: string;
@@ -129,18 +128,21 @@ export default function NewAgentWizard() {
           method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: claudeMd,
         });
         await Promise.all(skills.map(s =>
-          fetch(`/api/agents/${data.id}/skills`, {
+          fetch(`/api/agents/${data.id}/skills?noSnapshot=1`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(s),
           })
         ));
       }
 
-      // Kick off bootstrap in the background — don't await. The route returns
-      // 202 quickly; the runner then drafts claude.md + skills and writes the
-      // result to the coach session. The Instructions tab polls it live.
-      // Invariant: for non-import, non-boss agents, description is required
-      // (enforced in canNext() and API validation), so seed is always non-empty.
+      // Kick off Coach bootstrap in the background — don't await. The route
+      // returns 202 quickly; the runner drafts claude.md + skills and writes the
+      // result to the coach session, which the Instructions tab polls live.
+      // Seed = the typed description/persona. A persona-TEMPLATE pick leaves
+      // state.description empty (the template supplies claude.md + skills
+      // directly), so the seed is empty and Coach is skipped for those — by
+      // design. Imports and bosses are skipped too. So this fires only for the
+      // blank+typed-description path, where the seed is guaranteed non-empty.
       const seed = [state.description?.trim(), state.persona?.trim()].filter(Boolean).join('\n\n');
       if (!state.importPayload && !state.isBoss && seed.length > 0) {
         fetch(`/api/agents/${data.id}/coach`, {
@@ -338,18 +340,15 @@ function Step1Identity({ state, update, bosses }: {
 
       {/* Tags */}
       <TagInputWizard tags={state.tags} onChange={tags => update({ tags })} />
-
-      {/* Import config */}
     </div>
   );
 }
 
 // ─── Import config picker ─────────────────────────────────────────────────────
 
-function ImportConfigPicker({ value, onChange, compact }: {
+function ImportConfigPicker({ value, onChange }: {
   value: AgentExportPayload | null;
   onChange: (p: AgentExportPayload | null) => void;
-  compact?: boolean;
 }) {
   const [error, setError] = useState('');
   const ref = useRef<HTMLInputElement>(null);
@@ -376,49 +375,6 @@ function ImportConfigPicker({ value, onChange, compact }: {
     };
     reader.readAsText(file);
   };
-
-  if (compact) {
-    return (
-      <div>
-        {!value ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 1 }}>Import config</div>
-              <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>Load AGENTS.md + skills from an exported agent</div>
-              {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 3 }}>{error}</div>}
-            </div>
-            <button type="button" onClick={() => ref.current?.click()} style={{
-              display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
-              padding: '6px 12px', borderRadius: 6,
-              border: '1px solid var(--border-2)', background: 'var(--surface)',
-              fontSize: 12, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
-            }}>
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              Choose file
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed' }}>
-                Config loaded
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · AGENTS.md included
-              </div>
-            </div>
-            <button type="button" onClick={() => { onChange(null); setError(''); }} style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 11.5, color: 'var(--muted)', padding: '3px 6px',
-            }}>Remove</button>
-          </div>
-        )}
-        <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
-      </div>
-    );
-  }
 
   return (
     <div style={{
@@ -795,26 +751,3 @@ function Field({ label, value, onChange, placeholder, hint, type = 'text' }: {
   );
 }
 
-function TextArea({ label, value, onChange, placeholder, hint, rows = 3 }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; hint?: string; rows?: number;
-}) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
-        {label}
-      </label>
-      <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
-        style={{
-          width: '100%', background: 'var(--surface-2)', border: '1.5px solid var(--border)',
-          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
-          transition: 'border-color 0.15s', lineHeight: 1.55,
-        }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-      />
-      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
-    </div>
-  );
-}

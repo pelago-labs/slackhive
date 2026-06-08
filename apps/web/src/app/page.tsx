@@ -12,6 +12,7 @@ import type { Agent } from '@slackhive/shared';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Bot, LayoutGrid, GitBranch, Search, ArrowUpDown } from 'lucide-react';
+import { IconTile } from '@/components/ui';
 
 type SortKey = 'boss-first' | 'name' | 'recent' | 'status';
 const SORT_LABELS: Record<SortKey, string> = {
@@ -505,7 +506,7 @@ function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
       {/* Boss card — centered over the reports row */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: n > 0 ? 'center' : 'flex-start' }}>
         <div style={{ width: bossW, maxWidth: '100%' }}>
-          <AgentCard agent={boss} highlight />
+          <AgentCard agent={boss} />
         </div>
 
         {n > 0 && (
@@ -605,9 +606,8 @@ function GridView({ agents, label }: { agents: Agent[]; label?: string }) {
 
 // ── Agent card ────────────────────────────────────────────────────────────────
 
-function AgentCard({ agent, highlight, compact, multiReport }: {
+function AgentCard({ agent, compact, multiReport }: {
   agent: Agent;
-  highlight?: boolean;
   compact?: boolean;
   multiReport?: boolean;
 }) {
@@ -630,29 +630,15 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
   return (
     <Link
       href={`/agents/${agent.slug}`}
-      className="fade-up agent-card-v2"
+      className="fade-up agent-card-v2 ui-card ui-card-hover"
       style={{
         display: 'block', textDecoration: 'none',
         background: 'var(--surface)',
-        border: `1px solid ${highlight ? 'var(--border-2)' : 'var(--border)'}`,
+        border: '1px solid var(--border)',
         borderRadius: 12,
         padding: compact ? '16px 16px 14px' : '18px',
         boxShadow: 'var(--shadow-sm)',
-        transition: 'box-shadow 0.18s, transform 0.18s, border-color 0.18s',
-        cursor: 'pointer',
         position: 'relative',
-      }}
-      onMouseEnter={e => {
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = 'var(--shadow-md)';
-        el.style.transform = 'translateY(-1px)';
-        el.style.borderColor = 'var(--border-2)';
-      }}
-      onMouseLeave={e => {
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = 'var(--shadow-sm)';
-        el.style.transform = 'translateY(0)';
-        el.style.borderColor = highlight ? 'var(--border-2)' : 'var(--border)';
       }}
     >
       {/* Avatar + name + status row */}
@@ -709,8 +695,7 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
             {agent.isBoss && (
               <span style={{
                 fontSize: 9, fontWeight: 700, letterSpacing: '0.05em',
-                background: 'var(--surface-2)', color: 'var(--muted)',
-                border: '1px solid var(--border)',
+                background: 'var(--accent)', color: 'var(--accent-fg)',
                 padding: '1px 5px', borderRadius: 3, textTransform: 'uppercase',
                 flexShrink: 0,
               }}>Boss</span>
@@ -875,14 +860,9 @@ function EmptyState() {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       minHeight: 400, gap: 20, textAlign: 'center',
     }}>
-      <div style={{
-        width: 72, height: 72, borderRadius: 20,
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: 'var(--muted)',
-      }}>
-        <Bot size={32} />
-      </div>
+      <IconTile size={64} style={{ borderRadius: 18 }}>
+        <Bot size={30} />
+      </IconTile>
       <div>
         <p style={{
           margin: '0 0 6px', fontSize: 18, fontWeight: 600,
