@@ -459,6 +459,16 @@ export async function upsertSession(
   return rowToSession(result.rows[0]);
 }
 
+/** Drop a single session row so the next turn starts a fresh thread (used when a
+ *  thread is poisoned — e.g. context overflow). upsertSession can't clear the id
+ *  (its COALESCE keeps the old value), so an explicit delete is needed. */
+export async function deleteSession(agentId: string, sessionKey: string): Promise<void> {
+  await getDb().query(
+    'DELETE FROM sessions WHERE agent_id = $1 AND session_key = $2',
+    [agentId, sessionKey]
+  );
+}
+
 export async function cleanupStaleSessions(agentId: string, maxAgeMs: number): Promise<number> {
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
   const result = await getDb().query(

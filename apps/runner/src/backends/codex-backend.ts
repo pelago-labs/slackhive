@@ -28,7 +28,7 @@ import { execFileSync } from 'child_process';
 import type { Codex as CodexClient } from '@openai/codex-sdk';
 import type { Agent, McpServer, McpStdioConfig, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
 import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, splitCodexModel, type CodexReasoningEffort } from '@slackhive/shared';
-import { getSession, upsertSession, cleanupStaleSessions, getSetting } from '../db';
+import { getSession, upsertSession, deleteSession, cleanupStaleSessions, getSetting } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
 import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions } from './codex-config';
@@ -307,6 +307,9 @@ export class CodexBackend implements AgentBackend {
       // limit). The SDK throws a generic "Codex Exec exited with code N" AFTER the
       // stream ends, masking this — so we stash it and prefer it in the catch.
       let turnError: string | undefined;
+      // Whether any user-visible (assistant) output was already streamed this
+      // attempt — if so we must NOT retry, or the answer would be re-sent.
+      let yieldedAny = false;
 
       try {
         const { events } = await thread.runStreamed(input, { signal: abort.signal });
@@ -343,6 +346,7 @@ export class CodexBackend implements AgentBackend {
             if (msg.type === 'result') {
               (msg as { duration_ms?: number }).duration_ms = Date.now() - startedAt;
             }
+            if (msg.type === 'assistant') yieldedAny = true;
             yield msg;
           }
         }
@@ -358,11 +362,18 @@ export class CodexBackend implements AgentBackend {
         // prevent ("ran out of room in the model's context window") → retry once
         // on a fresh thread. For overflow this drops the bloated history so the
         // agent answers the current message instead of getting permanently stuck.
+        // Overflow regex is anchored to the real failure phrasings so a generic
+        // error/tool message that merely mentions "context window" can't trigger
+        // an unwanted reset. Only retry if nothing was streamed yet (else the
+        // already-sent answer would be duplicated).
         const isStale = /thread|session|not found|no conversation/i.test(errMsg);
-        const isOverflow = /ran out of room|context window|context length|maximum context|too many tokens/i.test(errMsg);
-        if (!retried && threadId && (isStale || isOverflow)) {
+        const isOverflow = /ran out of room|context (window|length) (exceeded|limit)|exceeds? the (model'?s )?(maximum )?context|maximum context length/i.test(errMsg);
+        if (!retried && !yieldedAny && threadId && (isStale || isOverflow)) {
           this.log.warn(isOverflow ? 'Codex context overflow — resetting thread and retrying fresh' : 'Stale Codex thread, retrying as new', { sessionKey, staleThreadId: threadId });
           this.sessionCache.delete(sessionKey);
+          // Drop the persisted row too so the poisoned thread can't be resumed
+          // next turn if this retry also fails before a new id is saved.
+          await deleteSession(this.agent.id, sessionKey).catch(() => {});
           threadId = undefined;
           retried = true;
           continue outer;

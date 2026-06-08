@@ -540,7 +540,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
   const [usage, setUsage] = useState<{ queries30d: number; inputTokens: number; outputTokens: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
   const [feedback, setFeedback] = useState<AgentFeedbackReport | null>(null);
   const [evalHealth, setEvalHealth] = useState<{ total: number; errors: number; warnings: number } | null>(null);
-  const [evalRun, setEvalRun] = useState<{ passCount: number; failCount: number; status: string } | null>(null);
+  const [evalRun, setEvalRun] = useState<{ passCount: number; failCount: number; suspectCount: number; infraCount: number; status: string } | null>(null);
   const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
   // Socket Mode (how the runner connects) needs the bot token AND the app-level
   // token; the signing secret is only for the HTTP Events API and is unused here.
@@ -772,7 +772,10 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
           {(() => {
             const tier = evalTier(evalHealth);
             const run = evalRun;
-            const ran = run && (run.passCount + run.failCount) > 0;
+            // Only show a pass-rate for a FINISHED run; total counts every verdict
+            // (pass/fail/suspect/infra) so the denominator is the real case count.
+            const ranTotal = run ? run.passCount + run.failCount + run.suspectCount + run.infraCount : 0;
+            const ran = run && run.status === 'done' && ranTotal > 0;
             return (
               <button onClick={onViewEvals} title="Open Evals" style={{
                 display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
@@ -783,7 +786,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
                 <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Evals</span>
                 <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: tier.color }}>{tier.label}</span>
-                  {ran && <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>· {run!.passCount}/{run!.passCount + run!.failCount} passed</span>}
+                  {ran && <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>· {run!.passCount}/{ranTotal} passed</span>}
                   <ArrowRight size={12} style={{ color: 'var(--subtle)' }} />
                 </span>
               </button>
