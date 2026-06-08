@@ -50,12 +50,17 @@ export function codexApiKeyFromEnv(): string | undefined {
  * constructor `config` — shared by the backend, Coach, and the one-shot generator
  * so none of them re-implement the plumbing. ESM-only package → dynamic import.
  */
-export async function createCodexClient(config: ConfigObj, apiKey?: string): Promise<CodexClient> {
+export async function createCodexClient(config: ConfigObj, apiKey?: string, env?: Record<string, string>): Promise<CodexClient> {
   const { Codex } = await import('@openai/codex-sdk');
   const key = apiKey ?? codexApiKeyFromEnv();
   return new Codex({
     ...(process.env.CODEX_PATH ? { codexPathOverride: process.env.CODEX_PATH } : {}),
     ...(key ? { apiKey: key } : {}),
+    // The SDK does NOT inherit process.env when `env` is set, so callers pass a
+    // complete env ({ ...process.env, ...agentVars }). Used so session-scoped MCP
+    // servers (see isSessionScopedServer) can forward agent secrets via `env_vars`
+    // in their project .codex/config.toml instead of writing them to disk.
+    ...(env ? { env } : {}),
     config,
   });
 }
@@ -179,11 +184,25 @@ function resolveHeaders(c: Record<string, unknown>, envVarValues: Record<string,
 }
 
 /**
+ * A server is "session-scoped" when its inline-TS source reads SESSION_WORK_DIR —
+ * i.e. it keeps per-thread state on disk (e.g. git.ts clones into
+ * `$SESSION_WORK_DIR/repos`). The shared client/proxy can't give it a per-session
+ * cwd, so these are NOT registered globally; instead CodexBackend writes a
+ * per-session `.codex/config.toml` (project-scoped, with cwd + env = the session
+ * dir) so Codex spawns one per thread. Stateless API servers stay shared.
+ */
+export function isSessionScopedServer(s: McpServer): boolean {
+  const ts = (s.config as { tsSource?: unknown }).tsSource;
+  return typeof ts === 'string' && ts.includes('SESSION_WORK_DIR');
+}
+
+/**
  * Translate SlackHive MCP servers into Codex `[mcp_servers.NAME]` config entries.
  * - Remote HTTP/SSE servers → passthrough url + resolved headers.
  * - stdio servers (incl. inline-TS) → the local proxy's Streamable-HTTP URL, so
  *   the proxy (empty client capabilities) shields elicitation and the server
  *   behaves headlessly. Falls back to direct stdio spawn if no proxy is up.
+ * Session-scoped servers are skipped here — they're written per-session instead.
  */
 function buildMcpServers(
   servers: McpServer[],
@@ -192,6 +211,7 @@ function buildMcpServers(
 ): ConfigObj {
   const out: ConfigObj = {};
   for (const s of servers) {
+    if (isSessionScopedServer(s)) continue; // registered per-session, not globally
     const c = s.config as McpStdioConfig & Record<string, unknown>;
 
     // Remote HTTP / SSE transport → url + static headers

@@ -90,6 +90,13 @@ export class McpProcessManager {
     for (const [subKey, storeKey] of Object.entries((config.envRefs ?? {}) as Record<string, string>)) {
       if (envVarValues[storeKey] !== undefined) env[subKey] = envVarValues[storeKey];
     }
+    // These MCP proxies are long-lived and shared across an agent's sessions, so
+    // there's no per-session cwd to hand them (unlike the Claude SDK path, which
+    // spawns inline-TS servers per query with a per-session SESSION_WORK_DIR).
+    // Without it, session-aware servers like git.ts fall back to /tmp; default it
+    // to the agent's persistent workDir so their state (e.g. cloned repos) lives
+    // under ~/.slackhive/agents/<slug>/ instead of an ephemeral temp dir.
+    if (!env.SESSION_WORK_DIR) env.SESSION_WORK_DIR = this.workDir;
 
     // For inline TypeScript source, write to disk first
     let command = config.command;

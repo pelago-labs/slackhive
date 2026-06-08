@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { McpServer, Permission } from '@slackhive/shared';
-import { agentHasBash, buildThreadOptions, buildCodexConfig, buildIdentityInstructions } from '../backends/codex-config';
+import { agentHasBash, buildThreadOptions, buildCodexConfig, buildIdentityInstructions, isSessionScopedServer } from '../backends/codex-config';
 
 const mcp = (name: string, type: string, config: Record<string, unknown>): McpServer =>
   ({ id: name, name, type, config } as unknown as McpServer);
@@ -90,5 +90,39 @@ describe('codex-config / buildCodexConfig', () => {
       { TOK: 'xyz' }, noProxy,
     ) as { mcp_servers: Record<string, unknown> };
     expect(cfg.mcp_servers.remote).toEqual({ url: 'https://mcp.example.com', http_headers: { Authorization: 'Bearer xyz' } });
+  });
+
+  it('OMITS session-scoped servers from the shared config (they are registered per-session)', () => {
+    const cfg = buildCodexConfig(
+      [
+        mcp('git', 'stdio', { tsSource: 'const dir = process.env.SESSION_WORK_DIR; // clones here' }),
+        mcp('notion', 'stdio', { tsSource: 'const t = process.env.NOTION_TOKEN; // stateless' }),
+      ],
+      {}, withProxy('http://127.0.0.1:14300/mcp'),
+    ) as { mcp_servers: Record<string, unknown> };
+    // git is session-scoped → excluded; notion is shared → present.
+    expect(cfg.mcp_servers.git).toBeUndefined();
+    expect(cfg.mcp_servers.notion).toEqual({ url: 'http://127.0.0.1:14300/mcp' });
+  });
+
+  it('omits mcp_servers entirely when every server is session-scoped', () => {
+    const cfg = buildCodexConfig(
+      [mcp('git', 'stdio', { tsSource: 'process.env.SESSION_WORK_DIR' })],
+      {}, withProxy('http://127.0.0.1:14300/mcp'),
+    ) as Record<string, unknown>;
+    expect(cfg.mcp_servers).toBeUndefined();
+  });
+});
+
+describe('codex-config / isSessionScopedServer', () => {
+  it('is true for an inline-TS server whose source reads SESSION_WORK_DIR', () => {
+    expect(isSessionScopedServer(mcp('git', 'stdio', { tsSource: 'const d = process.env.SESSION_WORK_DIR;' }))).toBe(true);
+  });
+  it('is false for an inline-TS server that does not read SESSION_WORK_DIR', () => {
+    expect(isSessionScopedServer(mcp('notion', 'stdio', { tsSource: 'const t = process.env.NOTION_TOKEN;' }))).toBe(false);
+  });
+  it('is false when there is no tsSource (binary/remote servers)', () => {
+    expect(isSessionScopedServer(mcp('datadog', 'stdio', { command: 'datadog-mcp' }))).toBe(false);
+    expect(isSessionScopedServer(mcp('remote', 'http', { url: 'https://mcp.example.com' }))).toBe(false);
   });
 });

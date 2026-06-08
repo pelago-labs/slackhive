@@ -18,6 +18,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
@@ -31,7 +32,7 @@ import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, splitCodexModel, type Cod
 import { getSession, upsertSession, deleteSession, cleanupStaleSessions, getSetting } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
-import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions } from './codex-config';
+import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -107,6 +108,10 @@ export class CodexBackend implements AgentBackend {
           (name) => this.mcpManager.getStreamableUrl(name),
         ),
         this.apiKey,
+        // Forward agent secrets into codex-exec's env so session-scoped MCP servers
+        // (written per-session in getSessionWorkDir) can pull them via `env_vars`
+        // instead of having their values written into on-disk .codex/config.toml.
+        { ...(process.env as Record<string, string>), ...this.envVarValues },
       );
     }
     return this.codex;
@@ -115,7 +120,8 @@ export class CodexBackend implements AgentBackend {
   /** Start a local proxy for each stdio MCP server (Codex connects via its URL). */
   private async startMcpProxies(): Promise<void> {
     const stdio = this.mcpServers.filter(
-      (s) => s.type === 'stdio' || (!('url' in (s.config as object)) && ('command' in (s.config as object))),
+      (s) => !isSessionScopedServer(s) && // session-scoped servers run per-session, not as a shared proxy
+        (s.type === 'stdio' || (!('url' in (s.config as object)) && ('command' in (s.config as object)))),
     );
     await Promise.all(
       stdio.map((s) =>
@@ -200,7 +206,97 @@ export class CodexBackend implements AgentBackend {
       catch (err) { this.log.warn('Failed to symlink knowledge dir', { error: (err as Error).message }); }
     }
 
+    // Project-scoped .codex/config.toml so Codex spawns session-aware MCP servers
+    // (e.g. git) per thread, with their state under this session dir.
+    this.writeSessionMcpConfig(sessionDir);
+
     return sessionDir;
+  }
+
+  /**
+   * Materialize a project-scoped `.codex/config.toml` in the session dir that
+   * registers the agent's session-scoped MCP servers (those reading SESSION_WORK_DIR,
+   * e.g. git.ts) with `cwd` + `SESSION_WORK_DIR` = this session. Codex *merges* these
+   * with the globally-configured shared servers and spawns one per session, so
+   * per-thread state (git clones → `<sessionDir>/repos`) is isolated per thread,
+   * matching ClaudeBackend. Secrets ride via `env_vars` (forwarded from codex-exec's
+   * env — see ensureCodex), never written into this on-disk file.
+   */
+  private writeSessionMcpConfig(sessionDir: string): void {
+    const scoped = this.mcpServers.filter(isSessionScopedServer);
+    if (scoped.length === 0) return;
+
+    // Codex loads a project-scoped .codex/config.toml only for TRUSTED dirs, and
+    // trust is honored only from the persisted user config (not --config). Write it
+    // proactively — before any codex exec — so the project config loads on the very
+    // first turn and Codex never races us to add its own entry.
+    this.ensureCodexTrusted(sessionDir);
+
+    // Resolve the tsx runner + NODE_PATH the inline-TS scripts need (same walk the
+    // MCP proxy manager uses) so Codex can spawn them directly.
+    const nmDirs: string[] = [];
+    let cur = path.resolve(__dirname);
+    while (cur !== path.dirname(cur)) {
+      const nm = path.join(cur, 'node_modules');
+      if (fs.existsSync(nm)) nmDirs.push(nm);
+      cur = path.dirname(cur);
+    }
+    const tsxPath = nmDirs.map((nm) => path.join(nm, '.bin', 'tsx')).find((p) => fs.existsSync(p)) ?? 'tsx';
+    const nodePath = nmDirs.join(path.delimiter);
+    const scriptDir = path.join(this.workDir, '.mcp-scripts');
+    fs.mkdirSync(scriptDir, { recursive: true });
+
+    const q = (v: string): string => JSON.stringify(v); // TOML basic string == JSON string for our values
+    const blocks: string[] = [];
+    for (const s of scoped) {
+      const c = s.config as McpStdioConfig & Record<string, unknown>;
+      let command = (c.command as string) ?? tsxPath;
+      let args = (c.args as string[] | undefined) ?? [];
+      if (typeof c.tsSource === 'string') {
+        const scriptPath = path.join(scriptDir, `${s.name}.ts`);
+        fs.writeFileSync(scriptPath, c.tsSource, 'utf8');
+        command = tsxPath;
+        args = [scriptPath];
+      }
+      // env: non-secret knobs written to disk. Secrets ride via env_vars (forwarded).
+      const env: Record<string, string> = {
+        ...((c.env as Record<string, string>) ?? {}),
+        NODE_PATH: nodePath,
+        AGENT_SLUG: this.agent.slug,
+        SESSION_WORK_DIR: sessionDir,
+      };
+      const envVars = Object.keys((c.envRefs ?? {}) as Record<string, string>);
+      const envInline = Object.entries(env).map(([k, v]) => `${k} = ${q(v)}`).join(', ');
+      const lines = [
+        `[mcp_servers.${q(s.name)}]`,
+        `command = ${q(command)}`,
+        `args = [${args.map(q).join(', ')}]`,
+        `cwd = ${q(sessionDir)}`,
+        `env = { ${envInline} }`,
+      ];
+      if (envVars.length) lines.push(`env_vars = [${envVars.map(q).join(', ')}]`);
+      blocks.push(lines.join('\n'));
+    }
+
+    const codexDir = path.join(sessionDir, '.codex');
+    fs.mkdirSync(codexDir, { recursive: true });
+    fs.writeFileSync(path.join(codexDir, 'config.toml'), blocks.join('\n\n') + '\n', 'utf8');
+  }
+
+  /** Add `[projects."<dir>"] trust_level = "trusted"` to the persisted Codex user
+   *  config (idempotent) so project-scoped config in that dir is honored. */
+  private ensureCodexTrusted(dir: string): void {
+    try {
+      const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+      fs.mkdirSync(codexHome, { recursive: true });
+      const cfgPath = path.join(codexHome, 'config.toml');
+      const existing = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, 'utf8') : '';
+      const marker = `[projects.${JSON.stringify(dir)}]`; // matches Codex's own `[projects."/path"]`
+      if (existing.includes(marker)) return;
+      fs.appendFileSync(cfgPath, `\n${marker}\ntrust_level = "trusted"\n`);
+    } catch (err) {
+      this.log.warn('Failed to mark Codex session dir trusted', { error: (err as Error).message });
+    }
   }
 
   /**
