@@ -197,6 +197,30 @@ export function isSessionScopedServer(s: McpServer): boolean {
 }
 
 /**
+ * The secrets that session-scoped MCP servers need, keyed by the var name the
+ * server actually reads (the envRefs *subKey*) — NOT the platform store key. These
+ * (and only these — not the agent's whole decrypted store) are placed into
+ * codex-exec's env so the per-session `.codex/config.toml`'s `env_vars` can forward
+ * them. Keying by subKey is what makes the forward resolve when envRefs remaps a
+ * name (e.g. { GIT_TOKEN: "my-github-secret" }).
+ */
+export function sessionScopedSecrets(
+  servers: McpServer[],
+  envVarValues: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const s of servers) {
+    if (!isSessionScopedServer(s)) continue;
+    const refs = ((s.config as { envRefs?: Record<string, string> }).envRefs) ?? {};
+    for (const [subKey, storeKey] of Object.entries(refs)) {
+      const val = envVarValues[storeKey];
+      if (val !== undefined) out[subKey] = val;
+    }
+  }
+  return out;
+}
+
+/**
  * Translate SlackHive MCP servers into Codex `[mcp_servers.NAME]` config entries.
  * - Remote HTTP/SSE servers → passthrough url + resolved headers.
  * - stdio servers (incl. inline-TS) → the local proxy's Streamable-HTTP URL, so

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { McpServer, Permission } from '@slackhive/shared';
-import { agentHasBash, buildThreadOptions, buildCodexConfig, buildIdentityInstructions, isSessionScopedServer } from '../backends/codex-config';
+import { agentHasBash, buildThreadOptions, buildCodexConfig, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets } from '../backends/codex-config';
 
 const mcp = (name: string, type: string, config: Record<string, unknown>): McpServer =>
   ({ id: name, name, type, config } as unknown as McpServer);
@@ -124,5 +124,32 @@ describe('codex-config / isSessionScopedServer', () => {
   it('is false when there is no tsSource (binary/remote servers)', () => {
     expect(isSessionScopedServer(mcp('datadog', 'stdio', { command: 'datadog-mcp' }))).toBe(false);
     expect(isSessionScopedServer(mcp('remote', 'http', { url: 'https://mcp.example.com' }))).toBe(false);
+  });
+});
+
+describe('codex-config / sessionScopedSecrets', () => {
+  const gitLike = (envRefs: Record<string, string>) =>
+    mcp('git', 'stdio', { tsSource: 'process.env.SESSION_WORK_DIR', envRefs });
+
+  it('forwards only session-scoped secrets, keyed by the subKey the server reads (not the store key)', () => {
+    const out = sessionScopedSecrets(
+      [
+        gitLike({ GIT_TOKEN: 'my-github-secret' }),              // session-scoped, remapped name
+        mcp('notion', 'stdio', { tsSource: 'process.env.NOTION_TOKEN', envRefs: { NOTION_TOKEN: 'notion-store' } }), // not session-scoped
+      ],
+      { 'my-github-secret': 'ghp_xxx', 'notion-store': 'secret_yyy' },
+    );
+    // Keyed by the subKey (GIT_TOKEN), value from the store key — so the per-session
+    // env_vars=["GIT_TOKEN"] forward resolves. Notion (not session-scoped) is excluded.
+    expect(out).toEqual({ GIT_TOKEN: 'ghp_xxx' });
+  });
+
+  it('does not leak the agent store and skips refs with no resolved value', () => {
+    const out = sessionScopedSecrets(
+      [gitLike({ GITHUB_PERSONAL_ACCESS_TOKEN: 'GITHUB_PERSONAL_ACCESS_TOKEN', MISSING: 'absent-key' })],
+      { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_xxx', UNRELATED_SECRET: 'do-not-leak' },
+    );
+    expect(out).toEqual({ GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_xxx' });
+    expect(out.UNRELATED_SECRET).toBeUndefined();
   });
 });

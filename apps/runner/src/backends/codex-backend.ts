@@ -32,7 +32,7 @@ import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, splitCodexModel, type Cod
 import { getSession, upsertSession, deleteSession, cleanupStaleSessions, getSetting } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
-import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer } from './codex-config';
+import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -108,10 +108,7 @@ export class CodexBackend implements AgentBackend {
           (name) => this.mcpManager.getStreamableUrl(name),
         ),
         this.apiKey,
-        // Forward agent secrets into codex-exec's env so session-scoped MCP servers
-        // (written per-session in getSessionWorkDir) can pull them via `env_vars`
-        // instead of having their values written into on-disk .codex/config.toml.
-        { ...(process.env as Record<string, string>), ...this.envVarValues },
+        this.buildCodexExecEnv(),
       );
     }
     return this.codex;
@@ -222,6 +219,24 @@ export class CodexBackend implements AgentBackend {
    * matching ClaudeBackend. Secrets ride via `env_vars` (forwarded from codex-exec's
    * env — see ensureCodex), never written into this on-disk file.
    */
+  /**
+   * Environment for codex-exec: the runner's process.env plus ONLY the secrets the
+   * session-scoped MCP servers (e.g. git) need, keyed by the var name those servers
+   * actually read (the envRefs *subKey*) so the per-session `env_vars` forward finds
+   * them. We deliberately do NOT inject the agent's whole decrypted secret store —
+   * codex-exec runs the model's shell under danger-full-access, so a broad env would
+   * expose every platform secret to a model fed untrusted input. (process.env is
+   * filtered to defined values since the SDK skips its own undefined-filtering when
+   * an `env` is supplied.)
+   */
+  private buildCodexExecEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined) env[k] = v;
+    }
+    return { ...env, ...sessionScopedSecrets(this.mcpServers, this.envVarValues) };
+  }
+
   private writeSessionMcpConfig(sessionDir: string): void {
     const scoped = this.mcpServers.filter(isSessionScopedServer);
     if (scoped.length === 0) return;
@@ -254,7 +269,14 @@ export class CodexBackend implements AgentBackend {
       let args = (c.args as string[] | undefined) ?? [];
       if (typeof c.tsSource === 'string') {
         const scriptPath = path.join(scriptDir, `${s.name}.ts`);
-        fs.writeFileSync(scriptPath, c.tsSource, 'utf8');
+        // Atomic write+rename: this script path is shared across the agent's sessions
+        // and rewritten every turn, while concurrent threads' Codex runs may be exec'ing
+        // tsx against it. A plain writeFileSync truncates first, so a concurrent read
+        // could see a partial file; rename swaps it in atomically (readers see old or
+        // new, never partial).
+        const tmp = `${scriptPath}.${crypto.randomUUID()}.tmp`;
+        fs.writeFileSync(tmp, c.tsSource, 'utf8');
+        fs.renameSync(tmp, scriptPath);
         command = tsxPath;
         args = [scriptPath];
       }
@@ -295,7 +317,10 @@ export class CodexBackend implements AgentBackend {
       if (existing.includes(marker)) return;
       fs.appendFileSync(cfgPath, `\n${marker}\ntrust_level = "trusted"\n`);
     } catch (err) {
-      this.log.warn('Failed to mark Codex session dir trusted', { error: (err as Error).message });
+      // Untrusted → Codex ignores the per-session .codex/config.toml → the
+      // session-scoped servers (git) silently won't be registered on this thread.
+      // Surface at error so it's not mistaken for a model/agent problem.
+      this.log.error('Failed to mark Codex session dir trusted; session-scoped MCP servers (e.g. git) will be unavailable on this thread', { sessionDir: dir, error: (err as Error).message });
     }
   }
 
