@@ -629,6 +629,35 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
       {/* Identity (main) */}
       <div style={{ flex: '1 1 520px', minWidth: 0 }}>
         <Card title="Identity" fill action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
+          {/* Connection — Slack status pinned to the top of the identity card. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: slackConfigured ? 'color-mix(in srgb, var(--green) 14%, transparent)' : 'var(--surface)',
+              border: '1px solid var(--border)', color: slackConfigured ? 'var(--green)' : 'var(--muted)',
+            }}><Slack size={15} /></div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: slackConfigured ? 'var(--green)' : 'var(--amber, #f59e0b)' }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{slackConfigured ? 'Connected to Slack' : 'Not connected'}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {slackConfigured
+                  ? (slackInfo ? <>{slackInfo.teamName} · {slackInfo.displayName} <span style={{ fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span></> : 'Credentials configured')
+                  : 'Not receiving Slack messages yet'}
+              </div>
+            </div>
+            {(canEdit || slackConfigured) && (
+              <button onClick={onConnectSlack} style={{
+                flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: slackConfigured ? 'var(--surface)' : 'var(--accent)',
+                color: slackConfigured ? 'var(--text)' : 'var(--accent-fg)',
+                border: slackConfigured ? '1px solid var(--border)' : 'none', borderRadius: 7, padding: '6px 12px',
+                fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}>{slackConfigured ? 'Manage' : <><Plug size={13} /> Connect Slack</>}</button>
+            )}
+          </div>
+
           <Grid2>
             <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
               hint="Internal agent name." />
@@ -690,34 +719,6 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
         })()}
 
         <Card title="Details">
-          {/* Connection — Slack status at the top of the details. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 14, marginBottom: 14, borderBottom: '1px solid var(--border)' }}>
-            <div style={{
-              width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: slackConfigured ? 'color-mix(in srgb, var(--green) 14%, transparent)' : 'var(--surface-2)',
-              border: '1px solid var(--border)', color: slackConfigured ? 'var(--green)' : 'var(--muted)',
-            }}><Slack size={15} /></div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: slackConfigured ? 'var(--green)' : 'var(--amber, #f59e0b)' }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{slackConfigured ? 'Connected to Slack' : 'Not connected'}</span>
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {slackConfigured
-                  ? (slackInfo ? <>{slackInfo.teamName} · <span style={{ fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span></> : 'Credentials configured')
-                  : 'Not receiving Slack messages'}
-              </div>
-            </div>
-            {(canEdit || slackConfigured) && (
-              <button onClick={onConnectSlack} style={{
-                flexShrink: 0, background: slackConfigured ? 'none' : 'var(--accent)',
-                color: slackConfigured ? 'var(--muted)' : 'var(--accent-fg)',
-                border: slackConfigured ? '1px solid var(--border)' : 'none', borderRadius: 7, padding: '5px 11px',
-                fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              }}>{slackConfigured ? 'Manage' : 'Connect'}</button>
-            )}
-          </div>
-
           {/* Counts — wrapping stat chips */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {[
