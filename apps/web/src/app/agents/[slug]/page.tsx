@@ -2885,13 +2885,15 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
         background: f.assigned ? 'var(--surface-2)' : 'var(--surface)', overflow: 'hidden',
       }}>
         <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
-          <div style={{ width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+          <Link href={`/knowledge?folder=${f.id}`} title={`Open ${f.name}`} style={{ width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', textDecoration: 'none' }}>
             {f.assigned ? <FolderOpen size={20} /> : <Folder size={20} />}
-          </div>
+          </Link>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                <Link href={`/knowledge?folder=${f.id}`} title={`Open ${f.name}`} style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                  onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}>{f.name}</Link>
                 <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 2 }}>by {f.createdBy}</div>
               </div>
               {canEdit ? (

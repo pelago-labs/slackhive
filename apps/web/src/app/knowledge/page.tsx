@@ -191,8 +191,21 @@ export default function KnowledgePage() {
   const isOwnerOrAdmin = (f: WikiFolder) => isAdmin || (canEdit && f.createdBy === username);
 
   useEffect(() => {
+    // Deep-link: /knowledge?folder=<id> (e.g. from an agent's Wiki tab) auto-opens
+    // that folder once the list loads. Read from window (not useSearchParams) so
+    // the statically-prerendered page doesn't need a Suspense boundary.
+    const initialFolderId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('folder') : null;
     fetch('/api/wiki-folders').then(r => r.json()).then((fs: WikiFolder[]) => {
       setFolders(fs);
+      if (initialFolderId) {
+        const found = fs.find(f => f.id === initialFolderId);
+        if (found) {
+          openFolder(found);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('folder');
+          window.history.replaceState({}, '', url.toString());
+        }
+      }
       // Per-folder counts for the landing cards (one /sources fetch each).
       fs.forEach(f => {
         fetch(`/api/wiki-folders/${f.id}/sources`).then(r => r.ok ? r.json() : []).then((srcs: WikiSource[]) => {
@@ -202,6 +215,7 @@ export default function KnowledgePage() {
         }).catch(() => {});
       });
     }).finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
