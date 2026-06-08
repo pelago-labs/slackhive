@@ -1205,7 +1205,7 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
         </div>
       ) : (
         <>
-          {/* Summary card — score, grade, satisfaction bar, and stat tiles. */}
+          {/* Summary card — score, label, satisfaction bar, and stat tiles. */}
           <div style={{ border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: 22 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
               <div>
