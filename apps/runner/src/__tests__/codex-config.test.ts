@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { McpServer, Permission } from '@slackhive/shared';
-import { agentHasBash, buildThreadOptions, buildCodexConfig, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets } from '../backends/codex-config';
+import { agentHasBash, buildThreadOptions, buildCodexConfig, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject } from '../backends/codex-config';
 
 const mcp = (name: string, type: string, config: Record<string, unknown>): McpServer =>
   ({ id: name, name, type, config } as unknown as McpServer);
@@ -151,5 +151,29 @@ describe('codex-config / sessionScopedSecrets', () => {
     );
     expect(out).toEqual({ GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_xxx' });
     expect(out.UNRELATED_SECRET).toBeUndefined();
+  });
+});
+
+describe('codex-config / tomlDeclaresProject (duplicate-trust-table guard)', () => {
+  const dir = '/home/admin/.slackhive/agents/dinesh/sessions/U1-C1-1_2';
+
+  it('detects an existing basic-string project table (so we never append a duplicate)', () => {
+    const toml = `[tui]\nx = 1\n\n[projects."${dir}"]\ntrust_level = "trusted"\n`;
+    expect(tomlDeclaresProject(toml, dir)).toBe(true);
+  });
+  it('detects a literal-string project table too', () => {
+    expect(tomlDeclaresProject(`[projects.'${dir}']\ntrust_level = "trusted"\n`, dir)).toBe(true);
+  });
+  it('is false when the dir is absent or only a different (prefix-overlapping) dir is present', () => {
+    expect(tomlDeclaresProject('', dir)).toBe(false);
+    expect(tomlDeclaresProject(`[projects."${dir}-other"]\ntrust_level = "trusted"\n`, dir)).toBe(false);
+    expect(tomlDeclaresProject(`[projects."/some/other/path"]\n`, dir)).toBe(false);
+  });
+  it('does not match the path appearing in a value or comment (header-only)', () => {
+    expect(tomlDeclaresProject(`# trusted ${dir}\n[other]\nnote = "[projects.\\"${dir}\\"]"\n`, dir)).toBe(false);
+  });
+  it('unescapes basic-string escapes when matching', () => {
+    const weird = '/home/a"b'; // path with a quote → escaped in the basic string
+    expect(tomlDeclaresProject(`[projects.${JSON.stringify(weird)}]\n`, weird)).toBe(true);
   });
 });

@@ -197,6 +197,30 @@ export function isSessionScopedServer(s: McpServer): boolean {
 }
 
 /**
+ * True if a Codex `config.toml` already declares a `[projects."<dir>"]` table for
+ * `dir`, matching either TOML string form (basic `"..."` or literal `'...'`) so a
+ * caller never appends a SECOND table for the same project — a duplicate TOML table
+ * makes Codex's strict parser reject the whole config. Header-only scan (we don't
+ * rewrite the file), so it's robust to quoting without clobbering Codex's own edits.
+ */
+export function tomlDeclaresProject(toml: string, dir: string): boolean {
+  // [projects.<key>] on its own line, <key> a basic ("...") or literal ('...') string.
+  const re = /^[ \t]*\[projects\.("(?:[^"\\]|\\.)*"|'[^']*')\][ \t]*$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(toml)) !== null) {
+    const tok = m[1];
+    let key: string;
+    if (tok[0] === "'") key = tok.slice(1, -1); // literal string — content is verbatim
+    else {
+      // basic string — TOML basic escapes are a subset of JSON's, so JSON.parse unescapes it.
+      try { key = JSON.parse(tok) as string; } catch { continue; }
+    }
+    if (key === dir) return true;
+  }
+  return false;
+}
+
+/**
  * The secrets that session-scoped MCP servers need, keyed by the var name the
  * server actually reads (the envRefs *subKey*) — NOT the platform store key. These
  * (and only these — not the agent's whole decrypted store) are placed into

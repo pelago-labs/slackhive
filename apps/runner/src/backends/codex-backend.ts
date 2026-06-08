@@ -32,7 +32,7 @@ import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, splitCodexModel, type Cod
 import { getSession, upsertSession, deleteSession, cleanupStaleSessions, getSetting } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
-import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets } from './codex-config';
+import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -313,9 +313,11 @@ export class CodexBackend implements AgentBackend {
       fs.mkdirSync(codexHome, { recursive: true });
       const cfgPath = path.join(codexHome, 'config.toml');
       const existing = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, 'utf8') : '';
-      const marker = `[projects.${JSON.stringify(dir)}]`; // matches Codex's own `[projects."/path"]`
-      if (existing.includes(marker)) return;
-      fs.appendFileSync(cfgPath, `\n${marker}\ntrust_level = "trusted"\n`);
+      // Parse-based dedup (any quoting) so we never append a duplicate [projects."X"]
+      // table — which would be invalid TOML and break Codex's config entirely. We
+      // still APPEND rather than rewrite, so we don't clobber Codex's concurrent edits.
+      if (tomlDeclaresProject(existing, dir)) return;
+      fs.appendFileSync(cfgPath, `\n[projects.${JSON.stringify(dir)}]\ntrust_level = "trusted"\n`);
     } catch (err) {
       // Untrusted → Codex ignores the per-session .codex/config.toml → the
       // session-scoped servers (git) silently won't be registered on this thread.
