@@ -117,6 +117,9 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   // see their new agent before we shove a chat in their face.
   // useSearchParams is hydration-safe (returns the same value on server + client).
   const coachArmedFromWizard = useSearchParams().get('coach') === 'open';
+  // Arriving from the new-agent wizard (?setup=slack) opens Settings → Slack
+  // directly, since connecting Slack is the next step that makes the agent live.
+  const setupSlackFromWizard = useSearchParams().get('setup') === 'slack';
   const router = useRouter();
   const [coachOpen, setCoachOpen] = useState(false);
   const [pendingCoachOpen, setPendingCoachOpen] = useState(coachArmedFromWizard);
@@ -129,8 +132,8 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const [avatarImgFailed, setAvatarImgFailed] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const [viewOnly, setViewOnly] = useState(false);
-  const [tab, setTab] = useState<Tab>('overview');
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
+  const [tab, setTab] = useState<Tab>(setupSlackFromWizard ? 'settings' : 'overview');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(setupSlackFromWizard ? 'slack' : 'general');
   /** Full-main-window mode swap. `test` replaces the agent header + tabs +
    *  tab content with <TestPanel>. The global SlackHive sidebar (rendered by
    *  layout-shell.tsx) remains visible — clicking it navigates away and
@@ -140,11 +143,12 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   // Strip ?coach=open from the URL after the first render so refreshing
   // the page doesn't keep rearming the auto-open.
   useEffect(() => {
-    if (!coachArmedFromWizard) return;
+    if (!coachArmedFromWizard && !setupSlackFromWizard) return;
     const url = new URL(window.location.href);
     url.searchParams.delete('coach');
+    url.searchParams.delete('setup');
     window.history.replaceState({}, '', url.toString());
-  }, [coachArmedFromWizard]);
+  }, [coachArmedFromWizard, setupSlackFromWizard]);
 
   // When the user navigates to Instructions and Coach is armed, pop it open
   // once, then disarm so subsequent Instructions visits stay quiet.
@@ -953,6 +957,19 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
         )}
         {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
       </div>
+
+      {!slackConfigured && (
+        <Card title="Connect this agent to Slack">
+          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            This agent isn&apos;t connected yet, so it can&apos;t post to Slack. It takes ~2 minutes:
+          </p>
+          <ol style={{ margin: '0 0 4px', paddingLeft: 18, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.85 }}>
+            <li>Open <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>api.slack.com/apps</a> → <strong>Create New App</strong> → <strong>From a manifest</strong>.</li>
+            <li>Click <strong>View Slack Manifest</strong> above, copy it, and paste it into the JSON tab → <strong>Create</strong>.</li>
+            <li><strong>Install to Workspace</strong> (sidebar → Install App), then paste the Bot &amp; App-Level tokens below and <strong>Save</strong>.</li>
+          </ol>
+        </Card>
+      )}
 
       <Card title="Slack Credentials">
         <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
