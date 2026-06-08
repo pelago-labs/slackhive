@@ -628,7 +628,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
       <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
       {/* Identity (main) */}
       <div style={{ flex: '1 1 520px', minWidth: 0 }}>
-        <Card title="Identity" fill action={canEdit ? <PrimaryBtn onClick={save} loading={saving}>{msg || 'Save'}</PrimaryBtn> : undefined}>
+        <Card title="Identity" fill>
           {/* Connection — Slack status pinned to the top of the identity card. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
             <div style={{
@@ -673,6 +673,14 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
           <TextArea label="Persona" value={form.persona}
             onChange={v => setForm(f => ({ ...f, persona: v }))}
             hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={6} readOnly={!canEdit} />
+          {canEdit && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 'auto', paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+              {msg && <span style={{ fontSize: 12.5, color: msg === 'Saved' ? 'var(--green)' : 'var(--muted)' }}>{msg}</span>}
+              <div style={{ marginLeft: 'auto' }}>
+                <PrimaryBtn onClick={save} loading={saving}>Save changes</PrimaryBtn>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 
