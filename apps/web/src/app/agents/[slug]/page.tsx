@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown, ShieldCheck, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot, AgentFeedbackReport, FeedbackRating } from '@slackhive/shared';
@@ -68,6 +68,17 @@ function feedbackTier(score: number, has: boolean): { emoji: string; label: stri
   if (score >= 60) return { emoji: '🙂', label: 'Good',           grade: 'C', color: '#d97706' };
   if (score >= 40) return { emoji: '😐', label: 'OK',             grade: 'D', color: '#d97706' };
   return                  { emoji: '😟', label: 'Needs work',     grade: 'F', color: '#dc2626' };
+}
+
+/** Maps a Tier-1 healthcheck summary → a status label/color/icon for the
+ *  Overview Evals card. Restrained palette (status colors only). */
+function evalTier(summary: { total: number; errors: number; warnings: number } | null): {
+  label: string; color: string; Icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+} {
+  if (!summary)            return { label: 'Not run yet', color: 'var(--muted)', Icon: ShieldCheck };
+  if (summary.errors > 0)  return { label: `${summary.errors} issue${summary.errors !== 1 ? 's' : ''}`, color: '#dc2626', Icon: AlertTriangle };
+  if (summary.warnings > 0) return { label: `${summary.warnings} warning${summary.warnings !== 1 ? 's' : ''}`, color: '#d97706', Icon: AlertTriangle };
+  return                   { label: 'Healthy', color: '#16a34a', Icon: ShieldCheck };
 }
 
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
@@ -411,7 +422,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
       <div style={{ padding: '28px 40px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} onConnectSlack={() => { setSettingsSection('slack'); setTab('settings'); }} onViewFeedback={() => { setSettingsSection('feedback'); setTab('settings'); }} />}
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} onConnectSlack={() => { setSettingsSection('slack'); setTab('settings'); }} onViewFeedback={() => { setSettingsSection('feedback'); setTab('settings'); }} onViewEvals={() => { setSettingsSection('evals'); setTab('settings'); }} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
@@ -508,7 +519,7 @@ function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label
  * config (Slack, verbose, hierarchy), logs, history and delete live under the
  * Settings tab. Identity edits PATCH only their own fields (updateAgent merges).
  */
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onViewFeedback }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; onConnectSlack: () => void; onViewFeedback: () => void }) {
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onViewFeedback, onViewEvals }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; onConnectSlack: () => void; onViewFeedback: () => void; onViewEvals: () => void }) {
   const [form, setForm] = useState({
     name:        agent.name,
     description: agent.description ?? '',
@@ -528,6 +539,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
   const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number; wiki: number; audiences: number } | null>(null);
   const [usage, setUsage] = useState<{ queries30d: number; inputTokens: number; outputTokens: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
   const [feedback, setFeedback] = useState<AgentFeedbackReport | null>(null);
+  const [evalHealth, setEvalHealth] = useState<{ total: number; errors: number; warnings: number } | null>(null);
+  const [evalRun, setEvalRun] = useState<{ passCount: number; failCount: number; status: string } | null>(null);
   const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
   // Socket Mode (how the runner connects) needs the bot token AND the app-level
   // token; the signing secret is only for the HTTP Events API and is unused here.
@@ -568,6 +581,21 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
     let cancelled = false;
     fetch(`/api/agents/${agent.id}/feedback?limit=0&window=30d`).then(r => r.ok ? r.json() : null)
       .then(d => { if (!cancelled && d) setFeedback(d); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Tier-1 healthcheck (static, fast) + the latest regression run, for the
+    // Overview Evals card. Both are best-effort.
+    fetch(`/api/agents/${agent.id}/evals/healthcheck`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d?.summary) setEvalHealth(d.summary); }).catch(() => {});
+    fetch(`/api/agents/${agent.id}/evals/runs?limit=1`).then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (cancelled) return;
+        const run = Array.isArray(d) ? d[0] : (d?.runs?.[0] ?? d?.run ?? null);
+        if (run && typeof run.passCount === 'number') setEvalRun(run);
+      }).catch(() => {});
     return () => { cancelled = true; };
   }, [agent.id]);
 
@@ -739,6 +767,28 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
             <MetaRow icon={<Layers size={13} />} label="Tokens">{usage ? `${fmtTokens(usage.inputTokens)} in · ${fmtTokens(usage.outputTokens)} out` : '—'}</MetaRow>
             <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
           </div>
+
+          {/* Evals — healthcheck status + last run, click → Settings → Evals. */}
+          {(() => {
+            const tier = evalTier(evalHealth);
+            const run = evalRun;
+            const ran = run && (run.passCount + run.failCount) > 0;
+            return (
+              <button onClick={onViewEvals} title="Open Evals" style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                background: 'none', border: 'none', borderTop: '1px solid var(--border)',
+                padding: '9px 0 0', marginTop: 10, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}>
+                <tier.Icon size={13} style={{ color: tier.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Evals</span>
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: tier.color }}>{tier.label}</span>
+                  {ran && <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>· {run!.passCount}/{run!.passCount + run!.failCount} passed</span>}
+                  <ArrowRight size={12} style={{ color: 'var(--subtle)' }} />
+                </span>
+              </button>
+            );
+          })()}
 
           <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 'auto',
