@@ -625,52 +625,6 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
 
   return (
     <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1100 }}>
-      {/* Slack connection status / CTA */}
-      {slackConfigured ? (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 'var(--radius)',
-          border: '1px solid color-mix(in srgb, var(--green) 35%, var(--border))',
-          background: 'color-mix(in srgb, var(--green) 7%, var(--surface))',
-        }}>
-          <div style={{ width: 30, height: 30, borderRadius: 8, background: 'color-mix(in srgb, var(--green) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--green)' }}>
-            <Slack size={16} />
-          </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Connected to Slack</span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {slackInfo ? <>{slackInfo.teamName} · {slackInfo.displayName} <span style={{ fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span></> : 'Credentials configured'}
-            </div>
-          </div>
-          <button onClick={onConnectSlack} style={{
-            flexShrink: 0, background: 'none', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px',
-            fontSize: 12.5, fontWeight: 500, color: 'var(--text)', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}>Manage</button>
-        </div>
-      ) : (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 'var(--radius)',
-          border: '1px solid color-mix(in srgb, var(--amber, #f59e0b) 40%, var(--border))',
-          background: 'color-mix(in srgb, var(--amber, #f59e0b) 8%, var(--surface))',
-        }}>
-          <div style={{ width: 30, height: 30, borderRadius: 8, background: 'color-mix(in srgb, var(--amber, #f59e0b) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--amber, #f59e0b)' }}>
-            <Slack size={16} />
-          </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Slack not configured</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>This agent isn&apos;t connected to a Slack workspace yet — it can&apos;t receive or reply to messages.</div>
-          </div>
-          {canEdit && (
-            <button onClick={onConnectSlack} style={{
-              flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent)', color: 'var(--accent-fg)',
-              border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}><Plug size={13} /> Connect Slack</button>
-          )}
-        </div>
-      )}
-
       <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
       {/* Identity (main) */}
       <div style={{ flex: '1 1 520px', minWidth: 0 }}>
@@ -695,7 +649,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
 
       {/* Details (aside) — metrics + meta */}
       <aside style={{ flex: '0 0 300px', maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Report card — friendly performance rating; click → Settings → Feedback. */}
+        {/* Satisfaction KPI — clean metric card; click → Settings → Feedback. */}
         {(() => {
           const f = feedback;
           const has = !!(f && f.total > 0);
@@ -703,35 +657,67 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
           const up = f?.up ?? 0, down = f?.down ?? 0;
           const tier = feedbackTier(score, has);
           return (
-            <button onClick={onViewFeedback} style={{
+            <button onClick={onViewFeedback} className="ui-card ui-card-hover" style={{
               width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 12,
-              border: `1px solid color-mix(in srgb, ${tier.color} 22%, var(--border))`, borderRadius: 14,
-              boxShadow: 'var(--shadow-sm)', padding: '16px 18px', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              background: `linear-gradient(135deg, var(--surface) 0%, color-mix(in srgb, ${tier.color} 9%, var(--surface)) 100%)`,
+              border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-sm)',
+              padding: '16px 18px', fontFamily: 'var(--font-sans)', background: 'var(--surface)',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Report card</span>
+                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Satisfaction</span>
                 <ArrowRight size={14} style={{ color: 'var(--subtle)' }} />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 36, lineHeight: 1 }}>{tier.emoji}</span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: tier.color, letterSpacing: '-0.01em' }}>{tier.label}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{has ? `${score}% satisfaction · last 30 days` : 'No ratings yet'}</div>
-                </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, color: has ? tier.color : 'var(--muted)' }}>{has ? `${score}%` : '—'}</span>
+                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{has ? `${tier.label} · last 30 days` : 'No ratings yet'}</span>
               </div>
-              {has && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12.5, color: 'var(--muted)' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsUp size={13} style={{ color: '#16a34a' }} /> {up}</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsDown size={13} style={{ color: '#dc2626' }} /> {down}</span>
-                  <span style={{ marginLeft: 'auto', color: 'var(--subtle)' }}>{f!.total} rating{f!.total !== 1 ? 's' : ''}</span>
-                </div>
+              {has ? (
+                <>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                    <div style={{ width: `${score}%`, background: '#16a34a' }} />
+                    <div style={{ width: `${100 - score}%`, background: '#dc2626', opacity: 0.55 }} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12.5, color: 'var(--muted)' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsUp size={13} style={{ color: '#16a34a' }} /> {up}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsDown size={13} style={{ color: '#dc2626' }} /> {down}</span>
+                    <span style={{ marginLeft: 'auto', color: 'var(--subtle)' }}>{f!.total} rating{f!.total !== 1 ? 's' : ''}</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Ratings from Slack replies appear here.</div>
               )}
             </button>
           );
         })()}
 
         <Card title="Details">
+          {/* Connection — Slack status at the top of the details. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 14, marginBottom: 14, borderBottom: '1px solid var(--border)' }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: slackConfigured ? 'color-mix(in srgb, var(--green) 14%, transparent)' : 'var(--surface-2)',
+              border: '1px solid var(--border)', color: slackConfigured ? 'var(--green)' : 'var(--muted)',
+            }}><Slack size={15} /></div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: slackConfigured ? 'var(--green)' : 'var(--amber, #f59e0b)' }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{slackConfigured ? 'Connected to Slack' : 'Not connected'}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {slackConfigured
+                  ? (slackInfo ? <>{slackInfo.teamName} · <span style={{ fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span></> : 'Credentials configured')
+                  : 'Not receiving Slack messages'}
+              </div>
+            </div>
+            {(canEdit || slackConfigured) && (
+              <button onClick={onConnectSlack} style={{
+                flexShrink: 0, background: slackConfigured ? 'none' : 'var(--accent)',
+                color: slackConfigured ? 'var(--muted)' : 'var(--accent-fg)',
+                border: slackConfigured ? '1px solid var(--border)' : 'none', borderRadius: 7, padding: '5px 11px',
+                fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}>{slackConfigured ? 'Manage' : 'Connect'}</button>
+            )}
+          </div>
+
           {/* Counts — wrapping stat chips */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {[
