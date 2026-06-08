@@ -25,7 +25,16 @@ export type ConfigObj = { [k: string]: ConfigValue };
  * lightweight callers (coach, generate-text) use it directly.
  */
 export function baseCodexConfig(): ConfigObj {
-  return { cli_auth_credentials_store: 'file' };
+  return {
+    cli_auth_credentials_store: 'file',
+    // Compact the conversation well before the real context ceiling. Codex's
+    // auto-compaction is unreliable on GPT-5.5 — the effective window is ~258K
+    // (272K × 95%) while the catalog can claim 400K/1M, so a long thread
+    // overflows BEFORE compaction triggers ("ran out of room in the model's
+    // context window"; see openai/codex#19409, #19842). 220K sits safely under
+    // every GPT-5.x window, so compaction fires in time on long Slack threads.
+    model_auto_compact_token_limit: 220_000,
+  };
 }
 
 // ── Client + model (the one place that knows how to build a Codex client) ─────

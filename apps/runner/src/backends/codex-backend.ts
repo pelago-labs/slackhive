@@ -354,9 +354,14 @@ export class CodexBackend implements AgentBackend {
         // turn.failed/error event (usage limit, auth, etc.). Prefer that real reason
         // so logs and Slack show why the turn failed — not just the exit code.
         const errMsg = /exited with (code|signal)/i.test(rawMsg) && turnError ? turnError : rawMsg;
-        // Stale thread → retry once as a fresh thread.
-        if (!retried && threadId && /thread|session|not found|no conversation/i.test(errMsg)) {
-          this.log.warn('Stale Codex thread, retrying as new', { sessionKey, staleThreadId: threadId });
+        // Stale thread, or a context overflow that auto-compaction failed to
+        // prevent ("ran out of room in the model's context window") → retry once
+        // on a fresh thread. For overflow this drops the bloated history so the
+        // agent answers the current message instead of getting permanently stuck.
+        const isStale = /thread|session|not found|no conversation/i.test(errMsg);
+        const isOverflow = /ran out of room|context window|context length|maximum context|too many tokens/i.test(errMsg);
+        if (!retried && threadId && (isStale || isOverflow)) {
+          this.log.warn(isOverflow ? 'Codex context overflow — resetting thread and retrying fresh' : 'Stale Codex thread, retrying as new', { sessionKey, staleThreadId: threadId });
           this.sessionCache.delete(sessionKey);
           threadId = undefined;
           retried = true;
