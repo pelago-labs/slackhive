@@ -376,6 +376,9 @@ export class CodexBackend implements AgentBackend {
           await deleteSession(this.agent.id, sessionKey).catch(() => {});
           threadId = undefined;
           retried = true;
+          // On a real overflow the user loses thread history — surface a notice.
+          // (Stale-thread resets are benign: the thread was already gone.)
+          if (isOverflow) yield { type: 'system', subtype: 'context_reset' } as BackendMessage;
           continue outer;
         }
         this.log.error('Codex query failed', { sessionKey, error: errMsg });

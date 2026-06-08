@@ -205,6 +205,13 @@ export class MessageHandler {
       for await (const message of this.backend.streamQuery(prompt, sessionKey, abortController)) {
         if (abortController.signal.aborted) break;
 
+        // Backend reset the conversation (e.g. Codex context overflow) — tell the
+        // user, since the agent has lost the earlier thread history.
+        if (message.type === 'system' && (message as any).subtype === 'context_reset') {
+          await this.adapter.postMessage(channelId, '_Note: I hit my context limit and had to reset this thread — earlier messages are no longer in my memory. Continuing from your latest message._', threadId).catch(() => {});
+          continue;
+        }
+
         if (message.type === 'assistant') {
           const content: any[] = (message as any).message?.content ?? [];
           const hasToolUse = content.some((b: any) => b.type === 'tool_use');
