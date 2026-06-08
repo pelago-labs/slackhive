@@ -205,7 +205,7 @@ export default function Dashboard() {
 
   return (
     <InProgressContext.Provider value={inProgressByAgent}>
-    <div style={{ padding: '32px 40px', maxWidth: 1440 }} className="fade-up responsive-pad">
+    <div style={{ padding: '40px 48px', maxWidth: 1440 }} className="fade-up responsive-pad">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
@@ -314,7 +314,7 @@ export default function Dashboard() {
           {bossCount > 0 && (
             <>
               <span style={{ color: 'var(--border-2)' }}>·</span>
-              <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} color="#d97706" />
+              <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} />
             </>
           )}
         </div>
@@ -472,7 +472,7 @@ function HierarchyView({ agents }: { agents: Agent[] }) {
       {standalone.length > 0 && (
         <div>
           <SectionLabel label="Independent" />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
             {standalone.map(a => <AgentCard key={a.id} agent={a} />)}
           </div>
         </div>
@@ -592,8 +592,8 @@ function GridView({ agents, label }: { agents: Agent[]; label?: string }) {
       )}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-        gap: 12,
+        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+        gap: 16,
       }} className="stagger agent-grid">
         {agents.map(agent => (
           <AgentCard key={agent.id} agent={agent} />
@@ -633,38 +633,26 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
       className="fade-up agent-card-v2"
       style={{
         display: 'block', textDecoration: 'none',
-        background: agent.isBoss
-          ? 'linear-gradient(135deg, var(--surface) 0%, rgba(217,119,6,0.04) 100%)'
-          : 'var(--surface)',
-        border: agent.isBoss
-          ? '1px solid rgba(217,119,6,0.22)'
-          : highlight ? '1.5px solid rgba(217,119,6,0.25)' : '1px solid var(--border)',
-        borderRadius: 14,
-        padding: compact ? '14px 14px 12px' : '14px 16px 12px',
-        boxShadow: agent.isBoss || highlight
-          ? '0 0 0 1px rgba(217,119,6,0.06), var(--shadow-sm)'
-          : 'var(--shadow-sm)',
-        transition: 'box-shadow 0.2s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1), border-color 0.2s',
+        background: 'var(--surface)',
+        border: `1px solid ${highlight ? 'var(--border-2)' : 'var(--border)'}`,
+        borderRadius: 12,
+        padding: compact ? '16px 16px 14px' : '18px',
+        boxShadow: 'var(--shadow-sm)',
+        transition: 'box-shadow 0.18s, transform 0.18s, border-color 0.18s',
         cursor: 'pointer',
         position: 'relative',
       }}
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = agent.isBoss || highlight
-          ? '0 0 0 1px rgba(217,119,6,0.18), var(--shadow-hover)'
-          : 'var(--shadow-hover)';
-        el.style.transform = 'translateY(-2px)';
-        el.style.borderColor = agent.isBoss || highlight ? 'rgba(217,119,6,0.35)' : 'var(--border-2)';
+        el.style.boxShadow = 'var(--shadow-md)';
+        el.style.transform = 'translateY(-1px)';
+        el.style.borderColor = 'var(--border-2)';
       }}
       onMouseLeave={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = agent.isBoss || highlight
-          ? '0 0 0 1px rgba(217,119,6,0.06), var(--shadow-sm)'
-          : 'var(--shadow-sm)';
+        el.style.boxShadow = 'var(--shadow-sm)';
         el.style.transform = 'translateY(0)';
-        el.style.borderColor = agent.isBoss
-          ? 'rgba(217,119,6,0.22)'
-          : highlight ? 'rgba(217,119,6,0.25)' : 'var(--border)';
+        el.style.borderColor = highlight ? 'var(--border-2)' : 'var(--border)';
       }}
     >
       {/* Avatar + name + status row */}
@@ -721,7 +709,8 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
             {agent.isBoss && (
               <span style={{
                 fontSize: 9, fontWeight: 700, letterSpacing: '0.05em',
-                background: 'rgba(217,119,6,0.12)', color: '#d97706',
+                background: 'var(--surface-2)', color: 'var(--muted)',
+                border: '1px solid var(--border)',
                 padding: '1px 5px', borderRadius: 3, textTransform: 'uppercase',
                 flexShrink: 0,
               }}>Boss</span>
@@ -729,7 +718,8 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
             {multiReport && (
               <span style={{
                 fontSize: 9, fontWeight: 600,
-                background: 'rgba(99,102,241,0.1)', color: '#6366f1',
+                background: 'var(--surface-2)', color: 'var(--subtle)',
+                border: '1px solid var(--border)',
                 padding: '1px 4px', borderRadius: 3,
                 flexShrink: 0,
               }}>×2</span>

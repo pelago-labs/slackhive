@@ -365,9 +365,9 @@ function NavItem({ href, icon, children, active, collapsed, onClick, badge }: {
 }) {
   const style: React.CSSProperties = {
     display: 'flex', alignItems: 'center',
-    gap: 9, padding: collapsed ? '8px 0' : '9px 12px',
+    gap: 10, padding: collapsed ? '8px 0' : '8px 10px',
     justifyContent: collapsed ? 'center' : 'flex-start',
-    borderRadius: 'var(--radius)', textDecoration: 'none', border: 'none',
+    borderRadius: 8, textDecoration: 'none', border: 'none',
     color: active ? 'var(--text)' : 'var(--muted)',
     background: active ? 'var(--surface-2)' : 'transparent',
     fontSize: 13, fontWeight: active ? 600 : 400,

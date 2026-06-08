@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -23,8 +21,8 @@
   --text-2:    #262626;
   --muted:     #737373;
   --subtle:    #a3a3a3;
-  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: var(--font-inter), 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-jb-mono), 'JetBrains Mono', ui-monospace, monospace;
   --shadow-sm:    0 1px 2px rgba(0,0,0,0.04);
   --shadow-md:    0 4px 12px rgba(0,0,0,0.06);
   --shadow-lg:    0 12px 40px rgba(0,0,0,0.08);
@@ -146,6 +144,15 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* ─── UI kit (components/ui.tsx) ─────────────────────────────────────────────── */
+.ui-card { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+.ui-card-hover { cursor: pointer; }
+.ui-card-hover:hover {
+  border-color: var(--border-2);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 /* ─── Entrance ───────────────────────────────────────────────────────────────── */

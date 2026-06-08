@@ -1,6 +1,13 @@
 import type { Metadata } from 'next';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { LayoutShell } from './layout-shell';
+
+// Self-hosted + preloaded fonts (no runtime Google-Fonts @import → no fallback
+// flash, identical rendering on every machine). Exposed as CSS variables that
+// globals.css's --font-sans / --font-mono reference.
+const inter = Inter({ subsets: ['latin'], display: 'swap', variable: '--font-inter' });
+const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], display: 'swap', variable: '--font-jb-mono' });
 
 export const metadata: Metadata = {
   title: 'SlackHive',
@@ -9,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: `
           (function(){var t=localStorage.getItem('slackhive-theme');
