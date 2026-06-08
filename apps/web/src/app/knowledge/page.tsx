@@ -199,12 +199,13 @@ export default function KnowledgePage() {
       setFolders(fs);
       if (initialFolderId) {
         const found = fs.find(f => f.id === initialFolderId);
-        if (found) {
-          openFolder(found);
-          const url = new URL(window.location.href);
-          url.searchParams.delete('folder');
-          window.history.replaceState({}, '', url.toString());
-        }
+        if (found) openFolder(found);
+        // Strip the param either way so a stale/invalid id doesn't linger in the
+        // URL (and a refresh doesn't keep re-triggering). If not found, the user
+        // simply lands on the folder grid.
+        const url = new URL(window.location.href);
+        url.searchParams.delete('folder');
+        window.history.replaceState({}, '', url.toString());
       }
       // Per-folder counts for the landing cards (one /sources fetch each).
       fs.forEach(f => {

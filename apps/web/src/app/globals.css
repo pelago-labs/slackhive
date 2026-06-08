@@ -149,9 +149,11 @@ body {
 /* ─── UI kit (components/ui.tsx) ─────────────────────────────────────────────── */
 .ui-card { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
 .ui-card-hover { cursor: pointer; }
+/* !important so the hover border/shadow win over the inline base border/boxShadow
+   that cards set (inline styles otherwise beat class :hover rules). */
 .ui-card-hover:hover {
-  border-color: var(--border-2);
-  box-shadow: var(--shadow-md);
+  border-color: var(--border-2) !important;
+  box-shadow: var(--shadow-md) !important;
   transform: translateY(-1px);
 }
 

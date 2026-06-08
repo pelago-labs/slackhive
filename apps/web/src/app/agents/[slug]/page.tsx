@@ -59,15 +59,15 @@ function fmtAgentDate(d: Date | string | undefined): string {
   return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** Single source of truth for the satisfaction-score → rating mapping (emoji,
- *  label, A–F grade, color). Used by the Overview report card + Settings panel. */
-function feedbackTier(score: number, has: boolean): { emoji: string; label: string; grade: string; color: string } {
-  if (!has)        return { emoji: '💬', label: 'No ratings yet', grade: '—', color: 'var(--muted)' };
-  if (score >= 90) return { emoji: '🌟', label: 'Excellent',      grade: 'A', color: '#16a34a' };
-  if (score >= 75) return { emoji: '😀', label: 'Very good',      grade: 'B', color: '#16a34a' };
-  if (score >= 60) return { emoji: '🙂', label: 'Good',           grade: 'C', color: '#d97706' };
-  if (score >= 40) return { emoji: '😐', label: 'OK',             grade: 'D', color: '#d97706' };
-  return                  { emoji: '😟', label: 'Needs work',     grade: 'F', color: '#dc2626' };
+/** Single source of truth for the satisfaction-score → rating mapping (label +
+ *  status color). Used by the Overview satisfaction card + Settings panel. */
+function feedbackTier(score: number, has: boolean): { label: string; color: string } {
+  if (!has)        return { label: 'No ratings yet', color: 'var(--muted)' };
+  if (score >= 90) return { label: 'Excellent',      color: '#16a34a' };
+  if (score >= 75) return { label: 'Very good',      color: '#16a34a' };
+  if (score >= 60) return { label: 'Good',           color: '#d97706' };
+  if (score >= 40) return { label: 'OK',             color: '#d97706' };
+  return                  { label: 'Needs work',     color: '#dc2626' };
 }
 
 /** Maps a Tier-1 healthcheck summary → a status label/color/icon for the
@@ -485,15 +485,10 @@ function MarkdownView({ children }: { children: string }) {
 }
 
 /** Card wrapper used across the Overview for a cohesive SaaS look. */
-function Card({ title, action, children, fill }: { title?: string; action?: React.ReactNode; children: React.ReactNode; fill?: boolean }) {
+function Card({ title, children, fill }: { title?: string; children: React.ReactNode; fill?: boolean }) {
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '20px 22px', ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : {}) }}>
-      {(title || action) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          {title && <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{title}</div>}
-          {action}
-        </div>
-      )}
+      {title && <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', marginBottom: 18 }}>{title}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, ...(fill ? { flex: 1 } : {}) }}>{children}</div>
     </div>
   );
