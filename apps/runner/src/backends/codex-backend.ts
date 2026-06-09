@@ -32,7 +32,7 @@ import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, splitCodexModel, type Cod
 import { getSession, upsertSession, deleteSession, cleanupStaleSessions, getSetting } from '../db';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
-import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject } from './codex-config';
+import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject, CODEX_CAPABILITY_NOTE } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -396,15 +396,16 @@ export class CodexBackend implements AgentBackend {
       networkAccess: true,
     });
     let input = toCodexInput(prompt, sessionWorkDir);
-    // Persona/identity rides in the prompt itself — Codex's base prompt outranks
-    // AGENTS.md and the SDK has no system/developer channel, so this is the one
-    // place the model reliably adopts the agent's voice. Prepend every turn.
-    const identity = buildIdentityInstructions(this.agent);
-    if (identity) {
+    // Persona/identity (and the capability note) ride in the prompt itself — Codex's
+    // base prompt outranks AGENTS.md and the SDK has no system/developer channel, so
+    // this is the one place the model reliably honors them. Prepend every turn. The
+    // capability note is always present (the persona may be empty).
+    const preamble = [CODEX_CAPABILITY_NOTE, buildIdentityInstructions(this.agent)].filter(Boolean).join('\n\n');
+    if (preamble) {
       if (typeof input === 'string') {
-        input = input ? `${identity}\n\n---\n\n${input}` : identity;
+        input = input ? `${preamble}\n\n---\n\n${input}` : preamble;
       } else {
-        input.unshift({ type: 'text', text: identity });
+        input.unshift({ type: 'text', text: preamble });
       }
     }
     const codex = await this.ensureCodex();

@@ -114,6 +114,17 @@ export function buildCodexConfig(
 }
 
 /**
+ * Always-on capability note prepended to every Codex turn. Codex exposes a built-in
+ * image-generation tool that has no config disable, but the SDK surfaces no image
+ * *output* item — so any image the model produces is silently dropped and never
+ * reaches Slack (the model then falsely claims it attached one). Tell the model up
+ * front it can't deliver images so it declines instead of wasting a (billable) call.
+ * Reading/describing images the user attaches is unaffected.
+ */
+export const CODEX_CAPABILITY_NOTE =
+  'Capability limit: you cannot produce images. Image generation/editing is unavailable here and any image you create will NOT reach the user. If asked to generate, edit, annotate, or highlight an image, say you are unable to and offer a text-based alternative. (You can still read and describe images the user attaches.)';
+
+/**
  * Build the identity/persona block prepended to each Codex turn's prompt so the
  * agent adopts its voice. Codex's base "you are a coding agent" prompt outranks
  * the AGENTS.md project doc, and the SDK exposes no system/developer channel —
