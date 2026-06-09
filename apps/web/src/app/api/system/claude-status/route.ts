@@ -1,54 +1,25 @@
 /**
- * @fileoverview GET /api/system/claude-status — check Claude Code auth status
+ * @fileoverview GET /api/system/claude-status — check Claude auth status.
  *
- * Cross-platform (macOS + Linux):
- *   1. Check ~/.claude/.credentials.json (primary)
- *   2. macOS only: check Keychain
- *   3. Fallback: ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env vars
+ * Settings-only (no host Keychain / `claude login`):
+ *   1. ~/.claude/.credentials.json (synced from Settings by the runner)
+ *   2. Fallback: ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env vars
  *
  * @module web/api/system/claude-status
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import { claudeAuthStateLive, readClaudeOAuth } from '@/lib/claude-auth';
 
 export const dynamic = 'force-dynamic';
 
 interface ClaudeStatus {
   status: 'connected' | 'disconnected' | 'expired';
-  source: 'file' | 'keychain' | 'env' | 'none';
+  source: string;
   expiresAt?: number;
   expiresIn?: string;
   error?: string;
-}
-
-function readCredentialsFile(): { accessToken?: string; expiresAt?: number } | null {
-  const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-  try {
-    if (!fs.existsSync(credPath)) return null;
-    const content = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
-    return content?.claudeAiOauth ?? null;
-  } catch { return null; }
-}
-
-function tryKeychainSync(): boolean {
-  if (process.platform !== 'darwin') return false;
-  try {
-    const creds = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
-      encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (creds) {
-      const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-      fs.mkdirSync(path.dirname(credPath), { recursive: true });
-      fs.writeFileSync(credPath, creds, { mode: 0o600 });
-      return true;
-    }
-  } catch { /* not found */ }
-  return false;
 }
 
 function formatExpiresIn(expiresAtMs: number): string {
@@ -65,46 +36,23 @@ function formatExpiresIn(expiresAtMs: number): string {
 export async function GET(req: NextRequest): Promise<NextResponse<ClaudeStatus>> {
   const denied = guardAdmin(req);
   if (denied) return denied as NextResponse<ClaudeStatus>;
-  // 1. Check credential file
-  let oauth = readCredentialsFile();
-  let source: ClaudeStatus['source'] = 'file';
+  // Self-heals (refresh) then confirms the token isn't revoked via a live check.
+  const st = await claudeAuthStateLive();
+  const o = readClaudeOAuth();
 
-  // 2. macOS: try Keychain sync if file is missing
-  if (!oauth && process.platform === 'darwin') {
-    if (tryKeychainSync()) {
-      oauth = readCredentialsFile();
-      if (oauth) source = 'keychain';
-    }
-  }
-
-  // 3. Env var fallback
-  if (!oauth?.accessToken) {
-    const envToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
-    if (envToken) {
-      return NextResponse.json({ status: 'connected', source: 'env' });
-    }
-    return NextResponse.json({ status: 'disconnected', source: 'none' });
-  }
-
-  // 4. Check expiry — if expired, try Keychain sync first (SDK may have refreshed there)
-  if (oauth.expiresAt && Date.now() > oauth.expiresAt) {
-    if (process.platform === 'darwin' && tryKeychainSync()) {
-      const refreshed = readCredentialsFile();
-      if (refreshed?.expiresAt && Date.now() < refreshed.expiresAt) {
-        return NextResponse.json({ status: 'connected', source: 'keychain', expiresAt: refreshed.expiresAt, expiresIn: formatExpiresIn(refreshed.expiresAt) });
-      }
-    }
+  if (st.status === 'expired') {
     return NextResponse.json({
       status: 'expired',
-      source,
-      expiresAt: oauth.expiresAt,
-      error: 'Token expired. Run `claude login` on the host machine.',
+      source: st.source,
+      ...(o?.expiresAt && { expiresAt: o.expiresAt, expiresIn: 'expired' }),
+      error: 'Claude session expired — run `claude login` on this machine, or paste fresh credentials.',
     });
   }
+  if (st.status === 'none') return NextResponse.json({ status: 'disconnected', source: 'none' });
 
   return NextResponse.json({
     status: 'connected',
-    source,
-    ...(oauth.expiresAt && { expiresAt: oauth.expiresAt, expiresIn: formatExpiresIn(oauth.expiresAt) }),
+    source: st.source,
+    ...(o?.expiresAt && { expiresAt: o.expiresAt, expiresIn: formatExpiresIn(o.expiresAt) }),
   });
 }

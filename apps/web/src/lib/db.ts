@@ -439,6 +439,20 @@ export async function fetchSlackBotProfile(botToken: string): Promise<{
   }
 }
 
+/**
+ * Disconnect an agent from Slack: removes its platform_integrations row, wiping
+ * the bot token, app token, signing secret, and resolved bot identity. The agent
+ * then has no Slack credentials at all (the runner will stop it on reload).
+ *
+ * @param {string} id - Agent UUID.
+ */
+export async function deleteSlackIntegration(id: string): Promise<void> {
+  await (await db()).query(
+    `DELETE FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
+    [id]
+  );
+}
+
 export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<Agent | null> {
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -499,7 +513,10 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
     `UPDATE agents SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
     values
   );
-  return r.rows.length ? rowToAgent(r.rows[0]) : null;
+  // Hydrate platform (Slack) credentials like getAgentById — otherwise callers
+  // (e.g. the agent page) overwrite their state with an agent missing slack*
+  // fields, falsely showing "Slack not configured" after an unrelated edit.
+  return enrichAgentWithPlatform(r.rows.length ? rowToAgent(r.rows[0]) : null);
 }
 
 /**

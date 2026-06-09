@@ -10,7 +10,7 @@
  * @module runner/message-handler
  */
 
-import type { PlatformAdapter, IncomingMessage, FileAttachment } from '@slackhive/shared';
+import type { PlatformAdapter, IncomingMessage, FileAttachment, MessagePayload } from '@slackhive/shared';
 import { extractSlackPermalinkUrls } from './adapters/slack-adapter';
 import type { Agent, Restriction, Platform } from '@slackhive/shared';
 import {
@@ -41,11 +41,11 @@ async function isOpenToWorkspace(): Promise<boolean> {
   }
 }
 export function _resetOpenToWorkspaceCache() { _openToWorkspaceCache = null; }
-import type { ClaudeHandler } from './claude-handler';
+import type { AgentBackend } from '@slackhive/shared';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
 import { isShuttingDown } from './shutdown-signal';
-import { VERBOSE_NARRATION_DIRECTIVE } from './compile-claude-md';
+import { VERBOSE_NARRATION_DIRECTIVE } from './compile-instructions';
 import { getKnownAgentsByBotId } from './agent-registry';
 import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import type { Logger } from 'winston';
@@ -83,7 +83,7 @@ export class MessageHandler {
 
   constructor(
     private adapter: PlatformAdapter,
-    private claudeHandler: ClaudeHandler,
+    private backend: AgentBackend,
     private agent: Agent,
     private restrictions: Restriction | null,
   ) {
@@ -167,8 +167,13 @@ export class MessageHandler {
       return;
     }
 
-    const sessionKey = this.claudeHandler.getSessionKey(userId, channelId, threadId);
-    this.log.info('Processing message', { userId, channelId, threadId, sessionKey, textLength: text.length });
+    const sessionKey = this.backend.getSessionKey(userId, channelId, threadId);
+    this.log.info('Processing message', {
+      userId, channelId, threadId, sessionKey,
+      textLength: text.length,
+      preview: text.slice(0, 160).replace(/\s+/g, ' ').trim(),
+      files: files?.length || undefined,
+    });
 
     // Abort any in-flight request for this session
     this.activeControllers.get(sessionKey)?.abort();
@@ -190,13 +195,22 @@ export class MessageHandler {
     const recorder = await this.openActivity(msg, text);
     const toolUseIdToDbId = new Map<string, string>();
 
-    let sentMessages: string[] = [];
+    const sentMessages: string[] = [];
     let lastAssistantText: string | null = null;
     let lastToolResultText: string | null = null;
+    // The last reply we posted (id + payload) — feedback controls attach to it.
+    let lastReply: { ts: string; payload: MessagePayload } | undefined;
 
     try {
-      for await (const message of this.claudeHandler.streamQuery(prompt, sessionKey, abortController)) {
+      for await (const message of this.backend.streamQuery(prompt, sessionKey, abortController)) {
         if (abortController.signal.aborted) break;
+
+        // Backend reset the conversation (e.g. Codex context overflow) — tell the
+        // user, since the agent has lost the earlier thread history.
+        if (message.type === 'system' && (message as any).subtype === 'context_reset') {
+          await this.adapter.postMessage(channelId, '_Note: I hit my context limit and had to reset this thread — earlier messages are no longer in my memory. Continuing from your latest message._', threadId).catch(() => {});
+          continue;
+        }
 
         if (message.type === 'assistant') {
           const content: any[] = (message as any).message?.content ?? [];
@@ -251,8 +265,10 @@ export class MessageHandler {
                 safeText,
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
-                if (safeText) sentMessages.push(safeText);
-                await this.postFormattedMessage(channelId, threadId, verbosePost);
+                const posted = await this.postFormattedMessage(channelId, threadId, verbosePost);
+                // Only a post with real answer text counts as the final reply —
+                // a trailing thinking-only chunk must not steal the feedback buttons.
+                if (safeText) { sentMessages.push(safeText); lastReply = posted; }
               }
             }
           } else if (textContent || thinkingContent) {
@@ -263,8 +279,8 @@ export class MessageHandler {
                 textContent,
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
-                if (textContent) sentMessages.push(textContent);
-                await this.postFormattedMessage(channelId, threadId, verbosePost);
+                const posted = await this.postFormattedMessage(channelId, threadId, verbosePost);
+                if (textContent) { sentMessages.push(textContent); lastReply = posted; }
               }
             }
             // non-verbose: lastAssistantText already updated above; fallback posts it at end
@@ -299,11 +315,15 @@ export class MessageHandler {
             }
           }
         } else if (message.type === 'result') {
+          const resultUsage = (message as any).usage;
+          const resultText = (message as any).result;
           this.log.info('Query completed', {
-            cost: (message as any).total_cost_usd,
-            duration_ms: (message as any).duration_ms,
             status: (message as any).subtype,
+            duration_ms: (message as any).duration_ms,
             num_turns: (message as any).num_turns,
+            ...(resultUsage && { tokensIn: resultUsage.input_tokens, tokensOut: resultUsage.output_tokens }),
+            ...((message as any).total_cost_usd ? { cost: (message as any).total_cost_usd } : {}),
+            ...(typeof resultText === 'string' && resultText.trim() && { reply: resultText.slice(0, 200).replace(/\s+/g, ' ').trim() }),
           });
 
           if (recorder) {
@@ -319,9 +339,17 @@ export class MessageHandler {
 
           if ((message as any).subtype === 'success') {
             const finalResult = (message as any).result as string | undefined;
-            if (finalResult && !sentMessages.includes(finalResult)) {
+            // In verbose mode every assistant text block was already streamed as
+            // it arrived. The result's `.result` is their concatenation (on Codex,
+            // many `agent_message` items joined with blank lines), which won't
+            // exact-match any single streamed post — so posting it here reprints
+            // the entire turn. Skip it when we've already streamed text; still
+            // post when nothing was streamed (non-verbose, or a verbose turn that
+            // only produced the answer via the result).
+            const alreadyStreamed = this.agent.verbose && sentMessages.length > 0;
+            if (finalResult && !alreadyStreamed && !sentMessages.includes(finalResult)) {
               sentMessages.push(finalResult);
-              await this.postFormattedMessage(channelId, threadId, finalResult);
+              lastReply = await this.postFormattedMessage(channelId, threadId, finalResult);
             }
           }
         }
@@ -341,13 +369,28 @@ export class MessageHandler {
 
       // Fallback if no messages were sent
       if (sentMessages.length === 0) {
-        const fallback = lastAssistantText ?? lastToolResultText ?? '_No response generated._';
+        const real = lastAssistantText ?? lastToolResultText;
+        const fallback = real ?? '_No response generated._';
         this.log.info('No messages sent, using fallback');
-        await this.postFormattedMessage(channelId, threadId, fallback);
+        lastReply = await this.postFormattedMessage(channelId, threadId, fallback);
+        // A real fallback answer still deserves feedback controls; the empty
+        // placeholder does not. Record it so the gate below fires for the former.
+        if (real) sentMessages.push(real);
       }
 
       if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':white_check_mark:').catch(() => {});
       await this.swapReaction(channelId, messageId, sessionKey, 'white_check_mark');
+
+      // Attach native 👍/👎 feedback controls to the final reply itself (no
+      // separate message) — Slack-only (optional adapter method; absent on the
+      // test adapter). Only when a real answer was posted, and only for HUMAN-
+      // initiated turns: skip bot/agent traffic (boss↔specialist delegation) so
+      // internal chatter isn't rated — the human rates only the agent they messaged.
+      if (sentMessages.length > 0 && lastReply && !hasBotMarker) {
+        await this.adapter.attachFeedbackControls?.(channelId, lastReply.ts, lastReply.payload, threadId, {
+          activityId: recorder?.activityId ?? null,
+        }).catch(() => {});
+      }
 
       if (recorder) await this.closeActivity(recorder.activityId, 'done');
 
@@ -443,12 +486,20 @@ export class MessageHandler {
 
   // ─── Private helpers ───────────────────────────────────────────────
 
-  /** Post a message formatted for the platform (with rich blocks if supported). */
-  private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<void> {
+  /**
+   * Post a message formatted for the platform (split into payloads if needed).
+   * Returns the LAST posted message's id + the payload it was posted with, so the
+   * caller can attach feedback controls to that final reply.
+   */
+  private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<{ ts: string; payload: MessagePayload }> {
     const payloads = this.adapter.buildPayloads(text);
+    let last: { ts: string; payload: MessagePayload } | undefined;
     for (const payload of payloads) {
-      await this.adapter.postPayload(channelId, payload, threadId);
+      const ts = await this.adapter.postPayload(channelId, payload, threadId);
+      last = { ts, payload };
     }
+    // buildPayloads always yields ≥1 payload; the fallback keeps the return honest.
+    return last ?? { ts: '', payload: { text } };
   }
 
   /** Swap reaction — remove old, add new. */

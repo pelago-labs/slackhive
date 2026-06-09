@@ -10,6 +10,20 @@ export type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment,
   MessagePayload, PlatformCredentials, SlackCredentials,
 } from './platform';
+export type {
+  AgentBackend, BackendMessage, BackendUsage, AssistantBlock, UserBlock, AgentPrompt,
+} from './agent-backend';
+export {
+  AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND,
+  CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, CODEX_MODELS,
+  CODEX_REASONING_EFFORTS, splitCodexModel,
+  CODEX_AUTH_MODE_SETTING_KEY, CLAUDE_AUTH_MODE_SETTING_KEY,
+  BACKEND_DESCRIPTORS, getBackendDescriptor,
+} from './backends';
+export type {
+  BackendId, BackendAuthMode, BackendAuthField, BackendAuthOption, BackendDescriptor,
+  CodexReasoningEffort,
+} from './backends';
 export { initDb, getDb, closeDb, setDb } from './db/adapter';
 export type { DbAdapter, DbResult, DbRow } from './db/adapter';
 export { createSqliteAdapter } from './db/sqlite-adapter';
@@ -27,11 +41,13 @@ export {
   listTasks, getTaskWithDetails, countInProgressByAgent,
   sweepStaleActivities,
   recordActivityUsage, getTokensByAgent, getTopUsers,
+  recordMessageFeedback, getFeedbackReport,
 } from './db/activities-repo';
 export type {
   BeginActivityInput, BeginToolCallInput, TaskListColumn, TaskListResult,
   TaskWithDetails,
   ActivityUsageInput, AgentTokenUsage, UserActivitySummary,
+  MessageFeedbackInput, AgentFeedbackReport, FeedbackRating,
 } from './db/activities-repo';
 export {
   MODELS,
@@ -42,3 +58,5 @@ export {
   EVAL_JUDGE_MODEL_SETTING_KEY,
 } from './models';
 export type { ModelOption } from './models';
+export { isFetchableUrl } from './wiki-source-url';
+export { agentIdentityBody } from './agent-identity';

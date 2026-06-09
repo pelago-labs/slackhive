@@ -10,12 +10,14 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown, ShieldCheck, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot } from '@slackhive/shared';
-import { PERSONA_CATALOG, searchPersonas, MODELS } from '@slackhive/shared';
+import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot, AgentFeedbackReport, FeedbackRating } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared';
 import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import { FilesChanged, type FileChange } from './diff-view';
@@ -24,7 +26,8 @@ import { TestPanel } from './test-panel';
 import { EvalsPanel } from './evals-panel';
 import { AudiencesPanel } from './audiences-panel';
 
-type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'logs' | 'history' | 'evals';
+type Tab = 'overview' | 'instructions' | 'tools' | 'knowledge' | 'audiences' | 'settings';
+type SettingsSection = 'general' | 'slack' | 'evals' | 'feedback' | 'logs' | 'history' | 'danger';
 
 interface AgentExportPayload {
   version: number;
@@ -32,19 +35,59 @@ interface AgentExportPayload {
   name?: string;
   persona?: string;
   description?: string;
-  claudeMd: string;
-  skills: { category: string; filename: string; content: string; sortOrder: number }[];
+  claudeMd?: string;
+  skills?: { category: string; filename: string; content: string; sortOrder: number }[];
+  memories?: { type: string; name: string; content: string }[];
 }
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview',      label: 'Overview'      },
-  { id: 'instructions',  label: 'Instructions'  },
-  { id: 'tools',         label: 'Tools'         },
-  { id: 'knowledge',     label: 'Wiki'          },
-  { id: 'audiences',     label: 'Audiences'     },
-  { id: 'logs',          label: 'Logs'          },
-  { id: 'history',       label: 'History'       },
-  { id: 'evals',         label: 'Evals'         },
+/**
+ * A meaningful (non-empty, trimmed string) identity value, else undefined.
+ * Guards persona/description import-export: never export blank values and never
+ * apply a non-string or empty value that would silently overwrite a real one.
+ */
+function meaningfulStr(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+}
+
+/** Format a date for agent panels. Accepts a Date, an ISO string, or SQLite's
+ *  `YYYY-MM-DD HH:MM:SS` (UTC, no tz) — normalizing the latter so it isn't parsed
+ *  as local time. Single helper so the Overview + Feedback panels agree. */
+function fmtAgentDate(d: Date | string | undefined): string {
+  if (!d) return '—';
+  const iso = typeof d === 'string' && d.includes(' ') && !d.includes('T') ? `${d.replace(' ', 'T')}Z` : d;
+  const dt = new Date(iso);
+  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** Single source of truth for the satisfaction-score → rating mapping (label +
+ *  status color). Used by the Overview satisfaction card + Settings panel. */
+function feedbackTier(score: number, has: boolean): { label: string; color: string } {
+  if (!has)        return { label: 'No ratings yet', color: 'var(--muted)' };
+  if (score >= 90) return { label: 'Excellent',      color: '#16a34a' };
+  if (score >= 75) return { label: 'Very good',      color: '#16a34a' };
+  if (score >= 60) return { label: 'Good',           color: '#d97706' };
+  if (score >= 40) return { label: 'OK',             color: '#d97706' };
+  return                  { label: 'Needs work',     color: '#dc2626' };
+}
+
+/** Maps a Tier-1 healthcheck summary → a status label/color/icon for the
+ *  Overview Evals card. Restrained palette (status colors only). */
+function evalTier(summary: { total: number; errors: number; warnings: number } | null): {
+  label: string; color: string; Icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+} {
+  if (!summary)            return { label: 'Not run yet', color: 'var(--muted)', Icon: ShieldCheck };
+  if (summary.errors > 0)  return { label: `${summary.errors} issue${summary.errors !== 1 ? 's' : ''}`, color: '#dc2626', Icon: AlertTriangle };
+  if (summary.warnings > 0) return { label: `${summary.warnings} warning${summary.warnings !== 1 ? 's' : ''}`, color: '#d97706', Icon: AlertTriangle };
+  return                   { label: 'Healthy', color: '#16a34a', Icon: ShieldCheck };
+}
+
+const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
+  { id: 'overview',      label: 'Overview',     Icon: Home },
+  { id: 'instructions',  label: 'Instructions', Icon: FileText },
+  { id: 'tools',         label: 'Tools',        Icon: Wrench },
+  { id: 'knowledge',     label: 'Wiki',         Icon: BookOpen },
+  { id: 'audiences',     label: 'Audiences',    Icon: Users },
+  { id: 'settings',      label: 'Settings',     Icon: SettingsIcon },
 ];
 
 const STATUS_COLOR = {
@@ -85,6 +128,9 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   // see their new agent before we shove a chat in their face.
   // useSearchParams is hydration-safe (returns the same value on server + client).
   const coachArmedFromWizard = useSearchParams().get('coach') === 'open';
+  // Arriving from the new-agent wizard (?setup=slack) opens Settings → Slack
+  // directly, since connecting Slack is the next step that makes the agent live.
+  const setupSlackFromWizard = useSearchParams().get('setup') === 'slack';
   const router = useRouter();
   const [coachOpen, setCoachOpen] = useState(false);
   const [pendingCoachOpen, setPendingCoachOpen] = useState(coachArmedFromWizard);
@@ -97,7 +143,8 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const [avatarImgFailed, setAvatarImgFailed] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
   const [viewOnly, setViewOnly] = useState(false);
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>(setupSlackFromWizard ? 'settings' : 'overview');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(setupSlackFromWizard ? 'slack' : 'general');
   /** Full-main-window mode swap. `test` replaces the agent header + tabs +
    *  tab content with <TestPanel>. The global SlackHive sidebar (rendered by
    *  layout-shell.tsx) remains visible — clicking it navigates away and
@@ -107,11 +154,12 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   // Strip ?coach=open from the URL after the first render so refreshing
   // the page doesn't keep rearming the auto-open.
   useEffect(() => {
-    if (!coachArmedFromWizard) return;
+    if (!coachArmedFromWizard && !setupSlackFromWizard) return;
     const url = new URL(window.location.href);
     url.searchParams.delete('coach');
+    url.searchParams.delete('setup');
     window.history.replaceState({}, '', url.toString());
-  }, [coachArmedFromWizard]);
+  }, [coachArmedFromWizard, setupSlackFromWizard]);
 
   // When the user navigates to Instructions and Coach is armed, pop it open
   // once, then disarm so subsequent Instructions visits stay quiet.
@@ -155,7 +203,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               setCanEdit(writable);
               const readOnly = !writable;
               setViewOnly(readOnly);
-              if (readOnly) setTab(t => (t === 'logs' || t === 'history') ? 'overview' : t);
               if (writable) {
                 // Editors with write access can also see tokens — update in background
                 fetch(`/api/agents/${found.id}`)
@@ -235,19 +282,19 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
               const showSlackImage = !!agent.slackBotImageUrl && !avatarImgFailed;
               return (
                 <div style={{
-                  width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                  width: 44, height: 44, borderRadius: 12, flexShrink: 0,
                   background: showSlackImage ? 'var(--surface-2)' : palette.bg,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 14, fontWeight: 700, color: palette.fg,
-                  overflow: 'hidden',
+                  fontSize: 17, fontWeight: 700, color: palette.fg,
+                  overflow: 'hidden', border: '1px solid var(--border)',
                 }}>
                   {showSlackImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={agent.slackBotImageUrl}
                       alt={agent.name}
-                      width={36}
-                      height={36}
+                      width={44}
+                      height={44}
                       onError={() => setAvatarImgFailed(true)}
                       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     />
@@ -271,15 +318,20 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
                     textTransform: 'uppercase',
                   }}>Boss</span>
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }} title={staleTooltip}>
-                  <div
+                <span title={staleTooltip} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '3px 10px', borderRadius: 999,
+                  fontSize: 11.5, fontWeight: 600, textTransform: 'capitalize',
+                  background: `color-mix(in srgb, ${statusColor} 12%, transparent)`,
+                  color: statusColor,
+                  border: `1px solid color-mix(in srgb, ${statusColor} 28%, transparent)`,
+                }}>
+                  <span
                     className={displayStatus === 'running' ? 'status-running' : ''}
-                    style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }}
+                    style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }}
                   />
-                  <span style={{ fontSize: 12, color: statusColor, fontWeight: 500, textTransform: 'capitalize' }}>
-                    {displayStatus}
-                  </span>
-                </div>
+                  {displayStatus}
+                </span>
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
                 {agent.slackBotHandle ? `@${agent.slackBotHandle} · ` : ''}{agent.model.replace('claude-', '').split('-20')[0]}
@@ -304,104 +356,80 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16 }}>
           {actionMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{actionMsg}</span>}
 
-          {!viewOnly && <button
-            onClick={() => setMode('test')}
-            title="Test this agent — chat with it without connecting to Slack"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px',
-              background: 'rgba(99, 102, 241, 0.1)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              color: 'var(--accent)',
-              borderRadius: 6,
-              fontSize: 12.5,
-              fontWeight: 500,
-              cursor: 'pointer',
-              letterSpacing: 0.2,
-            }}
-          >
-            <MessageSquare size={13} />
-            Test
-          </button>}
+          {!viewOnly && <HeaderBtn icon={<MessageSquare size={14} />} label="Test" onClick={() => setMode('test')}
+            title="Test this agent — chat with it without connecting to Slack" />}
 
-          <Link
-            href={`/activity?agent=${encodeURIComponent(agent.id)}`}
-            title={`View activity for ${agent.name}`}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px',
-              background: 'var(--surface-2)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              borderRadius: 6,
-              fontSize: 12.5,
-              fontWeight: 500,
-              cursor: 'pointer',
-              letterSpacing: 0.2,
-              textDecoration: 'none',
-            }}
-          >
-            <ActivityIcon size={13} />
-            Activity
-          </Link>
-
-          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
-
+          {canEdit && agent.status === 'running' && (
+            <>
+              <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+              <HeaderBtn icon={<RotateCcw size={14} />} label="Reload" onClick={() => triggerAction('reload')} />
+              <HeaderBtn icon={<Square size={13} />} label="Stop" tone="danger" onClick={() => triggerAction('stop')} />
+            </>
+          )}
           {canEdit && agent.status !== 'running' && (
-            <Btn color="#22c55e" onClick={() => triggerAction('start')}>Start</Btn>
-          )}
-          {canEdit && agent.status === 'running' && (
-            <Btn color="var(--border-2)" textColor="var(--muted)" onClick={() => triggerAction('reload')}>Reload</Btn>
-          )}
-          {canEdit && agent.status === 'running' && (
-            <Btn color="#ef4444" onClick={() => triggerAction('stop')}>Stop</Btn>
+            <>
+              <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+              <HeaderBtn icon={<ActivityIcon size={14} />} label="Start" tone="success" onClick={() => triggerAction('start')} />
+            </>
           )}
         </div>
       </div>
 
       {/* ── Tab bar ──────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex', gap: 0, padding: '0 36px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '0 40px',
+        minHeight: 48,
         borderBottom: '1px solid var(--border)',
         background: 'var(--surface)',
         overflowX: 'auto', WebkitOverflowScrolling: 'touch',
       }}>
-        {TABS.filter(t => !viewOnly || (t.id !== 'logs' && t.id !== 'history')).map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={tab === t.id ? 'tab-active' : ''}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: '10px 14px', fontSize: 13,
-              color: tab === t.id ? 'var(--text)' : 'var(--muted)',
-              fontWeight: tab === t.id ? 500 : 400,
-              transition: 'color 0.15s',
-              fontFamily: 'var(--font-sans)',
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
+        <div style={{ display: 'flex' }}>
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={tab === t.id ? 'tab-active' : ''}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                background: 'none', border: 'none', cursor: 'pointer',
+                padding: '12px 16px', fontSize: 13,
+                color: tab === t.id ? 'var(--text)' : 'var(--muted)',
+                fontWeight: tab === t.id ? 500 : 400,
+                transition: 'color 0.15s',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >
+              <t.Icon size={14} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Instructions actions — only on the Instructions tab */}
+        {tab === 'instructions' && canEdit && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <ActionBtn icon={<Download size={13} />} label="Export" onClick={() => window.dispatchEvent(new Event('instr:export'))} subtle />
+            <ActionBtn icon={<Upload size={13} />} label="Import" onClick={() => window.dispatchEvent(new Event('instr:import'))} subtle />
+            {!agent.isBoss && (
+              <>
+                <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+                <ActionBtn icon={<Wand2 size={13} />} label="Coach" onClick={() => setCoachOpen(true)} primary />
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
-      <div style={{ padding: '28px 36px' }}>
-        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} role={role} username={username} onOpenCoach={() => setCoachOpen(true)} />}
+      <div style={{ padding: '28px 40px' }}>
+        {tab === 'overview'      && <OverviewTab      agent={agent} onUpdate={setAgent} canEdit={canEdit} allAgents={allAgents} onConnectSlack={() => { setSettingsSection('slack'); setTab('settings'); }} onViewFeedback={() => { setSettingsSection('feedback'); setTab('settings'); }} onViewEvals={() => { setSettingsSection('evals'); setTab('settings'); }} />}
         {tab === 'instructions'  && <InstructionsTab  agent={agent} canEdit={canEdit} onAgentUpdate={setAgent} onOpenCoach={() => setCoachOpen(true)} />}
         {tab === 'tools'         && <ToolsTab          agentId={agent.id} canEdit={canEdit} canManageMcps={canManageUsers} currentUsername={username} />}
         {tab === 'knowledge'     && <KnowledgeTab      agentId={agent.id} agentSlug={agent.slug} canEdit={canEdit} />}
         {tab === 'audiences'     && <AudiencesPanel    agentId={agent.id} canEdit={canEdit} />}
-        {/* Memory is now inside Instructions tab */}
-        {tab === 'logs'        && <LogsTab        agentId={agent.id} slug={agent.slug} />}
-        {tab === 'history'     && <HistoryTab     agentId={agent.id} canEdit={canEdit} />}
-        {tab === 'evals'       && <EvalsPanel     agent={agent}
-          onAskCoach={(message) => {
-            setCoachSeed({ token: crypto.randomUUID(), message });
-            setCoachOpen(true);
-          }}
-          onOpenCoach={() => setCoachOpen(true)}
-        />}
+        {tab === 'settings'      && <AgentSettingsTab  agent={agent} onUpdate={setAgent} canEdit={canEdit} viewOnly={viewOnly} allAgents={allAgents} role={role} username={username} section={settingsSection} onSection={setSettingsSection}
+          onAskCoach={(message) => { setCoachSeed({ token: crypto.randomUUID(), message }); setCoachOpen(true); }}
+          onOpenCoach={() => setCoachOpen(true)} />}
       </div>
 
       {/* Coach is a slide-over — rendered once at page level so it floats over
@@ -420,43 +448,500 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; role: string | null; username: string; onOpenCoach?: () => void }) {
+/** Compact metric tile (icon + value + label) for the Details card grid. */
+/** Uppercase group label for the Details side panel. */
+function MetaGroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase', margin: '4px 0 2px' }}>{children}</div>
+  );
+}
+
+/** Rendered-markdown view (GFM) for read-friendly previews of prompts/skills. */
+const MD_VIEW: Record<string, (p: any) => React.ReactElement> = {
+  h1: (p) => <h1 style={{ fontSize: 14, fontWeight: 700, margin: '15px 0 6px', color: 'var(--text)' }} {...p} />,
+  h2: (p) => <h2 style={{ fontSize: 12.5, fontWeight: 700, margin: '13px 0 5px', color: 'var(--text)' }} {...p} />,
+  h3: (p) => <h3 style={{ fontSize: 11.5, fontWeight: 600, margin: '11px 0 5px', color: 'var(--text)' }} {...p} />,
+  p:  (p) => <p style={{ margin: '0 0 9px', lineHeight: 1.6, color: 'var(--text-2)' }} {...p} />,
+  ul: (p) => <ul style={{ margin: '0 0 10px', paddingLeft: 20, lineHeight: 1.6 }} {...p} />,
+  ol: (p) => <ol style={{ margin: '0 0 10px', paddingLeft: 20, lineHeight: 1.6 }} {...p} />,
+  li: (p) => <li style={{ margin: '2px 0', color: 'var(--text-2)' }} {...p} />,
+  a:  (p) => <a style={{ color: 'var(--blue)', textDecoration: 'underline' }} target="_blank" rel="noreferrer" {...p} />,
+  code: ({ inline, children, ...rest }: any) => inline
+    ? <code style={{ fontFamily: 'var(--font-mono)', fontSize: 12, background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 4 }} {...rest}>{children}</code>
+    : <code style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} {...rest}>{children}</code>,
+  pre: (p) => <pre style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', overflow: 'auto', fontSize: 12, lineHeight: 1.6, margin: '0 0 12px' }} {...p} />,
+  blockquote: (p) => <blockquote style={{ borderLeft: '3px solid var(--border-2)', margin: '0 0 10px', padding: '2px 0 2px 14px', color: 'var(--muted)' }} {...p} />,
+  table: (p) => <table style={{ borderCollapse: 'collapse', width: '100%', margin: '0 0 12px', fontSize: 12.5 }} {...p} />,
+  th: (p) => <th style={{ border: '1px solid var(--border)', padding: '6px 10px', textAlign: 'left', background: 'var(--surface-2)' }} {...p} />,
+  td: (p) => <td style={{ border: '1px solid var(--border)', padding: '6px 10px' }} {...p} />,
+  hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '14px 0' }} />,
+};
+function MarkdownView({ children }: { children: string }) {
+  return (
+    <div style={{ fontSize: 11.5, color: 'var(--text)', wordBreak: 'break-word' }}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_VIEW as never}>{children || '_Nothing here yet._'}</ReactMarkdown>
+    </div>
+  );
+}
+
+/** Card wrapper used across the Overview for a cohesive SaaS look. */
+function Card({ title, children, fill }: { title?: string; children: React.ReactNode; fill?: boolean }) {
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '20px 22px', ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : {}) }}>
+      {title && <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', marginBottom: 18 }}>{title}</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, ...(fill ? { flex: 1 } : {}) }}>{children}</div>
+    </div>
+  );
+}
+
+/** A labeled metadata row for the Overview side panel. */
+function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label: string; children: React.ReactNode; mono?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+      <span style={{ color: 'var(--subtle)', display: 'flex', flexShrink: 0 }}>{icon}</span>
+      <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{label}</span>
+      <span style={{
+        fontSize: 12.5, color: 'var(--text)', fontWeight: 500, marginLeft: 'auto',
+        fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
+        minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 170, textAlign: 'right',
+      }}>{children}</span>
+    </div>
+  );
+}
+
+/**
+ * Overview — slimmed to the agent's identity + an at-a-glance summary. Operational
+ * config (Slack, verbose, hierarchy), logs, history and delete live under the
+ * Settings tab. Identity edits PATCH only their own fields (updateAgent merges).
+ */
+function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onViewFeedback, onViewEvals }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[]; onConnectSlack: () => void; onViewFeedback: () => void; onViewEvals: () => void }) {
   const [form, setForm] = useState({
-    name:               agent.name,
-    description:        agent.description ?? '',
-    persona:            agent.persona ?? '',
-    model:              agent.model,
-    slackBotToken:      agent.slackBotToken,
-    slackAppToken:      agent.slackAppToken,
-    slackSigningSecret: agent.slackSigningSecret,
-    isBoss:             agent.isBoss,
-    verbose:            agent.verbose ?? true,
-    reportsTo:          agent.reportsTo ?? [] as string[],
-    tags:               agent.tags ?? [] as string[],
+    name:        agent.name,
+    description: agent.description ?? '',
+    persona:     agent.persona ?? '',
+    model:       agent.model,
+    tags:        agent.tags ?? [] as string[],
   });
-  const [saving, setSaving]             = useState(false);
-  const [msg, setMsg]                   = useState('');
-  const [manifest, setManifest]         = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  // Start empty (not a Claude-model placeholder): the reset effect below snaps
+  // form.model to options[0] whenever the saved value isn't in the list. If we
+  // seed with the wrong-backend list, it clobbers the agent's real model (e.g.
+  // gpt-5.5:high → "Balanced") before the correct list loads — and would persist
+  // that downgrade on the next Save. The `!modelOptions.length` guard defers the
+  // reset until the fetched, backend-correct list arrives.
+  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([]);
+  const [counts, setCounts] = useState<{ skills: number; memories: number; tools: number; wiki: number; audiences: number } | null>(null);
+  const [usage, setUsage] = useState<{ queries30d: number; inputTokens: number; outputTokens: number; totalTokens: number; powerUser7d: { handle: string; taskCount: number } | null } | null>(null);
+  const [feedback, setFeedback] = useState<AgentFeedbackReport | null>(null);
+  const [evalHealth, setEvalHealth] = useState<{ total: number; errors: number; warnings: number } | null>(null);
+  const [evalRun, setEvalRun] = useState<{ passCount: number; failCount: number; suspectCount: number; infraCount: number; status: string } | null>(null);
+  const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
+  // Socket Mode (how the runner connects) needs the bot token AND the app-level
+  // token; the signing secret is only for the HTTP Events API and is unused here.
+  const slackConfigured = !!(agent.slackBotToken && agent.slackAppToken);
+
+  useEffect(() => {
+    fetch('/api/system/models').then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.models?.length) setModelOptions(d.models); }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!modelOptions.length) return;
+    setForm(f => modelOptions.some(m => m.value === f.model) ? f : { ...f, model: modelOptions[0].value });
+  }, [modelOptions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const len = (x: any, key: string) => Array.isArray(x) ? x.length : (Array.isArray(x?.[key]) ? x[key].length : 0);
+    Promise.all([
+      fetch(`/api/agents/${agent.id}/skills`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`/api/agents/${agent.id}/memories`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`/api/agents/${agent.id}/mcps`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`/api/agents/${agent.id}/wiki-folders`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`/api/agents/${agent.id}/groups`).then(r => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([s, m, t, w, g]) => {
+      if (!cancelled) setCounts({ skills: len(s, 'skills'), memories: len(m, 'memories'), tools: len(t, 'mcps'), wiki: len(w, 'folders'), audiences: len(g, 'groups') });
+    });
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/agents/${agent.id}/usage`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setUsage(d); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/agents/${agent.id}/feedback?limit=0&window=30d`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setFeedback(d); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Tier-1 healthcheck (static, fast) + the latest regression run, for the
+    // Overview Evals card. Both are best-effort.
+    fetch(`/api/agents/${agent.id}/evals/healthcheck`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d?.summary) setEvalHealth(d.summary); }).catch(() => {});
+    fetch(`/api/agents/${agent.id}/evals/runs?limit=1`).then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (cancelled) return;
+        const run = Array.isArray(d) ? d[0] : (d?.runs?.[0] ?? d?.run ?? null);
+        if (run && typeof run.passCount === 'number') setEvalRun(run);
+      }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id]);
+
+  useEffect(() => {
+    if (!slackConfigured) { setSlackInfo(null); return; }
+    let cancelled = false;
+    fetch(`/api/agents/${agent.id}/slack-info`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setSlackInfo(d); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id, slackConfigured]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.name, persona: form.persona, description: form.description, model: form.model, tags: form.tags }),
+      });
+      const data = await r.json();
+      if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
+    } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
+  };
+
+  const num = (n: number | undefined) => counts ? String(n ?? 0) : '—';
+  const fmtDate = fmtAgentDate;
+  const fmtTokens = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n);
+
+  return (
+    <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1100 }}>
+      <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
+      {/* Identity (main) */}
+      <div style={{ flex: '1 1 520px', minWidth: 0 }}>
+        <Card title="Identity" fill>
+          {/* Connection — Slack status pinned to the top of the identity card. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: slackConfigured ? 'color-mix(in srgb, var(--green) 14%, transparent)' : 'var(--surface)',
+              border: '1px solid var(--border)', color: slackConfigured ? 'var(--green)' : 'var(--muted)',
+            }}><Slack size={15} /></div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: slackConfigured ? 'var(--green)' : 'var(--amber, #f59e0b)' }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{slackConfigured ? 'Connected to Slack' : 'Not connected'}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {slackConfigured
+                  ? (slackInfo ? <>{slackInfo.teamName} · {slackInfo.displayName} <span style={{ fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span></> : 'Credentials configured')
+                  : 'Not receiving Slack messages yet'}
+              </div>
+            </div>
+            {(canEdit || slackConfigured) && (
+              <button onClick={onConnectSlack} style={{
+                flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: slackConfigured ? 'var(--surface)' : 'var(--accent)',
+                color: slackConfigured ? 'var(--text)' : 'var(--accent-fg)',
+                border: slackConfigured ? '1px solid var(--border)' : 'none', borderRadius: 7, padding: '6px 12px',
+                fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}>{slackConfigured ? 'Manage' : <><Plug size={13} /> Connect Slack</>}</button>
+            )}
+          </div>
+
+          <Grid2>
+            <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
+              hint="Internal agent name." />
+            <SelectField label="Model" value={form.model} options={modelOptions}
+              onChange={v => setForm(f => ({ ...f, model: v }))}
+              hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
+          </Grid2>
+          <TextArea label="Description" value={form.description}
+            onChange={v => setForm(f => ({ ...f, description: v }))}
+            hint="Short summary — used by boss agents for delegation." rows={2} readOnly={!canEdit} />
+          <TagInput tags={form.tags} onChange={tags => setForm(f => ({ ...f, tags }))}
+            allTags={allAgents.flatMap(a => a.tags ?? [])} readOnly={!canEdit} />
+          <TextArea label="Persona" value={form.persona}
+            onChange={v => setForm(f => ({ ...f, persona: v }))}
+            hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={6} readOnly={!canEdit} />
+          {canEdit && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 'auto', paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+              {msg && <span style={{ fontSize: 12.5, color: msg === 'Saved' ? 'var(--green)' : 'var(--muted)' }}>{msg}</span>}
+              <div style={{ marginLeft: 'auto' }}>
+                <PrimaryBtn onClick={save} loading={saving}>Save changes</PrimaryBtn>
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Details (aside) — metrics + meta */}
+      <aside style={{ flex: '0 0 300px', maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Satisfaction KPI — clean metric card; click → Settings → Feedback. */}
+        {(() => {
+          const f = feedback;
+          const has = !!(f && f.total > 0);
+          const score = f?.scorePercent ?? 0;
+          const up = f?.up ?? 0, down = f?.down ?? 0;
+          const tier = feedbackTier(score, has);
+          return (
+            <button onClick={onViewFeedback} className="ui-card ui-card-hover" style={{
+              width: '100%', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 12,
+              border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-sm)',
+              padding: '16px 18px', fontFamily: 'var(--font-sans)', background: 'var(--surface)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Satisfaction</span>
+                <ArrowRight size={14} style={{ color: 'var(--subtle)' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, color: has ? tier.color : 'var(--muted)' }}>{has ? `${score}%` : '—'}</span>
+                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{has ? `${tier.label} · last 30 days` : 'No ratings yet'}</span>
+              </div>
+              {has ? (
+                <>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)' }}>
+                    <div style={{ width: `${score}%`, background: '#16a34a' }} />
+                    <div style={{ width: `${100 - score}%`, background: '#dc2626', opacity: 0.55 }} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12.5, color: 'var(--muted)' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsUp size={13} style={{ color: '#16a34a' }} /> {up}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsDown size={13} style={{ color: '#dc2626' }} /> {down}</span>
+                    <span style={{ marginLeft: 'auto', color: 'var(--subtle)' }}>{f!.total} rating{f!.total !== 1 ? 's' : ''}</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Ratings from Slack replies appear here.</div>
+              )}
+            </button>
+          );
+        })()}
+
+        <Card title="Details">
+          {/* Counts — wrapping stat chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {[
+              { v: num(counts?.skills), l: 'Skills' },
+              { v: num(counts?.memories), l: 'Memories' },
+              { v: num(counts?.tools), l: 'Tools' },
+              { v: num(counts?.wiki), l: 'Wiki' },
+              { v: num(counts?.audiences), l: 'Audiences' },
+            ].map(s => (
+              <span key={s.l} style={{
+                display: 'inline-flex', alignItems: 'baseline', gap: 5,
+                padding: '5px 11px', borderRadius: 99,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>{s.v}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.l}</span>
+              </span>
+            ))}
+          </div>
+
+          <MetaGroupLabel>Configuration</MetaGroupLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <MetaRow icon={<Briefcase size={13} />} label="Role">{agent.isBoss ? 'Boss' : 'Standard'}</MetaRow>
+            <MetaRow icon={<MessageSquare size={13} />} label="Verbose">{agent.verbose ? 'On' : 'Off'}</MetaRow>
+            <MetaRow icon={<UserCircle size={13} />} label="Owner">{agent.createdBy}</MetaRow>
+            <MetaRow icon={<Calendar size={13} />} label="Created">{fmtDate(agent.createdAt)}</MetaRow>
+            <MetaRow icon={<Clock size={13} />} label="Updated">{fmtDate(agent.updatedAt)}</MetaRow>
+          </div>
+
+          <MetaGroupLabel>Activity</MetaGroupLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <MetaRow icon={<MessageSquare size={13} />} label="Queries (30d)">{usage ? String(usage.queries30d) : '—'}</MetaRow>
+            <MetaRow icon={<Layers size={13} />} label="Tokens">{usage ? `${fmtTokens(usage.inputTokens)} in · ${fmtTokens(usage.outputTokens)} out` : '—'}</MetaRow>
+            <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
+          </div>
+
+          {/* Evals — healthcheck status + last run, click → Settings → Evals. */}
+          {(() => {
+            const tier = evalTier(evalHealth);
+            const run = evalRun;
+            // Only show a pass-rate for a FINISHED run; total counts every verdict
+            // (pass/fail/suspect/infra) so the denominator is the real case count.
+            const ranTotal = run ? run.passCount + run.failCount + run.suspectCount + run.infraCount : 0;
+            const ran = run && run.status === 'done' && ranTotal > 0;
+            return (
+              <button onClick={onViewEvals} title="Open Evals" style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                background: 'none', border: 'none', borderTop: '1px solid var(--border)',
+                padding: '9px 0 0', marginTop: 10, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}>
+                <tier.Icon size={13} style={{ color: tier.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Evals</span>
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: tier.color }}>{tier.label}</span>
+                  {ran && <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>· {run!.passCount}/{ranTotal} passed</span>}
+                  <ArrowRight size={12} style={{ color: 'var(--subtle)' }} />
+                </span>
+              </button>
+            );
+          })()}
+
+          <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 'auto',
+            padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8,
+            fontSize: 12.5, fontWeight: 500, color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-sans)',
+          }}>
+            View full activity <ArrowRight size={13} />
+          </Link>
+        </Card>
+      </aside>
+      </div>
+    </div>
+  );
+}
+
+// ─── Agent Settings (side-nav: General · Slack · Evals · Logs · History · Danger) ──
+
+function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role, username, section, onSection, onAskCoach, onOpenCoach }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; viewOnly: boolean; allAgents: Agent[]; role: string | null; username: string; section: SettingsSection; onSection: (s: SettingsSection) => void; onAskCoach: (message: string) => void; onOpenCoach: () => void }) {
+  const isAdmin = role === 'admin' || role === 'superadmin';
+  const canDelete = isAdmin || agent.createdBy === username;
+  const sections: { id: SettingsSection; label: string }[] = [
+    { id: 'general', label: 'General' },
+    { id: 'slack', label: 'Slack' },
+  ];
+  if (!viewOnly) sections.push({ id: 'evals', label: 'Evals' }, { id: 'feedback', label: 'Feedback' }, { id: 'logs', label: 'Logs' }, { id: 'history', label: 'History' });
+  if (canDelete) sections.push({ id: 'danger', label: 'Danger Zone' });
+  const setSection = onSection;
+
+  return (
+    <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }} className="fade-up">
+      <div style={{ width: 170, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {sections.map(s => (
+          <button key={s.id} onClick={() => setSection(s.id)} style={{
+            textAlign: 'left', padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            fontSize: 13, fontFamily: 'var(--font-sans)',
+            background: section === s.id ? 'var(--surface-2)' : 'transparent',
+            color: section === s.id ? (s.id === 'danger' ? '#dc2626' : 'var(--text)') : 'var(--muted)',
+            fontWeight: section === s.id ? 500 : 400,
+          }}>{s.label}</button>
+        ))}
+      </div>
+      <div style={{ flex: 1, minWidth: 320 }}>
+        {section === 'general' && <GeneralSettingsSection agent={agent} onUpdate={onUpdate} canEdit={canEdit} allAgents={allAgents} />}
+        {section === 'slack'   && <SlackSettingsSection   agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
+        {section === 'evals'   && <EvalsPanel agent={agent} onAskCoach={onAskCoach} onOpenCoach={onOpenCoach} />}
+        {section === 'feedback' && <FeedbackPanel agent={agent} />}
+        {section === 'logs'    && <LogsTab    agentId={agent.id} slug={agent.slug} />}
+        {section === 'history' && <HistoryTab agentId={agent.id} canEdit={canEdit} />}
+        {section === 'danger'  && <DangerSection agent={agent} canDelete={canDelete} />}
+      </div>
+    </div>
+  );
+}
+
+function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
+  const [form, setForm] = useState({ isBoss: agent.isBoss, verbose: agent.verbose ?? true, reportsTo: agent.reportsTo ?? [] as string[] });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isBoss: form.isBoss, verbose: form.verbose, reportsTo: form.reportsTo }),
+      });
+      const data = await r.json();
+      if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
+    } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
+  };
+  return (
+    <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Card title="Behavior">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Verbose Responses</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>On: each step is posted as it happens. Off: only the final answer is sent as one message.</div>
+          </div>
+          <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, verbose: !f.verbose }))} style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', background: form.verbose ? '#3b82f6' : 'var(--border-2)',
+            cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          }}>
+            <div style={{ position: 'absolute', top: 3, left: form.verbose ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+          </button>
+        </div>
+      </Card>
+
+      <Card title="Role & Hierarchy">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks</div>
+          </div>
+          <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', background: form.isBoss ? '#d97706' : 'var(--border-2)',
+            cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          }}>
+            <div style={{ position: 'absolute', top: 3, left: form.isBoss ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+          </button>
+        </div>
+        {!form.isBoss && (() => {
+          const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
+          if (bosses.length === 0) return (
+            <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>No boss agents available. Create a boss agent first.</div>
+          );
+          return (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {bosses.map(boss => {
+                  const checked = form.reportsTo.includes(boss.id);
+                  return (
+                    <label key={boss.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8,
+                      border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
+                      background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
+                      cursor: canEdit ? 'pointer' : 'default', transition: 'all 0.15s',
+                    }}>
+                      <input type="checkbox" checked={checked} disabled={!canEdit}
+                        onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
+                        style={{ accentColor: '#d97706', width: 14, height: 14 }} />
+                      <div style={{ width: 24, height: 24, borderRadius: 6, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--accent-fg)', flexShrink: 0 }}>{boss.name.charAt(0).toUpperCase()}</div>
+                      <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{boss.name}</div></div>
+                      {checked && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, color: '#d97706', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Reports to</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>An agent can report to multiple bosses.</div>
+            </div>
+          );
+        })()}
+      </Card>
+
+      <Card title="Capabilities">
+        <PermissionsTab agentId={agent.id} canEdit={canEdit} />
+      </Card>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
+        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean }) {
+  const [form, setForm] = useState({ slackBotToken: agent.slackBotToken, slackAppToken: agent.slackAppToken, slackSigningSecret: agent.slackSigningSecret });
+  const [allowedChannels, setAllowedChannels] = useState('');
+  const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
+  const [manifest, setManifest] = useState('');
   const [showManifest, setShowManifest] = useState(false);
-  const [deleting, setDeleting]         = useState(false);
-  const [slackInfo, setSlackInfo]       = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
-  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
 
   useEffect(() => {
     if (!agent.slackBotToken) return;
-    fetch(`/api/agents/${agent.id}/slack-info`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => d && setSlackInfo(d))
-      .catch(() => {});
+    fetch(`/api/agents/${agent.id}/slack-info`).then(r => r.ok ? r.json() : null).then(d => d && setSlackInfo(d)).catch(() => {});
   }, [agent.id, agent.slackBotToken]);
-
-  // Channel restrictions state
-  const [allowedChannels, setAllowedChannels] = useState('');
-
   useEffect(() => {
-    fetch(`/api/agents/${agent.id}/restrictions`)
-      .then(r => r.json())
-      .then((d: Restriction) => setAllowedChannels((d.allowedChannels ?? []).join('\n')));
+    fetch(`/api/agents/${agent.id}/restrictions`).then(r => r.json()).then((d: Restriction) => setAllowedChannels((d.allowedChannels ?? []).join('\n'))).catch(() => {});
   }, [agent.id]);
 
   const save = async () => {
@@ -465,23 +950,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
       const [r] = await Promise.all([
         fetch(`/api/agents/${agent.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: form.name,
-            persona: form.persona,
-            description: form.description,
-            model: form.model,
-            isBoss: form.isBoss,
-            verbose: form.verbose,
-            reportsTo: form.reportsTo,
-            tags: form.tags,
-            ...(form.slackBotToken && {
-              platformCredentials: {
-                botToken: form.slackBotToken,
-                appToken: form.slackAppToken,
-                signingSecret: form.slackSigningSecret,
-              },
-            }),
-          }),
+          body: JSON.stringify(form.slackBotToken ? { platformCredentials: { botToken: form.slackBotToken, appToken: form.slackAppToken, signingSecret: form.slackSigningSecret } } : {}),
         }),
         fetch(`/api/agents/${agent.id}/restrictions`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -499,173 +968,65 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
     setShowManifest(true);
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Permanently delete agent "${agent.name}"? This cannot be undone.`)) return;
-    setDeleting(true);
-    const r = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
-    if (r.ok) {
-      window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
-      router.push('/');
-    } else {
-      const err = await r.json();
-      setMsg(err.error ?? 'Delete failed');
-      setDeleting(false);
-    }
+  const [disconnecting, setDisconnecting] = useState(false);
+  const disconnect = async () => {
+    if (!confirm('Disconnect Slack? This permanently removes this agent\'s bot token, app token, and signing secret, and stops it from posting to Slack. You can reconnect later by entering credentials again.')) return;
+    setDisconnecting(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}/slack`, { method: 'DELETE' });
+      if (r.ok) {
+        const data = await r.json().catch(() => null);
+        setForm({ slackBotToken: '', slackAppToken: '', slackSigningSecret: '' });
+        setSlackInfo(null);
+        onUpdate(data ?? { ...agent, slackBotToken: undefined, slackAppToken: undefined, slackSigningSecret: undefined, slackBotUserId: undefined });
+        setMsg('Disconnected');
+      } else setMsg('Disconnect failed');
+    } catch { setMsg('Disconnect failed'); }
+    finally { setDisconnecting(false); setTimeout(() => setMsg(''), 3000); }
   };
-
-  const isAdmin = role === 'admin' || role === 'superadmin';
-  const canDelete = isAdmin || agent.createdBy === username;
+  const slackConfigured = !!(agent.slackBotToken || agent.slackAppToken || agent.slackSigningSecret);
 
   return (
-    <div style={{ maxWidth: 640 }} className="fade-up">
-      <Section title="Configuration">
-        <Grid2>
-          <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
-            hint="Internal agent name." />
-          <Field label="Model" value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))}
-            hint={MODELS.map(m => m.value).join(' · ')} readOnly={!canEdit} />
-        </Grid2>
-        <Field label="Description" value={form.description}
-          onChange={v => setForm(f => ({ ...f, description: v }))}
-          hint="Short summary — used by boss agents for delegation." readOnly={!canEdit} />
-        <TagInput
-          tags={form.tags}
-          onChange={tags => setForm(f => ({ ...f, tags }))}
-          allTags={allAgents.flatMap(a => a.tags ?? [])}
-          readOnly={!canEdit}
-        />
-        <TextArea label="Persona" value={form.persona}
-          onChange={v => setForm(f => ({ ...f, persona: v }))}
-          hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={4} readOnly={!canEdit} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Verbose Responses</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              On: each step is posted as it happens. Off: only the final answer is sent as one message.
-            </div>
-          </div>
-          <button
-            disabled={!canEdit}
-            onClick={() => setForm(f => ({ ...f, verbose: !f.verbose }))}
-            style={{
-              width: 44, height: 24, borderRadius: 12, border: 'none',
-              background: form.verbose ? '#3b82f6' : 'var(--border-2)',
-              cursor: canEdit ? 'pointer' : 'default',
-              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-            }}
-          >
-            <div style={{
-              position: 'absolute', top: 3, left: form.verbose ? 23 : 3,
-              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
-              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }} />
-          </button>
-        </div>
-      </Section>
+    <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
+        <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
+        {canEdit && slackConfigured && (
+          <button onClick={disconnect} disabled={disconnecting} style={{
+            marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8,
+            border: '1px solid var(--red-soft-border, #fecaca)', background: 'var(--surface)', color: '#dc2626',
+            fontSize: 13, fontWeight: 500, cursor: disconnecting ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+          }}><Plug size={13} /> {disconnecting ? 'Disconnecting…' : 'Disconnect Slack'}</button>
+        )}
+        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+      </div>
 
-      <Section title="Role & Hierarchy">
-        {/* Boss toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks</div>
-          </div>
-          <button
-            disabled={!canEdit}
-            onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))}
-            style={{
-              width: 44, height: 24, borderRadius: 12, border: 'none',
-              background: form.isBoss ? '#d97706' : 'var(--border-2)',
-              cursor: canEdit ? 'pointer' : 'default',
-              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-            }}
-          >
-            <div style={{
-              position: 'absolute', top: 3, left: form.isBoss ? 23 : 3,
-              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
-              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }} />
-          </button>
-        </div>
+      {!slackConfigured && (
+        <Card title="Connect this agent to Slack">
+          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            This agent isn&apos;t connected yet, so it can&apos;t post to Slack. It takes ~2 minutes:
+          </p>
+          <ol style={{ margin: '0 0 4px', paddingLeft: 18, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.85 }}>
+            <li>Open <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>api.slack.com/apps</a> → <strong>Create New App</strong> → <strong>From a manifest</strong>.</li>
+            <li>Click <strong>View Slack Manifest</strong> above, copy it, and paste it into the JSON tab → <strong>Create</strong>.</li>
+            <li><strong>Install to Workspace</strong> (sidebar → Install App), then paste the Bot &amp; App-Level tokens below and <strong>Save</strong>.</li>
+          </ol>
+        </Card>
+      )}
 
-        {/* Reports To — only show for non-boss agents */}
-        {!form.isBoss && (() => {
-          const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
-          if (bosses.length === 0) return (
-            <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>
-              No boss agents available. Create a boss agent first.
-            </div>
-          );
-          return (
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {bosses.map(boss => {
-                  const checked = form.reportsTo.includes(boss.id);
-                  return (
-                    <label key={boss.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '8px 12px', borderRadius: 8,
-                      border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
-                      background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
-                      cursor: canEdit ? 'pointer' : 'default',
-                      transition: 'all 0.15s',
-                    }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!canEdit}
-                        onChange={() => setForm(f => ({
-                          ...f,
-                          reportsTo: checked
-                            ? f.reportsTo.filter(id => id !== boss.id)
-                            : [...f.reportsTo, boss.id],
-                        }))}
-                        style={{ accentColor: '#d97706', width: 14, height: 14 }}
-                      />
-                      <div style={{
-                        width: 24, height: 24, borderRadius: 6, background: 'var(--accent)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 600, color: 'var(--accent-fg)', flexShrink: 0,
-                      }}>
-                        {boss.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{boss.name}</div>
-                      </div>
-                      {checked && (
-                        <span style={{
-                          marginLeft: 'auto', fontSize: 10, fontWeight: 600,
-                          color: '#d97706', letterSpacing: '0.04em', textTransform: 'uppercase',
-                        }}>Reports to</span>
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>
-                An agent can report to multiple bosses.
-              </div>
-            </div>
-          );
-        })()}
-      </Section>
-
-      <Section title="Slack Credentials">
-        <Field label="Bot Token" value={form.slackBotToken ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
-          hint={<>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
-        <Field label="App-Level Token" value={form.slackAppToken ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
-          hint={<>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
-        <Field label="Signing Secret" value={form.slackSigningSecret ?? ''}
-          onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
-          hint="Basic Information → App Credentials → Signing Secret" />
+      <Card title="Slack Credentials">
+        <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
+          hint={form.slackBotToken && !form.slackBotToken.startsWith('xoxb-')
+            ? <span style={{ color: 'var(--red)' }}>Bot tokens start with <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>xoxb-</code> — did you paste the wrong one?</span>
+            : <>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
+        <Field label="App-Level Token" value={form.slackAppToken ?? ''} onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
+          hint={form.slackAppToken && !form.slackAppToken.startsWith('xapp-')
+            ? <span style={{ color: 'var(--red)' }}>App-level tokens start with <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>xapp-</code> — did you paste the wrong one?</span>
+            : <>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
+        <Field label="Signing Secret (optional)" value={form.slackSigningSecret ?? ''} onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
+          hint="Not used in Socket Mode (how agents connect) — only needed for the HTTP Events API. Basic Information → App Credentials → Signing Secret." />
         {slackInfo && (
-          <div style={{
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: 7, padding: '10px 14px', fontSize: 12,
-          }}>
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, padding: '10px 14px', fontSize: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
               <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to Slack</span>
@@ -683,103 +1044,239 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, role, username, onOp
             </div>
           </div>
         )}
-        {!slackInfo && agent.slackBotUserId && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: 7, padding: '8px 12px', fontSize: 12,
-          }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-            <span style={{ color: '#15803d' }}>Connected ·</span>
-            <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>Bot User ID: {agent.slackBotUserId}</span>
-          </div>
-        )}
-      </Section>
+      </Card>
 
-      <Section title="Allowed Channels">
+      <Card title="Allowed Channels">
         <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-          Restrict this bot to specific Slack channels. Enter one Slack channel ID per line (e.g. <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>C01234ABCDE</code>).
+          Restrict this bot to specific Slack channels. One Slack channel ID per line (e.g. <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>C01234ABCDE</code>).
           If empty, the bot responds in all channels it's invited to.
-          When invited to a non-allowed channel, it will post a notice and leave automatically.
-          Bot-initiated messages from scheduled jobs are not affected.
         </p>
-        <textarea
-          value={allowedChannels}
-          onChange={e => setAllowedChannels(e.target.value)}
-          rows={4}
-          readOnly={!canEdit}
-          placeholder={'C01234ABCDE\nC09876ZYXWV'}
-          style={{
-            width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
-            fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7,
-            outline: 'none', resize: 'vertical', boxSizing: 'border-box',
-          }}
-          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-          onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-        />
-      </Section>
-
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
-        <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
-        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
-      </div>
+        <textarea value={allowedChannels} onChange={e => setAllowedChannels(e.target.value)} rows={4} readOnly={!canEdit} placeholder={'C01234ABCDE\nC09876ZYXWV'}
+          style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')} onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')} />
+      </Card>
 
       {showManifest && (
-        <div style={{
-          marginTop: 20, background: 'var(--surface-2)',
-          border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden',
-        }}>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '10px 16px', borderBottom: '1px solid var(--border)',
-            background: 'var(--surface-2)',
-          }}>
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-              slack-manifest.json
-            </span>
-            <button
-              onClick={() => navigator.clipboard.writeText(manifest)}
-              style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
-            >Copy</button>
-          </div>
-          <pre style={{
-            margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)',
-            fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 320,
-          }}>{manifest}</pre>
-        </div>
-      )}
-
-      {/* ── Danger Zone ── */}
-      {canDelete && (
-        <div style={{
-          marginTop: 40, borderTop: '1px solid var(--red-soft-border)', paddingTop: 28,
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>
-            Danger Zone
-          </div>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: 'var(--surface-2)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '14px 18px',
-          }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>Delete this agent</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Permanently removes the agent, all its skills, memories, and history. This cannot be undone.</div>
+        <Modal title="Slack App Manifest" width={680} onClose={() => setShowManifest(false)}>
+          <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>slack-manifest.json</span>
+              <button onClick={() => navigator.clipboard.writeText(manifest)} style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Copy</button>
             </div>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              style={{
-                flexShrink: 0, marginLeft: 24,
-                padding: '8px 18px', borderRadius: 7, border: '1px solid #dc2626',
-                background: deleting ? 'var(--surface-2)' : 'var(--surface)', color: '#dc2626',
-                fontSize: 13, fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer',
-                fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
-              }}
-            >{deleting ? 'Deleting…' : 'Delete Agent'}</button>
+            <pre style={{ margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)', fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: '60vh' }}>{manifest}</pre>
           </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function DangerSection({ agent, canDelete }: { agent: Agent; canDelete: boolean }) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const [msg, setMsg] = useState('');
+  const handleDelete = async () => {
+    if (!confirm(`Permanently delete agent "${agent.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    const r = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
+    if (r.ok) { window.dispatchEvent(new Event('slackhive:sidebar-refresh')); router.push('/'); }
+    else { const err = await r.json(); setMsg(err.error ?? 'Delete failed'); setDeleting(false); }
+  };
+  if (!canDelete) return <div style={{ fontSize: 13, color: 'var(--muted)' }}>You don&apos;t have permission to delete this agent.</div>;
+  return (
+    <div style={{ maxWidth: 620 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>Danger Zone</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-2)', border: '1px solid var(--red-soft-border)', borderRadius: 8, padding: '14px 18px' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>Delete this agent</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Permanently removes the agent, all its skills, memories, and history. This cannot be undone.</div>
         </div>
+        <button onClick={handleDelete} disabled={deleting} style={{
+          flexShrink: 0, marginLeft: 24, padding: '8px 18px', borderRadius: 7, border: '1px solid #dc2626',
+          background: deleting ? 'var(--surface-2)' : 'var(--surface)', color: '#dc2626', fontSize: 13, fontWeight: 600,
+          cursor: deleting ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
+        }}>{deleting ? 'Deleting…' : 'Delete Agent'}</button>
+      </div>
+      {msg && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 10 }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ─── Feedback report card (Settings → Feedback) ───────────────────────────────
+
+type FbWindow = '7d' | '30d' | '90d' | 'all';
+type FbSentiment = 'all' | 'up' | 'down';
+const FB_WINDOWS: { k: FbWindow; label: string }[] = [
+  { k: '7d', label: '7d' }, { k: '30d', label: '30d' }, { k: '90d', label: '90d' }, { k: 'all', label: 'All' },
+];
+const FB_WINDOW_LABEL: Record<FbWindow, string> = {
+  '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days', 'all': 'all-time',
+};
+function FeedbackPanel({ agent }: { agent: Agent }) {
+  const [data, setData] = useState<AgentFeedbackReport | null>(null);
+  const [list, setList] = useState<FeedbackRating[]>([]);
+  const [win, setWin] = useState<FbWindow>('30d');
+  const [sent, setSent] = useState<FbSentiment>('all');
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped whenever the filters change; a stale loadMore checks it before
+  // appending so it can't merge a previous filter's rows into the new list.
+  const genRef = useRef(0);
+
+  // Build the query for the active window + sentiment filter.
+  const query = (extra?: Record<string, string>) => {
+    const p = new URLSearchParams(extra);
+    if (win !== 'all') p.set('window', win);
+    if (sent !== 'all') p.set('sentiment', sent);
+    const s = p.toString();
+    return s ? `?${s}` : '';
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const gen = ++genRef.current;
+    setLoading(true);
+    fetch(`/api/agents/${agent.id}/feedback${query()}`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && gen === genRef.current) { setData(d); setList(d?.recentRatings ?? []); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id, win, sent]);
+
+  const loadMore = async () => {
+    const gen = genRef.current;
+    setLoadingMore(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}/feedback${query({ offset: String(list.length), limit: '10' })}`);
+      // Drop the response if the filters changed while it was in flight.
+      if (r.ok && gen === genRef.current) { const d = await r.json(); setList(prev => [...prev, ...(d.recentRatings ?? [])]); }
+    } finally { if (gen === genRef.current) setLoadingMore(false); }
+  };
+
+  const total = data?.total ?? 0;
+  const up = data?.up ?? 0;
+  const down = data?.down ?? 0;
+  const score = data?.scorePercent ?? 0;
+  const ratingCount = data?.ratingCount ?? 0;
+  const tier = feedbackTier(score, total > 0);
+
+  const pill = (active: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 5, border: 'none',
+    background: active ? 'var(--surface)' : 'transparent', color: active ? 'var(--text)' : 'var(--muted)',
+    borderRadius: 6, padding: '4px 11px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+    fontFamily: 'var(--font-sans)', boxShadow: active ? 'var(--shadow-sm)' : 'none',
+  });
+
+  const windowUI = (
+    <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
+      {FB_WINDOWS.map(w => (
+        <button key={w.k} onClick={() => setWin(w.k)} style={pill(win === w.k)}>{w.label}</button>
+      ))}
+    </div>
+  );
+
+  const sentimentUI = (
+    <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
+      <button onClick={() => setSent('all')} style={pill(sent === 'all')}>All</button>
+      <button onClick={() => setSent('up')} style={pill(sent === 'up')} aria-label="Thumbs up only"><ThumbsUp size={13} /></button>
+      <button onClick={() => setSent('down')} style={pill(sent === 'down')} aria-label="Thumbs down only"><ThumbsDown size={13} /></button>
+    </div>
+  );
+
+  const GREEN = '#16a34a', RED = '#dc2626';
+
+  return (
+    <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-up">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Feedback</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Ratings users gave this agent&apos;s replies in Slack.</div>
+        </div>
+        {windowUI}
+      </div>
+
+      {loading ? (
+        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+      ) : total === 0 ? (
+        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '48px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
+          {win === 'all'
+            ? <>No ratings yet. When this agent replies in Slack, a feedback prompt lets users rate it — results show up here.</>
+            : <>No ratings in the {FB_WINDOW_LABEL[win]}. Try a wider range.</>}
+        </div>
+      ) : (
+        <>
+          {/* Summary card — score, label, satisfaction bar, and stat tiles. */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: 22 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)' }}>Satisfaction</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
+                  <span style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.02em', color: tier.color, lineHeight: 1 }}>{score}%</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: tier.color, background: `color-mix(in srgb, ${tier.color} 12%, transparent)`, borderRadius: 6, padding: '2px 8px' }}>{tier.label}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 8 }}>{total} rating{total !== 1 ? 's' : ''} · {FB_WINDOW_LABEL[win]}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {[{ icon: <ThumbsUp size={16} style={{ color: GREEN }} />, n: up, label: 'Helpful', c: GREEN },
+                  { icon: <ThumbsDown size={16} style={{ color: RED }} />, n: down, label: 'Not helpful', c: RED }].map((s, i) => (
+                  <div key={i} style={{ minWidth: 96, border: '1px solid var(--border)', borderRadius: 12, padding: '12px 14px', background: 'var(--surface-2)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>{s.icon}<span style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{s.n}</span></div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', height: 6, borderRadius: 99, overflow: 'hidden', marginTop: 18, background: `color-mix(in srgb, ${RED} 22%, var(--surface-2))` }}>
+              <div style={{ width: `${score}%`, background: GREEN }} />
+            </div>
+          </div>
+
+          {/* Ratings feed — rater, sentiment, note, and a thread link. */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Ratings{ratingCount ? ` (${ratingCount})` : ''}</div>
+              {sentimentUI}
+            </div>
+            {list.length === 0 ? (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '28px 20px', textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>
+                No {sent === 'up' ? 'positive' : sent === 'down' ? 'negative' : ''} ratings in this range.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', background: 'var(--surface)' }}>
+                {list.map((rt, i) => {
+                  const c = rt.sentiment === 'up' ? GREEN : RED;
+                  const handle = rt.raterHandle || 'Anonymous';
+                  return (
+                    <div key={i} style={{ display: 'flex', gap: 12, padding: '14px 16px', borderTop: i ? '1px solid var(--border)' : 'none' }}>
+                      <div style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${c} 14%, transparent)` }}>
+                        {rt.sentiment === 'up' ? <ThumbsUp size={15} style={{ color: c }} /> : <ThumbsDown size={15} style={{ color: c }} />}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{handle}</span>
+                          <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{fmtAgentDate(rt.createdAt)}</span>
+                          {rt.permalink && (
+                            <a href={rt.permalink} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'var(--accent)', textDecoration: 'none' }}>
+                              View thread <ExternalLink size={12} />
+                            </a>
+                          )}
+                        </div>
+                        {rt.note && <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, marginTop: 5 }}>{rt.note}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {list.length < ratingCount && (
+              <button onClick={loadMore} disabled={loadingMore} style={{
+                marginTop: 12, background: 'none', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 500, color: 'var(--text)',
+                cursor: loadingMore ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
+              }}>{loadingMore ? 'Loading…' : `Load more (${ratingCount - list.length})`}</button>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -794,39 +1291,73 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Which surface is shown — System Prompt, Skills, or Memory (was: System Prompt
+  // always-on + a separate Skills/Memory sub-tab bar). One segmented control reads
+  // cleaner and gives each surface the full width.
+  const [section, setSection] = useState<'system' | 'skills' | 'memory'>('system');
 
-  // Persona library
+  // Persona library / import modal
   const [personaLibOpen, setPersonaLibOpen] = useState(false);
+  const [libTab, setLibTab] = useState<'json' | 'template'>('json');
   const [libSearch, setLibSearch] = useState('');
   const [libCategory, setLibCategory] = useState<PersonaCategory | 'all'>('all');
   const [libSelected, setLibSelected] = useState<PersonaTemplate | null>(null);
   const [libSkillSel, setLibSkillSel] = useState<Set<string>>(new Set());
   const [libApplying, setLibApplying] = useState(false);
 
-  const handleExport = async () => {
+  // Export chooser — pick which parts to include.
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportSel, setExportSel] = useState({ identity: true, system: true, skills: true, memory: true });
+  // Import selection — which parts of the loaded file to apply.
+  const [importSel, setImportSel] = useState({ identity: true, system: true, skills: true, memory: true });
+
+  const doExport = async () => {
     setExporting(true);
     try {
-      const [skillsRes, mdRes] = await Promise.all([
-        fetch(`/api/agents/${agent.id}/skills`),
-        fetch(`/api/agents/${agent.id}/claude-md`),
-      ]);
-      const skills: Skill[] = await skillsRes.json();
-      const claudeMd = await mdRes.text();
       const payload: AgentExportPayload = {
         version: 1,
         exportedAt: new Date().toISOString(),
-        persona: agent.persona ?? '',
-        description: agent.description ?? '',
-        claudeMd,
-        skills: skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder })),
       };
+      if (exportSel.identity) {
+        // Only export non-empty values so a persona-less agent's export can't
+        // later blank a target agent's real persona/description on import.
+        const persona = meaningfulStr(agent.persona);
+        const description = meaningfulStr(agent.description);
+        if (persona !== undefined) payload.persona = persona;
+        if (description !== undefined) payload.description = description;
+      }
+      if (exportSel.system) {
+        payload.claudeMd = await fetch(`/api/agents/${agent.id}/claude-md`).then(r => r.text());
+      }
+      if (exportSel.skills) {
+        const skills: Skill[] = await fetch(`/api/agents/${agent.id}/skills`).then(r => r.json());
+        payload.skills = skills.map(s => ({ category: s.category, filename: s.filename, content: s.content, sortOrder: s.sortOrder }));
+      }
+      if (exportSel.memory) {
+        const mems: Memory[] = await fetch(`/api/agents/${agent.id}/memories`).then(r => r.ok ? r.json() : []).catch(() => []);
+        payload.memories = mems.map(m => ({ type: m.type, name: m.name, content: m.content }));
+      }
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `${agent.slug}-export.json`; a.click();
       URL.revokeObjectURL(url);
+      setExportOpen(false);
     } finally { setExporting(false); }
   };
+
+  // Export/Import are triggered from the tab-bar actions (rendered at page level,
+  // only on this tab) via window events; we keep the handlers + modals here.
+  useEffect(() => {
+    const onExport = () => setExportOpen(true);
+    const onImport = () => { setImportPreview(null); setImportError(''); setPersonaLibOpen(true); };
+    window.addEventListener('instr:export', onExport);
+    window.addEventListener('instr:import', onImport);
+    return () => {
+      window.removeEventListener('instr:export', onExport);
+      window.removeEventListener('instr:import', onImport);
+    };
+  }, []);
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -839,42 +1370,72 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
       try {
         const data = JSON.parse(ev.target?.result as string);
         if (!data || typeof data !== 'object') { setImportError('Invalid file: not a JSON object'); return; }
-        if (typeof data.claudeMd !== 'string') { setImportError('Invalid file: missing claudeMd field'); return; }
-        if (!Array.isArray(data.skills)) { setImportError('Invalid file: missing skills array'); return; }
-        for (let i = 0; i < data.skills.length; i++) {
-          const s = data.skills[i];
-          if (!s.category || typeof s.category !== 'string') { setImportError(`Invalid skill #${i + 1}: missing category`); return; }
-          if (!s.filename || typeof s.filename !== 'string') { setImportError(`Invalid skill #${i + 1}: missing filename`); return; }
-          if (typeof s.content !== 'string') { setImportError(`Invalid skill #${i + 1}: missing content`); return; }
+        const hasIdentity = meaningfulStr(data.persona) !== undefined || meaningfulStr(data.description) !== undefined;
+        const hasMd = typeof data.claudeMd === 'string';
+        const hasSkills = Array.isArray(data.skills) && data.skills.length > 0;
+        const hasMems = Array.isArray(data.memories) && data.memories.length > 0;
+        if (!hasIdentity && !hasMd && !hasSkills && !hasMems) { setImportError('Nothing to import: file has no identity, system prompt, skills, or memories'); return; }
+        if (hasSkills) {
+          for (let i = 0; i < data.skills.length; i++) {
+            const s = data.skills[i];
+            if (!s.category || typeof s.category !== 'string') { setImportError(`Invalid skill #${i + 1}: missing category`); return; }
+            if (!s.filename || typeof s.filename !== 'string') { setImportError(`Invalid skill #${i + 1}: missing filename`); return; }
+            if (typeof s.content !== 'string') { setImportError(`Invalid skill #${i + 1}: missing content`); return; }
+          }
         }
+        // Default selection = whatever the file actually contains.
+        setImportSel({ identity: hasIdentity, system: hasMd, skills: hasSkills, memory: hasMems });
         setImportPreview(data);
       } catch { setImportError('Could not parse file — must be valid JSON'); }
     };
     reader.readAsText(file);
   };
 
-  const applyImport = async (payload?: AgentExportPayload) => {
+  const applyImport = async (payload?: AgentExportPayload, selOverride?: { identity: boolean; system: boolean; skills: boolean; memory: boolean }) => {
     const data = payload ?? importPreview;
     if (!data) return;
+    const sel = selOverride ?? importSel;
     setImporting(true);
     try {
-      if (data.persona !== undefined || data.description !== undefined) {
-        await fetch(`/api/agents/${agent.id}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...(data.persona !== undefined && { persona: data.persona }),
-            ...(data.description !== undefined && { description: data.description }),
-          }),
+      // Identity: persona + description (independent of the System Prompt body).
+      // Only apply meaningful (non-empty string) values — never blank a real one
+      // or send a non-string to the API.
+      if (sel.identity) {
+        const persona = meaningfulStr(data.persona);
+        const description = meaningfulStr(data.description);
+        if (persona !== undefined || description !== undefined) {
+          await fetch(`/api/agents/${agent.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...(persona !== undefined && { persona }),
+              ...(description !== undefined && { description }),
+            }),
+          });
+        }
+      }
+      // System Prompt: instructions body.
+      if (sel.system && typeof data.claudeMd === 'string') {
+        await fetch(`/api/agents/${agent.id}/claude-md`, {
+          method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: data.claudeMd,
         });
       }
-      await fetch(`/api/agents/${agent.id}/claude-md`, {
-        method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: data.claudeMd,
-      });
-      await Promise.all(data.skills.map(s =>
-        fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
-        })
-      ));
+      // Skills: upsert each.
+      if (sel.skills && Array.isArray(data.skills)) {
+        await Promise.all(data.skills.map(s =>
+          fetch(`/api/agents/${agent.id}/skills?noSnapshot=1`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
+          })
+        ));
+      }
+      // Memories: create each (POST upserts by name).
+      if (sel.memory && Array.isArray(data.memories)) {
+        await Promise.all(data.memories.map(m =>
+          fetch(`/api/agents/${agent.id}/memories`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: m.type, name: m.name, content: m.content }),
+          })
+        ));
+      }
       const updated = await fetch(`/api/agents/${agent.id}`).then(r => r.json());
       onAgentUpdate(updated);
       setImportPreview(null);
@@ -882,56 +1443,94 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
     } finally { setImporting(false); }
   };
 
+  // The "Import JSON" tab body for the import modal (file picker → part chooser).
+  const jsonPanel = (() => {
+    if (!importPreview) {
+      return (
+        <div style={{ padding: '28px 24px' }}>
+          <div style={{ border: '2px dashed var(--border)', borderRadius: 12, padding: '40px 20px', textAlign: 'center' }}>
+            <Upload size={26} style={{ color: 'var(--border-2)', display: 'block', margin: '0 auto' }} />
+            <p style={{ margin: '12px 0 4px', fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Import an exported config</p>
+            <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)' }}>Choose a <code>.json</code> file exported from an agent — you’ll pick which parts to apply.</p>
+            <button onClick={() => fileInputRef.current?.click()} style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Choose file</button>
+            {importError && <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--red)' }}>{importError}</p>}
+          </div>
+        </div>
+      );
+    }
+    const hasIdentity = meaningfulStr(importPreview.persona) !== undefined || meaningfulStr(importPreview.description) !== undefined;
+    const hasMd = typeof importPreview.claudeMd === 'string';
+    const nSkills = importPreview.skills?.length ?? 0;
+    const nMems = importPreview.memories?.length ?? 0;
+    const none = !(importSel.identity && hasIdentity) && !(importSel.system && hasMd) && !(importSel.skills && nSkills) && !(importSel.memory && nMems);
+    const row = (sel: boolean, onToggle: () => void, disabled: boolean, label: string, sub: string) => (
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, background: sel && !disabled ? 'var(--surface-2)' : 'var(--surface)' }}>
+        <input type="checkbox" checked={sel} disabled={disabled} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
+        <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{sub}</div></div>
+      </label>
+    );
+    return (
+      <div style={{ padding: '20px 24px' }}>
+        <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Choose what to import{importPreview.exportedAt ? ` (exported ${new Date(importPreview.exportedAt).toLocaleDateString()})` : ''}. Selected parts overwrite current content; the system prompt is snapshotted before it&apos;s replaced.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+          {row(importSel.identity && hasIdentity, () => setImportSel(s => ({ ...s, identity: !s.identity })), !hasIdentity, 'Identity', hasIdentity ? 'Replaces persona & description' : 'Not in this file')}
+          {row(importSel.system && hasMd, () => setImportSel(s => ({ ...s, system: !s.system })), !hasMd, 'System Prompt', hasMd ? 'Replaces the current instructions' : 'Not in this file')}
+          {row(importSel.skills && nSkills > 0, () => setImportSel(s => ({ ...s, skills: !s.skills })), nSkills === 0, 'Skills', nSkills > 0 ? `${nSkills} skill${nSkills !== 1 ? 's' : ''} upserted` : 'Not in this file')}
+          {row(importSel.memory && nMems > 0, () => setImportSel(s => ({ ...s, memory: !s.memory })), nMems === 0, 'Memories', nMems > 0 ? `${nMems} memor${nMems !== 1 ? 'ies' : 'y'} added` : 'Not in this file')}
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <PrimaryBtn onClick={async () => { await applyImport(); setPersonaLibOpen(false); }} loading={importing}>{none ? 'Select something' : 'Import'}</PrimaryBtn>
+          <GhostBtn onClick={() => { setImportPreview(null); setImportError(''); }}>Choose another file</GhostBtn>
+        </div>
+      </div>
+    );
+  })();
+
   return (
     <div className="fade-up">
       <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
 
-      {/* ── Import confirmation modal ────────────────────────────────── */}
-      {importPreview && (
-        <Portal>
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }} onClick={() => setImportPreview(null)}>
-            <div style={{
-              background: 'var(--surface)', borderRadius: 14, padding: '28px 32px',
-              maxWidth: 480, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-            }} onClick={e => e.stopPropagation()}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-                Import agent config
-              </h3>
-              <div style={{
-                display: 'flex', gap: 10, padding: '12px 14px', marginBottom: 16,
-                background: 'var(--surface-2)', border: '1.5px solid var(--red-soft-border)', borderRadius: 8,
-              }}>
-                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#be123c', marginBottom: 2 }}>
-                    This will overwrite current CLAUDE.md and skills
-                  </div>
-                  <div style={{ fontSize: 12, color: '#9f1239' }}>
-                    Existing CLAUDE.md will be replaced. Skills with matching category/filename will be overwritten. A snapshot is saved automatically before applying.
-                  </div>
+
+      {/* ── Export: choose which parts to include ────────────────────── */}
+      {exportOpen && (() => {
+        const none = !exportSel.identity && !exportSel.system && !exportSel.skills && !exportSel.memory;
+        const row = (sel: boolean, onToggle: () => void, label: string, sub: string) => (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: 'pointer', background: sel ? 'var(--surface-2)' : 'var(--surface)' }}>
+            <input type="checkbox" checked={sel} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{sub}</div></div>
+          </label>
+        );
+        return (
+          <Portal>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setExportOpen(false)}>
+              <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '26px 28px', maxWidth: 460, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>Export agent config</h3>
+                <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>Choose what to include in the downloaded JSON.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                  {row(exportSel.identity, () => setExportSel(s => ({ ...s, identity: !s.identity })), 'Identity', 'Persona & description')}
+                  {row(exportSel.system, () => setExportSel(s => ({ ...s, system: !s.system })), 'System Prompt', 'The agent instructions')}
+                  {row(exportSel.skills, () => setExportSel(s => ({ ...s, skills: !s.skills })), 'Skills', 'All skill files')}
+                  {row(exportSel.memory, () => setExportSel(s => ({ ...s, memory: !s.memory })), 'Memories', 'Learned memories')}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <PrimaryBtn onClick={doExport} loading={exporting}>{none ? 'Select something' : 'Download'}</PrimaryBtn>
+                  <GhostBtn onClick={() => setExportOpen(false)}>Cancel</GhostBtn>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                {importPreview.exportedAt && <InfoRow label="Exported at" value={new Date(importPreview.exportedAt).toLocaleString()} />}
-                <InfoRow label="Skills" value={`${importPreview.skills.length} skill${importPreview.skills.length !== 1 ? 's' : ''} will be upserted`} />
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <PrimaryBtn onClick={() => applyImport()} loading={importing}>Apply Import</PrimaryBtn>
-                <GhostBtn onClick={() => setImportPreview(null)}>Cancel</GhostBtn>
-              </div>
             </div>
-          </div>
-        </Portal>
-      )}
+          </Portal>
+        );
+      })()}
 
       {/* ── Persona Library modal ────────────────────────────────────── */}
       {personaLibOpen && (
         <PersonaLibraryModal
           agentId={agent.id}
+          tab={libTab}
+          onTabChange={setLibTab}
+          jsonPanel={jsonPanel}
           fileInputRef={fileInputRef}
           applying={libApplying}
           search={libSearch}
@@ -963,7 +1562,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
                 description: template.description,
                 claudeMd: template.claudeMd,
                 skills: template.skills,
-              });
+              }, { identity: true, system: true, skills: true, memory: false });
             } finally {
               setLibApplying(false);
               setPersonaLibOpen(false);
@@ -992,110 +1591,82 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         />
       )}
 
-      {/* ── System Prompt ───────────────────────────────────────────────── */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            System Prompt
-            {importError && <span style={{ fontSize: 11, color: 'var(--danger)', marginLeft: 8, fontWeight: 400, textTransform: 'none' }}>{importError}</span>}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {canEdit && <IconBtn title="Export instructions as JSON" onClick={handleExport} loading={exporting}>
-              <Download size={14} />
-            </IconBtn>}
-            {canEdit && (
-              <IconBtn title="Import persona" onClick={() => setPersonaLibOpen(true)}>
-                <Upload size={14} />
-              </IconBtn>
-            )}
-            {canEdit && !agent.isBoss && (
-              <>
-                <div style={{ width: 1, height: 16, background: 'var(--border)' }} />
-                <button onClick={() => onOpenCoach?.()} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)', borderRadius: 7,
-                  padding: '5px 12px', fontSize: 12, fontWeight: 500,
-                  cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                  color: 'var(--text)',
-                }}>
-                  <Wand2 size={13} /> Coach
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        {agent.isBoss ? (
-          <>
-            <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-              Auto-generated from your team roster. Updates automatically when agents are added or removed.
-            </p>
-            <ClaudeMdSection agentId={agent.id} canEdit={false} />
-          </>
-        ) : (
-          <>
-            <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-              Define how this agent should behave — its rules, workflows, and response style. This is always in the agent&apos;s context.
-            </p>
-            <ClaudeMdSection agentId={agent.id} canEdit={canEdit} />
-          </>
-        )}
-      </div>
+      {/* ── Left rail + content ────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* Sub-nav rail */}
+        <nav style={{ width: 188, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {([
+            { id: 'system' as const, label: 'System Prompt', Icon: FileText },
+            { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
+            { id: 'memory' as const, label: 'Memory', Icon: Database },
+          ]).map(s => (
+            <button key={s.id} onClick={() => setSection(s.id)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 9, textAlign: 'left',
+              padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-sans)', fontSize: 13,
+              background: section === s.id ? 'var(--surface-2)' : 'transparent',
+              color: section === s.id ? 'var(--text)' : 'var(--muted)',
+              fontWeight: section === s.id ? 600 : 500,
+            }}><s.Icon size={15} />{s.label}</button>
+          ))}
+        </nav>
 
-      {/* ── Skills / Memory sub-tabs ──────────────────────────────────── */}
-      <InstructionsSubTabs agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />
+        {/* Content column */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Header: title + description (actions live in the tab bar) */}
+          <div style={{ marginBottom: 14 }}>
+            <h2 style={{ margin: '0 0 3px', fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>
+              {section === 'system' ? 'System Prompt' : section === 'skills' ? 'Skills' : 'Memory'}
+            </h2>
+            <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 620 }}>
+              {section === 'system'
+                ? (agent.isBoss
+                    ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
+                    : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
+                : section === 'skills'
+                ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
+                : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
+              {importError && <span style={{ color: 'var(--red)', marginLeft: 8 }}>{importError}</span>}
+            </p>
+          </div>
+
+          {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} updatedAt={agent.updatedAt} />}
+          {section === 'skills' && <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />}
+          {section === 'memory' && <MemorySection agentId={agent.id} canEdit={canEdit} />}
+        </div>
+      </div>
     </div>
   );
 }
 
-function InstructionsSubTabs({ agentId, canEdit, agentName, agentPersona, agentDescription }: { agentId: string; canEdit: boolean; agentName: string; agentPersona: string; agentDescription: string }) {
-  const [subTab, setSubTab] = useState<'skills' | 'memory'>('skills');
-
+/** Pill-style segmented switcher (System Prompt · Skills · Memory). */
+/** Labeled action button (icon + text) — used for the Instructions toolbar so
+ *  Coach / Export / Persona Library aren't hidden behind bare icons. */
+function ActionBtn({ icon, label, onClick, loading, primary, subtle }: { icon: React.ReactNode; label: string; onClick?: () => void; loading?: boolean; primary?: boolean; subtle?: boolean }) {
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
-        {(['skills', 'memory'] as const).map(t => (
-          <button
-            key={t}
-            onClick={() => setSubTab(t)}
-            style={{
-              padding: '8px 18px', fontSize: 13, fontWeight: subTab === t ? 600 : 400,
-              color: subTab === t ? 'var(--text)' : 'var(--muted)',
-              background: 'none', border: 'none', borderBottom: subTab === t ? '2px solid var(--accent)' : '2px solid transparent',
-              cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              transition: 'color 0.15s, border-color 0.15s',
-            }}
-          >
-            {t === 'skills' ? 'Skills' : 'Memory'}
-          </button>
-        ))}
-      </div>
-      {subTab === 'skills' && (
-        <div>
-          <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-            Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.
-          </p>
-          <SkillsTab agentId={agentId} canEdit={canEdit} agentName={agentName} agentPersona={agentPersona} agentDescription={agentDescription} />
-        </div>
-      )}
-      {subTab === 'memory' && (
-        <div>
-          <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 10px' }}>
-            Learned from conversations — the agent asks before saving. Open Coach to review and clean up.
-          </p>
-          <MemorySection agentId={agentId} canEdit={canEdit} />
-        </div>
-      )}
-    </div>
+    <button onClick={onClick} disabled={loading} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px',
+      fontSize: 12.5, fontWeight: 500, borderRadius: 8, fontFamily: 'var(--font-sans)',
+      cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
+      border: primary ? '1px solid transparent' : '1px solid var(--border)',
+      background: primary ? 'var(--accent)' : subtle ? 'transparent' : 'var(--surface)',
+      color: primary ? 'var(--accent-fg)' : subtle ? 'var(--muted)' : 'var(--text)',
+      boxShadow: primary ? '0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--shadow-sm)' : 'none',
+      transition: 'all 0.15s',
+    }}>
+      {loading ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : icon}
+      {label}
+    </button>
   );
 }
 
-function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
+function ClaudeMdSection({ agentId, canEdit, updatedAt }: { agentId: string; canEdit: boolean; updatedAt?: Date | string }) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [view, setView] = useState<'edit' | 'preview'>('preview');
 
   const refetch = () => {
     setLoading(true);
@@ -1134,32 +1705,67 @@ function ClaudeMdSection({ agentId, canEdit }: { agentId: string; canEdit: boole
   if (loading) return <p style={{ color: 'var(--muted)', fontSize: 14 }}>Loading...</p>;
 
   return (
-    <div style={{ position: 'relative' }}>
-      <textarea
-        value={content}
-        onChange={e => { setContent(e.target.value); setDirty(true); }}
-        readOnly={!canEdit}
-        placeholder="Write the agent's core instructions here — rules, workflows, response style..."
-        style={{
-          width: '100%', minHeight: 120, maxHeight: '50vh',
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 8, padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
-          color: 'var(--text)', fontFamily: 'var(--font-mono)',
-          resize: 'vertical', outline: 'none', boxSizing: 'border-box',
-        }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-      />
-      {(dirty || msg) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-          {canEdit && dirty && (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', overflow: 'hidden' }}>
+      {/* Slim toolbar — Last updated / save status (left) · Save + Edit/Preview (right) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontSize: 11.5, color: 'var(--subtle)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {msg
+            ? <span style={{ color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>
+            : (updatedAt ? `Last updated ${new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '')}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {canEdit && view === 'edit' && dirty && (
             <button onClick={save} disabled={saving} style={{
               background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
               borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 500,
               cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
-            }}>{saving ? 'Saving...' : 'Save'}</button>
+            }}>{saving ? 'Saving…' : 'Save'}</button>
           )}
-          {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
+          <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 9 }}>
+            {(['edit', 'preview'] as const).map(v => (
+              <button key={v} onClick={() => setView(v)} style={{
+                padding: '4px 13px', fontSize: 12, borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                background: view === v ? 'var(--surface)' : 'transparent',
+                color: view === v ? 'var(--text)' : 'var(--muted)',
+                fontWeight: view === v ? 600 : 400, boxShadow: view === v ? 'var(--shadow-sm)' : 'none',
+              }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {view === 'edit' ? (
+        <textarea
+          value={content}
+          onChange={e => { setContent(e.target.value); setDirty(true); }}
+          readOnly={!canEdit}
+          placeholder="Write the agent's core instructions here — rules, workflows, response style..."
+          style={{
+            display: 'block', width: '100%', minHeight: 440, maxHeight: '72vh',
+            background: 'var(--surface)', border: 'none',
+            padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
+            color: 'var(--text)', fontFamily: 'var(--font-mono)',
+            resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+          }}
+        />
+      ) : (
+        <div style={{ minHeight: 440, maxHeight: '72vh', overflow: 'auto', padding: '14px 18px', boxSizing: 'border-box' }}>
+          <MarkdownView>{content}</MarkdownView>
+        </div>
+      )}
+
+      {/* Footer metadata */}
+      {!loading && (
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', padding: '11px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+          {[
+            ['Characters', content.length.toLocaleString()],
+            ['Words', content.trim() ? content.trim().split(/\s+/).length.toLocaleString() : '0'],
+          ].map(([l, v]) => (
+            <div key={l}>
+              <div style={{ fontSize: 10.5, color: 'var(--subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{l}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 500 }}>{v}</div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1172,6 +1778,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
   const [skills, setSkills]         = useState<Skill[]>([]);
   const [selected, setSelected]     = useState<Skill | null>(null);
   const [content, setContent]       = useState('');
+  const [skillView, setSkillView]   = useState<'edit' | 'preview'>('preview');
   const [description, setDescription] = useState('');
   const [descModal, setDescModal]   = useState(false);
   const [descDraft, setDescDraft]   = useState('');
@@ -1472,8 +2079,17 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                <div style={{ display: 'inline-flex', gap: 2, padding: 2, background: 'var(--surface-3)', borderRadius: 7 }}>
+                  {(['edit', 'preview'] as const).map(v => (
+                    <button key={v} onClick={() => setSkillView(v)} style={{
+                      padding: '3px 10px', fontSize: 11, borderRadius: 5, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                      background: skillView === v ? 'var(--surface)' : 'transparent',
+                      color: skillView === v ? 'var(--text)' : 'var(--muted)', fontWeight: skillView === v ? 600 : 400,
+                    }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
+                  ))}
+                </div>
                 {msg && <span style={{ fontSize: 11.5, color: '#16a34a' }}>{msg}</span>}
-                {canEdit && !isIdentity && <button
+                {canEdit && !isIdentity && skillView === 'edit' && <button
                   onClick={save} disabled={saving}
                   style={{
                     background: saving ? 'var(--border)' : 'var(--accent)',
@@ -1487,18 +2103,24 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                 </button>}
               </div>
             </div>
-            <textarea
-              value={isIdentity ? identityVirtual.content : content}
-              onChange={e => { if (!isIdentity) setContent(e.target.value); }}
-              readOnly={!canEdit || isIdentity}
-              style={{
-                flex: 1, border: 'none', outline: 'none', resize: 'none',
-                background: 'transparent', color: 'var(--text)',
-                fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.65,
-                padding: '16px', caretColor: 'var(--accent)',
-              }}
-              spellCheck={false}
-            />
+            {skillView === 'edit' ? (
+              <textarea
+                value={isIdentity ? identityVirtual.content : content}
+                onChange={e => { if (!isIdentity) setContent(e.target.value); }}
+                readOnly={!canEdit || isIdentity}
+                style={{
+                  flex: 1, border: 'none', outline: 'none', resize: 'none',
+                  background: 'transparent', color: 'var(--text)',
+                  fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.65,
+                  padding: '16px', caretColor: 'var(--accent)',
+                }}
+                spellCheck={false}
+              />
+            ) : (
+              <div style={{ flex: 1, overflow: 'auto', padding: '16px 18px' }}>
+                <MarkdownView>{isIdentity ? identityVirtual.content : content}</MarkdownView>
+              </div>
+            )}
           </>
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)', fontSize: 13 }}>
@@ -1572,36 +2194,30 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
 // ─── MCPs ─────────────────────────────────────────────────────────────────────
 
 function ToolsTab({ agentId, canEdit, canManageMcps, currentUsername }: { agentId: string; canEdit: boolean; canManageMcps: boolean; currentUsername: string }) {
+  // Connected Apps (MCP servers). Capabilities (internet/shell) moved to Settings.
   return (
     <div className="fade-up">
-      {/* Section 1: Connected Apps (MCPs) */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
-          Connected Apps
-        </div>
-        <McpsSection agentId={agentId} canEdit={canEdit} canManageMcps={canManageMcps} currentUsername={currentUsername} />
-      </div>
-
-      {/* Section 2: Capabilities */}
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 14 }}>
-          Capabilities
-        </div>
-        <PermissionsTab agentId={agentId} canEdit={canEdit} />
-      </div>
+      <McpsSection agentId={agentId} canEdit={canEdit} canManageMcps={canManageMcps} currentUsername={currentUsername} />
     </div>
   );
 }
 
+/** Transport → icon. stdio = local process, http/sse = remote endpoints. */
+function mcpTypeIcon(type: McpServer['type']) {
+  return type === 'stdio' ? Terminal : type === 'http' ? Globe : Radio;
+}
+
 function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { agentId: string; canEdit: boolean; canManageMcps: boolean; currentUsername: string }) {
-  const [all, setAll]         = useState<McpServer[]>([]);
+  const [all, setAll]           = useState<McpServer[]>([]);
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
-  const [saving, setSaving]   = useState(false);
-  const [msg, setMsg]         = useState('');
-  // Tracks the initial fetch so the empty-state ("No MCP servers yet")
-  // doesn't flash before the data arrives. Without this, /api/mcps round-trip
-  // latency reads as "the feature is broken".
-  const [loading, setLoading] = useState(true);
+  // Snapshot of what's persisted, so we can show a Save bar only when the
+  // local selection diverges (Connect/Disconnect is optimistic; persisting
+  // triggers an agent reload, so we batch rather than save per-toggle).
+  const [initial, setInitial]   = useState<Set<string>>(new Set());
+  const [saving, setSaving]     = useState(false);
+  const [msg, setMsg]           = useState('');
+  // Tracks the initial fetch so the empty-state doesn't flash before data.
+  const [loading, setLoading]   = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1613,7 +2229,8 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
       fetch(`/api/agents/${agentId}/mcps`).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
     ]).then(([a, b]: [McpServer[], McpServer[]]) => {
       if (cancelled) return;
-      setAll(a); setAssigned(new Set(b.map(m => m.id)));
+      const ids = new Set(b.map(m => m.id));
+      setAll(a); setAssigned(ids); setInitial(new Set(ids));
     }).catch(err => {
       if (cancelled) return;
       setLoadError(err instanceof Error ? err.message : String(err));
@@ -1626,82 +2243,198 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
   const toggle = (id: string) =>
     setAssigned(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
+  const dirty = assigned.size !== initial.size || [...assigned].some(id => !initial.has(id));
+
   const save = async () => {
     setSaving(true);
-    await fetch(`/api/agents/${agentId}/mcps`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mcpIds: [...assigned] }),
-    });
-    setSaving(false); setMsg('Saved & reload triggered');
-    setTimeout(() => setMsg(''), 3000);
+    try {
+      await fetch(`/api/agents/${agentId}/mcps`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mcpIds: [...assigned] }),
+      });
+      setInitial(new Set(assigned));
+      setMsg('Saved · agent will reload');
+      setTimeout(() => setMsg(''), 3500);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  return (
-    <div style={{ maxWidth: 560 }} className="fade-up">
-      <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--muted)' }}>
-        Select MCP servers from the platform catalog to enable for this agent.
-      </p>
-      <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
-        {loading ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading apps…
+  const connected = all.filter(m => assigned.has(m.id));
+  const available = all.filter(m => !assigned.has(m.id));
+
+  const Badge = ({ children }: { children: React.ReactNode }) => (
+    <span style={{
+      fontSize: 10, fontWeight: 600, letterSpacing: '0.03em', fontFamily: 'var(--font-mono)',
+      color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)',
+      padding: '1px 6px', borderRadius: 5, lineHeight: 1.5, whiteSpace: 'nowrap',
+    }}>{children}</span>
+  );
+
+  const renderCard = (mcp: McpServer, isConn: boolean) => {
+    const Icon = mcpTypeIcon(mcp.type);
+    const canAssign = canManageMcps || mcp.createdBy === currentUsername;
+    const actionable = canEdit && canAssign && mcp.enabled;
+    return (
+      <div key={mcp.id} style={{
+        border: isConn ? '1px solid var(--border-2)' : '1px solid var(--border)', borderRadius: 14,
+        background: isConn ? 'var(--surface-2)' : 'var(--surface)',
+        overflow: 'hidden', opacity: mcp.enabled ? 1 : 0.6,
+      }}>
+        <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+          <div style={{
+            position: 'relative', width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)',
+          }}>
+            <Icon size={20} />
+            {isConn && (
+              <span style={{
+                position: 'absolute', right: -5, bottom: -5, width: 18, height: 18, borderRadius: '50%',
+                background: 'var(--accent)', color: 'var(--accent-fg)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface-2)',
+              }}><Check size={11} strokeWidth={3} /></span>
+            )}
           </div>
-        ) : loadError ? (
-          <div style={{ padding: '16px 20px', color: 'var(--red)', fontSize: 13, background: 'var(--red-soft-bg)' }}>
-            Couldn't load MCP servers: {loadError}
-          </div>
-        ) : all.length === 0 ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-            No MCP servers yet.{' '}
-            <Link href="/settings/mcps" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Add some →</Link>
-          </div>
-        ) : all.map((mcp, i) => {
-          const canAssign = canManageMcps || mcp.createdBy === currentUsername;
-          const isDisabled = !mcp.enabled || !canEdit || !canAssign;
-          return (
-            <label
-              key={mcp.id}
-              style={{
-                display: 'flex', alignItems: 'flex-start', gap: 12,
-                padding: '13px 16px', cursor: isDisabled ? 'not-allowed' : 'pointer',
-                borderBottom: i < all.length - 1 ? '1px solid var(--border)' : 'none',
-                background: 'transparent', transition: 'background 0.12s',
-                opacity: mcp.enabled ? 1 : 0.45,
-              }}
-              onMouseEnter={e => { if (!isDisabled) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-            >
-              <input
-                type="checkbox"
-                checked={assigned.has(mcp.id)}
-                onChange={() => toggle(mcp.id)}
-                disabled={isDisabled}
-                style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0, marginTop: 2 }}
-              />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{mcp.name}</span>
-                  <span style={{
-                    fontSize: 10.5, fontFamily: 'var(--font-mono)',
-                    color: 'var(--muted)', background: 'var(--border)',
-                    padding: '1px 6px', borderRadius: 4,
-                  }}>{mcp.type}</span>
-                  {!mcp.enabled && <span style={{ fontSize: 11, color: 'var(--subtle)' }}>disabled</span>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mcp.name}</span>
+                  <Badge>MCP</Badge>
+                  <Badge>{mcp.type.toUpperCase()}</Badge>
                 </div>
-                {mcp.description && <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{mcp.description}</p>}
-                {canEdit && !canAssign && (
-                  <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-                    Only the MCP owner or an admin can assign this
-                  </p>
-                )}
               </div>
-            </label>
-          );
-        })}
+              {canEdit && (
+                actionable ? (
+                  <button onClick={() => toggle(mcp.id)} style={{
+                    flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 8,
+                    cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                    border: '1px solid var(--border)',
+                    background: isConn ? 'var(--surface)' : 'var(--accent)',
+                    color: isConn ? 'var(--text)' : 'var(--accent-fg)',
+                    borderColor: isConn ? 'var(--border)' : 'var(--accent)',
+                  }}>
+                    {isConn ? <><X size={13} />Disconnect</> : <><Plus size={13} />Connect</>}
+                  </button>
+                ) : (
+                  <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--subtle)', maxWidth: 130, textAlign: 'right' }}>
+                    {!mcp.enabled ? 'Disabled in catalog' : 'Owner/admin only'}
+                  </span>
+                )
+              )}
+            </div>
+            {mcp.description && (
+              <p style={{
+                margin: '7px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5,
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>{mcp.description}</p>
+            )}
+          </div>
+        </div>
+        <div style={{
+          borderTop: '1px solid var(--border)',
+          padding: '9px 16px', display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5,
+          color: isConn ? 'var(--green)' : 'var(--muted)', fontWeight: isConn ? 600 : 400,
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: isConn ? 'var(--green)' : 'var(--subtle)', flexShrink: 0 }} />
+          {isConn ? 'Connected' : 'Not connected'}
+        </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Assignments</PrimaryBtn>}
-        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+    );
+  };
+
+  const SectionHead = ({ label, count }: { label: string; count: number }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
+      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{label}</h3>
+      <span style={{
+        fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)',
+        border: '1px solid var(--border)', borderRadius: 99, padding: '0 8px', lineHeight: '18px',
+      }}>{count}</span>
+    </div>
+  );
+
+  const colEmpty = (text: string) => (
+    <div style={{
+      border: '1px dashed var(--border)', borderRadius: 14, padding: '28px 16px',
+      textAlign: 'center', fontSize: 12.5, color: 'var(--muted)',
+    }}>{text}</div>
+  );
+
+  return (
+    <div className="fade-up">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>Tools</h2>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
+            Connect external systems and MCP servers that this agent can use.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {msg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{msg}</span>}
+          {canEdit && dirty && <PrimaryBtn onClick={save} loading={saving}>Save changes</PrimaryBtn>}
+          <Link href="/settings/mcps" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px',
+            fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none',
+            border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
+          }}>Browse MCP Catalog <ExternalLink size={13} /></Link>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading tools…
+        </div>
+      ) : loadError ? (
+        <div style={{ padding: '16px 20px', color: 'var(--red)', fontSize: 13, background: 'var(--red-soft-bg)', borderRadius: 12 }}>
+          Couldn't load MCP servers: {loadError}
+        </div>
+      ) : all.length === 0 ? (
+        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+          No MCP servers in the catalog yet.{' '}
+          <Link href="/settings/mcps" style={{ color: 'var(--text)', fontWeight: 500 }}>Add one →</Link>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 28, alignItems: 'start' }}>
+          <div>
+            <SectionHead label="Connected Tools" count={connected.length} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {connected.length ? connected.map(m => renderCard(m, true)) : colEmpty('No tools connected yet — connect one from the right.')}
+            </div>
+          </div>
+          <div>
+            <SectionHead label="Available Tools" count={available.length} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {available.length ? available.map(m => renderCard(m, false)) : colEmpty('All catalog tools are connected.')}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* What are tools? */}
+      <div style={{
+        marginTop: 28, padding: '16px 18px', border: '1px solid var(--border)', borderRadius: 14,
+        background: 'var(--surface-2)', display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap',
+      }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: 10, flexShrink: 0, display: 'flex',
+          alignItems: 'center', justifyContent: 'center', background: 'var(--surface)',
+          border: '1px solid var(--border)', color: 'var(--text)',
+        }}><Plug size={18} /></div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>What are tools?</div>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+            Tools let this agent securely access external systems and data through MCP (Model Context Protocol) servers —
+            querying databases, calling APIs, or running integrations. Connect the ones it needs; changes take effect on its next reload.
+          </p>
+        </div>
+        <Link href="/settings/mcps" style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', alignSelf: 'center',
+          fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none',
+          border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0,
+        }}>Learn more <ExternalLink size={13} /></Link>
       </div>
     </div>
   );
@@ -1759,26 +2492,19 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
 
   if (loading) {
     return (
-      <div style={{
-        maxWidth: 500, padding: '20px 22px',
-        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
-        display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13,
-      }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13, padding: '6px 0' }}>
         <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading capabilities…
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 500 }}>
-      <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, overflow: 'hidden',
-      }}>
+    <div>
+      <div>
         {/* Internet Access */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px', borderBottom: '1px solid var(--border)',
+          padding: '2px 0 14px', borderBottom: '1px solid var(--border)',
         }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Internet Access</div>
@@ -1806,7 +2532,7 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
         {/* Shell Access */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px',
+          padding: '14px 0 2px',
         }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Shell Access</div>
@@ -2085,12 +2811,15 @@ function WikiTree({ articles, onSelect, selected }: { articles: WikiArticle[]; o
 // ─── Knowledge (Wiki Folder Assignment) ─────────────────────────────────────
 
 interface WikiFolder { id: string; name: string; description?: string; createdBy: string; createdAt: string; updatedAt: string; }
-interface WikiSource  { id: string; status: string; wordCount: number; type: string; }
+interface WikiSource  { id: string; status: string; wordCount: number; type: string; lastSynced?: string; }
+
+type FolderStats = { sources: number; words: number; lastSynced: string | null };
 
 function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string; canEdit: boolean }) {
-  const [allFolders, setAllFolders]   = useState<(WikiFolder & { assigned: boolean })[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [saving, setSaving]           = useState(false);
+  const [allFolders, setAllFolders] = useState<(WikiFolder & { assigned: boolean })[]>([]);
+  const [stats, setStats]           = useState<Record<string, FolderStats>>({});
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -2099,88 +2828,159 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
       fetch(`/api/agents/${agentId}/wiki-folders`).then(r => r.json()) as Promise<WikiFolder[]>,
     ]).then(([all, assigned]) => {
       const assignedIds = new Set(assigned.map((f: WikiFolder) => f.id));
-      setAllFolders(all.map(f => ({ ...f, assigned: assignedIds.has(f.id) })));
+      const merged = all.map(f => ({ ...f, assigned: assignedIds.has(f.id) }));
+      setAllFolders(merged);
+      // Per-folder counts come from each folder's sources (one fetch each).
+      merged.forEach(f => {
+        fetch(`/api/wiki-folders/${f.id}/sources`).then(r => r.ok ? r.json() : []).then((srcs: WikiSource[]) => {
+          const words = srcs.reduce((s, x) => s + (x.wordCount || 0), 0);
+          const lastSynced = srcs.reduce<string | null>((m, x) => (x.lastSynced && (!m || x.lastSynced > m) ? x.lastSynced : m), null);
+          setStats(prev => ({ ...prev, [f.id]: { sources: srcs.length, words, lastSynced } }));
+        }).catch(() => {});
+      });
     }).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, [agentId]);
 
   async function toggle(folderId: string, currentlyAssigned: boolean) {
-    setSaving(true);
+    setSaving(folderId);
     const updated = allFolders.map(f => f.id === folderId ? { ...f, assigned: !currentlyAssigned } : f);
     setAllFolders(updated);
     const newIds = updated.filter(f => f.assigned).map(f => f.id);
     const r = await fetch(`/api/agents/${agentId}/wiki-folders`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderIds: newIds }),
     });
     if (!r.ok) {
-      // Roll back optimistic update
-      setAllFolders(allFolders);
+      setAllFolders(allFolders); // roll back optimistic update
       const err = await r.json().catch(() => ({}));
       alert(err.error ?? 'Failed to update wiki folder assignment');
     }
-    setSaving(false);
+    setSaving(null);
   }
 
+  const fmtWords = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  const fmtSynced = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+
+  const assigned  = allFolders.filter(f => f.assigned);
+  const available = allFolders.filter(f => !f.assigned);
+
+  const renderCard = (f: WikiFolder & { assigned: boolean }) => {
+    const st = stats[f.id];
+    const busy = saving === f.id;
+    return (
+      <div key={f.id} style={{
+        border: `1px solid ${f.assigned ? 'var(--border-2)' : 'var(--border)'}`, borderRadius: 14,
+        background: f.assigned ? 'var(--surface-2)' : 'var(--surface)', overflow: 'hidden',
+      }}>
+        <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+          <Link href={`/knowledge?folder=${f.id}`} title={`Open ${f.name}`} style={{ width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', textDecoration: 'none' }}>
+            {f.assigned ? <FolderOpen size={20} /> : <Folder size={20} />}
+          </Link>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <Link href={`/knowledge?folder=${f.id}`} title={`Open ${f.name}`} style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                  onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}>{f.name}</Link>
+                <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 2 }}>by {f.createdBy}</div>
+              </div>
+              {canEdit ? (
+                <button onClick={() => toggle(f.id, f.assigned)} disabled={busy} style={{
+                  flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 8,
+                  cursor: busy ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)', opacity: busy ? 0.6 : 1,
+                  border: '1px solid var(--border)',
+                  background: f.assigned ? 'var(--surface)' : 'var(--accent)',
+                  color: f.assigned ? 'var(--text)' : 'var(--accent-fg)',
+                  borderColor: f.assigned ? 'var(--border)' : 'var(--accent)',
+                }}>
+                  {f.assigned ? <><X size={13} />Unassign</> : <><Plus size={13} />Assign</>}
+                </button>
+              ) : null}
+            </div>
+            {f.description && (
+              <p style={{ margin: '7px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{f.description}</p>
+            )}
+          </div>
+        </div>
+        <div style={{ borderTop: '1px solid var(--border)', padding: '9px 16px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 11.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><FileText size={12} /> {st ? `${st.sources} source${st.sources !== 1 ? 's' : ''}` : '—'}</span>
+          <span style={{ color: 'var(--border-2)' }}>·</span>
+          <span>{st ? `${fmtWords(st.words)} words` : '—'}</span>
+          {st?.lastSynced && (<><span style={{ color: 'var(--border-2)' }}>·</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Clock size={12} /> synced {fmtSynced(st.lastSynced)}</span></>)}
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: f.assigned ? 'var(--green)' : 'var(--subtle)', fontWeight: f.assigned ? 600 : 400 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: f.assigned ? 'var(--green)' : 'var(--subtle)' }} />
+            {f.assigned ? 'Assigned' : 'Not assigned'}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const SectionHead = ({ label, count }: { label: string; count: number }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
+      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{label}</h3>
+      <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 99, padding: '0 8px', lineHeight: '18px' }}>{count}</span>
+    </div>
+  );
+
+  const colEmpty = (text: string) => (
+    <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '28px 16px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>{text}</div>
+  );
+
   return (
-    <div style={{ maxWidth: 700 }}>
-      <div style={{ marginBottom: 20 }}>
-        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Wiki Folders</h3>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Assign shared knowledge folders to this agent. The agent reads these wikis at compile time.
-          Manage folder contents in the <a href="/knowledge" style={{ color: 'var(--accent)' }}>Knowledge Library</a>.
-        </p>
+    <div className="fade-up">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>Wiki</h2>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
+            Assign shared knowledge folders — the agent reads these wikis at compile time.
+          </p>
+        </div>
+        <Link href="/knowledge" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0 }}>Knowledge Library <ExternalLink size={13} /></Link>
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading folders…
+        </div>
       ) : allFolders.length === 0 ? (
-        <div style={{
-          border: '1px dashed var(--border)', borderRadius: 10, padding: '32px',
-          textAlign: 'center', color: 'var(--muted)', fontSize: 13,
-        }}>
-          No wiki folders exist yet. <a href="/knowledge" style={{ color: 'var(--accent)' }}>Create one in the Knowledge Library.</a>
+        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+          No wiki folders exist yet.{' '}
+          <Link href="/knowledge" style={{ color: 'var(--text)', fontWeight: 500 }}>Create one in the Knowledge Library →</Link>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {allFolders.map(f => (
-            <div key={f.id} style={{
-              background: 'var(--surface)', border: `1px solid ${f.assigned ? 'var(--accent-border, rgba(99,102,241,0.35))' : 'var(--border)'}`,
-              borderRadius: 10, padding: '14px 16px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              transition: 'border-color 0.15s',
-            }}>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>{f.name}</div>
-                {f.description && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{f.description}</div>}
-                <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 3 }}>Created by {f.createdBy}</div>
-              </div>
-              {canEdit ? (
-                <button
-                  onClick={() => toggle(f.id, f.assigned)}
-                  disabled={saving}
-                  style={{
-                    padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
-                    cursor: saving ? 'default' : 'pointer', border: 'none',
-                    background: f.assigned ? 'var(--accent)' : 'var(--surface-2)',
-                    color: f.assigned ? 'var(--accent-fg)' : 'var(--text)',
-                    opacity: saving ? 0.6 : 1, transition: 'background 0.15s, color 0.15s',
-                    flexShrink: 0,
-                  }}
-                >
-                  {f.assigned ? 'Assigned' : 'Assign'}
-                </button>
-              ) : (
-                <span style={{ fontSize: 12, color: f.assigned ? '#059669' : 'var(--subtle)', fontWeight: 500 }}>
-                  {f.assigned ? 'Assigned' : 'Not assigned'}
-                </span>
-              )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 28, alignItems: 'start' }}>
+          <div>
+            <SectionHead label="Assigned" count={assigned.length} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {assigned.length ? assigned.map(renderCard) : colEmpty('No folders assigned yet — assign one from the right.')}
             </div>
-          ))}
+          </div>
+          <div>
+            <SectionHead label="Available" count={available.length} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {available.length ? available.map(renderCard) : colEmpty('All folders are assigned.')}
+            </div>
+          </div>
         </div>
       )}
+
+      {/* What is the wiki? */}
+      <div style={{ marginTop: 28, padding: '16px 18px', border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface-2)', display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}><BookOpen size={18} /></div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>What is the wiki?</div>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+            Wiki folders are shared knowledge bases — docs, repos, and URLs — that the agent reads at compile time.
+            Assign the folders this agent should know; edit folder contents in the Knowledge Library.
+          </p>
+        </div>
+        <Link href="/knowledge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', alignSelf: 'center', fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0 }}>Learn more <ExternalLink size={13} /></Link>
+      </div>
     </div>
   );
 }
@@ -2564,23 +3364,55 @@ function Field({ label, value, onChange, hint, type = 'text', readOnly }: {
         style={{
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
-          transition: 'border-color 0.15s',
+          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
         }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+        onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent)'; }}
+        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
       />
       {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
   );
 }
 
-function TextArea({ label, value, onChange, hint, rows = 3, readOnly }: {
-  label: string; value: string; onChange: (v: string) => void;
-  hint?: string; rows?: number; readOnly?: boolean;
+function SelectField({ label, value, options, onChange, hint, readOnly }: {
+  label: string; value: string; options: { value: string; label: string; sub?: string }[];
+  onChange: (v: string) => void; hint?: React.ReactNode; readOnly?: boolean;
 }) {
+  const known = options.some(o => o.value === value);
   return (
     <div>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
+        {label}
+      </label>
+      <select
+        value={value} onChange={e => onChange(e.target.value)} disabled={readOnly}
+        style={{
+          width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
+          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
+          cursor: readOnly ? 'default' : 'pointer',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+        }}
+        onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent)'; }}
+        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
+      >
+        {options.map((o, i) => (
+          <option key={o.value} value={o.value}>{o.label}{o.sub ? ` — ${o.sub}` : ''}{i === 0 ? ' (default)' : ''}</option>
+        ))}
+        {!known && value && <option value={value}>{value}</option>}
+      </select>
+      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
+    </div>
+  );
+}
+
+function TextArea({ label, value, onChange, hint, rows = 3, readOnly, grow }: {
+  label: string; value: string; onChange: (v: string) => void;
+  hint?: string; rows?: number; readOnly?: boolean; grow?: boolean;
+}) {
+  return (
+    <div style={grow ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } : undefined}>
       <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
         {label}
       </label>
@@ -2589,11 +3421,12 @@ function TextArea({ label, value, onChange, hint, rows = 3, readOnly }: {
         style={{
           width: '100%', background: 'var(--surface)', border: '1.5px solid var(--border)',
           borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
-          transition: 'border-color 0.15s',
+          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
+          transition: 'border-color 0.15s, box-shadow 0.15s', boxSizing: 'border-box',
+          ...(grow ? { flex: 1, minHeight: 140 } : {}),
         }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+        onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent)'; }}
+        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
       />
       {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
     </div>
@@ -2606,16 +3439,15 @@ function PrimaryBtn({ children, onClick, loading }: {
   return (
     <button onClick={onClick} disabled={loading} style={{
       background: loading ? 'var(--border)' : 'var(--accent)',
-      color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
-      padding: '10px 22px', fontSize: 14, fontWeight: 600,
+      color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
+      padding: '7px 14px', fontSize: 13, fontWeight: 500,
       letterSpacing: '-0.01em',
       cursor: loading ? 'not-allowed' : 'pointer',
       fontFamily: 'var(--font-sans)',
-      boxShadow: loading ? 'none' : 'var(--shadow-sm)',
-      transition: 'opacity 0.15s, transform 0.15s, box-shadow 0.15s',
+      transition: 'opacity 0.15s',
     }}
-      onMouseEnter={e => { if (!loading) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; }}
+      onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
     >{loading ? 'Saving…' : children}</button>
   );
 }
@@ -2624,8 +3456,8 @@ function GhostBtn({ children, onClick, loading }: { children: React.ReactNode; o
   return (
     <button onClick={onClick} disabled={loading} style={{
       background: 'transparent', color: 'var(--muted)',
-      border: '1.5px solid var(--border-2)', borderRadius: 'var(--radius)',
-      padding: '10px 20px', fontSize: 14, fontWeight: 500, fontFamily: 'var(--font-sans)',
+      border: '1px solid var(--border-2)', borderRadius: 8,
+      padding: '7px 14px', fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em', fontFamily: 'var(--font-sans)',
       cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
       transition: 'border-color 0.15s, color 0.15s',
     }}
@@ -2665,36 +3497,45 @@ function IconBtn({ children, onClick, title, loading }: { children: React.ReactN
   );
 }
 
-function Btn({ children, onClick, color, textColor }: {
-  children: React.ReactNode; onClick?: () => void;
-  color?: string; textColor?: string;
+/**
+ * Header action button — consistent icon+label pill. `default` is a neutral
+ * outline (Test/Activity/Reload); `danger`/`success` fill solid for the
+ * destructive Stop / Start lifecycle actions. Renders a Link when `href` is set.
+ */
+function HeaderBtn({ icon, label, onClick, href, title, tone = 'default' }: {
+  icon: React.ReactNode; label: string; onClick?: () => void; href?: string; title?: string;
+  tone?: 'default' | 'danger' | 'success';
 }) {
-  return (
-    <button onClick={onClick} style={{
-      background: color ?? 'var(--border)', color: textColor ?? '#fff',
-      border: 'none', borderRadius: 'var(--radius)', padding: '8px 18px',
-      fontSize: 13, fontWeight: 600, cursor: 'pointer',
-      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
-    }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
-    >{children}</button>
-  );
+  const p = tone === 'danger'
+    ? { bg: '#ef4444', border: '#ef4444', color: '#fff', hbg: '#dc2626', hbd: '#dc2626' }
+    : tone === 'success'
+    ? { bg: '#16a34a', border: '#16a34a', color: '#fff', hbg: '#15803d', hbd: '#15803d' }
+    : { bg: 'var(--surface)', border: 'var(--border)', color: 'var(--text)', hbg: 'var(--surface-2)', hbd: 'var(--border-2)' };
+  const style: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+    background: p.bg, border: `1px solid ${p.border}`, color: p.color,
+    borderRadius: 8, fontSize: 12.5, fontWeight: 500, cursor: 'pointer',
+    fontFamily: 'var(--font-sans)', textDecoration: 'none', whiteSpace: 'nowrap', transition: 'all 0.15s',
+  };
+  const enter = (e: React.MouseEvent) => { const el = e.currentTarget as HTMLElement; el.style.background = p.hbg; el.style.borderColor = p.hbd; };
+  const leave = (e: React.MouseEvent) => { const el = e.currentTarget as HTMLElement; el.style.background = p.bg; el.style.borderColor = p.border; };
+  if (href) return <Link href={href} title={title} style={style} onMouseEnter={enter} onMouseLeave={leave}>{icon}{label}</Link>;
+  return <button onClick={onClick} title={title} style={style} onMouseEnter={enter} onMouseLeave={leave}>{icon}{label}</button>;
 }
 
-function Modal({ title, children, onClose }: {
-  title: string; children: React.ReactNode; onClose: () => void;
+function Modal({ title, children, onClose, width = 440 }: {
+  title: string; children: React.ReactNode; onClose: () => void; width?: number;
 }) {
   return (
     <Portal>
-    <div style={{
+    <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
       backdropFilter: 'blur(4px)',
     }}>
-      <div style={{
+      <div onClick={e => e.stopPropagation()} style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-lg)', padding: '28px', width: 440,
+        borderRadius: 'var(--radius-lg)', padding: '28px', width, maxWidth: '92vw',
         boxShadow: 'var(--shadow-modal)',
         display: 'flex', flexDirection: 'column', gap: 16,
         maxHeight: '90vh', overflow: 'auto',
@@ -2760,6 +3601,9 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
 
 function PersonaLibraryModal({
   agentId,
+  tab,
+  onTabChange,
+  jsonPanel,
   fileInputRef,
   applying,
   search,
@@ -2776,6 +3620,9 @@ function PersonaLibraryModal({
   onClose,
 }: {
   agentId: string;
+  tab: 'json' | 'template';
+  onTabChange: (t: 'json' | 'template') => void;
+  jsonPanel: React.ReactNode;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   applying: boolean;
   search: string;
@@ -2821,19 +3668,23 @@ function PersonaLibraryModal({
             padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
             display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
           }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.3px' }}>
-                Persona Library
-              </h2>
-              <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--muted)' }}>
-                {PERSONA_CATALOG.length} pre-built personas — click to preview and import
-              </p>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['json', 'template'] as const).map(id => (
+                <button key={id} onClick={() => onTabChange(id)} style={{
+                  padding: '7px 14px', fontSize: 13, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                  background: tab === id ? 'var(--surface-2)' : 'transparent',
+                  color: tab === id ? 'var(--text)' : 'var(--muted)', fontWeight: tab === id ? 600 : 500,
+                }}>{id === 'json' ? 'Import JSON' : 'Choose Template'}</button>
+              ))}
             </div>
             <button onClick={onClose} style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: 'var(--muted)', padding: 4, marginTop: -2,
             }}><X size={18} /></button>
           </div>
+
+          {tab === 'json' && jsonPanel}
+          {tab === 'template' && (<>
 
           {/* ── Search bar ───────────────────────────────────────────────── */}
           <div style={{
@@ -2860,14 +3711,6 @@ function PersonaLibraryModal({
                 }}
               />
             </div>
-            <button onClick={() => { onClose(); fileInputRef.current?.click(); }} style={{
-              background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-              cursor: 'pointer', color: 'var(--muted)', fontSize: 12,
-              padding: '6px 12px', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
-            }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
-            >Import JSON</button>
           </div>
 
           {/* ── Body: sidebar + main ─────────────────────────────────────── */}
@@ -3180,6 +4023,7 @@ function PersonaLibraryModal({
               </div>
             )}
           </div>
+          </>)}
         </div>
       </div>
     </Portal>
@@ -3211,7 +4055,7 @@ function buildDiffFiles(snapshot: AgentSnapshot, current: AgentSnapshot): FileCh
   const currMd = current.compiledMd?.trim() ?? '';
   const snapMd = snapshot.compiledMd?.trim() ?? '';
   if (currMd && snapMd && currMd !== snapMd) {
-    files.push({ path: 'CLAUDE.md', status: 'modified', oldText: currMd, newText: snapMd });
+    files.push({ path: 'AGENTS.md', status: 'modified', oldText: currMd, newText: snapMd });
   }
 
   const snapMap = new Map(snapshot.skillsJson.map(s => [`${s.category}/${s.filename}`, s.content]));
@@ -3331,17 +4175,18 @@ const TRIGGER_COLORS: Record<string, { bg: string; color: string }> = {
   manual:      { bg: 'rgba(22,163,74,0.12)',   color: '#16a34a' },
 };
 
+const TRIGGER_LABELS: Record<string, string> = {
+  skills: 'Skills', permissions: 'Capabilities', mcps: 'Connected Apps',
+  'claude-md': 'System Prompt', manual: 'Manual', restrictions: 'Channels',
+};
+
 function TriggerBadge({ trigger }: { trigger: string }) {
   const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--surface-2)', color: 'var(--muted)' };
-  const label: Record<string, string> = {
-    skills: 'Skills', permissions: 'Capabilities', mcps: 'Connected Apps',
-    'claude-md': 'System Prompt', manual: 'Manual', restrictions: 'Channels',
-  };
   return (
     <span style={{
       fontSize: 10.5, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
       background: c.bg, color: c.color, letterSpacing: '0.03em',
-    }}>{label[trigger] ?? trigger}</span>
+    }}>{TRIGGER_LABELS[trigger] ?? trigger}</span>
   );
 }
 
@@ -3358,6 +4203,8 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   const [restoring, setRestoring] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [msg, setMsg]             = useState('');
+  const [copied, setCopied]       = useState(false);
+  const [menuOpen, setMenuOpen]   = useState(false);
 
   // Load snapshot list + MCP catalog (fast path — no live state on mount)
   useEffect(() => {
@@ -3451,6 +4298,31 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
     return `${dt.toLocaleDateString()} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
+  const handleExport = () => {
+    if (!fullSnapshot) return;
+    const blob = new Blob([JSON.stringify(fullSnapshot, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `snapshot-${fullSnapshot.id}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyId = () => {
+    if (!fullSnapshot) return;
+    navigator.clipboard?.writeText(fullSnapshot.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  // Newer/Older paging across the (newest-first) snapshot list.
+  const selIndex = selectedId ? snapshots.findIndex(s => s.id === selectedId) : -1;
+  const goNewer = () => { if (selIndex > 0) setSelectedId(snapshots[selIndex - 1].id); };
+  const goOlder = () => { if (selIndex >= 0 && selIndex < snapshots.length - 1) setSelectedId(snapshots[selIndex + 1].id); };
+
+  const ghostBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-sans)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' };
+  const primaryBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 8, border: 'none', color: 'var(--accent-fg)', fontFamily: 'var(--font-sans)' };
+  const pagerBtnStyle = (disabled: boolean): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, fontFamily: 'var(--font-sans)', border: '1px solid var(--border)', background: 'var(--surface)', color: disabled ? 'var(--subtle)' : 'var(--text)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 });
+
   // Compare target is always live current state — restore preview is current-only.
   const currentAsSnapshot: AgentSnapshot | null = liveSnapshot;
 
@@ -3481,273 +4353,192 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   );
 
   return (
-    <div style={{ display: 'flex', gap: 20, minHeight: 500, alignItems: 'flex-start' }}>
+    <div className="fade-up">
+      {/* ── Section header ─────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div style={{ display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+          <div style={{ width: 40, height: 40, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}><History size={19} /></div>
+          <div>
+            <h2 style={{ margin: '0 0 3px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>History</h2>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 520 }}>View and compare snapshots of this agent's configuration over time.</p>
+          </div>
+        </div>
+        {msg && <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>{msg}</span>}
+      </div>
 
-      {/* ── Left: snapshot list ────────────────────────────────────────────── */}
-      <div style={{ width: 280, flexShrink: 0 }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-            color: 'var(--subtle)', textTransform: 'uppercase',
-          }}>
-            {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
-          </span>
-          {canEdit && (
-            <button onClick={handleCreateManual} style={{
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
-              borderRadius: 'var(--radius-sm)', padding: '7px 13px',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              fontFamily: 'var(--font-sans)', letterSpacing: '-0.01em',
-              boxShadow: 'var(--shadow-sm)', transition: 'opacity 0.15s',
-            }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-            >+ Snapshot</button>
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        {/* ── Left: snapshot timeline ──────────────────────────────────── */}
+        <div style={{ width: 300, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '13px 15px', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase' }}>
+              <History size={13} /> {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
+            </span>
+            {canEdit && (
+              <button onClick={handleCreateManual} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '6px 11px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Plus size={13} /> Snapshot</button>
+            )}
+          </div>
+
+          {snapshots.length === 0 ? (
+            <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+              <Camera size={22} style={{ color: 'var(--border-2)' }} />
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: '10px 0 6px' }}>No snapshots yet</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>Snapshots are saved automatically when you change skills, tools, or capabilities.</div>
+            </div>
+          ) : (
+            <div style={{ position: 'relative', padding: '14px 15px' }}>
+              <div style={{ position: 'absolute', left: 20, top: 22, bottom: 22, width: 2, background: 'var(--border)' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {snapshots.map((snap, i) => {
+                  const isSel = snap.id === selectedId;
+                  return (
+                    <div key={snap.id} onClick={() => setSelectedId(snap.id)} style={{ position: 'relative', paddingLeft: 20, cursor: 'pointer' }}>
+                      <span style={{ position: 'absolute', left: 0, top: 15, width: 12, height: 12, borderRadius: '50%', background: isSel ? 'var(--accent)' : 'var(--surface)', border: `2px solid ${isSel ? 'var(--accent)' : 'var(--border-2)'}`, boxShadow: '0 0 0 3px var(--surface)', zIndex: 1 }} />
+                      <div style={{ border: `1px solid ${isSel ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 11, background: isSel ? 'var(--surface-2)' : 'var(--surface)', padding: '10px 12px', transition: 'border-color .15s, background .15s' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{TRIGGER_LABELS[snap.trigger] ?? snap.trigger}</span>
+                          {i === 0 && <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--accent-fg)', background: 'var(--accent)', borderRadius: 5, padding: '1px 6px', textTransform: 'uppercase' }}>Latest</span>}
+                          <ChevronRight size={14} style={{ color: 'var(--subtle)', marginLeft: 'auto', flexShrink: 0 }} />
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{fmt(snap.createdAt)}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 1 }}>by {snap.createdBy}</div>
+                        {snap.label && <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snap.label}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
 
-        {msg && (
-          <div style={{
-            fontSize: 12, color: '#16a34a', background: '#f0fdf4',
-            border: '1px solid #bbf7d0', borderRadius: 8,
-            padding: '8px 12px', marginBottom: 10,
-          }}>{msg}</div>
-        )}
-
-        {snapshots.length === 0 ? (
-          <div style={{
-            background: 'var(--surface)', borderRadius: 'var(--radius)',
-            boxShadow: 'var(--shadow-card)', padding: '28px 20px',
-            textAlign: 'center',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Camera size={22} style={{ color: 'var(--border-2)' }} /></div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No snapshots yet</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-              Snapshots are saved automatically when you change skills, MCPs, or permissions.
+        {/* ── Right: detail ────────────────────────────────────────────── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {loadingDetail ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ height: 36, borderRadius: 10, background: 'var(--surface-2)' }} />
+              <div style={{ height: 84, borderRadius: 12, background: 'var(--surface-2)' }} />
+              {[160, 120].map((h, i) => <div key={i} style={{ height: h, borderRadius: 12, background: 'var(--surface-2)', opacity: 1 - i * 0.3 }} />)}
             </div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {snapshots.map(snap => {
-              const isSelected = snap.id === selectedId;
-              return (
-                <div
-                  key={snap.id}
-                  onClick={() => { setSelectedId(isSelected ? null : snap.id); }}
-                  style={{
-                    background: 'var(--surface)',
-                    borderRadius: 'var(--radius)',
-                    boxShadow: isSelected ? '0 0 0 2px var(--accent), var(--shadow-card)' : 'var(--shadow-card)',
-                    padding: '13px 15px', cursor: 'pointer',
-                    transition: 'box-shadow 0.15s',
-                  }}
-                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}
-                  onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-card)'; }}
-                >
-                  {/* Top row: badge + author */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-                    <TriggerBadge trigger={snap.trigger} />
-                    <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-mono)' }}>{snap.createdBy}</span>
-                  </div>
-
-                  {/* Timestamp */}
-                  <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)', marginBottom: snap.label ? 4 : 0 }}>
-                    {fmt(snap.createdAt)}
-                  </div>
-
-                  {/* Optional label */}
-                  {snap.label && (
-                    <div style={{
-                      fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic',
-                      marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>{snap.label}</div>
-                  )}
-
-                  {/* Actions — only when selected. Restore moves to the diff pane header; sidebar keeps Delete only. */}
-                  {isSelected && canEdit && (
-                    <div style={{ display: 'flex', gap: 7, marginTop: 11, paddingTop: 11, borderTop: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
-                      <button
-                        onClick={() => handleDelete(snap.id)}
-                        style={{
-                          flex: 1, fontSize: 12, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
-                          background: 'transparent', color: 'var(--red)',
-                          border: '1.5px solid rgba(220,38,38,0.25)',
-                          fontFamily: 'var(--font-sans)', fontWeight: 500, transition: 'all 0.15s',
-                        }}
-                        onMouseEnter={e => { (e.currentTarget.style.background = 'var(--red)'); (e.currentTarget.style.color = 'var(--accent-fg)'); (e.currentTarget.style.borderColor = 'var(--red)'); }}
-                        onMouseLeave={e => { (e.currentTarget.style.background = 'transparent'); (e.currentTarget.style.color = 'var(--red)'); (e.currentTarget.style.borderColor = 'rgba(220,38,38,0.25)'); }}
-                      >Delete</button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Right: diff panel ─────────────────────────────────────────────── */}
-      {loadingDetail ? (
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Compare bar skeleton */}
-          <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 90, height: 14, borderRadius: 4, background: 'var(--surface-2)' }} />
-            <div style={{ flex: 1, height: 34, borderRadius: 8, background: 'var(--surface-2)' }} />
-          </div>
-          {/* Section skeletons */}
-          {[120, 80, 60, 200].map((h, i) => (
-            <div key={i} style={{ background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', opacity: 1 - i * 0.15 }}>
-              <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ width: 70, height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
-              </div>
-              <div style={{ padding: '16px 18px' }}>
-                <div style={{ height: h, borderRadius: 6, background: 'var(--surface-2)' }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : fullSnapshot ? (
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* Restore preview header — the diff below shows what restoring this
-              snapshot would do to the current state. Green = will be added,
-              red = will be removed. Primary action lives here (not in sidebar). */}
-          <div style={{
-            background: 'var(--surface)', borderRadius: 'var(--radius)',
-            boxShadow: 'var(--shadow-card)', padding: '14px 18px',
-            display: 'flex', flexDirection: 'column', gap: 10,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{
-                fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
-                color: 'var(--muted)', textTransform: 'uppercase',
-              }}>Restore preview</span>
-              <span style={{
-                fontSize: 12.5, padding: '5px 10px', borderRadius: 6,
-                background: 'var(--surface-2)', border: '1px solid var(--border)',
-                color: 'var(--text)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
-              }}>
-                {fmt(fullSnapshot.createdAt)}
-              </span>
-              <TriggerBadge trigger={fullSnapshot.trigger} />
-              {fullSnapshot.label && (
-                <span style={{
-                  fontSize: 12, color: 'var(--muted)', fontStyle: 'italic',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>{fullSnapshot.label}</span>
-              )}
-              {canEdit && (
-                <button
-                  onClick={() => handleRestore(fullSnapshot)}
-                  disabled={restoring}
-                  style={{
-                    marginLeft: 'auto', fontSize: 12.5, padding: '7px 16px', borderRadius: 8,
-                    cursor: restoring ? 'not-allowed' : 'pointer',
-                    background: 'var(--green)', color: 'var(--accent-fg)', border: 'none',
-                    fontFamily: 'var(--font-sans)', fontWeight: 600, transition: 'opacity 0.15s',
-                  }}
-                  onMouseEnter={e => { if (!restoring) (e.currentTarget.style.opacity = '0.85'); }}
-                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-                >{restoring ? 'Restoring…' : 'Restore'}</button>
-              )}
-            </div>
-            <span style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.5 }}>
-              If you restore this snapshot, the changes below will apply to your current state.{' '}
-              <span style={{ color: 'var(--green)', fontWeight: 600 }}>Green</span> = will be added to current.{' '}
-              <span style={{ color: 'var(--red)', fontWeight: 600 }}>Red</span> = will be removed from current.
-            </span>
-          </div>
-
-          {/* Diff sections — wait for compare target to load */}
-          {!currentAsSnapshot ? (
-            <div style={{
-              background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
-              padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
-            }}>
-              Loading comparison…
+          ) : !fullSnapshot ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 360, border: '1px dashed var(--border)', borderRadius: 16, gap: 10, padding: 40 }}>
+              <History size={30} style={{ color: 'var(--border-2)' }} />
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Select a snapshot</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>Pick a snapshot on the left to see what changed and restore it if needed.</div>
             </div>
           ) : (() => {
-            // Restore-preview frame: current is the OLD side, snapshot is the NEW side.
-            // Green = snapshot has, current doesn't = will be added on restore.
-            // Red   = current has, snapshot doesn't = will be removed on restore.
-            const files = buildDiffFiles(fullSnapshot, currentAsSnapshot);
+            // Restore-preview frame: current = OLD side, snapshot = NEW side.
+            // green = snapshot has, current doesn't = added on restore; red = the reverse.
+            const files = currentAsSnapshot ? buildDiffFiles(fullSnapshot, currentAsSnapshot) : [];
+            const added = files.filter(f => f.status === 'added').length;
+            const updated = files.filter(f => f.status === 'modified').length;
+            const removed = files.filter(f => f.status === 'removed').length;
 
-            // Cheap pre-checks so we can hide the "Other changes" card entirely
-            // when nothing on that axis has moved. Mirrors the "no changes"
-            // early-returns in PermsDiff / McpsDiff / ChannelsDiff below.
-            const currAllowed = new Set(currentAsSnapshot.allowedTools);
-            const currDenied  = new Set(currentAsSnapshot.deniedTools);
-            const snapAllowed = new Set(fullSnapshot.allowedTools);
-            const snapDenied  = new Set(fullSnapshot.deniedTools);
-            const hasPermChanges =
-              [...currAllowed].some(t => !snapAllowed.has(t)) ||
-              [...snapAllowed].some(t => !currAllowed.has(t)) ||
-              [...currDenied].some(t => !snapDenied.has(t)) ||
-              [...snapDenied].some(t => !currDenied.has(t));
-
-            const currMcps = new Set(currentAsSnapshot.mcpIds);
-            const snapMcps = new Set(fullSnapshot.mcpIds);
-            const hasMcpChanges =
-              [...currMcps].some(id => !snapMcps.has(id)) ||
-              [...snapMcps].some(id => !currMcps.has(id));
-
-            const currChs = new Set(currentAsSnapshot.allowedChannels ?? []);
-            const snapChs = new Set(fullSnapshot.allowedChannels ?? []);
-            const hasChannelChanges =
-              [...currChs].some(ch => !snapChs.has(ch)) ||
-              [...snapChs].some(ch => !currChs.has(ch));
-
+            const cur = currentAsSnapshot;
+            const hasPermChanges = !!cur && (
+              cur.allowedTools.some(t => !fullSnapshot.allowedTools.includes(t)) ||
+              fullSnapshot.allowedTools.some(t => !cur.allowedTools.includes(t)) ||
+              cur.deniedTools.some(t => !fullSnapshot.deniedTools.includes(t)) ||
+              fullSnapshot.deniedTools.some(t => !cur.deniedTools.includes(t)));
+            const hasMcpChanges = !!cur && (
+              cur.mcpIds.some(id => !fullSnapshot.mcpIds.includes(id)) ||
+              fullSnapshot.mcpIds.some(id => !cur.mcpIds.includes(id)));
+            const hasChannelChanges = !!cur && (
+              (cur.allowedChannels ?? []).some(c => !(fullSnapshot.allowedChannels ?? []).includes(c)) ||
+              (fullSnapshot.allowedChannels ?? []).some(c => !(cur.allowedChannels ?? []).includes(c)));
             const hasOther = hasPermChanges || hasMcpChanges || hasChannelChanges;
 
-            if (files.length === 0 && !hasOther) {
-              return (
-                <div style={{
-                  background: 'var(--surface)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
-                  padding: '24px 18px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13,
-                }}>
-                  No differences
+            const Stat = ({ icon, color, value, label, sub }: { icon: React.ReactNode; color: string; value: number; label: string; sub: string }) => (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}>{icon}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1.1 }}>{value}</div>
+                  <div style={{ fontSize: 11, color: 'var(--subtle)' }}>{sub}</div>
                 </div>
-              );
-            }
+              </div>
+            );
+
+            const shortId = fullSnapshot.id.length > 13 ? `${fullSnapshot.id.slice(0, 8)}…` : fullSnapshot.id;
 
             return (
-              <>
-                {files.length > 0 && <FilesChanged files={files} />}
-                {hasOther && (
-                  <div style={{
-                    background: 'var(--surface)', borderRadius: 'var(--radius)',
-                    boxShadow: 'var(--shadow-card)', overflow: 'hidden',
-                  }}>
-                    <div style={{
-                      padding: '12px 18px', borderBottom: '1px solid var(--border)',
-                      fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-                      color: 'var(--muted)', textTransform: 'uppercase',
-                    }}>Other changes</div>
-                    <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                      {hasPermChanges    && <PermsDiff    snapshot={fullSnapshot} current={currentAsSnapshot} />}
-                      {hasMcpChanges     && <McpsDiff     snapshot={fullSnapshot} current={currentAsSnapshot} allMcps={allMcps} />}
-                      {hasChannelChanges && <ChannelsDiff snapshot={fullSnapshot} current={currentAsSnapshot} />}
-                    </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Detail header */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', minWidth: 0 }}>
+                    <TriggerBadge trigger={fullSnapshot.trigger} />
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{fmt(fullSnapshot.createdAt)}</span>
+                    <span style={{ fontSize: 12, color: 'var(--subtle)' }}>· by {fullSnapshot.createdBy}</span>
+                    <span style={{ fontSize: 12, color: 'var(--subtle)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      · ID <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{shortId}</span>
+                      <button onClick={copyId} title="Copy snapshot ID" style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: copied ? 'var(--green)' : 'var(--subtle)', padding: 2 }}>
+                        {copied ? <Check size={12} /> : <Copy size={12} />}
+                      </button>
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, position: 'relative' }}>
+                    <button onClick={handleExport} style={ghostBtnStyle}><Download size={13} /> Export</button>
+                    {canEdit && <button onClick={() => handleRestore(fullSnapshot)} disabled={restoring} style={{ ...primaryBtnStyle, background: 'var(--green)', cursor: restoring ? 'not-allowed' : 'pointer' }}><RotateCcw size={13} /> {restoring ? 'Restoring…' : 'Restore'}</button>}
+                    {canEdit && (
+                      <>
+                        <button onClick={() => setMenuOpen(o => !o)} style={{ ...ghostBtnStyle, padding: '7px 9px' }}><MoreHorizontal size={15} /></button>
+                        {menuOpen && (
+                          <>
+                            <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 10 }} />
+                            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 11, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: 5, minWidth: 160 }}>
+                              <button onClick={() => { setMenuOpen(false); handleDelete(fullSnapshot.id); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', fontSize: 12.5, color: 'var(--red)', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Trash2 size={13} /> Delete snapshot</button>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stat strip */}
+                {cur && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                    <Stat icon={<Plus size={17} />} color="var(--green)" value={added} label="Files added" sub="New files" />
+                    <Stat icon={<Pencil size={15} />} color="var(--amber)" value={updated} label="Files updated" sub="Modified files" />
+                    <Stat icon={<Minus size={17} />} color="var(--red)" value={removed} label="Files removed" sub="Removed files" />
                   </div>
                 )}
-              </>
+
+                {/* Caption */}
+                <div style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.5 }}>
+                  Diff vs the current configuration — <span style={{ color: 'var(--green)', fontWeight: 600 }}>green</span> is what Restore would add, <span style={{ color: 'var(--red)', fontWeight: 600 }}>red</span> what it would remove.
+                </div>
+
+                {/* Diff */}
+                {!cur ? (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '24px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13 }}>Loading comparison…</div>
+                ) : files.length === 0 && !hasOther ? (
+                  <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '28px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>This snapshot matches the current configuration — no differences.</div>
+                ) : (
+                  <>
+                    {files.length > 0 && <FilesChanged files={files} />}
+                    {hasOther && (
+                      <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>Other changes</div>
+                        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                          {hasPermChanges && <PermsDiff snapshot={fullSnapshot} current={cur} />}
+                          {hasMcpChanges && <McpsDiff snapshot={fullSnapshot} current={cur} allMcps={allMcps} />}
+                          {hasChannelChanges && <ChannelsDiff snapshot={fullSnapshot} current={cur} />}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Pager */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 2 }}>
+                  <button onClick={goNewer} disabled={selIndex <= 0} style={pagerBtnStyle(selIndex <= 0)}><ArrowLeft size={14} /> Newer</button>
+                  <button onClick={goOlder} disabled={selIndex < 0 || selIndex >= snapshots.length - 1} style={pagerBtnStyle(selIndex < 0 || selIndex >= snapshots.length - 1)}>Older <ArrowRight size={14} /></button>
+                </div>
+              </div>
             );
           })()}
         </div>
-      ) : (
-        <div style={{
-          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          background: 'var(--surface)', borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-card)', gap: 10, padding: 40,
-        }}>
-          <History size={32} style={{ color: 'var(--border-2)' }} />
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Select a snapshot</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 260, lineHeight: 1.6 }}>
-            Click any snapshot on the left to view what changed at that point in time.
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

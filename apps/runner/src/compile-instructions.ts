@@ -1,0 +1,799 @@
+/**
+ * @fileoverview Agent workspace compiler for the runner service.
+ *
+ * Writes to the agent's temporary working directory:
+ *
+ *   1. CLAUDE.md — the agent's main instruction/identity file.
+ *      Source: agents.claude_md column (or auto-generated for boss agents).
+ *      Learned memories from the DB are INLINED here so the model always
+ *      sees them (no skill invocation required). Wiki index is also inlined
+ *      when a knowledge wiki exists.
+ *
+ *   2. .claude/commands/{filename} — Claude Code slash commands.
+ *      Source: skills table rows for this agent.
+ *      Each skill becomes an invokable /<filename> command.
+ *      `/wiki` is injected when `knowledge/wiki/` exists.
+ *
+ * Directory layout:
+ *   /tmp/agents/{slug}/
+ *     CLAUDE.md                   ← identity + inlined memories + wiki index
+ *     .claude/commands/{filename}.md  ← one file per skill
+ *     memory/                     ← per-session agent-written memory files (sync'd to DB by MemoryWatcher)
+ *
+ * @module runner/compile-instructions
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import type { Agent, Memory, Skill } from '@slackhive/shared';
+import { getDb, agentIdentityBody } from '@slackhive/shared';
+import { getAgentSkills, getAgentMemories, getAgentWikiFolders } from './db';
+import { logger } from './logger';
+
+/** Soft cap on inlined memory bytes in CLAUDE.md. Anything above this is truncated with a log. */
+const MAX_INLINED_MEMORY_BYTES = 32 * 1024;
+
+/**
+ * Verbose narration directive. Injected into the per-message user turn by
+ * `message-handler.ts → buildPrompt` when the resolved verbose state for the
+ * current sender is true. The resolution honours audience overrides:
+ *
+ *   resolved verbose = highest-priority matching group's verbose
+ *                    ?? agent.verbose
+ *
+ * Previously baked into CLAUDE.md at compile time, which made the directive
+ * apply to every sender regardless of audience opt-out. Moved to per-message
+ * injection so audience.verbose can truly override agent.verbose per cohort
+ * without needing a "suppress" counter-directive.
+ *
+ * Sonnet 4.6 routes reasoning into `thinking` blocks which subscription OAuth
+ * strips server-side, leaving verbose mode with nothing to display. Asking
+ * the model to share its *direction* (not every tool) gives the user a sense
+ * of where things are going without flooding the thread.
+ */
+export const VERBOSE_NARRATION_DIRECTIVE = `# Share your direction (verbose mode)
+
+When you start working on something or change direction, share one short sentence about where you're heading — what you're investigating, what approach you're taking, what you're about to verify. Not every tool call needs narration; just the *direction* the work is taking.
+
+Examples:
+
+- "Checking the bookings tables to find the right one for partner-level revenue."
+- "Going to look up the partner code in Notion before querying."
+- "Looks like the wiki is stale — verifying directly against Redshift."
+
+Plain language, one short sentence, no formatting. Skip it for trivial single-tool answers. The goal is to keep the user oriented, not to log every action.`;
+
+/** Platform knowledge directory — built wikis stored here per folder. */
+const KNOWLEDGE_DIR = path.join(
+  process.env.HOME ?? process.env.USERPROFILE ?? '/tmp',
+  '.slackhive',
+  'knowledge',
+);
+
+/** Base directory for ephemeral agent workspaces. */
+const AGENTS_TMP_DIR = process.env.AGENTS_TMP_DIR ?? (
+  process.env.DATABASE_TYPE === 'sqlite'
+    ? path.join(process.env.HOME ?? process.env.USERPROFILE ?? '/tmp', '.slackhive', 'agents')
+    : '/tmp/agents'
+);
+
+
+/**
+ * Built-in /wiki skill — injected when agent has a knowledge wiki.
+ * Searches the compiled wiki for relevant articles.
+ */
+const WIKI_SKILL = `Search the knowledge wiki for information about: $ARGUMENTS
+
+## How to search
+1. Read \`knowledge/wiki/index.md\` — this is the catalog organized by category with one-line summaries for every page
+2. Identify relevant pages from the index (check modules/, concepts/, entities/, flows/ sections)
+3. Read the specific articles that match the topic
+4. Follow cross-references — articles link to related pages via relative paths. Follow "See also" sections for deeper context
+5. Check \`knowledge/wiki/log.md\` for recent ingests if the user asks about what sources were processed
+
+## Raw sources
+If you need the exact, verbatim text of a user-uploaded file, look in \`knowledge/sources/\` — those are unmodified uploads, not Claude-built. Grep them when an exact quote or figure from the original matters; fall back to the wiki for distilled/indexed reading.
+
+## Tips
+- The wiki follows the Karpathy LLM Wiki pattern — pages are richly interlinked
+- Entity pages describe data models/classes, module pages describe code components, flow pages trace function call chains
+- Every page has source attribution showing where the information came from
+- If no relevant articles are found, say so and answer from your general knowledge`;
+
+
+/**
+ * Reject source names that could escape the `knowledge/sources/` directory.
+ * Kept narrow — the filename is the source's user-supplied `name`, sanitized to a
+ * safe slug here rather than pre-validated at insert time (old rows may exist).
+ */
+function toSafeFileName(name: string): string {
+  const base = name.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 120);
+  return (base || 'source') + '.md';
+}
+
+/**
+ * FNV-1a 32-bit hash — deterministic, 8-char hex. Used to disambiguate source
+ * filenames that sanitize to the same slug (e.g. "my file" vs "my-file"), so
+ * one source never silently overwrites another on disk.
+ */
+function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Materialize every file-type knowledge source to `knowledge/sources/<name>.md`
+ * inside the agent workspace. Called on every compile (agent reload) and at the
+ * end of `buildKnowledgeWiki`, so the on-disk view matches the DB.
+ *
+ * Called for side-effect. Failures are logged but don't block compile — a
+ * missing sources/ dir shouldn't stop the agent from starting.
+ */
+export async function writeFileSourcesToDisk(workDir: string, agentId: string): Promise<void> {
+  const sourcesDir = path.join(workDir, 'knowledge', 'sources');
+  try {
+    // Read file-type sources from all wiki folders assigned to this agent
+    const r = await getDb().query(
+      `SELECT ws.name, ws.content FROM wiki_sources ws
+       JOIN agent_wiki_folders awf ON awf.folder_id = ws.folder_id
+       WHERE awf.agent_id = $1 AND ws.type = 'file' AND ws.content IS NOT NULL AND ws.content != ''
+       ORDER BY ws.name ASC`,
+      [agentId],
+    );
+    // Wipe first so deleted sources don't linger.
+    fs.rmSync(sourcesDir, { recursive: true, force: true });
+    if (r.rows.length === 0) return;
+    fs.mkdirSync(sourcesDir, { recursive: true });
+    const used = new Set<string>();
+    for (const row of r.rows) {
+      const originalName = row.name as string;
+      let filename = toSafeFileName(originalName);
+      if (used.has(filename)) {
+        filename = filename.replace(/\.md$/, `-${shortHash(originalName)}.md`);
+      }
+      used.add(filename);
+      fs.writeFileSync(path.join(sourcesDir, filename), (row.content as string) ?? '', 'utf8');
+    }
+    logger.debug('File sources materialized', {
+      agentId, dir: sourcesDir, count: r.rows.length,
+    });
+  } catch (err) {
+    logger.warn('Failed to materialize file sources', { agentId, error: (err as Error).message });
+  }
+}
+
+
+/**
+ * Memory system instructions injected into every agent's CLAUDE.md.
+ * Tells the agent to persist learned facts to .claude/memory/ in its cwd.
+ */
+/**
+ * Slack formatting rules injected into every agent's CLAUDE.md.
+ * Built-in at the framework level — not visible in the Skills tab.
+ *
+ * Single source of truth: also re-exported via slack-adapter.getFormattingRules()
+ * so the production path and the test/no-adapter fallback stay byte-identical.
+ *
+ * Example IDs in the Mentions block use obviously-fake placeholders
+ * (`U12345ABCDE`, `C12345ABCDE`) so the model can't blindly copy a real
+ * user/channel ID into a reply.
+ */
+export const SLACK_FORMATTING_SECTION = `# Slack Formatting
+
+You are responding in Slack. Follow these rules for every message:
+
+**Text formatting:**
+- Bold: \`*bold*\` — NOT \`**bold**\`
+- Italic: \`_italic_\` — NOT \`*italic*\`
+- Strikethrough: \`~text~\`
+- Section headers: \`*Header Text*\` on its own line — NOT \`#\`, \`##\`, \`###\`
+- Inline code: \`` + '`' + `code\`` + '`' + `
+- Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
+- Lists: \`- item\` or \`1. item\`
+- Links: \`<url|text>\`
+- Blockquotes: \`> text\` (one \`>\` per line for multi-line quotes)
+- Horizontal rules: just a blank line — NOT \`---\` or \`***\`
+
+**Tables — use standard Markdown pipe format:**
+- Every row MUST start and end with \`|\`
+- Always include a separator row: \`|---|---|---|\`
+- Do NOT wrap tables in code blocks
+
+Good:
+\`\`\`
+| Name | Count |
+|---|---|
+| Alpha | 42 |
+\`\`\`
+
+**Mentions:**
+- Tag a user: \`<@USER_ID>\` (e.g. \`<@U12345ABCDE>\`) — only use IDs you've actually seen in this thread or earlier turns; never invent one
+- Reference a channel: \`<#CHANNEL_ID>\` (e.g. \`<#C12345ABCDE>\`), or with a custom label as \`<#CHANNEL_ID|display-name>\`
+- Plain \`@username\` will not notify or link — always use the angle-bracket form with the ID
+
+**Never use:** \`## headings\`, \`**double asterisks**\`, \`---\` rules`;
+
+
+/**
+ * Returns the temporary working directory path for an agent.
+ *
+ * @param {string} slug - Agent slug (e.g., "gilfoyle").
+ * @returns {string} Absolute path to the agent's temp workspace.
+ */
+export function getAgentWorkDir(slug: string): string {
+  return path.join(AGENTS_TMP_DIR, slug);
+}
+
+/**
+ * Returns the path to the CLAUDE.md file for an agent.
+ *
+ * @param {string} slug - Agent slug.
+ * @returns {string} Absolute path to CLAUDE.md.
+ */
+export function getInstructionsPath(slug: string): string {
+  return path.join(getAgentWorkDir(slug), 'CLAUDE.md');
+}
+
+/**
+ * Compiles the agent workspace: writes CLAUDE.md and skill command files.
+ *
+ * - CLAUDE.md = agent.claudeMd (identity/instructions) + memory system + memories
+ * - .claude/commands/{filename}.md = one file per skill (Claude Code slash commands)
+ *
+ * For boss agents, CLAUDE.md is auto-generated from the team registry instead of
+ * agent.claudeMd (the boss-registry.ts module sets this before calling compileClaudeMd).
+ *
+ * @param {Agent} agent - The agent to compile for.
+ * @param {string} [overrideClaudeMd] - Optional override for CLAUDE.md content (used by boss registry).
+ * @returns {Promise<string>} The path to the agent's working directory (pass as cwd to SDK).
+ * @throws {Error} If writing to the filesystem fails.
+ */
+export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: string, formattingRules?: string): Promise<string> {
+  const workDir = getAgentWorkDir(agent.slug);
+  const claudeMdPath = getInstructionsPath(agent.slug);
+
+  fs.mkdirSync(workDir, { recursive: true });
+
+  const [skills, memories, assignedFolders] = await Promise.all([
+    getAgentSkills(agent.id),
+    getAgentMemories(agent.id),
+    getAgentWikiFolders(agent.id),
+  ]);
+
+  // Build slug→name map from DB so the wiki index renders human-readable folder titles
+  // instead of reconstructing them by title-casing the directory slug.
+  const folderSlugToName = new Map<string, string>();
+  for (const folder of assignedFolders) {
+    const folderSlug = folder.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || folder.id.slice(0, 8);
+    folderSlugToName.set(folderSlug, folder.name);
+  }
+
+  // Identity is rendered from agent.name/persona/description in buildClaudeMd — never a skill row.
+  logger.info('Compiling agent workspace', {
+    agent: agent.slug,
+    skills: skills.length,
+    memories: memories.length,
+  });
+
+  // -------------------------------------------------------------------------
+  // 1. Write the instruction doc (identity + inlined memories + knowledge index).
+  //    Canonical on-disk name is AGENTS.md (provider-neutral; read by both the
+  //    Codex SDK and Claude Code). CLAUDE.md is written too for the headless
+  //    claude-agent-sdk, which is confirmed to read CLAUDE.md. Identical content.
+  // -------------------------------------------------------------------------
+  const claudeMdContent = buildClaudeMd(agent, memories, skills, overrideClaudeMd, formattingRules, folderSlugToName);
+  fs.writeFileSync(path.join(workDir, 'AGENTS.md'), claudeMdContent, 'utf-8');
+  fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
+
+  logger.debug('Instruction doc written (AGENTS.md + CLAUDE.md)', {
+    agent: agent.slug,
+    path: claudeMdPath,
+    bytes: Buffer.byteLength(claudeMdContent, 'utf-8'),
+  });
+
+  // -------------------------------------------------------------------------
+  // 2. Write skills as .claude/commands/{filename}.md
+  // -------------------------------------------------------------------------
+  const commandsDir = path.join(workDir, '.claude', 'commands');
+  fs.mkdirSync(commandsDir, { recursive: true });
+
+  // Remove old command files before rewriting (handles deleted skills)
+  for (const existing of fs.readdirSync(commandsDir)) {
+    fs.rmSync(path.join(commandsDir, existing), { force: true });
+  }
+
+  // Built-in wiki skill — injected whenever the knowledge wiki dir exists.
+  // We do NOT gate on non-empty contents: the wiki may be populated mid-session.
+  //
+  // Path layout:
+  // - Single assigned folder → copy contents directly to knowledge/wiki/
+  //   so paths like `knowledge/wiki/concepts/foo.md` work without a slug
+  //   subdir. Backward compatible with hand-written persona references that
+  //   pre-date the platform-wiki-folders migration.
+  // - Multiple folders → namespace each under knowledge/wiki/{folder-slug}/
+  //   to disambiguate.
+  const agentWikiDir = path.join(workDir, 'knowledge', 'wiki');
+  fs.rmSync(agentWikiDir, { recursive: true, force: true });
+  let hasWiki = false;
+  const isSingleFolder = folderSlugToName.size === 1;
+  for (const [folderSlug, folderName] of folderSlugToName) {
+    const folder = assignedFolders.find(f => f.name === folderName)!;
+    const folderWikiSrc = path.join(KNOWLEDGE_DIR, folder.id, 'wiki');
+    if (fs.existsSync(folderWikiSrc)) {
+      const dest = isSingleFolder ? agentWikiDir : path.join(agentWikiDir, folderSlug);
+      fs.mkdirSync(dest, { recursive: true });
+      fs.cpSync(folderWikiSrc, dest, { recursive: true });
+      hasWiki = true;
+    }
+  }
+  if (hasWiki) {
+    fs.writeFileSync(path.join(commandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
+  }
+
+  // Materialize file-type knowledge sources as verbatim markdown next to the
+  // wiki so the agent can Grep/Read the exact original text. Re-derived from
+  // DB every compile — deletions, edits, and new uploads all propagate.
+  await writeFileSourcesToDisk(workDir, agent.id);
+
+  for (const skill of skills) {
+    const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
+    fs.writeFileSync(path.join(commandsDir, filename), skill.content, 'utf-8');
+  }
+
+  // Also emit Codex-format skills (.agents/skills/{name}/SKILL.md). Backends copy
+  // the format they need into each session dir (Claude → .claude/commands, Codex
+  // → .agents/skills). Both are kept in sync from the same skill rows.
+  writeAgentsSkills(workDir, skills, hasWiki ? WIKI_SKILL : null);
+  // Path-addressable copy so `skills/<category>/<file>.md` references resolve (Codex).
+  writeSkillsTree(workDir, skills, hasWiki ? WIKI_SKILL : null);
+
+  logger.debug('Skill commands written', {
+    agent: agent.slug,
+    commands: skills.map(s => s.filename),
+    dir: commandsDir,
+  });
+
+  // -------------------------------------------------------------------------
+  // 3. Propagate updates to all existing per-session directories
+  // -------------------------------------------------------------------------
+  const sessionsDir = path.join(workDir, 'sessions');
+  if (fs.existsSync(sessionsDir)) {
+    for (const entry of fs.readdirSync(sessionsDir)) {
+      const sessionDir = path.join(sessionsDir, entry);
+      if (!fs.statSync(sessionDir).isDirectory()) continue;
+
+      // Update the instruction doc (both names — see step 1).
+      fs.writeFileSync(path.join(sessionDir, 'CLAUDE.md'), claudeMdContent, 'utf8');
+      fs.writeFileSync(path.join(sessionDir, 'AGENTS.md'), claudeMdContent, 'utf8');
+
+      // Update .claude/commands/ (Claude slash commands)
+      const sessionCommandsDir = path.join(sessionDir, '.claude', 'commands');
+      fs.mkdirSync(sessionCommandsDir, { recursive: true });
+      for (const existing of fs.readdirSync(sessionCommandsDir)) {
+        fs.rmSync(path.join(sessionCommandsDir, existing), { force: true });
+      }
+      // Wiki skill — propagate to sessions if any built wiki exists
+      if (hasWiki) {
+        fs.writeFileSync(path.join(sessionCommandsDir, 'wiki.md'), WIKI_SKILL, 'utf-8');
+      }
+      for (const skill of skills) {
+        const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
+        fs.writeFileSync(path.join(sessionCommandsDir, filename), skill.content, 'utf-8');
+      }
+      // Update .agents/skills/ (Codex skills) + path-addressable skills/ tree.
+      writeAgentsSkills(sessionDir, skills, hasWiki ? WIKI_SKILL : null);
+      writeSkillsTree(sessionDir, skills, hasWiki ? WIKI_SKILL : null);
+    }
+  }
+
+  return workDir;
+}
+
+
+// =============================================================================
+// Private helpers
+// =============================================================================
+
+/** Slugify a skill filename into a Codex skill / slash-command name. */
+function toSkillName(filename: string): string {
+  return filename.replace(/\.md$/i, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'skill';
+}
+
+/** First non-empty, de-hashed line of markdown — a description fallback. */
+function firstMeaningfulLine(content: string): string {
+  for (const raw of content.split('\n')) {
+    const line = raw.replace(/^#+\s*/, '').trim();
+    if (line) return line.slice(0, 200);
+  }
+  return '';
+}
+
+/**
+ * Emit Codex Agent Skills under `{targetDir}/.agents/skills/{name}/SKILL.md`.
+ * Codex discovers these in the cwd and exposes them as `$name` slash commands /
+ * implicitly-matched skills. `Skill` has no `name` field, so the name is derived
+ * from the filename; `description` (nullable) falls back to the first content line.
+ */
+/**
+ * Materialize skills at `{targetDir}/skills/<category>/<filename>.md` — the exact
+ * path agent instructions reference (e.g. "Follow skills/04-daily-dashboard/
+ * dashboard.md"). Claude exposes skills as `/slash` commands, but Codex reads
+ * them by path, so this makes those references resolve under Codex.
+ */
+export function writeSkillsTree(targetDir: string, skills: Skill[], wikiBody: string | null): void {
+  const root = path.join(targetDir, 'skills');
+  fs.rmSync(root, { recursive: true, force: true });
+  for (const skill of skills) {
+    const filename = skill.filename.endsWith('.md') ? skill.filename : `${skill.filename}.md`;
+    const dir = path.join(root, skill.category);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, filename), skill.content, 'utf8');
+  }
+  if (wikiBody) {
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, 'wiki.md'), wikiBody, 'utf8');
+  }
+}
+
+export function writeAgentsSkills(targetDir: string, skills: Skill[], wikiBody: string | null): void {
+  const skillsRoot = path.join(targetDir, '.agents', 'skills');
+  fs.rmSync(skillsRoot, { recursive: true, force: true });
+  fs.mkdirSync(skillsRoot, { recursive: true });
+
+  const write = (name: string, description: string, body: string): void => {
+    const dir = path.join(skillsRoot, name);
+    fs.mkdirSync(dir, { recursive: true });
+    // JSON.stringify yields a YAML-safe double-quoted scalar for the description.
+    const frontmatter = `---\nname: ${name}\ndescription: ${JSON.stringify(description.replace(/\s+/g, ' ').trim())}\n---\n\n`;
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), frontmatter + body, 'utf8');
+  };
+
+  if (wikiBody) write('wiki', 'Search and read the agent knowledge wiki.', wikiBody);
+  for (const skill of skills) {
+    const name = toSkillName(skill.filename);
+    const description = (skill.description?.trim()) || firstMeaningfulLine(skill.content) || name;
+    write(name, description, skill.content);
+  }
+}
+
+/**
+ * Builds the inlined `# Learned Memories (active)` section.
+ *
+ * Memories are written directly into the system prompt so the model always sees
+ * them — replaces the old /recall + on-disk materialization path which required
+ * the model to proactively invoke a skill. Rules like "when user is U095..., say X"
+ * now fire deterministically because both the rule and the sender ID (prepended
+ * by the message handler) are in the turn context.
+ *
+ * Grouped by type for scanability. Memory `name` is used as the heading so the
+ * agent can flag contradictions by name (matches the "update/overwrite by name"
+ * workflow in the Memory-writing guidance section).
+ *
+ * If total bytes exceed {@link MAX_INLINED_MEMORY_BYTES}, overflow memories are
+ * dropped with a warning — we prefer a truncated-but-bounded prompt over a
+ * runaway token cost.
+ */
+function buildInlinedMemoriesSection(memories: Memory[]): string | null {
+  if (memories.length === 0) return null;
+
+  const groups: Record<Memory['type'], Memory[]> = {
+    feedback: [], user: [], project: [], reference: [],
+  };
+  for (const m of memories) {
+    if (groups[m.type]) groups[m.type].push(m);
+  }
+
+  const typeHeadings: Record<Memory['type'], string> = {
+    feedback: 'Feedback (behavioral rules — apply unconditionally)',
+    user: 'User (facts about people)',
+    project: 'Project (current initiatives)',
+    reference: 'Reference (domain knowledge)',
+  };
+
+  const parts: string[] = [
+    '# Learned Memories (active)',
+    '',
+    'These are facts and rules you learned in prior conversations. They are active',
+    'for EVERY turn — apply any that match the current context without being asked.',
+    'If a memory contradicts what the user just said, flag it by name and ask whether to update.',
+    '',
+  ];
+
+  let bytes = Buffer.byteLength(parts.join('\n'), 'utf-8');
+  let dropped = 0;
+
+  for (const type of ['feedback', 'user', 'project', 'reference'] as const) {
+    const rows = groups[type];
+    if (rows.length === 0) continue;
+    const heading = `## ${typeHeadings[type]}`;
+    parts.push(heading);
+    bytes += Buffer.byteLength(heading + '\n', 'utf-8');
+
+    for (const m of rows) {
+      const block = `\n### ${m.name}\n${m.content.trim()}\n`;
+      const blockBytes = Buffer.byteLength(block, 'utf-8');
+      if (bytes + blockBytes > MAX_INLINED_MEMORY_BYTES) {
+        dropped += 1;
+        continue;
+      }
+      parts.push(block);
+      bytes += blockBytes;
+    }
+    parts.push('');
+  }
+
+  if (dropped > 0) {
+    logger.warn('Memory inlining exceeded cap — some memories dropped', {
+      dropped,
+      cap: MAX_INLINED_MEMORY_BYTES,
+    });
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Parses `knowledge/wiki/index.md` to extract article path + one-line summary.
+ * Returns null if the index doesn't exist or contains no usable links.
+ */
+function buildWikiIndexSection(workDir: string, folderSlugToName?: Map<string, string>): string | null {
+  const wikiDir = path.join(workDir, 'knowledge', 'wiki');
+  if (!fs.existsSync(wikiDir)) return null;
+
+  // Layout detection:
+  // - Single folder → wiki contents live directly at knowledge/wiki/ (no slug subdir)
+  // - Multi folder  → each folder under knowledge/wiki/{slug}/
+  // We detect by checking whether knowledge/wiki/index.md exists at the top level.
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(wikiDir);
+  } catch {
+    return null;
+  }
+  const isSingleFolder = entries.includes('index.md');
+
+  // Inline a folder's index.md, rewriting relative article links so they
+  // resolve from the agent workspace root rather than the folder dir.
+  // pathPrefix is the prefix to prepend (empty string for single-folder case,
+  // 'knowledge/wiki/{slug}/' for multi-folder).
+  const inlineFolder = (folderPath: string, pathPrefix: string): { lines: string; count: number } => {
+    let wikiFiles: string[] = [];
+    try {
+      wikiFiles = (fs.readdirSync(folderPath, { recursive: true }) as string[])
+        .filter(f => f.endsWith('.md') && f !== 'index.md' && f !== 'log.md');
+    } catch { return { lines: '', count: 0 }; }
+    if (wikiFiles.length === 0) return { lines: '', count: 0 };
+
+    const indexPath = path.join(folderPath, 'index.md');
+    let inlinedIndex: string | null = null;
+    if (fs.existsSync(indexPath)) {
+      try {
+        const raw = fs.readFileSync(indexPath, 'utf-8');
+        const articleLines = raw
+          .split('\n')
+          .filter(line => /^\s*[-*]\s+/.test(line) && /\.md\)/.test(line))
+          .map(line => line.trim());
+        if (articleLines.length > 0) {
+          // Rewrite [Title](relative.md) → [Title](knowledge/wiki/{slug}/relative.md)
+          // so paths in CLAUDE.md resolve from the agent workspace root.
+          const fullPrefix = `knowledge/wiki/${pathPrefix}`;
+          inlinedIndex = articleLines
+            .map(line => line.replace(/\(([^)]+\.md)\)/g, (_m, p) =>
+              p.startsWith(fullPrefix) || p.startsWith('/') ? `(${p})` : `(${fullPrefix}${p})`
+            ))
+            .join('\n');
+        }
+      } catch { /* fall through */ }
+    }
+    if (!inlinedIndex) {
+      inlinedIndex = wikiFiles.map(f => `- \`knowledge/wiki/${pathPrefix}${f}\``).join('\n');
+    }
+    return { lines: inlinedIndex, count: wikiFiles.length };
+  };
+
+  const folderSections: string[] = [];
+  let totalFiles = 0;
+
+  if (isSingleFolder) {
+    const { lines, count } = inlineFolder(wikiDir, '');
+    if (count > 0) {
+      // Single folder: name comes from the only entry in folderSlugToName, if set.
+      const folderTitle = folderSlugToName ? [...folderSlugToName.values()][0] : 'Knowledge';
+      folderSections.push(`## ${folderTitle}\n${lines}`);
+      totalFiles = count;
+    }
+  } else {
+    for (const entry of entries) {
+      const folderPath = path.join(wikiDir, entry);
+      if (!fs.statSync(folderPath).isDirectory()) continue;
+      const { lines, count } = inlineFolder(folderPath, `${entry}/`);
+      if (count === 0) continue;
+      const folderTitle = folderSlugToName?.get(entry)
+        ?? entry.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      folderSections.push(`## ${folderTitle}\n${lines}`);
+      totalFiles += count;
+    }
+  }
+
+  if (totalFiles === 0) return null;
+
+  return `# Knowledge Base
+
+You have ${totalFiles} wiki article${totalFiles !== 1 ? 's' : ''} across ${folderSections.length} folder${folderSections.length !== 1 ? 's' : ''} in \`knowledge/wiki/\`. Consult them
+BEFORE answering questions that might be covered — do NOT say "let me check the
+knowledge base" and then refuse. If a question touches anything in the catalog
+below, actually read the relevant article(s).
+
+## How to search
+- Use \`Grep\` across \`knowledge/wiki/\` for keyword lookups (fastest path).
+- Use \`Read\` on a specific article when you know the path.
+- \`/wiki <topic>\` is still available for a guided multi-read flow.
+
+${folderSections.join('\n\n')}
+
+## Verify before recommending
+Wiki articles are compiled snapshots. When an article references concrete code
+(function names, file paths, schema columns, API endpoints, env vars), treat
+it as a HINT — verify against the current source before recommending changes.
+If you cannot verify, say so explicitly: "The wiki says X — verify this is still current."`;
+}
+
+/**
+ * Builds the skills index section — a compact list of available slash commands
+ * inlined into CLAUDE.md so the agent knows what skills exist without needing
+ * to read the commands directory.
+ */
+function buildSkillsIndexSection(skills: Skill[], hasWiki: boolean): string | null {
+  if (skills.length === 0 && !hasWiki) return null;
+
+  const lines: string[] = [];
+
+  if (hasWiki) {
+    lines.push('- `/wiki <topic>` — look up the knowledge base');
+  }
+
+  for (const skill of skills) {
+    const name = skill.filename.replace(/\.md$/, '');
+    // Render the description when present so the model can pick the right
+    // command without loading the body. Falls back to name-only when the
+    // summarizer hasn't filled it in yet.
+    lines.push(skill.description
+      ? `- \`/${name}\` — ${skill.description}`
+      : `- \`/${name}\``);
+  }
+
+  return `# Available Skills
+
+Invoke these slash commands when relevant — they load the full procedure on demand:
+
+${lines.join('\n')}`;
+}
+
+/**
+ * Builds the CLAUDE.md content for an agent.
+ * Structure: identity → platform formatting rules → memory system instructions.
+ *
+ * @param {Agent} agent - The agent.
+ * @param {string} [overrideClaudeMd] - Override for identity content (boss registry use).
+ * @param {string} [formattingRules] - Platform-specific formatting rules (from adapter).
+ * @returns {string} Full CLAUDE.md content.
+ */
+function buildClaudeMd(
+  agent: Agent,
+  memories: Memory[],
+  skills: Skill[],
+  overrideClaudeMd?: string,
+  formattingRules?: string,
+  folderSlugToName?: Map<string, string>,
+): string {
+  const sections: string[] = [];
+
+  // 1. Identity — name + persona/description. Same identity body the Codex
+  //    backend injects via developer_instructions (agentIdentityBody), so the two
+  //    channels can't drift. Never a skill row.
+  const identityBody = agentIdentityBody(agent);
+  sections.push(identityBody ? `# ${agent.name}\n\n${identityBody}` : `# ${agent.name}`);
+
+  // 2. System prompt / instructions (claudeMd field — Karpathy-style behavior/guardrails)
+  const claudeMd = overrideClaudeMd ?? agent.claudeMd;
+  if (claudeMd?.trim()) {
+    sections.push(claudeMd.trim());
+  }
+
+  // 2b. (Verbose narration directive moved out — it now lives in the
+  //      per-message user turn so audience.verbose can override it per
+  //      sender. See message-handler.ts → buildPrompt.)
+
+  // 3. Platform formatting rules (provided by adapter, or fallback to Slack)
+  sections.push(formattingRules ?? SLACK_FORMATTING_SECTION);
+
+  // 4. Inlined learned memories — replaces the old /recall skill path so the
+  //    model always sees them. See buildInlinedMemoriesSection for rationale.
+  const memoriesSection = buildInlinedMemoriesSection(memories);
+  if (memoriesSection) sections.push(memoriesSection);
+
+  // 5. Knowledge base index — inlined so the model knows what exists without
+  //    a Read round-trip. See buildWikiIndexSection.
+  const workDir = getAgentWorkDir(agent.slug);
+  const wikiSection = buildWikiIndexSection(workDir, folderSlugToName);
+  if (wikiSection) sections.push(wikiSection);
+
+  // 6. Skills index — compact list of available slash commands so the agent
+  //    knows what it can invoke without reading the commands directory.
+  const hasWiki = fs.existsSync(path.join(workDir, 'knowledge', 'wiki'));
+  const skillsSection = buildSkillsIndexSection(skills, hasWiki);
+  if (skillsSection) sections.push(skillsSection);
+
+  // 6. Memory-writing guidance — how the agent SAVES new memories. Reading
+  //    existing memories is handled by the inlined section above; this block
+  //    only covers the write path (and when to ask before saving).
+  sections.push(`# Saving New Memories
+
+When you learn something that will genuinely help in future conversations —
+a correction, a preference, a decision, a useful fact — save it as a memory.
+Use the Write tool to create \`memory/{type}_{name}.md\`:
+
+\`\`\`
+---
+name: {short_descriptive_name}
+type: {feedback | user | project | reference}
+description: {one line summary}
+---
+{1–3 sentences. The rule, the why, the trigger. Pointer to the full source if it lives elsewhere.}
+\`\`\`
+
+## Memory ≠ documentation
+
+A memory is a **terse pointer** that fires next time the same situation comes up.
+It is NOT a full reference doc. Aim for **1–3 sentences** in the body.
+
+✅ **Good** — fits in a few lines, captures the rule + the why:
+\`\`\`
+When analyzing products, always filter \`option_state = 'PUBLISHED'\` (or break
+down by state). Aman, 2026-04-22 — unpublished items polluted a churn report.
+\`\`\`
+
+❌ **Bad** — full documentation; this belongs elsewhere:
+- Tables of IDs, schemas, configurations → wiki folder (Knowledge Library)
+- Step-by-step procedures → a **skill** (slash command)
+- Recipe / format templates with multi-section markdown → wiki folder
+- Anything with subheadings (\`##\`) and lists of steps → not a memory
+
+If what you'd write needs more than ~5 lines, **stop**. Either:
+1. Write the rule itself in 1–3 sentences and reference where the details live, OR
+2. Tell the user "this looks like wiki/skill material, want me to flag it for the
+   folder owner / propose a skill instead?" — don't dump it into memory.
+
+## When to ask vs save silently
+**NEVER save silently** unless the user explicitly said "remember this" / "save this".
+- Mistake or correction → "Got it — should I remember this for next time?"
+- New useful info (preference, decision, workflow) → "That's useful — want me to remember this?"
+- Explicit request → save immediately.
+
+## Memory types
+- \`feedback\` — corrections, rules ("don't do X", "always do Y")
+- \`user\` — preferences, working style, role, goals
+- \`project\` — decisions, constraints, architecture choices
+- \`reference\` — facts, patterns, domain knowledge (the *pointer*, not the data)
+
+## What NOT to save
+- Trivial or one-off context
+- Things derivable from code, git history, or docs
+- Vague observations — be specific
+- Tables, configs, schemas — those go to wiki folders
+- Multi-step playbooks — those go to skills
+- Anything the user told you not to remember
+
+## Updating + contradictions
+- Prefer updating over creating duplicates — write to the same filename to overwrite.
+- If a memory in the **Learned Memories** section above contradicts what the user
+  just said, flag it by name: "I have a memory that says X, but you're saying Y —
+  should I update it?" Then overwrite if they confirm.`);
+
+  return sections.join('\n\n---\n\n');
+}
+

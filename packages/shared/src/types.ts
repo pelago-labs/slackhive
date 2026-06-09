@@ -480,6 +480,12 @@ export interface JobsReloadEvent {
   type: 'reload-jobs';
 }
 
+/** Event to trigger an immediate, one-off (manual) run of a job — for testing. */
+export interface JobRunNowEvent {
+  type: 'run-job';
+  jobId: string;
+}
+
 /**
  * Event fired when a skill is created or updated. The runner picks this up,
  * generates a one-line description with Sonnet, and writes it back to the DB.
@@ -523,6 +529,7 @@ export type AgentEvent =
   | AgentStartEvent
   | AgentStopEvent
   | JobsReloadEvent
+  | JobRunNowEvent
   | SkillSavedEvent
   | UserAccessChangedEvent
   | EnvVarsChangedEvent;
@@ -677,6 +684,13 @@ export interface SlackAppManifest {
       messages_tab_enabled: boolean;
       messages_tab_read_only_enabled: boolean;
     };
+    /**
+     * Enables the "Agents & AI Apps" feature — required for Slack to render the
+     * native 👍/👎 `feedback_buttons` control on the agent's replies.
+     */
+    assistant_view?: {
+      assistant_description: string;
+    };
   };
   oauth_config: {
     scopes: {
@@ -714,6 +728,8 @@ export const DEFAULT_SLACK_BOT_SCOPES: string[] = [
   'reactions:read',
   'reactions:write',
   'users:read',
+  // Required for the "Agents & AI Apps" feature → native 👍/👎 feedback_buttons.
+  'assistant:write',
 ];
 
 /** Additional scopes required specifically by the boss agent. */

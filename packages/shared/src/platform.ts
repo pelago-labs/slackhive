@@ -55,6 +55,17 @@ export interface PlatformAdapter {
   /** Remove a reaction/emoji from a message. */
   removeReaction(channelId: string, messageId: string, emoji: string): Promise<void>;
 
+  /**
+   * Optional, platform-specific: attach native 👍/👎 feedback controls to the
+   * agent's final reply (an already-posted message), so the thumbs render under
+   * the answer itself rather than as a separate message. Slack does this by
+   * `chat.update`-ing the reply to append a `feedback_buttons` element. The
+   * caller passes the reply's id and the payload it was posted with so the
+   * adapter can preserve the answer when later swapping the buttons out.
+   * Adapters without interactive feedback (e.g. the test adapter) omit this.
+   */
+  attachFeedbackControls?(channelId: string, messageId: string, payload: MessagePayload, threadId: string | undefined, ctx: { activityId?: string | null }): Promise<void>;
+
   /** Upload a file to a channel/thread. */
   uploadFile(channelId: string, content: string | Buffer, filename: string, threadId?: string): Promise<void>;
 

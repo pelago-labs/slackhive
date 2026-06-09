@@ -12,15 +12,16 @@
  * Response body:
  *   { verdict: 'PASS' | 'FAIL' | 'SUSPECT', reasoning: string }
  *
- * The handler shells out to Claude via @anthropic-ai/claude-agent-sdk
- * (same SDK Coach uses). No tools, no MCP — pure text-in/text-out.
+ * The handler runs a one-shot generation via the ACTIVE agent backend
+ * (Claude or Codex) using `generateText`, so evals judge agents on either
+ * backend. No tools, no MCP — pure text-in/text-out.
  *
  * @module runner/judge-handler-server
  */
 
 import type { ServerResponse } from 'http';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Verdict } from '@slackhive/shared';
+import { generateText } from './backends/generate-text';
 import { logger } from './logger';
 
 interface JudgeRequest {
@@ -64,24 +65,9 @@ export async function handleJudge(body: string, res: ServerResponse): Promise<vo
 
   let assistantText = '';
   try {
-    for await (const msg of query({
-      prompt,
-      options: {
-        model: req.model,
-        allowedTools: [],
-        permissionMode: 'dontAsk',
-        maxTurns: 1,
-      },
-    })) {
-      const m = msg as { type?: string; message?: { content?: Array<{ type?: string; text?: string }> } };
-      if (m.type === 'assistant') {
-        for (const block of m.message?.content ?? []) {
-          if (block?.type === 'text' && typeof block.text === 'string') {
-            assistantText += block.text;
-          }
-        }
-      }
-    }
+    // Route through the active backend; the configured judge model follows that
+    // backend, so pass it for both Claude and Codex.
+    assistantText = await generateText(prompt, { claudeModel: req.model, codexModel: req.model });
   } catch (err) {
     logger.error('Judge query failed', { error: (err as Error).message });
     writeJson(res, 500, { error: (err as Error).message });
@@ -124,7 +110,7 @@ function buildJudgePrompt(req: JudgeRequest): string {
 }
 
 function parseJudgeOutput(text: string): JudgeResponse {
-  // Strip markdown fences if Claude added them despite instructions.
+  // Strip markdown fences the model may add despite instructions.
   const cleaned = text.replace(/```(?:json)?/gi, '').trim();
   // Take from first { to last } — robust to leading/trailing prose.
   const start = cleaned.indexOf('{');

@@ -1,27 +1,31 @@
 'use client';
 
 /**
- * @fileoverview 5-step agent onboarding wizard.
+ * @fileoverview 2-step agent onboarding wizard.
  *
- * Steps: Name & Role → Slack App → Credentials → Tools → Review
+ * Steps: Identity (name, role, reports-to, tags) → Profile (persona / blank /
+ * import). Boss agents are a single Identity step. Everything else — Slack
+ * credentials, tools/MCPs, model, permissions — is configured after creation on
+ * the agent page; a credential-less agent is created in a clean `stopped` state.
+ * After creating, we land on the agent page with Connect-Slack open.
  *
  * Route: /agents/new
  * @module web/app/agents/new
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AlertTriangle, Eye, EyeOff, Search, X, Check } from 'lucide-react';
+import { Search, Check, ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import type { Agent, McpServer, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
-import { PERSONA_CATALOG, searchPersonas, MODELS, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
-import { generateSlackManifest } from '@/lib/slack-manifest';
-import { useAuth } from '@/lib/auth-context';
+import type { Agent, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
 interface AgentExportPayload {
   version: number;
   exportedAt?: string;
+  persona?: string;
+  description?: string;
   claudeMd: string;
   skills: { category: string; filename: string; content: string; sortOrder: number }[];
 }
@@ -31,8 +35,6 @@ interface WizardState {
   model: string; isBoss: boolean;
   reportsToIds: string[];
   tags: string[];
-  slackBotToken: string; slackAppToken: string; slackSigningSecret: string;
-  mcpServerIds: string[];
   selectedPersona: PersonaTemplate | null;
   importPayload: AgentExportPayload | null;
 }
@@ -41,16 +43,8 @@ const INITIAL: WizardState = {
   name: '', slug: '', description: '', persona: '',
   model: DEFAULT_AGENT_MODEL, isBoss: false,
   reportsToIds: [], tags: [],
-  slackBotToken: '', slackAppToken: '', slackSigningSecret: '',
-  mcpServerIds: [], selectedPersona: null, importPayload: null,
+  selectedPersona: null, importPayload: null,
 };
-
-const TEMPLATES = [
-  { value: 'blank',        label: 'Blank',        desc: 'Minimal identity only' },
-  { value: 'data-analyst', label: 'Data Analyst', desc: 'SQL, Redshift, metrics' },
-  { value: 'writer',       label: 'Writer',       desc: 'Content & summaries' },
-  { value: 'developer',    label: 'Developer',    desc: 'Code review & dev' },
-];
 
 // ─── Wizard ───────────────────────────────────────────────────────────────────
 
@@ -61,10 +55,7 @@ const TEMPLATES = [
  */
 export default function NewAgentWizard() {
   const router   = useRouter();
-  const { username, role } = useAuth();
-  const [step, setStep]       = useState(0);
   const [state, setState]     = useState<WizardState>(INITIAL);
-  const [catalog, setCatalog] = useState<McpServer[]>([]);
   const [agents, setAgents]   = useState<Agent[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]     = useState('');
@@ -72,7 +63,6 @@ export default function NewAgentWizard() {
   const bosses = agents.filter(a => a.isBoss);
 
   useEffect(() => {
-    fetch('/api/mcps').then(r => r.json()).then(setCatalog);
     fetch('/api/agents').then(r => r.json()).then((a: Agent[]) => {
       setAgents(a);
     }).catch(() => {});
@@ -80,50 +70,41 @@ export default function NewAgentWizard() {
 
   const update = (patch: Partial<WizardState>) => setState(s => ({ ...s, ...patch }));
 
-  // Boss agents skip Persona + Tools steps (their CLAUDE.md is auto-generated)
-  const totalSteps = state.isBoss ? 4 : 6;
-  const stepLabels = state.isBoss
-    ? ['Name & Role', 'Slack App', 'Credentials', 'Review']
-    : ['Name & Role', 'Persona', 'Slack App', 'Credentials', 'Tools', 'Review'];
-
-  const next = () => setStep(s => Math.min(s + 1, totalSteps - 1));
-  const back = () => setStep(s => Math.max(s - 1, 0));
-
-  const credStep = state.isBoss ? 2 : 3;
-  const canNext = () => {
-    if (step === 0) return !!(state.name && state.slug);
-    // Persona step (non-boss only, step index 1): if "Blank" is picked, the
-    // user must type a description. Otherwise the template supplies it and
-    // Coach bootstrap would silently skip (see seed check in submit()).
-    if (!state.isBoss && step === 1) {
-      if (!state.selectedPersona && !state.description.trim()) return false;
-    }
-    if (step === credStep) return !!(state.slackBotToken && state.slackAppToken && state.slackSigningSecret);
-    return true;
-  };
+  // Single-step creation. A specialist needs a profile (persona, a typed
+  // description, or an imported config — each supplies the brain + a Coach seed);
+  // a boss only needs a name (its CLAUDE.md is auto-generated). Everything else
+  // (Slack, tools, model, permissions) is configured after creation.
+  const canCreate = !!(
+    state.name && state.slug &&
+    (state.isBoss || state.selectedPersona || state.description.trim() || state.importPayload)
+  );
 
   const submit = async () => {
     setSubmitting(true); setError('');
     try {
+      // Resolve persona/description from the chosen source: a persona template,
+      // an imported config (which may carry its own), or the typed fields. The
+      // API requires a non-empty description for specialists, so an import
+      // without one falls back to the agent name.
+      const imp = state.importPayload;
+      const persona = state.selectedPersona?.persona ?? imp?.persona ?? state.persona;
+      const description = state.selectedPersona?.description
+        ?? (imp ? (imp.description?.trim() || state.name) : state.description);
       const r = await fetch('/api/agents', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // No Slack credentials or MCPs here — both are configured post-creation
+        // on the agent page (omitting platformCredentials avoids an empty
+        // integration row; the agent is created in a clean `stopped` state).
         body: JSON.stringify({
           slug: state.slug,
           name: state.name,
-          persona: state.selectedPersona?.persona ?? state.persona,
-          description: state.selectedPersona?.description ?? state.description,
+          persona,
+          description,
           model: state.model,
           isBoss: state.isBoss,
           reportsTo: state.isBoss ? [] : state.reportsToIds,
           tags: state.tags,
           skillTemplate: 'blank',
-          mcpServerIds: state.mcpServerIds,
-          platform: 'slack',
-          platformCredentials: {
-            botToken: state.slackBotToken,
-            appToken: state.slackAppToken,
-            signingSecret: state.slackSigningSecret,
-          },
         }),
       });
       const data = await r.json();
@@ -147,18 +128,21 @@ export default function NewAgentWizard() {
           method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: claudeMd,
         });
         await Promise.all(skills.map(s =>
-          fetch(`/api/agents/${data.id}/skills`, {
+          fetch(`/api/agents/${data.id}/skills?noSnapshot=1`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(s),
           })
         ));
       }
 
-      // Kick off bootstrap in the background — don't await. The route returns
-      // 202 quickly; the runner then drafts claude.md + skills and writes the
-      // result to the coach session. The Instructions tab polls it live.
-      // Invariant: for non-import, non-boss agents, description is required
-      // (enforced in canNext() and API validation), so seed is always non-empty.
+      // Kick off Coach bootstrap in the background — don't await. The route
+      // returns 202 quickly; the runner drafts claude.md + skills and writes the
+      // result to the coach session, which the Instructions tab polls live.
+      // Seed = the typed description/persona. A persona-TEMPLATE pick leaves
+      // state.description empty (the template supplies claude.md + skills
+      // directly), so the seed is empty and Coach is skipped for those — by
+      // design. Imports and bosses are skipped too. So this fires only for the
+      // blank+typed-description path, where the seed is guaranteed non-empty.
       const seed = [state.description?.trim(), state.persona?.trim()].filter(Boolean).join('\n\n');
       if (!state.importPayload && !state.isBoss && seed.length > 0) {
         fetch(`/api/agents/${data.id}/coach`, {
@@ -169,147 +153,79 @@ export default function NewAgentWizard() {
       }
 
       window.dispatchEvent(new Event('slackhive:sidebar-refresh'));
-      router.push(`/agents/${data.slug}?coach=open`);
+      // Land on the new agent with Connect-Slack open — connecting Slack is the
+      // next action that makes the agent live.
+      router.push(`/agents/${data.slug}?setup=slack`);
     } finally { setSubmitting(false); }
   };
 
+  const cardStyle: React.CSSProperties = {
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 16, padding: '24px 26px', boxShadow: 'var(--shadow-sm)',
+  };
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
       {/* Top bar */}
       <div style={{
-        padding: '18px 36px', borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', gap: 12,
-        background: 'var(--surface)',
+        padding: '14px 24px', borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', gap: 10,
+        background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 10,
       }}>
-        <a href="/" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: 12 }}>
-          ← Agents
+        <a href="/" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <ArrowLeft size={14} /> Agents
         </a>
-        <span style={{ color: 'var(--border-2)' }}>/</span>
-        <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>New Agent</span>
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, display: 'flex', padding: '40px 36px', gap: 36, maxWidth: 860, width: '100%' }}>
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '44px 24px 132px' }}>
+        <div style={{ maxWidth: 660, margin: '0 auto' }} className="fade-up">
+          {/* Hero */}
+          <div style={{ marginBottom: 26 }}>
+            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--text)' }}>Create a new agent</h1>
+            <p style={{ margin: '7px 0 0', fontSize: 14, color: 'var(--muted)', lineHeight: 1.6 }}>
+              Name it and shape its role. You&apos;ll connect Slack and add tools right after — it takes under a minute.
+            </p>
+          </div>
 
-        {/* ── Left: step nav ───────────────────────────────────────────── */}
-        <div style={{ width: 180, flexShrink: 0 }}>
-          <div style={{ position: 'sticky', top: 40 }}>
-            {stepLabels.map((label, i) => (
-              <div
-                key={i}
-                onClick={() => i < step && setStep(i)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '9px 0', cursor: i < step ? 'pointer' : 'default',
-                }}
-              >
-                <div style={{
-                  width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: i < step ? 11 : 12, fontWeight: 600,
-                  background: i < step ? 'var(--accent)' :
-                               i === step ? 'rgba(59,130,246,0.15)' :
-                               'transparent',
-                  color: i < step ? '#fff' :
-                         i === step ? 'var(--accent)' :
-                         'var(--muted)',
-                  border: i < step ? '1.5px solid transparent' :
-                          i === step ? '1.5px solid var(--accent)' :
-                          '1.5px solid var(--border-2)',
-                  transition: 'all 0.2s',
-                }}>
-                  {i < step ? '✓' : i + 1}
-                </div>
-                <span style={{
-                  fontSize: 13,
-                  fontWeight: i === step ? 600 : 400,
-                  color: i === step ? 'var(--text)' : i < step ? 'var(--muted)' : 'var(--subtle)',
-                  transition: 'color 0.2s',
-                }}>{label}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={cardStyle}>
+              <Step1Identity state={state} update={update} bosses={bosses} />
+            </div>
+            {!state.isBoss && (
+              <div style={cardStyle}>
+                <Step2Persona state={state} update={update} />
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Right: step panel ────────────────────────────────────────── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              background: 'var(--surface)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '32px',
-              boxShadow: 'var(--shadow-card)',
-            }}
-            className="fade-up"
-            key={step}
-          >
-            {step === 0 && <Step1Identity state={state} update={update} bosses={bosses} />}
-            {/* Specialist steps */}
-            {!state.isBoss && step === 1 && <Step2Persona state={state} update={update} />}
-            {!state.isBoss && step === 2 && <Step2SlackApp state={state} />}
-            {!state.isBoss && step === 3 && <Step3Tokens state={state} update={update} />}
-            {!state.isBoss && step === 4 && <Step4McpsSkills state={state} update={update} catalog={catalog} username={username} role={role} />}
-            {!state.isBoss && step === 5 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
-            {/* Boss steps */}
-            {state.isBoss && step === 1 && <Step2SlackApp state={state} />}
-            {state.isBoss && step === 2 && <Step3Tokens state={state} update={update} />}
-            {state.isBoss && step === 3 && <Step5Review state={state} update={update} catalog={catalog} agents={agents} />}
-          </div>
-
-          {error && (
-            <div style={{
-              marginTop: 12, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-              borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#f87171',
-            }}>{error}</div>
-          )}
-
-          {/* Nav buttons */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
-            <button
-              onClick={back} disabled={step === 0}
-              style={{
-                background: 'transparent', color: step === 0 ? 'var(--subtle)' : 'var(--muted)',
-                border: '1.5px solid var(--border)', borderRadius: 'var(--radius)',
-                padding: '10px 20px', fontSize: 14, fontWeight: 500, cursor: step === 0 ? 'not-allowed' : 'pointer',
-                fontFamily: 'var(--font-sans)', transition: 'border-color 0.15s, color 0.15s',
-              }}
-              onMouseEnter={e => { if (step > 0) { (e.currentTarget as HTMLElement).style.color = 'var(--text)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; } }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
-            >← Back</button>
-
-            {step < totalSteps - 1 ? (
-              <button
-                onClick={next} disabled={!canNext()}
-                style={{
-                  background: canNext() ? 'var(--accent)' : 'var(--border)',
-                  color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
-                  padding: '10px 24px', fontSize: 14, fontWeight: 600,
-                  cursor: canNext() ? 'pointer' : 'not-allowed',
-                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
-                  boxShadow: canNext() ? 'var(--shadow-sm)' : 'none',
-                  letterSpacing: '-0.01em',
-                }}
-                onMouseEnter={e => { if (canNext()) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; } }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
-              >Continue →</button>
-            ) : (
-              <button
-                onClick={submit}
-                disabled={submitting || !state.slackBotToken || !state.slackAppToken || !state.slackSigningSecret}
-                style={{
-                  background: submitting ? 'var(--border)' : '#16a34a',
-                  color: 'var(--accent-fg)', border: 'none', borderRadius: 'var(--radius)',
-                  padding: '10px 24px', fontSize: 14, fontWeight: 600,
-                  cursor: submitting ? 'not-allowed' : 'pointer',
-                  fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
-                  boxShadow: !submitting ? 'var(--shadow-sm)' : 'none',
-                  letterSpacing: '-0.01em',
-                }}
-                onMouseEnter={e => { if (!submitting) { (e.currentTarget as HTMLElement).style.opacity = '0.88'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; } }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
-              >{submitting ? 'Creating…' : 'Create Agent'}</button>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Sticky action bar */}
+      <div style={{
+        position: 'sticky', bottom: 0, borderTop: '1px solid var(--border)',
+        background: 'color-mix(in srgb, var(--surface) 92%, transparent)', backdropFilter: 'blur(8px)',
+        padding: '14px 24px',
+      }}>
+        <div style={{ maxWidth: 660, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <span style={{ fontSize: 12.5, color: error ? '#dc2626' : 'var(--subtle)', lineHeight: 1.5, flex: 1, minWidth: 0 }}>
+            {error || 'Slack, tools, model & permissions are configured after creation.'}
+          </span>
+          <button
+            onClick={submit}
+            disabled={submitting || !canCreate}
+            style={{
+              flexShrink: 0,
+              background: (submitting || !canCreate) ? 'var(--border)' : 'var(--accent)',
+              color: 'var(--accent-fg)', border: 'none', borderRadius: 10,
+              padding: '11px 22px', fontSize: 14, fontWeight: 600,
+              cursor: (submitting || !canCreate) ? 'not-allowed' : 'pointer',
+              fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
+              boxShadow: (submitting || !canCreate) ? 'none' : 'var(--shadow-sm)', letterSpacing: '-0.01em',
+            }}
+            onMouseEnter={e => { if (!submitting && canCreate) { (e.currentTarget as HTMLElement).style.opacity = '0.9'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; } }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
+          >{submitting ? 'Creating…' : 'Create agent'}</button>
         </div>
       </div>
     </div>
@@ -322,6 +238,17 @@ function Step1Identity({ state, update, bosses }: {
   state: WizardState; update: (p: Partial<WizardState>) => void;
   bosses: Agent[];
 }) {
+  // No model picker at creation — default to the active backend's model; it's
+  // editable later on the agent page.
+  useEffect(() => {
+    fetch('/api/system/models').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.models?.length && !d.models.some((m: { value: string }) => m.value === state.model)) {
+        update({ model: d.models[0].value });
+      }
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const autoSlug = (name: string) =>
     name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -334,57 +261,41 @@ function Step1Identity({ state, update, bosses }: {
 
   return (
     <div>
-      <StepHeader step={1} title="Name your agent" desc="Give it a name and decide if it leads a team or works as a specialist." />
-      <div style={{ marginBottom: 14 }}>
-        <Field label="Agent Name *" value={state.name} placeholder="e.g. GILFOYLE"
-          onChange={v => update({ name: v, slug: autoSlug(v) })} />
-      </div>
-      {/* Model selector */}
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 8 }}>
-          Model
-        </label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-          {MODELS.map(m => (
-            <label key={m.value} style={{
-              display: 'flex', flexDirection: 'column', gap: 2,
-              padding: '10px 12px', border: `1px solid ${state.model === m.value ? 'var(--accent)' : 'var(--border)'}`,
-              borderRadius: 8, cursor: 'pointer',
-              background: state.model === m.value ? 'rgba(59,130,246,0.08)' : 'transparent',
-              transition: 'border-color 0.15s, background 0.15s',
-            }}>
-              <input type="radio" name="model" value={m.value} checked={state.model === m.value}
-                onChange={() => update({ model: m.value })} style={{ display: 'none' }} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: state.model === m.value ? 'var(--accent)' : 'var(--text)' }}>
-                {m.label}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{m.sub}</span>
-            </label>
-          ))}
-        </div>
-      </div>
+      <StepHeader title="Identity" desc="The basics. You can rename it or change the role anytime." />
+      <Field label="Agent name" value={state.name} placeholder="e.g. GILFOYLE"
+        onChange={v => update({ name: v, slug: autoSlug(v) })}
+        hint={state.slug ? <>URL: <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>/agents/{state.slug}</code></> : undefined} />
 
-      {/* Boss toggle */}
+      {/* Role — two selectable cards */}
       <div style={{ marginBottom: 14 }}>
-        <label style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '10px 14px', border: `1px solid ${state.isBoss ? 'var(--accent)' : 'var(--border)'}`,
-          borderRadius: 8, cursor: 'pointer',
-          background: state.isBoss ? 'rgba(59,130,246,0.08)' : 'transparent',
-          transition: 'all 0.15s',
-        }}>
-          <input type="checkbox" checked={state.isBoss}
-            onChange={e => update({ isBoss: e.target.checked, reportsToIds: [] })}
-            style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: state.isBoss ? 'var(--accent)' : 'var(--text)' }}>
-              This agent is a Boss
-            </div>
-            <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>
-              Boss agents orchestrate specialists. Their CLAUDE.md is auto-generated from the team.
-            </div>
-          </div>
-        </label>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>Role</label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {[
+            { boss: false, title: 'Specialist', desc: 'Does the work. Can report to a boss.' },
+            { boss: true,  title: 'Boss',       desc: 'Orchestrates specialists. Brain auto-written.' },
+          ].map(opt => {
+            const active = state.isBoss === opt.boss;
+            return (
+              <button key={opt.title} type="button"
+                onClick={() => update({ isBoss: opt.boss, reportsToIds: [] })}
+                style={{
+                  textAlign: 'left', cursor: 'pointer', borderRadius: 10, padding: '12px 14px',
+                  border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                  background: active ? 'color-mix(in srgb, var(--accent) 8%, var(--surface))' : 'var(--surface)',
+                  fontFamily: 'var(--font-sans)', transition: 'border-color 0.12s, background 0.12s',
+                }}
+                onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
+                onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 600, color: active ? 'var(--accent)' : 'var(--text)' }}>{opt.title}</span>
+                  {active && <Check size={13} style={{ color: 'var(--accent)' }} />}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.45 }}>{opt.desc}</div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Reports to — multi-select boss agents (only shown for non-boss agents) */}
@@ -429,18 +340,15 @@ function Step1Identity({ state, update, bosses }: {
 
       {/* Tags */}
       <TagInputWizard tags={state.tags} onChange={tags => update({ tags })} />
-
-      {/* Import config */}
     </div>
   );
 }
 
 // ─── Import config picker ─────────────────────────────────────────────────────
 
-function ImportConfigPicker({ value, onChange, compact }: {
+function ImportConfigPicker({ value, onChange }: {
   value: AgentExportPayload | null;
   onChange: (p: AgentExportPayload | null) => void;
-  compact?: boolean;
 }) {
   const [error, setError] = useState('');
   const ref = useRef<HTMLInputElement>(null);
@@ -468,49 +376,6 @@ function ImportConfigPicker({ value, onChange, compact }: {
     reader.readAsText(file);
   };
 
-  if (compact) {
-    return (
-      <div>
-        {!value ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 1 }}>Import config</div>
-              <div style={{ fontSize: 11.5, color: 'var(--subtle)' }}>Load CLAUDE.md + skills from an exported agent</div>
-              {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 3 }}>{error}</div>}
-            </div>
-            <button type="button" onClick={() => ref.current?.click()} style={{
-              display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
-              padding: '6px 12px', borderRadius: 6,
-              border: '1px solid var(--border-2)', background: 'var(--surface)',
-              fontSize: 12, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
-            }}>
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              Choose file
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#7c3aed' }}>
-                Config loaded
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
-              </div>
-            </div>
-            <button type="button" onClick={() => { onChange(null); setError(''); }} style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 11.5, color: 'var(--muted)', padding: '3px 6px',
-            }}>Remove</button>
-          </div>
-        )}
-        <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
-      </div>
-    );
-  }
-
   return (
     <div style={{
       marginTop: 20, padding: '14px 16px', borderRadius: 10,
@@ -525,7 +390,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
               Import from existing config
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Load CLAUDE.md + skills from a previously exported agent
+              Load AGENTS.md + skills from a previously exported agent
             </div>
             {error && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 4 }}>{error}</div>}
           </div>
@@ -563,7 +428,7 @@ function ImportConfigPicker({ value, onChange, compact }: {
                 Config file loaded
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · CLAUDE.md included
+                {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · AGENTS.md included
                 {value.exportedAt && ` · ${new Date(value.exportedAt).toLocaleDateString()}`}
               </div>
             </div>
@@ -576,392 +441,6 @@ function ImportConfigPicker({ value, onChange, compact }: {
       )}
       <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
     </div>
-  );
-}
-
-// ─── Step 2: Slack App ────────────────────────────────────────────────────────
-
-function Step2SlackApp({ state }: { state: WizardState }) {
-  const [copied, setCopied] = useState(false);
-  const manifest = state.name
-    ? JSON.stringify(generateSlackManifest({ name: state.name, description: state.description, isBoss: state.isBoss }), null, 2)
-    : '{}';
-
-  const copy = () => { navigator.clipboard.writeText(manifest); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-
-  return (
-    <div>
-      <StepHeader step={2} title="Create a Slack app" desc="Paste this manifest into Slack — it configures everything automatically in about 2 minutes." />
-
-      {/* Steps */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginBottom: 20 }}>
-        {([
-          {
-            n: 1,
-            title: 'Open api.slack.com/apps',
-            body: <>Click <Kbd>Create New App</Kbd> → <Kbd>From a manifest</Kbd> and select your workspace.</>,
-          },
-          {
-            n: 2,
-            title: 'Paste the manifest',
-            body: <>Switch to the <Kbd>JSON</Kbd> tab, paste the manifest below, click <Kbd>Next</Kbd> → <Kbd>Create</Kbd>.</>,
-          },
-          {
-            n: 3,
-            title: 'Install to workspace',
-            body: <>In the sidebar go to <Kbd>Install App</Kbd> → <Kbd>Install to Workspace</Kbd> → Allow. This generates your Bot Token — it won&apos;t appear until you install.</>,
-          },
-        ] as { n: number; title: string; body: React.ReactNode }[]).map(({ n, title, body }, i, arr) => (
-          <div key={n} style={{ display: 'flex', gap: 0 }}>
-            {/* Connector line + dot */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 32, flexShrink: 0 }}>
-              <div style={{
-                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                background: 'var(--accent)', color: 'var(--accent-fg)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 11, fontWeight: 700, zIndex: 1,
-              }}>{n}</div>
-              {i < arr.length - 1 && (
-                <div style={{ width: 2, flex: 1, background: 'var(--border)', minHeight: 20, marginTop: 4 }} />
-              )}
-            </div>
-            {/* Content */}
-            <div style={{ paddingLeft: 14, paddingBottom: i < arr.length - 1 ? 20 : 0, paddingTop: 3 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>{title}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.65 }}>{body}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Manifest block */}
-      <div style={{ background: 'var(--surface-2)', border: '1.5px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '10px 16px', borderBottom: '1px solid var(--border)',
-        }}>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-            {state.name || 'agent'}-manifest.json
-          </span>
-          <button onClick={copy} style={{
-            background: copied ? 'var(--green)' : 'var(--accent)',
-            color: copied ? '#fff' : 'var(--accent-fg)',
-            border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-            fontFamily: 'var(--font-sans)', padding: '5px 12px', borderRadius: 6,
-            transition: 'all 0.15s',
-          }}>{copied ? '✓ Copied!' : 'Copy manifest'}</button>
-        </div>
-        <pre style={{
-          margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--text)',
-          fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: 260, lineHeight: 1.6,
-        }}>{manifest}</pre>
-      </div>
-    </div>
-  );
-}
-
-// ─── Step 3: Tokens ───────────────────────────────────────────────────────────
-
-function Step3Tokens({ state, update }: { state: WizardState; update: (p: Partial<WizardState>) => void }) {
-  return (
-    <div>
-      <StepHeader step={3} title="Add your tokens" desc="Three values from your Slack app — paste each one below." />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <TokenCard
-          label="Bot Token"
-          prefix="xoxb-"
-          path={['OAuth & Permissions', 'Bot User OAuth Token']}
-          screenshot={<BotTokenScreenshot />}
-          placeholder="xoxb-..."
-          value={state.slackBotToken}
-          onChange={v => update({ slackBotToken: v })}
-        />
-        <TokenCard
-          label="App-Level Token"
-          prefix="xapp-"
-          path={['Basic Information', 'App-Level Tokens']}
-          note={<>Click <strong>Generate Token and Scopes</strong>, add scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'rgba(59,130,246,0.08)', color: 'var(--accent)', padding: '1px 6px', borderRadius: 4 }}>connections:write</code>, then generate.</>}
-          screenshot={<AppTokenScreenshot />}
-          placeholder="xapp-..."
-          value={state.slackAppToken}
-          onChange={v => update({ slackAppToken: v })}
-        />
-        <TokenCard
-          label="Signing Secret"
-          prefix=""
-          path={['Basic Information', 'App Credentials', 'Signing Secret']}
-          screenshot={<SigningSecretScreenshot />}
-          placeholder="abc123def..."
-          value={state.slackSigningSecret}
-          onChange={v => update({ slackSigningSecret: v })}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ─── Token card ───────────────────────────────────────────────────────────────
-
-function TokenCard({ label, prefix, path, note, screenshot, placeholder, value, onChange }: {
-  label: string; prefix: string;
-  path: string[];
-  note?: React.ReactNode;
-  screenshot?: React.ReactNode;
-  placeholder: string; value: string; onChange: (v: string) => void;
-}) {
-  const [show, setShow] = useState(false);
-  const [showScreenshot, setShowScreenshot] = useState(false);
-  const isDirty = value.length > 0;
-  const isValid = prefix ? value.startsWith(prefix) : value.length >= 8;
-
-  return (
-    <div style={{
-      borderRadius: 'var(--radius)',
-      border: `1.5px solid ${isDirty ? (isValid ? '#86efac' : '#fca5a5') : 'var(--border)'}`,
-      background: 'var(--surface)',
-      overflow: 'hidden',
-      transition: 'border-color 0.2s',
-    }}>
-      {/* Header: label + breadcrumb */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', flexShrink: 0 }}>{label}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
-            {path.map((p, i) => (
-              <React.Fragment key={i}>
-                {i > 0 && <span style={{ fontSize: 11, color: 'var(--border-2)' }}>›</span>}
-                <span style={{
-                  fontSize: 11.5, whiteSpace: 'nowrap',
-                  color: i === path.length - 1 ? 'var(--muted)' : 'var(--subtle)',
-                  fontWeight: i === path.length - 1 ? 500 : 400,
-                }}>{p}</span>
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {screenshot && (
-            <button
-              type="button"
-              onClick={() => setShowScreenshot(s => !s)}
-              style={{
-                background: showScreenshot ? 'var(--surface-2)' : 'none',
-                border: '1px solid var(--border)', borderRadius: 5,
-                padding: '3px 8px', cursor: 'pointer',
-                color: 'var(--muted)', fontSize: 11, fontWeight: 500,
-                fontFamily: 'var(--font-sans)', transition: 'all 0.15s',
-              }}
-            >{showScreenshot ? 'Hide guide' : 'Where?'}</button>
-          )}
-          {isDirty && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: isValid ? '#16a34a' : '#ef4444' }}>
-              {isValid ? '✓' : '✗'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Screenshot guide */}
-      {showScreenshot && screenshot && (
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
-          {screenshot}
-        </div>
-      )}
-
-      {/* Note */}
-      {note && (
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', background: 'var(--surface-2)', lineHeight: 1.6 }}>
-          {note}
-        </div>
-      )}
-
-      {/* Input */}
-      <div style={{ display: 'flex', alignItems: 'center', padding: '0 4px 0 16px', gap: 6 }}>
-        <input
-          type={show ? 'text' : 'password'}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder={placeholder}
-          style={{
-            flex: 1, background: 'transparent', border: 'none',
-            padding: '12px 0', color: 'var(--text)',
-            fontSize: 13, fontFamily: value ? 'var(--font-mono)' : 'var(--font-sans)',
-            outline: 'none',
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => setShow(s => !s)}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--subtle)', fontSize: 12, padding: '8px',
-            fontFamily: 'var(--font-sans)', lineHeight: 1,
-          }}
-        >{show ? <EyeOff size={14} /> : <Eye size={14} />}</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Slack UI screenshot mockups ──────────────────────────────────────────────
-
-const slackStyles = {
-  wrap: {
-    borderRadius: 8, overflow: 'hidden', border: '1px solid #e0e0e0',
-    fontFamily: 'Lato, -apple-system, sans-serif', fontSize: 12,
-  } as React.CSSProperties,
-  chrome: {
-    background: 'var(--surface-2)', padding: '6px 10px',
-    borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8,
-  } as React.CSSProperties,
-  urlBar: {
-    flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4,
-    padding: '3px 8px', fontSize: 10.5, color: '#555',
-    fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
-  } as React.CSSProperties,
-  body: { background: 'var(--surface)', padding: '14px 16px' } as React.CSSProperties,
-  sectionTitle: { fontSize: 12, fontWeight: 700, color: '#1d1c1d', marginBottom: 10 } as React.CSSProperties,
-  row: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 5,
-  } as React.CSSProperties,
-  label: { fontSize: 11.5, color: '#616061' } as React.CSSProperties,
-  token: { fontSize: 11, fontFamily: 'monospace', color: '#1d1c1d', letterSpacing: 1 } as React.CSSProperties,
-  greenBtn: {
-    background: 'var(--green)', color: 'var(--accent-fg)', border: 'none', borderRadius: 4,
-    padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'default',
-    boxShadow: '0 0 0 3px rgba(0,122,90,0.25)',
-  } as React.CSSProperties,
-  badge: {
-    background: '#e8f5f0', color: '#007a5a', border: '1px solid #b8dfd4',
-    borderRadius: 3, padding: '1px 6px', fontSize: 10.5, fontWeight: 600,
-  } as React.CSSProperties,
-  highlight: {
-    outline: '2.5px solid #007a5a', outlineOffset: 2, borderRadius: 4,
-  } as React.CSSProperties,
-};
-
-function ChromeBar({ url }: { url: string }) {
-  return (
-    <div style={slackStyles.chrome}>
-      <div style={{ display: 'flex', gap: 4 }}>
-        {['#ff5f57','#febc2e','#28c840'].map(c => (
-          <div key={c} style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />
-        ))}
-      </div>
-      <div style={slackStyles.urlBar}>{url}</div>
-    </div>
-  );
-}
-
-function SlackLayout({ url, activeNav, children }: { url: string; activeNav: string; children: React.ReactNode }) {
-  const navItems = ['Basic Information', 'Socket Mode', 'Install App', 'OAuth & Permissions', 'Event Subscriptions', 'App Manifest'];
-  return (
-    <div style={slackStyles.wrap}>
-      <ChromeBar url={url} />
-      <div style={{ display: 'flex', background: 'var(--surface)' }}>
-        {/* Sidebar */}
-        <div style={{ width: 148, background: '#f8f8f8', borderRight: '1px solid #e0e0e0', padding: '10px 0', flexShrink: 0 }}>
-          {navItems.map(item => (
-            <div key={item} style={{
-              padding: '5px 12px', fontSize: 11, cursor: 'default',
-              background: item === activeNav ? '#e8e8e8' : 'transparent',
-              color: item === activeNav ? '#1d1c1d' : '#616061',
-              fontWeight: item === activeNav ? 700 : 400,
-              borderLeft: item === activeNav ? '2px solid #007a5a' : '2px solid transparent',
-            }}>{item}</div>
-          ))}
-        </div>
-        {/* Content */}
-        <div style={{ flex: 1, padding: '14px 16px', minWidth: 0 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function BotTokenScreenshot() {
-  return (
-    <SlackLayout url="api.slack.com/apps/A.../oauth" activeNav="OAuth & Permissions">
-      {/* Install notice */}
-      <div style={{ background: 'var(--surface-2)', border: '1px solid var(--amber)', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontSize: 11, color: 'var(--amber)', lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-        <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-        <span>Token only appears after <strong>Install to Workspace</strong> (sidebar → Install App)</span>
-      </div>
-      <div style={slackStyles.sectionTitle}>OAuth Tokens</div>
-      <div style={{ border: '1px solid #e8e8e8', borderRadius: 5, overflow: 'hidden' }}>
-        <div style={{ padding: '8px 10px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 11, color: '#616061', marginBottom: 1 }}>Bot User OAuth Token</div>
-          <div style={{ ...slackStyles.token, fontSize: 10.5 }}>xoxb-••••••••••••-••••••••••••-••••••••••••</div>
-          <div style={{ fontSize: 10, color: '#616061', marginTop: 2 }}>Access Level: Workspace</div>
-        </div>
-        <div style={{ padding: '7px 10px', display: 'flex', justifyContent: 'flex-end' }}>
-          <button style={{ ...slackStyles.greenBtn, ...slackStyles.highlight }}>Copy</button>
-        </div>
-      </div>
-    </SlackLayout>
-  );
-}
-
-function AppTokenScreenshot() {
-  return (
-    <SlackLayout url="api.slack.com/apps/A.../general" activeNav="Basic Information">
-      <div style={slackStyles.sectionTitle}>App-Level Tokens</div>
-      <div style={{ fontSize: 11, color: '#616061', marginBottom: 10, lineHeight: 1.5 }}>
-        App-level tokens represent your app across organizations.
-      </div>
-      <div style={{ marginBottom: 10 }}>
-        <button style={{ ...slackStyles.greenBtn, ...slackStyles.highlight }}>Generate Token and Scopes</button>
-      </div>
-      <div style={{ border: '1px solid #e8e8e8', borderRadius: 5, padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#1d1c1d', marginBottom: 4 }}>SlackHive</div>
-          <span style={slackStyles.badge}>connections:write</span>
-        </div>
-        <div style={slackStyles.token}>xapp-••••••••••••</div>
-      </div>
-    </SlackLayout>
-  );
-}
-
-function SigningSecretScreenshot() {
-  return (
-    <SlackLayout url="api.slack.com/apps/A.../general" activeNav="Basic Information">
-      <div style={slackStyles.sectionTitle}>App Credentials</div>
-      <div style={{ fontSize: 11, color: '#616061', marginBottom: 10, lineHeight: 1.5 }}>
-        These credentials allow your app to access the Slack API. Keep them secret.
-      </div>
-      {[
-        { label: 'App ID', value: 'A0AN••••••9', mono: true },
-        { label: 'Client ID', value: '9186••••••••••••••••', mono: true },
-        { label: 'Client Secret', value: '••••••••••', mono: true },
-      ].map(row => (
-        <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0', fontSize: 11, color: '#616061' }}>
-          <span>{row.label}</span>
-          <span style={{ fontFamily: 'monospace', color: '#1d1c1d' }}>{row.value}</span>
-        </div>
-      ))}
-      {/* Signing Secret highlighted */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', marginTop: 6, border: '1px solid #e8e8e8', borderRadius: 5, ...slackStyles.highlight }}>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#1d1c1d', marginBottom: 2 }}>Signing Secret</div>
-          <div style={slackStyles.token}>••••••••••••••••••••••••</div>
-        </div>
-        <button style={slackStyles.greenBtn}>Show</button>
-      </div>
-    </SlackLayout>
-  );
-}
-
-// ─── Kbd helper ───────────────────────────────────────────────────────────────
-
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd style={{
-      display: 'inline-block', fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 600,
-      background: 'var(--surface-3)', color: 'var(--text)',
-      border: '1px solid var(--border)', borderRadius: 5,
-      padding: '1px 7px', lineHeight: 1.7, whiteSpace: 'nowrap',
-    }}>{children}</kbd>
   );
 }
 
@@ -1000,7 +479,7 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
 
   return (
     <div>
-      <StepHeader step={2} title="Choose a persona" desc="Pick a pre-built role to give your agent a system prompt and skills. You can skip and start blank." />
+      <StepHeader title="Profile" desc="Pick a persona (system prompt + skills), start blank with a description, or import an exported config." />
 
       {/* Search + category chips */}
       <div style={{ marginBottom: 10 }}>
@@ -1047,7 +526,7 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
           const isBlank = selected === null;
           return (
             <div
-              onClick={() => update({ selectedPersona: null })}
+              onClick={() => update({ selectedPersona: null, importPayload: null })}
               style={{
                 padding: '11px 12px', borderRadius: 8, cursor: 'pointer',
                 border: `1.5px solid ${isBlank ? 'var(--border-2)' : 'var(--border)'}`,
@@ -1079,7 +558,7 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
           const catColor = PERSONA_CATEGORY_COLORS[p.category] ?? '#6b7280';
           return (
             <div key={p.id}
-              onClick={() => update({ selectedPersona: isSelected ? null : p })}
+              onClick={() => update({ selectedPersona: isSelected ? null : p, importPayload: null })}
               style={{
                 padding: '11px 12px', borderRadius: 8, cursor: 'pointer',
                 border: `1.5px solid ${isSelected ? catColor : 'var(--border)'}`,
@@ -1118,13 +597,17 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
       </div>
 
       <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--subtle)' }}>
-        {selected ? <><span style={{ color: 'var(--text)', fontWeight: 500 }}>{selected.name}</span> selected</> : 'Blank selected — describe the agent below'}
+        {state.importPayload
+          ? <><span style={{ color: 'var(--text)', fontWeight: 500 }}>Imported config</span> — persona &amp; description come from the file</>
+          : selected
+            ? <><span style={{ color: 'var(--text)', fontWeight: 500 }}>{selected.name}</span> selected</>
+            : 'Blank selected — describe the agent below'}
       </p>
 
-      {/* When "Blank" is picked there's no template to supply description/persona.
-          Description is required so the agent has an identity AND so Coach bootstrap
-          has a seed to run with (see submit() — seed = description ?? persona). */}
-      {selected === null && (
+      {/* When "Blank" is picked (and not importing) there's no template to supply
+          description/persona. Description is required so the agent has an identity
+          AND so Coach bootstrap has a seed (see submit() — seed = description ?? persona). */}
+      {selected === null && !state.importPayload && (
         <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
@@ -1146,7 +629,7 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
             />
             <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-              Used to seed the agent&apos;s CLAUDE.md and kick off the Coach&apos;s first-turn draft.
+              Used to seed the agent&apos;s AGENTS.md and kick off the Coach&apos;s first-turn draft.
             </p>
           </div>
           <div>
@@ -1171,165 +654,13 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
           </div>
         </div>
       )}
-    </div>
-  );
-}
 
-// ─── Step 4: MCPs ─────────────────────────────────────────────────────────────
-
-function Step4McpsSkills({
-  state, update, catalog, username, role,
-}: { state: WizardState; update: (p: Partial<WizardState>) => void; catalog: McpServer[]; username: string; role: string | null }) {
-  // Mirror the API gate at /api/agents POST: editors can only assign MCPs they
-  // own; admins/superadmins bypass. Without this hint here, an editor could
-  // tick a box that the server then rejects with a 403 — surface the lock
-  // upfront instead.
-  const isAdmin = role === 'admin' || role === 'superadmin';
-  const canAssign = (mcp: McpServer) => isAdmin || mcp.createdBy === username;
-
-  const toggle = (id: string) => {
-    const ids = state.mcpServerIds.includes(id)
-      ? state.mcpServerIds.filter(x => x !== id)
-      : [...state.mcpServerIds, id];
-    update({ mcpServerIds: ids });
-  };
-
-  return (
-    <div>
-      <StepHeader step={5} title="Tools" desc="Attach MCP servers to give your agent access to external tools. You can change these anytime." />
-
-      {/* MCP list */}
-      <div style={{ marginBottom: 22 }}>
-        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-          MCP Servers
-        </label>
-        {catalog.length === 0 ? (
-          <div style={{
-            border: '1px dashed var(--border)', borderRadius: 8, padding: '16px',
-            fontSize: 12.5, color: 'var(--subtle)', textAlign: 'center',
-          }}>
-            No MCP servers yet — you can add them after creation in <strong style={{ color: 'var(--muted)' }}>Settings → MCP Catalog</strong>
-          </div>
-        ) : (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-            {catalog.map((mcp, i) => {
-              const assignable = canAssign(mcp);
-              const interactive = mcp.enabled && assignable;
-              return (
-              <label key={mcp.id} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px',
-                cursor: interactive ? 'pointer' : 'not-allowed',
-                borderBottom: i < catalog.length - 1 ? '1px solid var(--border)' : 'none',
-                opacity: interactive ? 1 : 0.45, transition: 'background 0.12s',
-              }}
-                title={!mcp.enabled ? 'MCP is disabled' : !assignable ? `Only ${mcp.createdBy} or an admin can assign this MCP` : undefined}
-                onMouseEnter={e => { if (interactive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-              >
-                <input type="checkbox" checked={state.mcpServerIds.includes(mcp.id)}
-                  onChange={() => toggle(mcp.id)} disabled={!interactive}
-                  style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{mcp.name}</span>
-                    <span style={{
-                      fontSize: 10.5, fontFamily: 'var(--font-mono)',
-                      color: 'var(--muted)', background: 'var(--border)', padding: '1px 6px', borderRadius: 4,
-                    }}>{mcp.type}</span>
-                    {!assignable && (
-                      <span style={{
-                        fontSize: 10.5, fontWeight: 500,
-                        color: 'var(--subtle)', background: 'var(--surface-2)',
-                        border: '1px solid var(--border)',
-                        padding: '1px 6px', borderRadius: 4,
-                      }}
-                        title={`Only ${mcp.createdBy} or an admin can assign this MCP`}
-                      >🔒 owned by {mcp.createdBy}</span>
-                    )}
-                  </div>
-                  {mcp.description && <p style={{ margin: 0, fontSize: 11.5, color: 'var(--subtle)' }}>{mcp.description}</p>}
-                </div>
-              </label>
-            );})}
-          </div>
-        )}
-      </div>
-
-      {state.selectedPersona && (
-        <div style={{
-          background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)',
-          borderRadius: 8, padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)',
-        }}>
-          Persona: <span style={{ fontWeight: 600, color: 'var(--text)' }}>{state.selectedPersona.name}</span>
-          {' '}· {state.selectedPersona.skills.length} skills will be applied after creation
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Step 5: Review ───────────────────────────────────────────────────────────
-
-function Step5Review({ state, update, catalog, agents }: { state: WizardState; update: (p: Partial<WizardState>) => void; catalog: McpServer[]; agents: Agent[] }) {
-  const assignedBosses = agents.filter(a => state.reportsToIds.includes(a.id));
-  const assignedMcps = catalog.filter(m => state.mcpServerIds.includes(m.id));
-  const template = state.selectedPersona
-    ? `${state.selectedPersona.name} (${state.selectedPersona.skills.length} skills)`
-    : state.importPayload
-    ? `Import (${state.importPayload.skills.length} skills)`
-    : 'Blank';
-
-  const reportsToValue = state.isBoss
-    ? '—'
-    : assignedBosses.length > 0
-      ? assignedBosses.map(b => b.name).join(', ')
-      : 'None';
-
-  return (
-    <div>
-      <StepHeader step={state.isBoss ? 4 : 6} title="Looks good?" desc="Review the details below, then hit Create Agent to launch." />
-
-      <div style={{
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        borderRadius: 10, overflow: 'hidden', marginBottom: 18,
-      }}>
-        {[
-          { label: 'Name',          value: state.name,                             mono: false },
-{ label: 'Model',         value: state.model,                            mono: true  },
-          { label: 'Role',          value: state.isBoss ? 'Boss (orchestrator)' : 'Specialist', mono: false },
-          { label: 'Reports to',    value: reportsToValue,                         mono: false },
-          { label: 'Description',   value: state.description || '—',               mono: false },
-          { label: 'Bot Token',     value: `${state.slackBotToken.slice(0, 12)}…`, mono: true  },
-          { label: 'App Token',     value: `${state.slackAppToken.slice(0, 12)}…`, mono: true  },
-          { label: 'Signing Secret',value: '••••••••',                             mono: true  },
-          ...(!state.isBoss ? [
-            { label: 'MCPs',          value: assignedMcps.length > 0 ? assignedMcps.map(m => m.name).join(', ') : 'None', mono: false },
-            { label: 'Skill Template',value: template,                               mono: false },
-          ] : [
-            { label: 'Skills',        value: 'Auto-generated from team registry',   mono: false },
-          ]),
-        ].map((row, i, arr) => (
-          <div key={row.label} style={{
-            display: 'flex', alignItems: 'baseline', gap: 12,
-            padding: '10px 16px',
-            borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
-          }}>
-            <span style={{ width: 130, flexShrink: 0, fontSize: 12, color: 'var(--subtle)' }}>{row.label}</span>
-            <span style={{
-              fontSize: 13, color: 'var(--text)',
-              fontFamily: row.mono ? 'var(--font-mono)' : 'var(--font-sans)',
-            }}>{row.value}</span>
-          </div>
-        ))}
-      </div>
-
-      <div style={{
-        background: '#f0fdf4', border: '1px solid #bbf7d0',
-        borderRadius: 'var(--radius)', padding: '14px 16px', fontSize: 13, color: '#15803d', lineHeight: 1.65,
-      }}>
-        Once created, the runner picks up the agent automatically and connects to Slack.
-        Manage skills, MCPs, and channel permissions from the agent detail page.
-      </div>
+      {/* Import from JSON — loading a config sets importPayload and clears any
+          selected persona (the file supplies claudeMd + skills). */}
+      <ImportConfigPicker
+        value={state.importPayload}
+        onChange={p => update({ importPayload: p, ...(p ? { selectedPersona: null } : {}) })}
+      />
     </div>
   );
 }
@@ -1385,23 +716,20 @@ function TagInputWizard({ tags, onChange }: { tags: string[]; onChange: (t: stri
   );
 }
 
-function StepHeader({ step, title, desc }: { step: number; title: string; desc: string }) {
+function StepHeader({ title, desc }: { title: string; desc: string }) {
   return (
-    <div style={{ marginBottom: 22 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
-        Step {step}
-      </div>
-      <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+    <div style={{ marginBottom: 18 }}>
+      <h2 style={{ margin: '0 0 3px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
         {title}
       </h2>
-      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{desc}</p>
+      <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{desc}</p>
     </div>
   );
 }
 
 function Field({ label, value, onChange, placeholder, hint, type = 'text' }: {
   label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; hint?: string; type?: string;
+  placeholder?: string; hint?: React.ReactNode; type?: string;
 }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -1423,26 +751,3 @@ function Field({ label, value, onChange, placeholder, hint, type = 'text' }: {
   );
 }
 
-function TextArea({ label, value, onChange, placeholder, hint, rows = 3 }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; hint?: string; rows?: number;
-}) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
-        {label}
-      </label>
-      <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
-        style={{
-          width: '100%', background: 'var(--surface-2)', border: '1.5px solid var(--border)',
-          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
-          transition: 'border-color 0.15s', lineHeight: 1.55,
-        }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-      />
-      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
-    </div>
-  );
-}

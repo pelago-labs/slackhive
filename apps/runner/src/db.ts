@@ -459,6 +459,16 @@ export async function upsertSession(
   return rowToSession(result.rows[0]);
 }
 
+/** Drop a single session row so the next turn starts a fresh thread (used when a
+ *  thread is poisoned — e.g. context overflow). upsertSession can't clear the id
+ *  (its COALESCE keeps the old value), so an explicit delete is needed. */
+export async function deleteSession(agentId: string, sessionKey: string): Promise<void> {
+  await getDb().query(
+    'DELETE FROM sessions WHERE agent_id = $1 AND session_key = $2',
+    [agentId, sessionKey]
+  );
+}
+
 export async function cleanupStaleSessions(agentId: string, maxAgeMs: number): Promise<number> {
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
   const result = await getDb().query(
@@ -487,6 +497,38 @@ export async function getAllEnabledJobs(): Promise<ScheduledJob[]> {
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   }));
+}
+
+/** Load one scheduled job by id (regardless of enabled state) — for manual "Run now". */
+export async function getScheduledJobById(id: string): Promise<ScheduledJob | null> {
+  const r = await getDb().query('SELECT * FROM scheduled_jobs WHERE id = $1', [id]);
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id as string,
+    agentId: row.agent_id as string,
+    name: row.name as string,
+    prompt: row.prompt as string,
+    cronSchedule: row.cron_schedule as string,
+    targetType: row.target_type as 'channel' | 'dm',
+    targetId: row.target_id as string,
+    enabled: row.enabled !== false && row.enabled !== 0,
+    createdBy: (row.created_by as string) ?? 'system',
+    createdAt: row.created_at as Date,
+    updatedAt: row.updated_at as Date,
+  };
+}
+
+/**
+ * Mark any job_runs still 'running' as failed. Called on scheduler startup to
+ * reconcile runs orphaned by a runner crash/restart (which can't write their own
+ * terminal status). Returns the number of rows reconciled.
+ */
+export async function failOrphanedJobRuns(): Promise<number> {
+  const r = await getDb().query(
+    "UPDATE job_runs SET status = 'error', finished_at = now(), error = 'Interrupted by a runner restart' WHERE status = 'running'",
+  );
+  return r.rowCount ?? 0;
 }
 
 export async function insertJobRun(jobId: string): Promise<string> {
@@ -654,4 +696,30 @@ export async function setResult(key: string, value: string): Promise<void> {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
     [key, value]
   );
+}
+
+/** Upsert a setting value by exact key (used to persist refreshed credentials). */
+export async function setSetting(key: string, value: string): Promise<void> {
+  await getDb().query(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, value]
+  );
+}
+
+/** Epoch-ms timestamp of a setting's last write, or null if absent. */
+export async function getSettingUpdatedAt(key: string): Promise<number | null> {
+  const r = await getDb().query('SELECT updated_at FROM settings WHERE key = $1', [key]);
+  if (!r.rows.length) return null;
+  const v = (r.rows[0] as { updated_at: string | number | Date | null }).updated_at;
+  if (v == null) return null;
+  // SQLite's datetime('now') is UTC but has no timezone marker, so `new Date()`
+  // would parse it as LOCAL time and skew the comparison. Normalize to UTC.
+  let t: number;
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(v)) {
+    t = Date.parse(v.replace(' ', 'T') + 'Z');
+  } else {
+    t = new Date(v as string | number | Date).getTime();
+  }
+  return Number.isNaN(t) ? null : t;
 }

@@ -8,7 +8,7 @@
  * @module web/lib/activity-window
  */
 
-export const VALID_WINDOWS = new Set(['1h', '5h', '24h', '7d', '30d']);
+export const VALID_WINDOWS = new Set(['1h', '5h', '24h', '7d', '30d', '90d']);
 
 /**
  * Translate a UI window string to an ISO timestamp floor. SQLite stores
@@ -25,6 +25,7 @@ export function windowFloor(w: string | null): string | undefined {
     w === '5h'  ? 5 * 60 * 60 * 1000 :
     w === '24h' ? 24 * 60 * 60 * 1000 :
     w === '7d'  ? 7 * 24 * 60 * 60 * 1000 :
+    w === '90d' ? 90 * 24 * 60 * 60 * 1000 :
                   30 * 24 * 60 * 60 * 1000;
   return new Date(Date.now() - ms).toISOString().replace('T', ' ').slice(0, 19);
 }

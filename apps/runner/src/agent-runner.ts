@@ -24,8 +24,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
-import type { Agent, PlatformAdapter, ThreadMessage } from '@slackhive/shared';
-import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities } from '@slackhive/shared';
+import type { Agent, PlatformAdapter, ThreadMessage, AgentBackend } from '@slackhive/shared';
+import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
+import { generateText } from './backends/generate-text';
 import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
@@ -48,10 +49,13 @@ import {
   getSkillById,
   updateSkillDescription,
   getSkillsMissingDescription,
+  getSetting,
 } from './db';
 import { summarizeSkill } from './summarize-skill';
-import { compileClaudeMd, getAgentWorkDir } from './compile-claude-md';
-import { ClaudeHandler } from './claude-handler';
+import { fillSkillDescription } from './skill-description';
+import { isFetchableUrl } from './wiki-source-url';
+import { compileAgentWorkspace, getAgentWorkDir } from './compile-instructions';
+import { createAgentBackend } from './backends';
 import { MemoryWatcher } from './memory-watcher';
 import { logger } from './logger';
 import { dispatchCacheEvent } from './access-cache';
@@ -248,7 +252,7 @@ export function processRemovedArticles(
 interface RunningAgent {
   agent: Agent;
   adapter: PlatformAdapter;
-  claudeHandler: ClaudeHandler;
+  backend: AgentBackend;
   messageHandler: MessageHandler;
   memoryWatcher: MemoryWatcher;
 }
@@ -265,7 +269,7 @@ interface RunningAgent {
 export interface AgentParticipant {
   agent: Agent;
   adapter: TestAdapter;
-  claudeHandler: ClaudeHandler;
+  backend: AgentBackend;
   messageHandler: MessageHandler;
   workDir: string;
 }
@@ -332,9 +336,10 @@ function buildParticipantWorkDir(
   const participantDir = path.join(sessionRoot, agentSlug);
   fs.mkdirSync(participantDir, { recursive: true });
 
-  const claudeMdSrc = path.join(agentWorkDir, 'CLAUDE.md');
-  if (fs.existsSync(claudeMdSrc)) {
-    fs.copyFileSync(claudeMdSrc, path.join(participantDir, 'CLAUDE.md'));
+  // Instruction doc — copy both names (Claude reads CLAUDE.md; Codex reads AGENTS.md).
+  for (const name of ['CLAUDE.md', 'AGENTS.md']) {
+    const src = path.join(agentWorkDir, name);
+    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(participantDir, name));
   }
 
   const commandsSrc = path.join(agentWorkDir, '.claude', 'commands');
@@ -344,6 +349,12 @@ function buildParticipantWorkDir(
     for (const f of fs.readdirSync(commandsSrc)) {
       fs.copyFileSync(path.join(commandsSrc, f), path.join(commandsDst, f));
     }
+  }
+
+  // Codex skill formats: .agents/skills (native discovery) + skills/ (path-addressable).
+  for (const rel of [['.agents', 'skills'], ['skills']]) {
+    const src = path.join(agentWorkDir, ...rel);
+    if (fs.existsSync(src)) fs.cpSync(src, path.join(participantDir, ...rel), { recursive: true });
   }
 
   // Symlink the wiki if present — avoids duplicating a potentially-large
@@ -410,9 +421,9 @@ export class AgentRunner {
   /**
    * Returns any running agent by ID, or undefined if not running.
    */
-  getRunningAgent(agentId: string): { adapter: PlatformAdapter; claudeHandler: import('./claude-handler').ClaudeHandler } | undefined {
+  getRunningAgent(agentId: string): { adapter: PlatformAdapter; backend: AgentBackend } | undefined {
     const ra = this.runningAgents.get(agentId);
-    return ra ? { adapter: ra.adapter, claudeHandler: ra.claudeHandler } : undefined;
+    return ra ? { adapter: ra.adapter, backend: ra.backend } : undefined;
   }
 
   /**
@@ -785,23 +796,25 @@ export class AgentRunner {
     const adapter = new SlackAdapter(
       { platform: 'slack', botToken: integration.credentials.botToken, appToken: integration.credentials.appToken, signingSecret: integration.credentials.signingSecret },
       agent.slug,
+      agent.id,
     );
 
     // Compile CLAUDE.md with platform-specific formatting rules.
     // compileClaudeMd inlines all learned memories directly into the system
     // prompt (no /recall skill needed) and inlines the wiki index when present.
-    const workDir = await compileClaudeMd(agent, undefined, adapter.getFormattingRules());
+    const workDir = await compileAgentWorkspace(agent, undefined, adapter.getFormattingRules());
 
-    // Create Claude Code SDK handler
-    const claudeHandler = new ClaudeHandler(agent, mcpServers, permissions, workDir, envVarValues);
-    claudeHandler.initialize();
+    // Create the agent backend (Claude Code, Codex, …) per the global setting
+    const backendId = (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+    const backend = createAgentBackend(backendId, agent, mcpServers, permissions, workDir, envVarValues);
+    backend.initialize();
 
     // Create memory watcher (persists SDK memory writes back to DB)
     const memoryWatcher = new MemoryWatcher(agent);
     memoryWatcher.start();
 
-    // Wire message handler: adapter → MessageHandler → ClaudeHandler
-    const messageHandler = new MessageHandler(adapter, claudeHandler, agent, restrictions);
+    // Wire message handler: adapter → MessageHandler → backend
+    const messageHandler = new MessageHandler(adapter, backend, agent, restrictions);
     adapter.onMessage(msg => messageHandler.handleMessage(msg));
 
     // Start the platform connection
@@ -814,7 +827,7 @@ export class AgentRunner {
       agent.slackBotUserId = botUserId;
     }
 
-    this.runningAgents.set(agent.id, { agent, adapter, claudeHandler, messageHandler, memoryWatcher });
+    this.runningAgents.set(agent.id, { agent, adapter, backend, messageHandler, memoryWatcher });
     // Success — clear any leftover error message from a prior failed start.
     await updateAgentStatus(agent.id, 'running', null, this.runnerId);
 
@@ -834,11 +847,11 @@ export class AgentRunner {
     const running = this.runningAgents.get(agentId);
     if (!running) return;
 
-    const { agent, adapter, claudeHandler, memoryWatcher } = running;
+    const { agent, adapter, backend, memoryWatcher } = running;
     logger.info('Stopping agent', { agent: agent.slug });
 
     memoryWatcher.stop();
-    await claudeHandler.destroy();
+    await backend.destroy();
 
     try {
       await adapter.stop();
@@ -878,7 +891,7 @@ export class AgentRunner {
 
     // Compile the root agent's CLAUDE.md into its real workDir (deterministic;
     // safe to run in parallel with the live runtime) so we can clone from it.
-    const rootAgentWorkDir = await compileClaudeMd(rootAgent, undefined, '');
+    const rootAgentWorkDir = await compileAgentWorkspace(rootAgent, undefined, '');
     const workDirRoot = buildSessionRootDir(rootAgentWorkDir, sessionId, rootAgent.slug);
 
     const session: TeamTestSession = {
@@ -933,16 +946,17 @@ export class AgentRunner {
     // Compile this agent's CLAUDE.md into its real workDir, then clone
     // into an isolated participant subdir so test-session memory writes
     // never leak into the Slack agent's sessions dir.
-    const agentWorkDir = await compileClaudeMd(agent, undefined, '');
+    const agentWorkDir = await compileAgentWorkspace(agent, undefined, '');
     const participantWorkDir = buildParticipantWorkDir(
       session.workDirRoot, agent.slug, agentWorkDir,
     );
 
-    // Test sessions now get the agent's real MCP servers. ClaudeHandler's
+    // Test sessions now get the agent's real MCP servers. The backend's
     // McpProcessManager retries on port-in-use, so running alongside the live
     // Slack agent just lands the test proxies on neighbouring ports.
-    const claudeHandler = new ClaudeHandler(agent, mcpServers, permissions, participantWorkDir, envVarValues);
-    claudeHandler.initialize();
+    const backendId = (await getSetting(AGENT_BACKEND_SETTING_KEY)) ?? DEFAULT_AGENT_BACKEND;
+    const backend = createAgentBackend(backendId, agent, mcpServers, permissions, participantWorkDir, envVarValues);
+    backend.initialize();
 
     const adapter = new TestAdapter(() => { /* emit target is set per turn by test-handler-server */ });
     adapter.setSharedHistory(session.history);
@@ -953,11 +967,11 @@ export class AgentRunner {
     });
     if (agent.slackBotUserId) adapter.setBotUserId(agent.slackBotUserId);
 
-    const messageHandler = new MessageHandler(adapter, claudeHandler, agent, null);
+    const messageHandler = new MessageHandler(adapter, backend, agent, null);
     adapter.onMessage(msg => messageHandler.handleMessage(msg));
 
     const participant: AgentParticipant = {
-      agent, adapter, claudeHandler, messageHandler,
+      agent, adapter, backend, messageHandler,
       workDir: participantWorkDir,
     };
     session.participants.set(agent.id, participant);
@@ -979,7 +993,7 @@ export class AgentRunner {
     this.testSessions.delete(key);
 
     for (const p of session.participants.values()) {
-      try { p.claudeHandler.destroy(); } catch { /* swallow */ }
+      try { p.backend.destroy(); } catch { /* swallow */ }
     }
 
     try {
@@ -1063,6 +1077,11 @@ export class AgentRunner {
         case 'reload-jobs':
           this.jobScheduler.reload().catch((err) =>
             logger.error('Failed to reload jobs', { error: (err as Error).message })
+          );
+          break;
+        case 'run-job':
+          this.jobScheduler.runNow(event.jobId).catch((err) =>
+            logger.error('Failed to run job', { jobId: event.jobId, error: (err as Error).message })
           );
           break;
         case 'skill-saved':
@@ -1274,6 +1293,11 @@ export class AgentRunner {
               break;
             case 'reload-jobs':
               await this.jobScheduler.reload();
+              break;
+            case 'run-job':
+              this.jobScheduler.runNow(event.jobId).catch((err) =>
+                logger.error('Failed to run job', { jobId: event.jobId, error: (err as Error).message })
+              );
               break;
             case 'skill-saved':
               this.summarizeSkillIfNeeded(event.agentId, event.skillId).catch((err) =>
@@ -1922,7 +1946,7 @@ export class AgentRunner {
     const fs = await import('fs');
     const path = await import('path');
     const { getDb } = await import('@slackhive/shared');
-    const { getAgentWorkDir } = await import('./compile-claude-md');
+    const { getAgentWorkDir } = await import('./compile-instructions');
 
     const agent = await getAgentById(agentId);
     if (!agent) throw new Error('Agent not found');
@@ -2166,7 +2190,7 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
       const { getDb } = await import('@slackhive/shared');
       const fs = await import('fs');
       const path = await import('path');
-      const { getAgentWorkDir } = await import('./compile-claude-md');
+      const { getAgentWorkDir } = await import('./compile-instructions');
 
       // Sync check: if wiki is empty/missing but DB says sources are compiled, reset all
       const wikiDir = path.join(getAgentWorkDir(agent.slug), 'knowledge', 'wiki');
@@ -2421,12 +2445,24 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
           if (src.type === 'file' || src.type === 'url') {
             content = src.content ?? '';
             if (!content && src.url) {
-              await writeProgress({ status: 'building', folderId, step: `Fetching ${src.name}…`, sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length, articlesWritten: totalPages });
-              const resp = await fetch(src.url);
-              if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${src.url}`);
-              content = await resp.text();
-              // Save fetched content back to DB
-              await getDb().query('UPDATE wiki_sources SET content = $1 WHERE id = $2', [content, src.id]);
+              // A `url` source whose "url" isn't actually an http(s) address is
+              // really pasted inline content stored in the wrong column (happens
+              // via the add-source form). fetch()-ing it throws "Failed to parse
+              // URL" and the source silently drops out of the wiki. Detect that,
+              // treat the text as content, and self-heal the row so it's a
+              // proper `file` source on the next rebuild.
+              if (isFetchableUrl(src.url)) {
+                await writeProgress({ status: 'building', folderId, step: `Fetching ${src.name}…`, sourceName: src.name, sourceIdx: i, sourcesTotal: pendingSources.length, articlesWritten: totalPages });
+                const resp = await fetch(src.url);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${src.url}`);
+                content = await resp.text();
+                // Save fetched content back to DB
+                await getDb().query('UPDATE wiki_sources SET content = $1 WHERE id = $2', [content, src.id]);
+              } else {
+                content = src.url;
+                logger.warn('[wiki] Source typed as url but value is not an http(s) URL — treating as inline content', { source: src.name });
+                await getDb().query("UPDATE wiki_sources SET content = $1, type = 'file' WHERE id = $2", [content, src.id]);
+              }
             }
             if (!content) throw new Error(`Source "${src.name}" has no content`);
           } else if (src.type === 'repo') {
@@ -2736,28 +2772,26 @@ ${effectiveMode !== 'first' ? `- When this source mentions entities/concepts tha
    * running on this runner.
    */
   private async summarizeSkillIfNeeded(agentId: string, skillId: string): Promise<void> {
-    const skill = await getSkillById(skillId);
-    if (!skill) return;
-    if (skill.description) return; // Already filled — nothing to do.
-    if (!this.runningAgents.has(agentId)) return; // Not our agent on this runner.
-
-    const description = await this.callSummarizerWithRetry(skill.filename, skill.content);
-    if (!description) return;
-
-    await updateSkillDescription(skillId, description);
-    logger.info('Skill description filled', {
+    const description = await fillSkillDescription(
+      {
+        getSkillById,
+        summarize: (filename, content) => this.callSummarizerWithRetry(filename, content),
+        updateSkillDescription,
+        // Recompile only when the agent is live; a stopped agent compiles on start.
+        // Regenerate must still summarize for stopped agents, so this gates the
+        // reload only — NOT the summarization (that was the bug).
+        isRunning: (id) => this.runningAgents.has(id),
+        reload: (id) =>
+          this.reloadAgent(id).catch((err) => {
+            logger.warn('Reload after skill summarize failed', { agentId: id, error: (err as Error).message });
+          }),
+      },
       agentId,
       skillId,
-      filename: skill.filename,
-      description,
-    });
-
-    // Recompile CLAUDE.md so the new line appears in the skills index. Reload
-    // is safe (the running session resumes via cached session keys); it's
-    // also what every other config-touching mutation triggers.
-    await this.reloadAgent(agentId).catch((err) =>
-      logger.warn('Reload after skill summarize failed', { agentId, error: (err as Error).message })
     );
+    if (description) {
+      logger.info('Skill description filled', { agentId, skillId, description });
+    }
   }
 
   /**
@@ -2936,74 +2970,12 @@ Return this JSON:
     );
   }
 
+  /**
+   * One-shot text generation for wiki/knowledge/analysis builders. Backend-aware
+   * via the shared {@link generateText} helper (Codex or Claude). Kept as a thin
+   * method (historical name) so existing call sites are unchanged.
+   */
   private async callClaudeWithRetry(prompt: string, onProgress?: (chars: number) => void): Promise<string> {
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    const os = await import('os');
-
-    const runQuery = async (): Promise<string> => {
-      let text = '';
-      for await (const msg of query({
-        prompt,
-        options: { maxTurns: 1, tools: [], allowedTools: [], permissionMode: 'acceptEdits', cwd: os.tmpdir() },
-      })) {
-        if (msg.type === 'assistant') {
-          const content: any[] = (msg as any).message?.content ?? [];
-          for (const block of content) {
-            if (block.type === 'text') {
-              text += block.text;
-              if (onProgress) onProgress(text.length);
-            }
-          }
-        }
-        if (msg.type === 'result') {
-          const r = (msg as any).result as string | undefined;
-          if (r?.includes('authentication_error') || r?.includes('Failed to authenticate')) throw new Error(r);
-          if (r) text = r;
-        }
-      }
-      return text;
-    };
-
-    // Attempt 1: direct call
-    try {
-      return await runQuery();
-    } catch (err1) {
-      const msg1 = (err1 as Error).message ?? '';
-      if (!msg1.includes('401') && !msg1.includes('auth') && !msg1.includes('credentials')) throw err1;
-      logger.warn('SDK auth failed, trying Keychain sync...', { error: msg1.slice(0, 100) });
-    }
-
-    // Attempt 2: sync from macOS Keychain, then retry
-    try {
-      const { execSync } = await import('child_process');
-      const fs = await import('fs');
-      const path = await import('path');
-      const creds = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
-        encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
-      if (creds) {
-        const credPath = path.join(process.env.HOME || '/tmp', '.claude', '.credentials.json');
-        fs.mkdirSync(path.dirname(credPath), { recursive: true });
-        fs.writeFileSync(credPath, creds, { mode: 0o600 });
-        logger.info('Synced fresh credentials from Keychain');
-        return await runQuery();
-      }
-    } catch {
-      logger.warn('Keychain sync failed or not on macOS, trying token refresh...');
-    }
-
-    // Attempt 3: refresh OAuth token, then retry
-    try {
-      const refreshed = await ClaudeHandler.refreshOAuthToken();
-      if (refreshed) {
-        logger.info('OAuth token refreshed');
-        return await runQuery();
-      }
-    } catch {
-      logger.warn('Token refresh failed');
-    }
-
-    // All retries exhausted
-    throw new Error('AUTH_NEEDS_LOGIN');
+    return generateText(prompt, { onProgress });
   }
 }

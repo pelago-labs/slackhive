@@ -670,3 +670,147 @@ export async function getTopUsers(
   }));
 }
 
+// =============================================================================
+// Message feedback (👍/👎 on an agent's final reply)
+// =============================================================================
+
+export interface MessageFeedbackInput {
+  agentId: string;
+  activityId?: string | null;
+  channel?: string | null;
+  messageTs?: string | null;
+  raterUserId?: string | null;
+  raterHandle?: string | null;
+  sentiment: 'up' | 'down';
+  note?: string | null;
+  /** Slack permalink to the rated reply's thread (for the report-card link). */
+  permalink?: string | null;
+}
+
+/** One rating in the report-card list (both 👍 and 👎). */
+export interface FeedbackRating {
+  sentiment: 'up' | 'down';
+  raterHandle: string | null;
+  note: string | null;
+  permalink: string | null;
+  createdAt: string;
+}
+
+export interface AgentFeedbackReport {
+  up: number;
+  down: number;
+  total: number;
+  /** Satisfaction = up / (up + down), 0–100. 0 when no ratings. */
+  scorePercent: number;
+  /** Total ratings matching the sentiment filter (for "Load more" pagination). */
+  ratingCount: number;
+  /** This page of ratings (newest first), honoring the sentiment filter. */
+  recentRatings: FeedbackRating[];
+}
+
+/**
+ * Record one 👍/👎 rating, keyed by (message_ts, rater_user_id) so a user
+ * re-rating the same message updates their row. The 👎 modal calls this again
+ * with the note, which is merged onto the existing row. Best-effort — never
+ * break the Slack interaction path.
+ */
+export async function recordMessageFeedback(input: MessageFeedbackInput): Promise<void> {
+  const db = getDb();
+  const id = randomUUID();
+  await db.query(
+    `INSERT INTO message_feedback
+       (id, agent_id, activity_id, channel, message_ts, rater_user_id, rater_handle, sentiment, note, permalink)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ON CONFLICT (message_ts, rater_user_id) DO UPDATE SET
+       sentiment  = excluded.sentiment,
+       note       = COALESCE(excluded.note, message_feedback.note),
+       permalink  = COALESCE(excluded.permalink, message_feedback.permalink),
+       created_at = datetime('now')`,
+    [
+      id, input.agentId, input.activityId ?? null, input.channel ?? null,
+      input.messageTs ?? null, input.raterUserId ?? null, input.raterHandle ?? null,
+      input.sentiment, input.note ?? null, input.permalink ?? null,
+    ],
+  );
+}
+
+/**
+ * Per-agent feedback summary (satisfaction score, counts) + a page of ratings.
+ * The summary counts always cover all sentiments in the window; the ratings list
+ * honors the optional `sentiment` filter. `limit`/`offset` paginate the list
+ * (`limit === 0` → counts only, e.g. the Overview); `ratingCount` is the total
+ * matching the filter so the UI knows whether to show "Load more".
+ *
+ * On paginated requests (`offset > 0`) the summary is skipped — the caller
+ * already has it from the first page — so a "Load more" only runs the list query.
+ */
+export async function getFeedbackReport(
+  agentId: string,
+  opts: { since?: string; sentiment?: 'up' | 'down'; limit?: number; offset?: number } = {},
+): Promise<AgentFeedbackReport> {
+  const db = getDb();
+  const rawLimit = Number.isFinite(opts.limit) ? (opts.limit as number) : 5;
+  const wantList = rawLimit !== 0;
+  const limit = Math.min(Math.max(rawLimit || 5, 1), 50);
+  const offset = Math.max(Number.isFinite(opts.offset) ? (opts.offset as number) : 0, 0);
+  const wantSummary = offset === 0;
+
+  // Summary scope: agent + window (NOT the sentiment filter — the score reflects
+  // all ratings in the window).
+  const wheres = ['agent_id = $1'];
+  const params: unknown[] = [agentId];
+  if (opts.since) {
+    wheres.push(`created_at >= $${params.length + 1}`);
+    params.push(opts.since);
+  }
+
+  let up = 0, down = 0, total = 0;
+  if (wantSummary) {
+    const { rows } = await db.query(
+      `SELECT COALESCE(SUM(CASE WHEN sentiment = 'up'   THEN 1 ELSE 0 END), 0) AS up_count,
+              COALESCE(SUM(CASE WHEN sentiment = 'down' THEN 1 ELSE 0 END), 0) AS down_count,
+              COUNT(*) AS total
+         FROM message_feedback
+        WHERE ${wheres.join(' AND ')}`,
+      params,
+    );
+    const r = rows[0] ?? {};
+    up = Number(r.up_count ?? 0);
+    down = Number(r.down_count ?? 0);
+    total = Number(r.total ?? 0);
+  }
+  const scorePercent = up + down === 0 ? 0 : Math.round((up / (up + down)) * 100);
+
+  // List scope: summary scope + sentiment filter. The filtered total is derived
+  // from the counts above — no extra count query needed (0 on paginated calls,
+  // where the caller keeps the first page's ratingCount).
+  const ratingCount = opts.sentiment === 'up' ? up : opts.sentiment === 'down' ? down : total;
+
+  let recentRatings: FeedbackRating[] = [];
+  if (wantList) {
+    const listWheres = [...wheres];
+    const listParams = [...params];
+    if (opts.sentiment) {
+      listWheres.push(`sentiment = $${listParams.length + 1}`);
+      listParams.push(opts.sentiment);
+    }
+    const listRes = await db.query(
+      `SELECT sentiment, rater_handle, note, permalink, created_at
+         FROM message_feedback
+        WHERE ${listWheres.join(' AND ')}
+        ORDER BY created_at DESC, id DESC
+        LIMIT $${listParams.length + 1} OFFSET $${listParams.length + 2}`,
+      [...listParams, limit, offset],
+    );
+    recentRatings = listRes.rows.map(n => ({
+      sentiment: n.sentiment as 'up' | 'down',
+      raterHandle: (n.rater_handle as string | null) ?? null,
+      note: (n.note as string | null) ?? null,
+      permalink: (n.permalink as string | null) ?? null,
+      createdAt: n.created_at as string,
+    }));
+  }
+
+  return { up, down, total, scorePercent, ratingCount, recentRatings };
+}
+

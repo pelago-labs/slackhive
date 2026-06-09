@@ -3,7 +3,7 @@
  *
  * On each cron trigger:
  * 1. Finds the boss agent from the runningAgents map
- * 2. Sends the job's prompt to the boss via claudeHandler.streamQuery()
+ * 2. Sends the job's prompt to the boss via backend.streamQuery()
  * 3. Posts the result to the target Slack channel or DM
  * 4. Records the run in the job_runs table
  *
@@ -12,14 +12,14 @@
 
 import cron from 'node-cron';
 import type { ScheduledJob, PlatformAdapter } from '@slackhive/shared';
-import { getAllEnabledJobs, insertJobRun, updateJobRun } from './db';
-import type { ClaudeHandler } from './claude-handler';
+import { getAllEnabledJobs, getScheduledJobById, failOrphanedJobRuns, insertJobRun, updateJobRun } from './db';
+import type { AgentBackend } from '@slackhive/shared';
 import { logger } from './logger';
 
 /** The shape of a running agent as exposed by AgentRunner. */
 interface RunningAgent {
   adapter: PlatformAdapter;
-  claudeHandler: ClaudeHandler;
+  backend: AgentBackend;
 }
 
 /**
@@ -44,8 +44,30 @@ export class JobScheduler {
    * Loads all enabled jobs from DB and schedules them.
    */
   async start(): Promise<void> {
+    // Reconcile runs orphaned by a previous crash/restart so they don't show
+    // as "running" forever in the UI.
+    try {
+      const reconciled = await failOrphanedJobRuns();
+      if (reconciled > 0) logger.info('Reconciled orphaned job runs on startup', { count: reconciled });
+    } catch (err) {
+      logger.warn('Failed to reconcile orphaned job runs', { error: (err as Error).message });
+    }
     await this.reload();
     logger.info('Job scheduler started');
+  }
+
+  /**
+   * Run a job immediately, on demand (manual "Run now" — for testing).
+   * Loads the job fresh so it works even if not currently scheduled/enabled.
+   */
+  async runNow(jobId: string): Promise<void> {
+    const job = await getScheduledJobById(jobId);
+    if (!job) {
+      logger.warn('Manual run: job not found', { jobId });
+      return;
+    }
+    logger.info('Manual job run triggered', { jobId, name: job.name });
+    await this.executeJob(job);
   }
 
   /**
@@ -122,15 +144,30 @@ export class JobScheduler {
       // Fresh session key per run (no resume)
       const sessionKey = `job-${job.id}-${Date.now()}`;
 
-      // Stream query to agent
-      let output = '';
-      for await (const msg of agent.claudeHandler.streamQuery(job.prompt, sessionKey)) {
-        const m = msg as Record<string, unknown>;
+      // Stream the query and post the turn's final deliverable. The backend's
+      // `result` is the canonical final answer (on Codex it's the joined
+      // `agent_message` text — reasoning narration is already dropped upstream).
+      // Fall back to the last assistant text block for backends that don't emit
+      // a discrete result.
+      let resultText = '';
+      let lastMessage = '';
+      for await (const msg of agent.backend.streamQuery(job.prompt, sessionKey)) {
+        const m = msg as { type?: string; subtype?: string; result?: string; message?: { content?: { type: string; text?: string }[] } };
+        if (m.type === 'assistant') {
+          const text = (m.message?.content ?? [])
+            .filter(b => b.type === 'text' && b.text)
+            .map(b => b.text)
+            .join('')
+            .trim();
+          if (text) lastMessage = text;
+        }
         if (m.type === 'result' && m.subtype === 'success') {
-          output = (m.result as string) ?? '';
+          resultText = (m.result as string) ?? '';
         }
       }
 
+      // Prefer the discrete result; fall back to the last assistant message.
+      let output = resultText || lastMessage;
       if (!output) {
         output = '_Job completed with no output._';
       }

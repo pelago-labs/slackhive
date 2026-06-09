@@ -58,6 +58,11 @@ export function generateSlackManifest(opts: {
         messages_tab_enabled: true,
         messages_tab_read_only_enabled: false,
       },
+      // "Agents & AI Apps" — required for Slack to render the native 👍/👎
+      // feedback_buttons under the agent's replies.
+      assistant_view: {
+        assistant_description: opts.description ?? `${opts.name} — Claude Code AI agent`,
+      },
     },
     oauth_config: {
       scopes: {
@@ -75,7 +80,9 @@ export function generateSlackManifest(opts: {
         ],
       },
       interactivity: {
-        is_enabled: false,
+        // Needed for the native 👍/👎 feedback_buttons block_action + the 👎
+        // note modal (delivered over Socket Mode, so no request URL is required).
+        is_enabled: true,
       },
       socket_mode_enabled: true,
       token_rotation_enabled: false,

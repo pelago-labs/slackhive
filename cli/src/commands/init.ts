@@ -18,92 +18,6 @@ interface InitOptions {
   skipStart?: boolean;
 }
 
-function detectClaudeBin(): string {
-  let claudeBin: string;
-  try {
-    claudeBin = execSync('which claude', { encoding: 'utf-8' }).trim();
-  } catch {
-    throw new Error('Claude Code not found. Please install Claude Code first.');
-  }
-  if (!claudeBin) throw new Error('Claude Code not found. Please install Claude Code first.');
-  return claudeBin;
-}
-
-interface OAuthCredentials {
-  accessToken: string;
-  refreshToken: string;
-}
-
-/**
- * Parses a JSON credential blob and extracts OAuth tokens.
- */
-export function parseOAuthFromJson(json: string): OAuthCredentials | null {
-  try {
-    const parsed = JSON.parse(json);
-    const oauth = parsed?.claudeAiOauth;
-    if (oauth?.accessToken && oauth?.refreshToken) {
-      return { accessToken: oauth.accessToken, refreshToken: oauth.refreshToken };
-    }
-  } catch { /* invalid json */ }
-  return null;
-}
-
-/**
- * Extracts the OAuth credentials from the OS credential store.
- * Tries macOS Keychain, then Linux secret-tool (GNOME Keyring).
- * Returns access + refresh tokens, or null if not found.
- */
-export function extractOAuthCredentials(): OAuthCredentials | null {
-  // macOS: read from Keychain
-  try {
-    const creds = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'ignore'],
-    }).trim();
-    const result = parseOAuthFromJson(creds);
-    if (result) return result;
-  } catch { /* not macOS or not found */ }
-
-  // Linux: try secret-tool (GNOME Keyring)
-  try {
-    const creds = execSync('secret-tool lookup service "Claude Code-credentials"', {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'ignore'],
-    }).trim();
-    const result = parseOAuthFromJson(creds);
-    if (result) return result;
-  } catch { /* not available */ }
-
-  // Fallback: read credentials file directly (headless Linux / no keyring)
-  try {
-    const credPath = join(process.env.HOME || '~', '.claude', '.credentials.json');
-    if (existsSync(credPath)) {
-      const creds = readFileSync(credPath, 'utf-8').trim();
-      const result = parseOAuthFromJson(creds);
-      if (result) return result;
-    }
-  } catch { /* file not readable or invalid */ }
-
-  return null;
-}
-
-/**
- * Writes OAuth credentials to ~/.claude/.credentials.json so subscription
- * mode can access them. On Linux this file is created natively by
- * `claude login`; on macOS credentials go to Keychain instead, so we
- * need to create the file explicitly.
- */
-export function syncCredentialsFile(creds: OAuthCredentials): void {
-  const credPath = join(process.env.HOME || '~', '.claude', '.credentials.json');
-  const payload = JSON.stringify({
-    claudeAiOauth: {
-      accessToken: creds.accessToken,
-      refreshToken: creds.refreshToken,
-    },
-  }, null, 2);
-  writeFileSync(credPath, payload, { mode: 0o600 });
-}
-
 /**
  * Runs `slackhive init` — interactive setup wizard.
  *
@@ -171,71 +85,16 @@ export async function init(opts: InitOptions): Promise<void> {
     console.log(chalk.bold.hex('#D97757')('  [3/4]') + chalk.bold(' Configure environment'));
     console.log('');
 
-    const authMode = await prompts({
-      type: 'select',
-      name: 'mode',
-      message: 'Claude authentication',
-      choices: [
-        { title: 'API Key — pay-per-use via Anthropic API', value: 'apikey' },
-        { title: 'Subscription — run `claude login` first', value: 'subscription' },
-      ],
-    });
+    // Agent backend (Claude Code / Codex) and its credentials are now configured
+    // in the web UI under Settings → Agent Backend — no longer prompted here.
+    console.log(chalk.gray('  Agent backend & credentials (Claude Code or Codex) are configured'));
+    console.log(chalk.gray('  in the web UI: Settings → Agent Backend, after first launch.'));
+    console.log('');
 
-    if (!authMode.mode) {
-      console.log(chalk.red('\n  Setup cancelled.'));
-      process.exit(1);
-    }
-
-    const questions: prompts.PromptObject[] = [];
-    let oauthCreds: OAuthCredentials | null = null;
-
-    if (authMode.mode === 'apikey') {
-      questions.push({
-        type: 'text',
-        name: 'anthropicKey',
-        message: 'Anthropic API key',
-        validate: (v: string) => v.startsWith('sk-') ? true : 'Must start with sk-',
-      });
-    } else {
-      // Claude subscription mode — extract OAuth token
-      const claudeDir = join(process.env.HOME || '~', '.claude');
-      if (!existsSync(claudeDir)) {
-        console.log(chalk.yellow('\n  warning: ~/.claude not found. Run `claude login` first, then re-run `slackhive init`.'));
-        process.exit(1);
-      }
-      console.log(chalk.green('  ✓') + ' Found ~/.claude credentials');
-
-      const spinner = ora('  Extracting OAuth credentials...').start();
-      oauthCreds = extractOAuthCredentials();
-      if (oauthCreds) {
-        spinner.succeed('OAuth credentials extracted');
-        syncCredentialsFile(oauthCreds);
-      } else {
-        spinner.warn('Could not auto-extract credentials from keychain');
-        console.log(chalk.gray('  On Linux/headless servers, paste your OAuth token manually.'));
-        console.log(chalk.gray('  Get it from a machine where you ran `claude login`:'));
-        console.log(chalk.gray('    security find-generic-password -s "Claude Code-credentials" -w'));
-        console.log('');
-
-        const tokenResponse = await prompts([
-          { type: 'password', name: 'accessToken', message: 'OAuth access token (sk-ant-oat01-...)', validate: (v: string) => v.startsWith('sk-ant-oat') ? true : 'Must start with sk-ant-oat' },
-          { type: 'password', name: 'refreshToken', message: 'OAuth refresh token (sk-ant-ort01-...)', validate: (v: string) => v.startsWith('sk-ant-ort') ? true : 'Must start with sk-ant-ort' },
-        ]);
-        if (!tokenResponse.accessToken || !tokenResponse.refreshToken) {
-          console.log(chalk.red('\n  Setup cancelled. Use API Key mode instead on headless servers.'));
-          process.exit(1);
-        }
-        oauthCreds = { accessToken: tokenResponse.accessToken, refreshToken: tokenResponse.refreshToken };
-        syncCredentialsFile(oauthCreds);
-      }
-    }
-
-    questions.push(
+    const response = await prompts([
       { type: 'text', name: 'adminUsername', message: 'Admin username', initial: 'admin' },
       { type: 'password', name: 'adminPassword', message: 'Admin password', validate: (v: string) => v.length >= 6 ? true : 'At least 6 characters' },
-    );
-
-    const response = await prompts(questions);
+    ]);
 
     if (!response.adminPassword) {
       console.log(chalk.red('\n  Setup cancelled.'));
@@ -243,12 +102,7 @@ export async function init(opts: InitOptions): Promise<void> {
     }
 
     let envContent = '# Generated by slackhive init\n\n';
-    if (authMode.mode === 'apikey') {
-      envContent += `ANTHROPIC_API_KEY=${response.anthropicKey}\n`;
-    } else {
-      // Native mode: SDK reads from system directly (Keychain/credentials file)
-      envContent += `# Claude Code subscription — auth handled by system (claude login)\n`;
-    }
+    envContent += `# Agent backend auth (Claude Code / Codex) is configured in Settings → Agent Backend\n`;
 
     envContent += `\n# SQLite, no Docker required\n`;
     envContent += `DATABASE_TYPE=sqlite\n`;
@@ -281,24 +135,8 @@ export async function init(opts: InitOptions): Promise<void> {
       console.log(chalk.green('  ✓') + ' .env patched');
     }
 
-    // Resync OAuth credentials if using subscription mode
-    if (envContents.includes('CLAUDE_CODE_OAUTH_TOKEN=')) {
-      const spinner = ora('  Syncing OAuth credentials...').start();
-      const freshCreds = extractOAuthCredentials();
-      if (freshCreds) {
-        // Update .env with fresh tokens
-        envContents = envContents
-          .replace(/CLAUDE_CODE_OAUTH_TOKEN=.*/, `CLAUDE_CODE_OAUTH_TOKEN=${freshCreds.accessToken}`)
-          .replace(/CLAUDE_CODE_OAUTH_REFRESH_TOKEN=.*/, `CLAUDE_CODE_OAUTH_REFRESH_TOKEN=${freshCreds.refreshToken}`);
-        writeFileSync(envPath, envContents);
-        syncCredentialsFile(freshCreds);
-        spinner.succeed('OAuth credentials synced');
-      } else {
-        spinner.warn('Could not extract credentials — run `claude login` if agents fail to authenticate');
-      }
-    } else {
-      console.log(chalk.yellow('  note: .env already exists — skipping configuration'));
-    }
+    console.log(chalk.yellow('  note: .env already exists — skipping configuration'));
+    console.log(chalk.gray('  Agent backend auth (Claude Code or Codex) is managed in Settings → Agent Backend.'));
     console.log('');
   }
 

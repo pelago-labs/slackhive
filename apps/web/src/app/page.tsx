@@ -12,6 +12,7 @@ import type { Agent } from '@slackhive/shared';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Bot, LayoutGrid, GitBranch, Search, ArrowUpDown } from 'lucide-react';
+import { IconTile } from '@/components/ui';
 
 type SortKey = 'boss-first' | 'name' | 'recent' | 'status';
 const SORT_LABELS: Record<SortKey, string> = {
@@ -77,11 +78,13 @@ const STATUS_LABEL: Record<string, string> = {
   stale:   'Stale',
 };
 
-interface ClaudeStatus {
+interface BackendStatus {
+  backend?: string;
+  label?: string;
   status: 'connected' | 'disconnected' | 'expired';
   source?: string;
   expiresIn?: string;
-  error?: string;
+  hint?: string;
 }
 
 export default function Dashboard() {
@@ -89,7 +92,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('Welcome to SlackHive');
   const [view, setView] = useState<'hierarchy' | 'grid'>('hierarchy');
-  const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
+  const [claudeStatus, setClaudeStatus] = useState<BackendStatus | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
   const [inProgressByAgent, setInProgressByAgent] = useState<Record<string, number>>({});
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -116,7 +119,7 @@ export default function Dashboard() {
   }, [sort]);
 
   const loadStatus = () => {
-    fetch('/api/system/claude-status').then(r => r.json()).then(setClaudeStatus).catch(() => {});
+    fetch('/api/system/backend-status').then(r => r.json()).then(setClaudeStatus).catch(() => {});
   };
 
   const loadActivityStats = () => {
@@ -203,7 +206,7 @@ export default function Dashboard() {
 
   return (
     <InProgressContext.Provider value={inProgressByAgent}>
-    <div style={{ padding: '32px 40px', maxWidth: 1440 }} className="fade-up responsive-pad">
+    <div style={{ padding: '40px 48px', maxWidth: 1440 }} className="fade-up responsive-pad">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
@@ -219,7 +222,7 @@ export default function Dashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Claude Code status badge */}
+          {/* Active agent-backend status badge */}
           {claudeStatus && (
             <div style={{ position: 'relative' }}>
               <button onClick={() => setStatusOpen(!statusOpen)} style={{
@@ -234,7 +237,7 @@ export default function Dashboard() {
                             : claudeStatus.status === 'expired' ? '#f59e0b'
                             : '#dc2626',
                 }} />
-                Claude {claudeStatus.status === 'connected' ? 'connected' : claudeStatus.status === 'expired' ? 'expired' : 'disconnected'}
+                {claudeStatus.label ?? 'Backend'} {claudeStatus.status === 'connected' ? 'connected' : claudeStatus.status === 'expired' ? 'expired' : 'disconnected'}
               </button>
               {statusOpen && (
                 <div style={{
@@ -244,7 +247,7 @@ export default function Dashboard() {
                   boxShadow: 'var(--shadow-md)', fontSize: 12,
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 600, color: 'var(--text)' }}>Claude Code Status</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text)' }}>{claudeStatus.label ?? 'Backend'} Status</span>
                     <button onClick={() => setStatusOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0 }}>×</button>
                   </div>
                   <div style={{ color: 'var(--muted)', lineHeight: 1.6 }}>
@@ -252,8 +255,8 @@ export default function Dashboard() {
                     {claudeStatus.source && <div>Source: <strong style={{ color: 'var(--text)' }}>{claudeStatus.source}</strong></div>}
                     {claudeStatus.expiresIn && <div>Expires in: <strong style={{ color: 'var(--text)' }}>{claudeStatus.expiresIn}</strong></div>}
                     {claudeStatus.status !== 'connected' && (
-                      <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                        Run on host: <code>claude login</code>
+                      <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 11, lineHeight: 1.5 }}>
+                        {claudeStatus.hint ?? 'Configure credentials in Settings → Agent Backend.'}
                       </div>
                     )}
                   </div>
@@ -312,7 +315,7 @@ export default function Dashboard() {
           {bossCount > 0 && (
             <>
               <span style={{ color: 'var(--border-2)' }}>·</span>
-              <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} color="#d97706" />
+              <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} />
             </>
           )}
         </div>
@@ -470,7 +473,7 @@ function HierarchyView({ agents }: { agents: Agent[] }) {
       {standalone.length > 0 && (
         <div>
           <SectionLabel label="Independent" />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
             {standalone.map(a => <AgentCard key={a.id} agent={a} />)}
           </div>
         </div>
@@ -503,7 +506,7 @@ function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
       {/* Boss card — centered over the reports row */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: n > 0 ? 'center' : 'flex-start' }}>
         <div style={{ width: bossW, maxWidth: '100%' }}>
-          <AgentCard agent={boss} highlight />
+          <AgentCard agent={boss} />
         </div>
 
         {n > 0 && (
@@ -590,8 +593,8 @@ function GridView({ agents, label }: { agents: Agent[]; label?: string }) {
       )}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-        gap: 12,
+        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+        gap: 16,
       }} className="stagger agent-grid">
         {agents.map(agent => (
           <AgentCard key={agent.id} agent={agent} />
@@ -603,9 +606,8 @@ function GridView({ agents, label }: { agents: Agent[]; label?: string }) {
 
 // ── Agent card ────────────────────────────────────────────────────────────────
 
-function AgentCard({ agent, highlight, compact, multiReport }: {
+function AgentCard({ agent, compact, multiReport }: {
   agent: Agent;
-  highlight?: boolean;
   compact?: boolean;
   multiReport?: boolean;
 }) {
@@ -628,41 +630,15 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
   return (
     <Link
       href={`/agents/${agent.slug}`}
-      className="fade-up agent-card-v2"
+      className="fade-up agent-card-v2 ui-card ui-card-hover"
       style={{
         display: 'block', textDecoration: 'none',
-        background: agent.isBoss
-          ? 'linear-gradient(135deg, var(--surface) 0%, rgba(217,119,6,0.04) 100%)'
-          : 'var(--surface)',
-        border: agent.isBoss
-          ? '1px solid rgba(217,119,6,0.22)'
-          : highlight ? '1.5px solid rgba(217,119,6,0.25)' : '1px solid var(--border)',
-        borderRadius: 14,
-        padding: compact ? '14px 14px 12px' : '14px 16px 12px',
-        boxShadow: agent.isBoss || highlight
-          ? '0 0 0 1px rgba(217,119,6,0.06), var(--shadow-sm)'
-          : 'var(--shadow-sm)',
-        transition: 'box-shadow 0.2s cubic-bezier(0.16,1,0.3,1), transform 0.2s cubic-bezier(0.16,1,0.3,1), border-color 0.2s',
-        cursor: 'pointer',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        padding: compact ? '16px 16px 14px' : '18px',
+        boxShadow: 'var(--shadow-sm)',
         position: 'relative',
-      }}
-      onMouseEnter={e => {
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = agent.isBoss || highlight
-          ? '0 0 0 1px rgba(217,119,6,0.18), var(--shadow-hover)'
-          : 'var(--shadow-hover)';
-        el.style.transform = 'translateY(-2px)';
-        el.style.borderColor = agent.isBoss || highlight ? 'rgba(217,119,6,0.35)' : 'var(--border-2)';
-      }}
-      onMouseLeave={e => {
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = agent.isBoss || highlight
-          ? '0 0 0 1px rgba(217,119,6,0.06), var(--shadow-sm)'
-          : 'var(--shadow-sm)';
-        el.style.transform = 'translateY(0)';
-        el.style.borderColor = agent.isBoss
-          ? 'rgba(217,119,6,0.22)'
-          : highlight ? 'rgba(217,119,6,0.25)' : 'var(--border)';
       }}
     >
       {/* Avatar + name + status row */}
@@ -719,7 +695,7 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
             {agent.isBoss && (
               <span style={{
                 fontSize: 9, fontWeight: 700, letterSpacing: '0.05em',
-                background: 'rgba(217,119,6,0.12)', color: '#d97706',
+                background: 'var(--accent)', color: 'var(--accent-fg)',
                 padding: '1px 5px', borderRadius: 3, textTransform: 'uppercase',
                 flexShrink: 0,
               }}>Boss</span>
@@ -727,7 +703,8 @@ function AgentCard({ agent, highlight, compact, multiReport }: {
             {multiReport && (
               <span style={{
                 fontSize: 9, fontWeight: 600,
-                background: 'rgba(99,102,241,0.1)', color: '#6366f1',
+                background: 'var(--surface-2)', color: 'var(--subtle)',
+                border: '1px solid var(--border)',
                 padding: '1px 4px', borderRadius: 3,
                 flexShrink: 0,
               }}>×2</span>
@@ -883,14 +860,9 @@ function EmptyState() {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       minHeight: 400, gap: 20, textAlign: 'center',
     }}>
-      <div style={{
-        width: 72, height: 72, borderRadius: 20,
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: 'var(--muted)',
-      }}>
-        <Bot size={32} />
-      </div>
+      <IconTile size={64} style={{ borderRadius: 18 }}>
+        <Bot size={30} />
+      </IconTile>
       <div>
         <p style={{
           margin: '0 0 6px', fontSize: 18, fontWeight: 600,

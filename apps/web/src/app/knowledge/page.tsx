@@ -161,6 +161,7 @@ export default function KnowledgePage() {
   }, []);
 
   const [folders, setFolders]                 = useState<WikiFolder[]>([]);
+  const [folderStats, setFolderStats]         = useState<Record<string, { sources: number; words: number; lastSynced: string | null }>>({});
   const [loading, setLoading]                 = useState(true);
   const [selected, setSelected]               = useState<WikiFolder | null>(null);
   const [detailTab, setDetailTab]             = useState<'sources' | 'wiki'>('sources');
@@ -190,7 +191,32 @@ export default function KnowledgePage() {
   const isOwnerOrAdmin = (f: WikiFolder) => isAdmin || (canEdit && f.createdBy === username);
 
   useEffect(() => {
-    fetch('/api/wiki-folders').then(r => r.json()).then(setFolders).finally(() => setLoading(false));
+    // Deep-link: /knowledge?folder=<id> (e.g. from an agent's Wiki tab) auto-opens
+    // that folder once the list loads. Read from window (not useSearchParams) so
+    // the statically-prerendered page doesn't need a Suspense boundary.
+    const initialFolderId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('folder') : null;
+    fetch('/api/wiki-folders').then(r => r.json()).then((fs: WikiFolder[]) => {
+      setFolders(fs);
+      if (initialFolderId) {
+        const found = fs.find(f => f.id === initialFolderId);
+        if (found) openFolder(found);
+        // Strip the param either way so a stale/invalid id doesn't linger in the
+        // URL (and a refresh doesn't keep re-triggering). If not found, the user
+        // simply lands on the folder grid.
+        const url = new URL(window.location.href);
+        url.searchParams.delete('folder');
+        window.history.replaceState({}, '', url.toString());
+      }
+      // Per-folder counts for the landing cards (one /sources fetch each).
+      fs.forEach(f => {
+        fetch(`/api/wiki-folders/${f.id}/sources`).then(r => r.ok ? r.json() : []).then((srcs: WikiSource[]) => {
+          const words = srcs.reduce((s, x) => s + (x.wordCount || 0), 0);
+          const lastSynced = srcs.reduce<string | null>((m, x) => (x.lastSynced && (!m || x.lastSynced > m) ? x.lastSynced : m), null);
+          setFolderStats(prev => ({ ...prev, [f.id]: { sources: srcs.length, words, lastSynced } }));
+        }).catch(() => {});
+      });
+    }).finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -449,16 +475,31 @@ export default function KnowledgePage() {
                   onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-sm)'; el.style.transform = 'translateY(0)'; el.style.borderColor = 'var(--border)'; }}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <BookOpen size={16} style={{ color: 'var(--muted)' }} />
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--text)' }}>
+                      <BookOpen size={18} />
                     </div>
+                    {folderStats[f.id] && (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 99, padding: '2px 9px' }}>
+                        {folderStats[f.id].sources} source{folderStats[f.id].sources !== 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text)', marginBottom: 4, letterSpacing: '-0.01em' }}>{f.name}</div>
                   <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, minHeight: 36, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     {f.description || <span style={{ fontStyle: 'italic', color: 'var(--subtle)' }}>No description</span>}
                   </p>
-                  <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--subtle)' }}>
-                    Owner: {f.createdBy}
+                  <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--subtle)' }}>
+                    {(() => {
+                      const st = folderStats[f.id];
+                      if (!st) return <span>—</span>;
+                      return (
+                        <>
+                          <span>{st.words >= 1000 ? `${(st.words / 1000).toFixed(1)}k` : st.words} words</span>
+                          {st.lastSynced && <><span style={{ color: 'var(--border-2)' }}>·</span><span>synced {timeAgo(st.lastSynced)}</span></>}
+                        </>
+                      );
+                    })()}
+                    <span style={{ marginLeft: 'auto' }}>Owner: {f.createdBy}</span>
                   </div>
                 </div>
               ))}
@@ -905,5 +946,5 @@ function ModalFooter({ onCancel, onSave, saving, saveLabel, disabled }: { onCanc
 const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5, marginTop: 14 };
 const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 10px', fontSize: 13.5, color: 'var(--text)', background: 'var(--surface-2)', outline: 'none' };
 const cancelBtnStyle: React.CSSProperties = { background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer', color: 'var(--text)' };
-const primaryBtnStyle: React.CSSProperties = { background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13.5, fontWeight: 500, cursor: 'pointer' };
+const primaryBtnStyle: React.CSSProperties = { background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' };
 const outlineBtnStyle: React.CSSProperties = { background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 14px', fontSize: 13, cursor: 'pointer' };

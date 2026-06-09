@@ -16,7 +16,7 @@
  * @module runner/polish-audience-instructions
  */
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { generateText } from './backends/generate-text';
 import { logger } from './logger';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -82,27 +82,7 @@ export async function polishAudienceInstructions(input: PolishInput): Promise<st
   ].filter(Boolean).join('\n');
 
   try {
-    let text = '';
-    for await (const msg of query({
-      prompt,
-      options: {
-        model: MODEL,
-        permissionMode: 'bypassPermissions',
-        allowedTools: [],
-        maxTurns: 1,
-        systemPrompt: SYSTEM_PROMPT,
-      },
-    })) {
-      const m = msg as { type: string; message?: { content?: unknown[] }; result?: string };
-      if (m.type === 'assistant' && m.message?.content) {
-        for (const part of m.message.content as { type: string; text?: string }[]) {
-          if (part.type === 'text' && part.text) text += part.text;
-        }
-      } else if (m.type === 'result' && m.result) {
-        text = m.result;
-      }
-    }
-
+    const text = await generateText(prompt, { systemPrompt: SYSTEM_PROMPT, claudeModel: MODEL });
     return cleanPolish(text);
   } catch (err) {
     logger.warn('polishAudienceInstructions failed', {

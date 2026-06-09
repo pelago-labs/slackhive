@@ -82,9 +82,19 @@ describe('generateSlackManifest', () => {
     expect(m.features.bot_user.always_online).toBe(true);
   });
 
-  it('disables interactivity', () => {
+  it('enables interactivity (for the feedback note button + modal)', () => {
     const m = generateSlackManifest({ name: 'Bot' });
-    expect(m.settings.interactivity.is_enabled).toBe(false);
+    expect(m.settings.interactivity.is_enabled).toBe(true);
+  });
+
+  it('enables the assistant_view feature (for native feedback_buttons)', () => {
+    const m = generateSlackManifest({ name: 'Bot', description: 'A helper' });
+    expect(m.features.assistant_view?.assistant_description).toBe('A helper');
+  });
+
+  it('includes the assistant:write scope (required by Agents & AI Apps)', () => {
+    const m = generateSlackManifest({ name: 'Bot' });
+    expect(m.oauth_config.scopes.bot).toContain('assistant:write');
   });
 
   it('disables token rotation', () => {

@@ -181,6 +181,42 @@ describe('MessageHandler — verbose surfaces thinking blocks', () => {
     expect(posts).toContain('Final answer.');
   });
 
+  it('does NOT reprint the whole turn when the result is the join of already-streamed messages (Codex duplication)', async () => {
+    // Codex emits progress + answer as multiple `agent_message` items; each is
+    // streamed individually in verbose mode, then `result.result` is their
+    // concatenation. Pre-fix that concatenation didn't exact-match any single
+    // streamed post, so the entire turn was reprinted as one final message.
+    const parts = [
+      'Checking the GMV definition and booking filters.',
+      'Verifying core.t1_bi_bookings columns.',
+      'Yesterday’s GMV was SGD 134,266.16 on 1,485 bookings.',
+    ];
+    const backend = makeClaudeHandlerYielding([
+      ...parts.map(text => ({ type: 'assistant', message: { content: [{ type: 'text', text }] } })),
+      { type: 'result', subtype: 'success', result: parts.join('\n\n') },
+    ]);
+    const handler = new MessageHandler(adapter, backend, makeAgent(true), null);
+    await handler.handleMessage(makeMsg());
+
+    const posts = postedTexts();
+    // Each streamed part appears exactly once…
+    for (const p of parts) expect(posts.filter(x => x === p).length).toBe(1);
+    // …and the concatenated result is NOT posted again.
+    expect(posts).not.toContain(parts.join('\n\n'));
+  });
+
+  it('still posts the final result in NON-verbose mode (nothing was streamed)', async () => {
+    const backend = makeClaudeHandlerYielding([
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'the answer' }] } },
+      { type: 'result', subtype: 'success', result: 'the answer' },
+    ]);
+    const handler = new MessageHandler(adapter, backend, makeAgent(false), null);
+    await handler.handleMessage(makeMsg());
+
+    const posts = postedTexts();
+    expect(posts.filter(x => x === 'the answer').length).toBe(1);
+  });
+
   it('skips thinking-only messages when verbose is OFF (regression: do not crash on no text)', async () => {
     // Pre-fix the `else if (textContent)` branch was the only text-only
     // path. With thinking-only messages and verbose off, no post happens

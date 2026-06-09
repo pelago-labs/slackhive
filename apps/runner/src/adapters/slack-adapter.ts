@@ -21,6 +21,7 @@ import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment, MessagePayload,
   SlackCredentials,
 } from '@slackhive/shared';
+import { recordMessageFeedback } from '@slackhive/shared';
 import { agentLogger } from '../logger';
 import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
@@ -77,9 +78,18 @@ export class SlackAdapter implements PlatformAdapter {
   private botUserId?: string;
   private messageHandler?: (msg: IncomingMessage) => Promise<void>;
   private credentials: SlackCredentials;
+  private readonly agentId: string;
+  /** Messages carrying feedback buttons → the activity to attribute a click to.
+   *  Keyed `${channel}:${ts}`. The click handler rebuilds the message from the
+   *  LIVE blocks in the block_action payload (not stored here), so removal is
+   *  restart-proof and never depends on this map. Capped. */
+  private feedbackTargets = new Map<string, { activityId: string | null }>();
+  /** Cache rater display names so users.info is hit at most once per user. */
+  private handleCache = new Map<string, string | null>();
 
-  constructor(credentials: SlackCredentials, agentSlug: string) {
+  constructor(credentials: SlackCredentials, agentSlug: string, agentId = '') {
     this.credentials = credentials;
+    this.agentId = agentId;
     this.log = agentLogger(agentSlug);
     // Don't construct Bolt's App here — it spins up a SocketModeReceiver
     // that eagerly validates tokens in the background and orphans any
@@ -188,6 +198,106 @@ export class SlackAdapter implements PlatformAdapter {
       } catch { /* non-fatal */ }
     });
 
+    // ── Message feedback (native 👍/👎 on the agent's final reply) ──
+    // We attach a `feedback_buttons` control to the reply itself (attachFeedbackControls);
+    // Slack renders its built-in thumbs and, on click, delivers a block_action.
+    // 👍 records positive; 👎 records negative and opens a modal for an optional
+    // note. On click we swap the buttons for a thank-you, keeping the answer.
+    this.app.action('agent_feedback', async ({ ack, body, action, client }) => {
+      await ack();
+      const b = body as any;
+      const a = action as any;
+      const userId: string | undefined = b.user?.id;
+      const channel: string = b.channel?.id ?? b.container?.channel_id ?? '';
+      const ts: string = b.message?.ts ?? b.container?.message_ts ?? '';
+      // Without a rater id and message ts the (message_ts, rater_user_id) unique
+      // key can't dedupe (SQLite treats NULLs as distinct → duplicate rows), so
+      // skip recording entirely rather than corrupt the counts.
+      if (!userId || !ts) { this.log.warn('Feedback click missing user/ts', { userId, ts }); return; }
+      // The clicked button's value, set in feedbackButtonsBlock ('up' | 'down').
+      const sentiment: 'up' | 'down' = a.value === 'down' ? 'down' : 'up';
+      const activityId = this.feedbackTargets.get(`${channel}:${ts}`)?.activityId ?? null;
+      const threadTs: string | undefined = b.message?.thread_ts;
+      // On 👎, open the note modal FIRST — trigger_id is valid only briefly. The
+      // note path re-upserts the row, so it needs only ts/channel/activity; the
+      // permalink is filled by the click-record below via the ON CONFLICT merge.
+      if (sentiment === 'down') {
+        try {
+          await client.views.open({
+            trigger_id: b.trigger_id,
+            view: {
+              type: 'modal',
+              callback_id: 'fb_note',
+              private_metadata: JSON.stringify({ ts, channel, activityId }),
+              title: { type: 'plain_text', text: 'Feedback' },
+              submit: { type: 'plain_text', text: 'Send' },
+              close: { type: 'plain_text', text: 'Cancel' },
+              blocks: [{
+                type: 'input', block_id: 'note', optional: true,
+                label: { type: 'plain_text', text: 'What should we improve?' },
+                element: { type: 'plain_text_input', action_id: 'note_input', multiline: true },
+              }],
+            },
+          });
+        } catch (err) { this.log.warn('Feedback modal open failed', { error: (err as Error).message }); }
+      }
+      // Resolve a permalink lazily, now that someone actually rated (against the
+      // thread root so it lands on the conversation). Only clicks pay this cost.
+      let permalink: string | null = null;
+      try {
+        const pl = await client.chat.getPermalink({ channel, message_ts: threadTs ?? ts });
+        permalink = (pl.permalink as string | undefined) ?? null;
+      } catch { /* best-effort */ }
+      // Record the vote immediately so a 👎 still counts even if no note follows.
+      try {
+        await recordMessageFeedback({
+          agentId: this.agentId, activityId,
+          channel, messageTs: ts,
+          raterUserId: userId, raterHandle: await this.handleFor(client, userId),
+          sentiment, permalink,
+        });
+      } catch (err) { this.log.warn('Feedback record failed', { error: (err as Error).message }); }
+      // One-shot: remove the buttons and leave a personalized thank-you so the
+      // reply can't be re-rated. CRITICAL: rebuild from the message's OWN live
+      // blocks (carried in the block_action payload) minus the feedback control —
+      // so the agent's reply is preserved across restarts with no stored state.
+      // If the payload has no blocks, skip the edit rather than risk wiping it.
+      try {
+        const liveBlocks: any[] = Array.isArray(b.message?.blocks) ? b.message.blocks : [];
+        if (liveBlocks.length) {
+          const kept = liveBlocks.filter((bl: any) => bl?.type !== 'context_actions');
+          const thanks = sentiment === 'up'
+            ? `<@${userId}> I'm glad you found my response helpful :)`
+            : `<@${userId}> thanks for the feedback — I'll work on improving :)`;
+          await client.chat.update({
+            channel, ts, text: b.message?.text ?? '',
+            blocks: [...kept, { type: 'context', elements: [{ type: 'mrkdwn', text: thanks }] }],
+          });
+        }
+        this.feedbackTargets.delete(`${channel}:${ts}`);
+      } catch (err) { this.log.warn('Feedback control update failed', { error: (err as Error).message }); }
+    });
+    this.app.view('fb_note', async ({ ack, body, view, client }) => {
+      await ack();
+      try {
+        const note = ((view.state.values?.note as any)?.note_input?.value ?? '').trim();
+        if (!note) return;
+        const meta = JSON.parse(view.private_metadata || '{}');
+        const userId = (body as any).user?.id;
+        if (!userId || !meta.ts) return;
+        // Full upsert (not UPDATE-only): if the click-record hasn't landed yet —
+        // or failed — this still writes the 👎 row with the note; otherwise the
+        // ON CONFLICT merge attaches the note. The permalink is set by the
+        // click-record and preserved here by COALESCE (note path omits it).
+        await recordMessageFeedback({
+          agentId: this.agentId, activityId: meta.activityId ?? null,
+          channel: meta.channel, messageTs: meta.ts,
+          raterUserId: userId, raterHandle: await this.handleFor(client, userId),
+          sentiment: 'down', note,
+        });
+      } catch (err) { this.log.warn('Feedback note submit failed', { error: (err as Error).message }); }
+    });
+
     await this.app.start();
     this.log.info('Slack adapter started', { botUserId: this.botUserId });
   }
@@ -281,6 +391,98 @@ export class SlackAdapter implements PlatformAdapter {
     try {
       await this.app.client.reactions.remove({ channel: channelId, timestamp: messageId, name: emoji });
     } catch { /* non-fatal */ }
+  }
+
+  // ─── Feedback (native 👍/👎 buttons) ────────────────────────────────
+
+  /** The native feedback control block (👍/👎), appended to a reply's own blocks. */
+  private feedbackButtonsBlock(): Record<string, any> {
+    return {
+      type: 'context_actions',
+      elements: [{
+        type: 'feedback_buttons',
+        action_id: 'agent_feedback',
+        positive_button: { text: { type: 'plain_text', text: 'Good Response' }, value: 'up', accessibility_label: 'Mark this response as good' },
+        negative_button: { text: { type: 'plain_text', text: 'Bad Response' }, value: 'down', accessibility_label: 'Mark this response as bad' },
+      }],
+    };
+  }
+
+  /** Render a reply payload's content as Block Kit blocks so we can append the
+   *  feedback control. Returns null when the result wouldn't fit Slack's 50-block
+   *  message cap (caller then falls back to a separate control message). */
+  private answerBlocks(payload: MessagePayload): any[] | null {
+    const blocks = (Array.isArray(payload.blocks) && payload.blocks.length)
+      ? (payload.blocks as any[])
+      : sectionBlocksFromText(payload.text); // plain-text reply → section blocks
+    return blocks.length + 1 > 50 ? null : blocks; // +1 for the feedback control
+  }
+
+  /** Remember which message carries the buttons so a click maps to the activity. */
+  private rememberFeedbackTarget(channelId: string, ts: string, activityId: string | null): void {
+    if (this.feedbackTargets.size > 2000) {
+      this.feedbackTargets.delete(this.feedbackTargets.keys().next().value as string);
+    }
+    this.feedbackTargets.set(`${channelId}:${ts}`, { activityId });
+  }
+
+  /**
+   * Attach Slack's native AI-app feedback control to the agent's reply so the
+   * thumbs render under the answer. Preferred path: `chat.update` the reply to
+   * append a `feedback_buttons` element (inline). If that can't work — the answer
+   * is too big to re-render as blocks, or Slack rejects the update — fall back to
+   * a small separate "Rate this response" message so the answer is still rateable.
+   * On click the message is rebuilt from its own live blocks, so we store nothing
+   * but the activity id here.
+   */
+  async attachFeedbackControls(
+    channelId: string,
+    messageId: string,
+    payload: MessagePayload,
+    threadId: string | undefined,
+    ctx: { activityId?: string | null },
+  ): Promise<void> {
+    if (!messageId) return;
+    const activityId = ctx.activityId ?? null;
+    const baseBlocks = this.answerBlocks(payload);
+    // Inline attach (preferred).
+    if (baseBlocks) {
+      try {
+        await this.app.client.chat.update({
+          channel: channelId, ts: messageId,
+          text: payload.text,
+          blocks: [...baseBlocks, this.feedbackButtonsBlock()],
+        } as any);
+        this.rememberFeedbackTarget(channelId, messageId, activityId);
+        return;
+      } catch (err) {
+        this.log.warn('Inline feedback attach failed; falling back to a separate message', { error: (err as Error).message });
+      }
+    }
+    // Fallback: a standalone control message (e.g. answer > 50 blocks).
+    try {
+      const res = await this.app.client.chat.postMessage({
+        channel: channelId,
+        ...(threadId ? { thread_ts: threadId } : {}),
+        text: 'Rate this response', // notification fallback; not shown when blocks render
+        blocks: [this.feedbackButtonsBlock()],
+      } as any);
+      const ts = (res as any).ts as string | undefined;
+      if (ts) this.rememberFeedbackTarget(channelId, ts, activityId);
+    } catch (err) { this.log.warn('Feedback controls attach failed', { error: (err as Error).message }); }
+  }
+
+  /** Best-effort Slack display name for a user id (cached — users.info once per user). */
+  private async handleFor(client: { users: { info: (a: { user: string }) => Promise<any> } }, userId?: string): Promise<string | null> {
+    if (!userId) return null;
+    if (this.handleCache.has(userId)) return this.handleCache.get(userId) ?? null;
+    let handle: string | null = null;
+    try {
+      const r = await client.users.info({ user: userId });
+      handle = (r.user?.profile?.display_name || r.user?.real_name || r.user?.name) ?? null;
+    } catch { /* leave null */ }
+    this.handleCache.set(userId, handle);
+    return handle;
   }
 
   async uploadFile(channelId: string, content: string | Buffer, filename: string, threadId?: string): Promise<void> {
@@ -386,11 +588,7 @@ export class SlackAdapter implements PlatformAdapter {
 
       const blocks: any[] = [];
       const beforeText = this.formatMarkdown(extracted.before.trim());
-      if (beforeText) {
-        for (const chunk of splitTextForBlocks(beforeText)) {
-          blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk } });
-        }
-      }
+      if (beforeText) blocks.push(...sectionBlocksFromText(beforeText));
       blocks.push(buildSlackTableBlock(parsed));
 
       const fallback = this.formatMarkdown(
@@ -653,6 +851,12 @@ function buildSlackTableBlock(parsed: { headers: string[]; rows: string[][]; ali
     rows: [buildRow(parsed.headers), ...parsed.rows.slice(0, 99).map(r => buildRow(r))],
     column_settings: parsed.alignments.slice(0, maxCols).map(a => ({ align: a })),
   };
+}
+
+/** Render text as mrkdwn section blocks, split to stay under Slack's 3000-char
+ *  per-block cap. Single source for both buildPayloads and answerBlocks. */
+export function sectionBlocksFromText(text: string): Record<string, any>[] {
+  return splitTextForBlocks(text).map(chunk => ({ type: 'section', text: { type: 'mrkdwn', text: chunk } }));
 }
 
 function splitTextForBlocks(text: string): string[] {

@@ -2,7 +2,7 @@
  * @fileoverview Runner endpoint for LLM-generated test case suggestions.
  *
  * One-shot JSON in, JSON out. Takes the agent's full picture (description,
- * persona, claudeMd, skills, wiki sources, linked MCPs) and asks Claude
+ * persona, claudeMd, skills, wiki sources, linked MCPs) and asks the model
  * to design N test cases composed of the 5 user-facing check types.
  *
  * Output is in the UI's check-type vocabulary (substring_contain,
@@ -10,15 +10,15 @@
  * the web side translates these into framework CheckConfig shapes
  * before persisting.
  *
- * Uses the same Claude Agent SDK pattern as /judge — no tools, no MCP,
- * maxTurns: 1, plain text-in/text-out.
+ * Runs via `generateText` on the ACTIVE agent backend (Claude or Codex),
+ * same as /judge — no tools, no MCP, plain text-in/text-out.
  *
  * @module runner/suggest-cases-handler-server
  */
 
 import type { ServerResponse } from 'http';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SuggestedCaseWire } from '@slackhive/shared';
+import { generateText } from './backends/generate-text';
 import { logger } from './logger';
 
 interface SuggestCasesRequest {
@@ -62,27 +62,9 @@ export async function handleSuggestCases(
 
   let assistantText = '';
   try {
-    for await (const msg of query({
-      prompt,
-      options: {
-        model: req.model,
-        allowedTools: [],
-        permissionMode: 'dontAsk',
-        maxTurns: 1,
-      },
-    })) {
-      const m = msg as {
-        type?: string;
-        message?: { content?: Array<{ type?: string; text?: string }> };
-      };
-      if (m.type === 'assistant') {
-        for (const block of m.message?.content ?? []) {
-          if (block?.type === 'text' && typeof block.text === 'string') {
-            assistantText += block.text;
-          }
-        }
-      }
-    }
+    // Route through the active backend (Claude or Codex); the configured model
+    // follows that backend, so pass it for both.
+    assistantText = await generateText(prompt, { claudeModel: req.model, codexModel: req.model });
   } catch (err) {
     logger.error('Suggest-cases query failed', { error: (err as Error).message });
     writeJson(res, 500, { error: (err as Error).message });

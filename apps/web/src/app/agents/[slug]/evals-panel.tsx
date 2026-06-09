@@ -274,7 +274,7 @@ export function EvalsPanel({
   }
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1024, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1024 }}>
       {/* ── Tier 1 ────────────────────────────────────────── */}
       <section>
         <header

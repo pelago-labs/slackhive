@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, SlidersHorizontal, Bot, ShieldCheck, LogIn, Users } from 'lucide-react';
 import {
   MODELS,
   DEFAULT_COACH_MODEL,
@@ -19,8 +19,9 @@ import {
 } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
+import AiProviderSection from './AiProviderSection';
 
-type Tab = 'general' | 'users' | 'auth';
+type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'users';
 
 interface User {
   id: string;
@@ -52,9 +53,20 @@ const DEFAULTS: Record<string, string> = {
  * @returns {JSX.Element}
  */
 export default function SettingsPage() {
-  const { canEdit, canManageUsers, role } = useAuth();
+  const { canManageUsers, role } = useAuth();
   const isSuperadmin = role === 'superadmin';
-  const [tab, setTab] = useState<Tab>('general');
+  const [section, setSection] = useState<SettingsSection>('general');
+
+  const nav = ([
+    { id: 'general', label: 'General',            Icon: SlidersHorizontal, show: true },
+    { id: 'ai',      label: 'AI Backend',         Icon: Bot,               show: canManageUsers },
+    { id: 'access',  label: 'Access Control',      Icon: ShieldCheck,       show: canManageUsers },
+    { id: 'signin',  label: 'Sign in with Slack',  Icon: LogIn,             show: canManageUsers && isSuperadmin },
+    { id: 'users',   label: 'Users',              Icon: Users,             show: canManageUsers },
+  ] as const).filter(n => n.show);
+
+  // Guard against a stale selection if a section becomes hidden (perm change).
+  const active: SettingsSection = nav.some(n => n.id === section) ? section : 'general';
 
   return (
     <div className="fade-up" style={{ padding: '36px 40px' }}>
@@ -68,16 +80,29 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
-        <TabBtn active={tab === 'general'} onClick={() => setTab('general')}>General</TabBtn>
-        {canManageUsers && <TabBtn active={tab === 'users'} onClick={() => setTab('users')}>Users</TabBtn>}
-        {isSuperadmin && <TabBtn active={tab === 'auth'} onClick={() => setTab('auth')}>Authentication</TabBtn>}
-      </div>
+      {/* Side-nav + content */}
+      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <nav style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {nav.map(n => (
+            <button key={n.id} onClick={() => setSection(n.id)} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 9, textAlign: 'left',
+              padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-sans)', fontSize: 13,
+              background: active === n.id ? 'var(--surface-2)' : 'transparent',
+              color: active === n.id ? 'var(--text)' : 'var(--muted)',
+              fontWeight: active === n.id ? 600 : 400,
+            }}><n.Icon size={15} />{n.label}</button>
+          ))}
+        </nav>
 
-      {tab === 'general' && <GeneralTab />}
-      {tab === 'users' && canManageUsers && <UsersTab />}
-      {tab === 'auth' && isSuperadmin && <AuthTab />}
+        <div style={{ flex: 1, minWidth: 0, maxWidth: 760 }}>
+          {active === 'general' && <GeneralTab />}
+          {active === 'ai'      && canManageUsers && <AITab />}
+          {active === 'access'  && canManageUsers && <AccessControlSection />}
+          {active === 'signin'  && canManageUsers && isSuperadmin && <AuthTab />}
+          {active === 'users'   && canManageUsers && <UsersTab />}
+        </div>
+      </div>
     </div>
   );
 }
@@ -91,9 +116,6 @@ function GeneralTab() {
   const [tagline, setTagline] = useState(DEFAULTS.tagline);
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
-  const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
-  const [evalJudgeModel, setEvalJudgeModel] = useState(DEFAULTS[EVAL_JUDGE_MODEL_SETTING_KEY]);
-  const [openToWorkspace, setOpenToWorkspace] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -105,9 +127,6 @@ function GeneralTab() {
         if (s.tagline) setTagline(s.tagline);
         if (s.logoUrl !== undefined && s.logoUrl !== '') setLogoUrl(s.logoUrl);
         if (s.dashboardTitle) setDashboardTitle(s.dashboardTitle);
-        if (s[COACH_MODEL_SETTING_KEY]) setCoachModel(s[COACH_MODEL_SETTING_KEY]);
-        if (s[EVAL_JUDGE_MODEL_SETTING_KEY]) setEvalJudgeModel(s[EVAL_JUDGE_MODEL_SETTING_KEY]);
-        setOpenToWorkspace(s.openToWorkspace !== 'false');
       })
       .catch(() => {});
   }, []);
@@ -132,8 +151,6 @@ function GeneralTab() {
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'tagline', value: tagline }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'logoUrl', value: logoUrl }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'dashboardTitle', value: dashboardTitle }) }),
-        fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: COACH_MODEL_SETTING_KEY, value: coachModel }) }),
-        fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: EVAL_JUDGE_MODEL_SETTING_KEY, value: evalJudgeModel }) }),
       ]);
       setToast('All settings saved');
       setTimeout(() => setToast(''), 2000);
@@ -171,65 +188,131 @@ function GeneralTab() {
           value={dashboardTitle} onChange={setDashboardTitle} onBlur={() => save('dashboardTitle', dashboardTitle)} />
       </Section>
 
-      <Section title="AI">
-        <SelectField
-          label="Coach Model"
-          value={coachModel}
-          options={MODELS}
-          onChange={v => { setCoachModel(v); save(COACH_MODEL_SETTING_KEY, v); }}
-          hint="Model used by Coach to generate prompts and skills. Not the model your agents run on."
-        />
-        <SelectField
-          label="Evals Judge Model"
-          value={evalJudgeModel}
-          options={MODELS}
-          onChange={v => { setEvalJudgeModel(v); save(EVAL_JUDGE_MODEL_SETTING_KEY, v); }}
-          hint="Model used by the Tier 2 regression evals to judge agent responses against rubrics. Called once per case per run — Haiku keeps cost low; switch to Sonnet/Opus if rubrics need deeper judgment."
-        />
-      </Section>
-
-      <Section title="Access Control">
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-              {openToWorkspace
-                ? <>Any Slack workspace member can message the bot — no account setup needed. Turn off to restrict access to specific imported users with a Trigger grant.</>
-                : <>Only imported users with <strong>Trigger</strong> access can use the bot. Others get a message asking them to contact an admin. Import teammates and assign access in <strong>Users</strong>.</>
-              }
-            </div>
-            {!openToWorkspace && (
-              <div style={{ fontSize: 12, marginTop: 8, padding: '7px 10px', background: 'rgba(234,179,8,0.08)', borderRadius: 6, borderLeft: '3px solid #ca8a04', color: 'var(--muted)', lineHeight: 1.5 }}>
-                <strong style={{ color: '#ca8a04' }}>Restricted mode active.</strong> Turn on to allow all workspace members to trigger agents again.
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => {
-              const next = !openToWorkspace;
-              if (!next && !window.confirm('Turning off Open to Workspace will immediately restrict bot access to only imported users with a Trigger grant. Anyone else will be blocked. Continue?')) return;
-              setOpenToWorkspace(next);
-              save('openToWorkspace', String(next));
-            }}
-            style={{
-              width: 44, height: 24, borderRadius: 12, border: 'none', flexShrink: 0, marginTop: 2,
-              background: openToWorkspace ? '#3b82f6' : 'var(--border-2)',
-              cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
-            }}
-          >
-            <div style={{
-              position: 'absolute', top: 3, left: openToWorkspace ? 23 : 3,
-              width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
-              transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-            }} />
-          </button>
-        </div>
-      </Section>
-
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
         <PrimaryBtn onClick={saveAll} loading={saving}>Save All</PrimaryBtn>
       </div>
     </>
+  );
+}
+
+// =============================================================================
+// AI tab — agent backend + coach
+// =============================================================================
+
+function AITab() {
+  const [coachModel, setCoachModel] = useState(DEFAULTS[COACH_MODEL_SETTING_KEY]);
+  const [evalJudgeModel, setEvalJudgeModel] = useState(DEFAULTS[EVAL_JUDGE_MODEL_SETTING_KEY]);
+  // Coach + judge run on the active backend, so their model options follow it.
+  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; sub?: string }[]>([...MODELS]);
+
+  const persist = (key: string, value: string) =>
+    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) }).catch(() => {});
+
+  // Load settings + the active backend's model list together, then reconcile: if a
+  // stored model isn't valid for the current backend, switch to its first model AND
+  // persist that correction (so the stored value never diverges from what's shown).
+  const load = async () => {
+    const [s, d] = await Promise.all([
+      fetch('/api/settings').then(r => r.json()).catch(() => ({} as Record<string, string>)),
+      fetch('/api/system/models').then(r => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
+    const opts: { value: string; label: string; sub?: string }[] = d?.models?.length ? d.models : [...MODELS];
+    setModelOptions(opts);
+    const valid = (v: string) => opts.some(m => m.value === v);
+
+    let cm = s[COACH_MODEL_SETTING_KEY] || DEFAULTS[COACH_MODEL_SETTING_KEY];
+    if (!valid(cm)) { cm = opts[0].value; persist(COACH_MODEL_SETTING_KEY, cm); }
+    setCoachModel(cm);
+
+    let jm = s[EVAL_JUDGE_MODEL_SETTING_KEY] || DEFAULTS[EVAL_JUDGE_MODEL_SETTING_KEY];
+    if (!valid(jm)) { jm = opts[0].value; persist(EVAL_JUDGE_MODEL_SETTING_KEY, jm); }
+    setEvalJudgeModel(jm);
+  };
+  useEffect(() => { void load(); }, []);
+
+  const saveCoach = (v: string) => { setCoachModel(v); persist(COACH_MODEL_SETTING_KEY, v); };
+  const saveJudge = (v: string) => { setEvalJudgeModel(v); persist(EVAL_JUDGE_MODEL_SETTING_KEY, v); };
+
+  return (
+    <>
+      <AiProviderSection onSaved={load} />
+      <Section title="Coach">
+        <SelectField
+          label="Coach Model"
+          value={coachModel}
+          options={modelOptions}
+          onChange={saveCoach}
+          hint="Model Coach uses to generate prompts and skills — follows the active agent backend."
+        />
+      </Section>
+      <Section title="Evals">
+        <SelectField
+          label="Evals Judge Model"
+          value={evalJudgeModel}
+          options={modelOptions}
+          onChange={saveJudge}
+          hint="Model the Tier 2 regression evals use to judge agent responses against rubrics — follows the active agent backend. Called once per case per run; a cheaper model keeps cost low."
+        />
+      </Section>
+    </>
+  );
+}
+
+// =============================================================================
+// Users & Access tab — access control + users + authentication
+// =============================================================================
+
+function AccessControlSection() {
+  const [openToWorkspace, setOpenToWorkspace] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
+      setOpenToWorkspace(s.openToWorkspace !== 'false');
+    }).catch(() => {});
+  }, []);
+
+  const save = (next: boolean) => {
+    setOpenToWorkspace(next);
+    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'openToWorkspace', value: String(next) }) }).catch(() => {});
+  };
+
+  return (
+    <Section title="Access Control">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+            {openToWorkspace
+              ? <>Any Slack workspace member can message the bot — no account setup needed. Turn off to restrict access to specific imported users with a Trigger grant.</>
+              : <>Only imported users with <strong>Trigger</strong> access can use the bot. Others get a message asking them to contact an admin. Import teammates and assign access below.</>
+            }
+          </div>
+          {!openToWorkspace && (
+            <div style={{ fontSize: 12, marginTop: 8, padding: '7px 10px', background: 'rgba(234,179,8,0.08)', borderRadius: 6, borderLeft: '3px solid #ca8a04', color: 'var(--muted)', lineHeight: 1.5 }}>
+              <strong style={{ color: '#ca8a04' }}>Restricted mode active.</strong> Turn on to allow all workspace members to trigger agents again.
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => {
+            const next = !openToWorkspace;
+            if (!next && !window.confirm('Turning off Open to Workspace will immediately restrict bot access to only imported users with a Trigger grant. Anyone else will be blocked. Continue?')) return;
+            save(next);
+          }}
+          style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', flexShrink: 0, marginTop: 2,
+            background: openToWorkspace ? '#3b82f6' : 'var(--border-2)',
+            cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+          }}
+        >
+          <div style={{
+            position: 'absolute', top: 3, left: openToWorkspace ? 23 : 3,
+            width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
+            transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          }} />
+        </button>
+      </div>
+    </Section>
   );
 }
 
@@ -1150,22 +1233,6 @@ function AuthTab() {
 // =============================================================================
 // Shared UI helpers
 // =============================================================================
-
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} style={{
-      background: 'none', border: 'none', cursor: 'pointer',
-      padding: '10px 16px', fontSize: 13,
-      color: active ? 'var(--text)' : 'var(--muted)',
-      fontWeight: active ? 600 : 400,
-      fontFamily: 'var(--font-sans)',
-      position: 'relative',
-      transition: 'color 0.15s',
-      borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-      marginBottom: -1,
-    }}>{children}</button>
-  );
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

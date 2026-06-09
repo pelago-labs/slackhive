@@ -21,6 +21,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { randomUUID } from 'crypto';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
@@ -28,6 +30,7 @@ import {
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  isInitializeRequest,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { McpStdioConfig } from '@slackhive/shared';
 import { agentLogger } from './logger.js';
@@ -37,7 +40,18 @@ interface ManagedProxy {
   client: Client;
   httpServer: http.Server;
   port: number;
+  /** SSE endpoint (Claude Agent SDK). */
   url: string;
+  /** Streamable-HTTP endpoint (OpenAI Codex). */
+  streamableUrl: string;
+}
+
+/** Read and JSON-parse a request body. */
+async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  const raw = Buffer.concat(chunks).toString('utf8');
+  return raw ? JSON.parse(raw) : undefined;
 }
 
 /**
@@ -76,6 +90,13 @@ export class McpProcessManager {
     for (const [subKey, storeKey] of Object.entries((config.envRefs ?? {}) as Record<string, string>)) {
       if (envVarValues[storeKey] !== undefined) env[subKey] = envVarValues[storeKey];
     }
+    // These MCP proxies are long-lived and shared across an agent's sessions, so
+    // there's no per-session cwd to hand them (unlike the Claude SDK path, which
+    // spawns inline-TS servers per query with a per-session SESSION_WORK_DIR).
+    // Without it, session-aware servers like git.ts fall back to /tmp; default it
+    // to the agent's persistent workDir so their state (e.g. cloned repos) lives
+    // under ~/.slackhive/agents/<slug>/ instead of an ephemeral temp dir.
+    if (!env.SESSION_WORK_DIR) env.SESSION_WORK_DIR = this.workDir;
 
     // For inline TypeScript source, write to disk first
     let command = config.command;
@@ -121,44 +142,56 @@ export class McpProcessManager {
 
     const caps = client.getServerCapabilities() ?? {};
 
-    // Build a proxy MCP Server that forwards calls to the client
-    const proxyServer = new Server(
-      { name, version: '1.0.0' },
-      { capabilities: caps }
-    );
-
-    if (caps.tools) {
-      proxyServer.setRequestHandler(ListToolsRequestSchema, () => client.listTools());
-      proxyServer.setRequestHandler(CallToolRequestSchema, (req) =>
-        client.callTool({ name: req.params.name, arguments: req.params.arguments ?? {} })
+    // Build a fresh proxy MCP Server (forwarding to the shared upstream `client`)
+    // for each transport. The SDK's Server/Protocol can only be connected to ONE
+    // transport at a time — a second connect() throws "Already connected to a
+    // transport". Codex opens a new Streamable-HTTP session per turn (and SSE +
+    // HTTP can be live at once), so a single shared Server breaks on the second
+    // connect. Minting one Server per transport sidesteps that; the upstream
+    // `client` is shared and multiplexes concurrent requests over its own ids.
+    const createProxyServer = (): Server => {
+      const proxyServer = new Server(
+        { name, version: '1.0.0' },
+        { capabilities: caps }
       );
-    }
-    if (caps.resources) {
-      proxyServer.setRequestHandler(ListResourcesRequestSchema, () => client.listResources());
-      proxyServer.setRequestHandler(ReadResourceRequestSchema, (req) =>
-        client.readResource({ uri: req.params.uri })
-      );
-    }
-    if (caps.prompts) {
-      proxyServer.setRequestHandler(ListPromptsRequestSchema, () => client.listPrompts());
-      proxyServer.setRequestHandler(GetPromptRequestSchema, (req) =>
-        client.getPrompt({ name: req.params.name, arguments: req.params.arguments })
-      );
-    }
+      if (caps.tools) {
+        proxyServer.setRequestHandler(ListToolsRequestSchema, () => client.listTools());
+        proxyServer.setRequestHandler(CallToolRequestSchema, (req) =>
+          client.callTool({ name: req.params.name, arguments: req.params.arguments ?? {} })
+        );
+      }
+      if (caps.resources) {
+        proxyServer.setRequestHandler(ListResourcesRequestSchema, () => client.listResources());
+        proxyServer.setRequestHandler(ReadResourceRequestSchema, (req) =>
+          client.readResource({ uri: req.params.uri })
+        );
+      }
+      if (caps.prompts) {
+        proxyServer.setRequestHandler(ListPromptsRequestSchema, () => client.listPrompts());
+        proxyServer.setRequestHandler(GetPromptRequestSchema, (req) =>
+          client.getPrompt({ name: req.params.name, arguments: req.params.arguments })
+        );
+      }
+      return proxyServer;
+    };
 
     // Serve the proxy over SSE on a local port.
     // Use a mutable port holder so the closures reference the port actually bound
     // after the retry loop (not the first one we tried).
     const portRef = { port: this.nextPort };
     const sseTransports = new Map<string, SSEServerTransport>();
+    // Streamable-HTTP sessions (Codex). Each gets its own proxy Server via
+    // createProxyServer() — the SDK Server can't be shared across transports.
+    const httpTransports = new Map<string, StreamableHTTPServerTransport>();
 
     const httpServer = http.createServer(async (req, res) => {
       try {
+        // ── SSE transport (Claude Agent SDK) ──────────────────────────────
         if (req.method === 'GET' && req.url === '/sse') {
           const sseTransport = new SSEServerTransport('/message', res);
           sseTransports.set(sseTransport.sessionId, sseTransport);
           res.on('close', () => sseTransports.delete(sseTransport.sessionId));
-          await proxyServer.connect(sseTransport);
+          await createProxyServer().connect(sseTransport);
         } else if (req.method === 'POST' && req.url?.startsWith('/message')) {
           const sessionId = new URL(req.url, `http://127.0.0.1:${portRef.port}`).searchParams.get('sessionId') ?? '';
           const sseTransport = sseTransports.get(sessionId);
@@ -166,6 +199,33 @@ export class McpProcessManager {
             await sseTransport.handlePostMessage(req, res);
           } else {
             res.writeHead(404).end('Session not found');
+          }
+
+        // ── Streamable-HTTP transport (Codex) ─────────────────────────────
+        // The proxy connects to the real MCP server with empty client
+        // capabilities (no elicitation), so eliciting servers return data
+        // directly — matching how MCP behaves under the Claude Agent SDK.
+        } else if (req.url?.startsWith('/mcp')) {
+          const sessionId = req.headers['mcp-session-id'] as string | undefined;
+          if (req.method === 'POST') {
+            const body = await readJsonBody(req);
+            let transport = sessionId ? httpTransports.get(sessionId) : undefined;
+            if (!transport && isInitializeRequest(body)) {
+              transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                onsessioninitialized: (sid) => { httpTransports.set(sid, transport!); },
+              });
+              transport.onclose = () => { if (transport!.sessionId) httpTransports.delete(transport!.sessionId); };
+              await createProxyServer().connect(transport);
+            }
+            if (!transport) { res.writeHead(400).end('No valid MCP session'); return; }
+            await transport.handleRequest(req, res, body);
+          } else if (req.method === 'GET' || req.method === 'DELETE') {
+            const transport = sessionId ? httpTransports.get(sessionId) : undefined;
+            if (!transport) { res.writeHead(400).end('No valid MCP session'); return; }
+            await transport.handleRequest(req, res);
+          } else {
+            res.writeHead(405).end();
           }
         } else {
           res.writeHead(404).end();
@@ -216,8 +276,9 @@ export class McpProcessManager {
     this.nextPort = boundPort + 1; // advance past the bound port for the next server in this agent
 
     const url = `http://127.0.0.1:${boundPort}/sse`;
-    this.proxies.set(name, { client, httpServer, port: boundPort, url });
-    this.log.info('MCP proxy listening', { server: name, url });
+    const streamableUrl = `http://127.0.0.1:${boundPort}/mcp`;
+    this.proxies.set(name, { client, httpServer, port: boundPort, url, streamableUrl });
+    this.log.info('MCP proxy listening', { server: name, url, streamableUrl });
 
     return url;
   }
@@ -225,6 +286,11 @@ export class McpProcessManager {
   /** Returns the SSE URL for a running proxy, or undefined if not started. */
   getUrl(name: string): string | undefined {
     return this.proxies.get(name)?.url;
+  }
+
+  /** Returns the Streamable-HTTP URL (for Codex) for a running proxy. */
+  getStreamableUrl(name: string): string | undefined {
+    return this.proxies.get(name)?.streamableUrl;
   }
 
   /** Stops and cleans up a single MCP proxy. */

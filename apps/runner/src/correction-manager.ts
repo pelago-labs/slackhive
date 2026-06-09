@@ -15,9 +15,9 @@
  * @module runner/correction-manager
  */
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { generateText } from './backends/generate-text';
 import { upsertSkill, deleteSkill, getAgentSkills } from './db';
-import { compileClaudeMd } from './compile-claude-md';
+import { compileAgentWorkspace } from './compile-instructions';
 import type { Agent } from '@slackhive/shared';
 import { agentLogger } from './logger';
 
@@ -138,27 +138,7 @@ Respond with the FULL updated file content (including the # heading and ## categ
 If duplicate, respond with ONLY: DUPLICATE: <number>`;
 
     try {
-      let responseText = '';
-
-      for await (const message of query({
-        prompt: consolidationPrompt,
-        options: {
-          permissionMode: 'bypassPermissions',
-          tools: [],
-          maxTurns: 1,
-        },
-      })) {
-        if (message.type === 'assistant' && message.message.content) {
-          for (const part of message.message.content) {
-            if ((part as any).type === 'text') {
-              responseText += (part as any).text;
-            }
-          }
-        } else if (message.type === 'result' && (message as any).result) {
-          responseText = (message as any).result;
-        }
-      }
-
+      let responseText = await generateText(consolidationPrompt);
       responseText = responseText.trim();
 
       // Check for duplicate
@@ -181,7 +161,7 @@ If duplicate, respond with ONLY: DUPLICATE: <number>`;
       );
 
       // Recompile CLAUDE.md so corrections take effect immediately
-      await compileClaudeMd(this.agent);
+      await compileAgentWorkspace(this.agent);
 
       const newCount = await this.getCount();
       this.log.info('Correction added', { reviewerId, newCount });
@@ -265,7 +245,7 @@ If duplicate, respond with ONLY: DUPLICATE: <number>`;
     }
 
     // Recompile CLAUDE.md
-    await compileClaudeMd(this.agent);
+    await compileAgentWorkspace(this.agent);
 
     const newCount = await this.getCount();
     return {

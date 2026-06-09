@@ -16,7 +16,7 @@ import * as path from 'path';
 
 describe('compile-claude-md source content', () => {
   const src = fs.readFileSync(
-    path.resolve(process.cwd(), 'src/compile-claude-md.ts'),
+    path.resolve(process.cwd(), 'src/compile-instructions.ts'),
     'utf-8'
   );
 

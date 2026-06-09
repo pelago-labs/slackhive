@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -23,8 +21,8 @@
   --text-2:    #262626;
   --muted:     #737373;
   --subtle:    #a3a3a3;
-  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: var(--font-inter), 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-jb-mono), 'JetBrains Mono', ui-monospace, monospace;
   --shadow-sm:    0 1px 2px rgba(0,0,0,0.04);
   --shadow-md:    0 4px 12px rgba(0,0,0,0.06);
   --shadow-lg:    0 12px 40px rgba(0,0,0,0.08);
@@ -80,6 +78,10 @@ input, textarea, select {
   border-color: var(--border);
 }
 
+/* Form controls don't inherit font-family by default — force the platform font
+   (Inter) everywhere so inputs/buttons match the rest of the UI. */
+input, textarea, select, button, option { font-family: inherit; }
+
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
@@ -91,6 +93,10 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01';
+  text-rendering: optimizeLegibility;
 }
 
 ::selection { background: rgba(23,23,23,0.12); }
@@ -138,6 +144,17 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* ─── UI kit (components/ui.tsx) ─────────────────────────────────────────────── */
+.ui-card { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+.ui-card-hover { cursor: pointer; }
+/* !important so the hover border/shadow win over the inline base border/boxShadow
+   that cards set (inline styles otherwise beat class :hover rules). */
+.ui-card-hover:hover {
+  border-color: var(--border-2) !important;
+  box-shadow: var(--shadow-md) !important;
+  transform: translateY(-1px);
 }
 
 /* ─── Entrance ───────────────────────────────────────────────────────────────── */

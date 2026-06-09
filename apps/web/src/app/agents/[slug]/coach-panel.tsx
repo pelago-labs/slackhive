@@ -1077,7 +1077,7 @@ function ProposalCard({
   const rejected = proposal.status === 'rejected';
 
   const label = proposal.kind === 'claude-md'
-    ? 'System Prompt (CLAUDE.md)'
+    ? 'System Prompt (AGENTS.md)'
     : proposal.kind === 'memory'
       ? `Memory: ${proposal.memoryName}${proposal.memoryType ? ` (${proposal.memoryType})` : ''}`
       : proposal.kind === 'skill'
