@@ -164,6 +164,10 @@ describe('codex-config / tomlDeclaresProject (duplicate-trust-table guard)', () 
   it('detects a literal-string project table too', () => {
     expect(tomlDeclaresProject(`[projects.'${dir}']\ntrust_level = "trusted"\n`, dir)).toBe(true);
   });
+  it('tolerates TOML whitespace inside the brackets / around the dot (avoids a duplicate append)', () => {
+    expect(tomlDeclaresProject(`[ projects . "${dir}" ]\ntrust_level = "trusted"\n`, dir)).toBe(true);
+    expect(tomlDeclaresProject(`[projects\t."${dir}"]\n`, dir)).toBe(true);
+  });
   it('is false when the dir is absent or only a different (prefix-overlapping) dir is present', () => {
     expect(tomlDeclaresProject('', dir)).toBe(false);
     expect(tomlDeclaresProject(`[projects."${dir}-other"]\ntrust_level = "trusted"\n`, dir)).toBe(false);

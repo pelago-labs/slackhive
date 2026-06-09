@@ -211,15 +211,6 @@ export class CodexBackend implements AgentBackend {
   }
 
   /**
-   * Materialize a project-scoped `.codex/config.toml` in the session dir that
-   * registers the agent's session-scoped MCP servers (those reading SESSION_WORK_DIR,
-   * e.g. git.ts) with `cwd` + `SESSION_WORK_DIR` = this session. Codex *merges* these
-   * with the globally-configured shared servers and spawns one per session, so
-   * per-thread state (git clones → `<sessionDir>/repos`) is isolated per thread,
-   * matching ClaudeBackend. Secrets ride via `env_vars` (forwarded from codex-exec's
-   * env — see ensureCodex), never written into this on-disk file.
-   */
-  /**
    * Environment for codex-exec: the runner's process.env plus ONLY the secrets the
    * session-scoped MCP servers (e.g. git) need, keyed by the var name those servers
    * actually read (the envRefs *subKey*) so the per-session `env_vars` forward finds
@@ -237,6 +228,15 @@ export class CodexBackend implements AgentBackend {
     return { ...env, ...sessionScopedSecrets(this.mcpServers, this.envVarValues) };
   }
 
+  /**
+   * Materialize a project-scoped `.codex/config.toml` in the session dir that
+   * registers the agent's session-scoped MCP servers (those reading SESSION_WORK_DIR,
+   * e.g. git.ts) with `cwd` + `SESSION_WORK_DIR` = this session. Codex *merges* these
+   * with the globally-configured shared servers and spawns one per session, so
+   * per-thread state (git clones → `<sessionDir>/repos`) is isolated per thread,
+   * matching ClaudeBackend. Secrets ride via `env_vars` (forwarded from codex-exec's
+   * env — see ensureCodex), never written into this on-disk file.
+   */
   private writeSessionMcpConfig(sessionDir: string): void {
     const scoped = this.mcpServers.filter(isSessionScopedServer);
     if (scoped.length === 0) return;

@@ -205,17 +205,19 @@ export function isSessionScopedServer(s: McpServer): boolean {
  */
 export function tomlDeclaresProject(toml: string, dir: string): boolean {
   // [projects.<key>] on its own line, <key> a basic ("...") or literal ('...') string.
-  const re = /^[ \t]*\[projects\.("(?:[^"\\]|\\.)*"|'[^']*')\][ \t]*$/gm;
+  // TOML allows whitespace inside the brackets and around the dotted-key dot, so we
+  // tolerate it — a false negative here would risk appending a duplicate table.
+  const re = /^[ \t]*\[[ \t]*projects[ \t]*\.[ \t]*("(?:[^"\\]|\\.)*"|'[^']*')[ \t]*\][ \t]*$/gm;
+  const canonical = JSON.stringify(dir); // how this module emits the header's key
   let m: RegExpExecArray | null;
   while ((m = re.exec(toml)) !== null) {
     const tok = m[1];
-    let key: string;
-    if (tok[0] === "'") key = tok.slice(1, -1); // literal string — content is verbatim
-    else {
-      // basic string — TOML basic escapes are a subset of JSON's, so JSON.parse unescapes it.
-      try { key = JSON.parse(tok) as string; } catch { continue; }
-    }
-    if (key === dir) return true;
+    if (tok === canonical) return true; // exact form we'd write — also the fail-safe below
+    if (tok[0] === "'") { if (tok.slice(1, -1) === dir) return true; continue; } // literal — verbatim
+    // basic string — TOML basic escapes are a subset of JSON's, so JSON.parse unescapes it.
+    // If it can't parse (e.g. TOML's \UXXXXXXXX, which JSON rejects), the exact-form
+    // check above already covered our own entries; skip foreign ones we can't decode.
+    try { if ((JSON.parse(tok) as string) === dir) return true; } catch { /* undecodable foreign key */ }
   }
   return false;
 }
