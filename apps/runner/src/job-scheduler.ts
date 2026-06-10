@@ -3,9 +3,12 @@
  *
  * On each cron trigger:
  * 1. Finds the boss agent from the runningAgents map
- * 2. Sends the job's prompt to the boss via backend.streamQuery()
- * 3. Posts the result to the target Slack channel or DM
- * 4. Records the run in the job_runs table
+ * 2. Pre-posts a thread anchor in the target channel/DM and injects a
+ *    [Sender: ...] header (channel + thread) into the prompt, so skills can
+ *    reply or upload attachments into the job's own thread
+ * 3. Sends the headed prompt to the boss via backend.streamQuery()
+ * 4. Posts the result as replies under the thread anchor
+ * 5. Records the run in the job_runs table
  *
  * @module runner/job-scheduler
  */
@@ -144,6 +147,36 @@ export class JobScheduler {
       // Fresh session key per run (no resume)
       const sessionKey = `job-${job.id}-${Date.now()}`;
 
+      // Resolve the post target up front. Unlike the legacy flow (which resolved
+      // the channel only after the run), we need the channel — and a thread
+      // anchor — to exist BEFORE the agent runs, so skills that upload files or
+      // reply in-thread have a real channel/thread to target. The interactive
+      // message path injects the same context via its [Sender: ...] header.
+      const targetChannelId = job.targetType === 'dm'
+        ? await agent.adapter.openDm(job.targetId)
+        : job.targetId;
+
+      // Pre-post a lightweight thread anchor so a thread_ts exists during the
+      // run. Best-effort: on failure we fall back to the legacy behavior where
+      // the first output payload becomes the thread parent.
+      let anchorTs: string | undefined;
+      try {
+        anchorTs = await agent.adapter.postMessage(targetChannelId, `*${job.name}*`);
+      } catch (err) {
+        logger.warn('Job anchor post failed; falling back to inline thread parent', {
+          jobId: job.id, error: (err as Error).message,
+        });
+        anchorTs = undefined;
+      }
+
+      // Inject a [Sender: ...] header mirroring the interactive message path so
+      // skills can read the channel/thread (e.g. to upload attachments into the
+      // job's own thread). Inert for prompt-only jobs that ignore it.
+      const senderHeader = `[Sender: Scheduled Job: ${job.name} (job:${job.id}) · channel ${targetChannelId}`
+        + (anchorTs ? ` · thread ${anchorTs}` : '')
+        + `]\n\n`;
+      const headedPrompt = senderHeader + job.prompt;
+
       // Stream the query and post the turn's final deliverable. The backend's
       // `result` is the canonical final answer (on Codex it's the joined
       // `agent_message` text — reasoning narration is already dropped upstream).
@@ -151,7 +184,7 @@ export class JobScheduler {
       // a discrete result.
       let resultText = '';
       let lastMessage = '';
-      for await (const msg of agent.backend.streamQuery(job.prompt, sessionKey)) {
+      for await (const msg of agent.backend.streamQuery(headedPrompt, sessionKey)) {
         const m = msg as { type?: string; subtype?: string; result?: string; message?: { content?: { type: string; text?: string }[] } };
         if (m.type === 'assistant') {
           const text = (m.message?.content ?? [])
@@ -172,16 +205,10 @@ export class JobScheduler {
         output = '_Job completed with no output._';
       }
 
-      // Post to target via platform adapter (with rich formatting)
-      const targetChannelId = job.targetType === 'dm'
-        ? await agent.adapter.openDm(job.targetId)
-        : job.targetId;
-
-      // Post all payloads under a single thread: the first message becomes the
-      // thread parent, the rest are posted as replies so the job output stays
-      // grouped instead of scattering loose messages across the channel.
+      // Post all payloads under the thread anchor (if the anchor post failed,
+      // the first payload becomes the thread parent — legacy behavior).
       const payloads = agent.adapter.buildPayloads(output);
-      let threadId: string | undefined;
+      let threadId: string | undefined = anchorTs;
       for (const payload of payloads) {
         const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
         if (!threadId) threadId = ts;

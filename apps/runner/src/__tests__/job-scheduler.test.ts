@@ -19,6 +19,7 @@ function makeAgent(resultText: string) {
   const backend = { backend: 'codex', streamQuery: vi.fn(() => stream()) };
   const adapter = {
     openDm: vi.fn(async (id: string) => `dm-${id}`),
+    postMessage: vi.fn(async () => 'anchor-ts'),
     buildPayloads: vi.fn((text: string) => [{ text }]),
     postPayload: vi.fn(async () => 'posted'),
   };
@@ -34,16 +35,25 @@ const job = {
 beforeEach(() => { insertJobRun.mockClear(); updateJobRun.mockClear(); });
 
 describe('JobScheduler.executeJob (backend-agnostic)', () => {
-  it('streams the prompt through the running agent backend and posts the result', async () => {
+  it('pre-posts a thread anchor, injects a channel/thread header, and threads the result', async () => {
     const { agent, backend, adapter } = makeAgent('Here is your digest.');
     const scheduler = new JobScheduler(() => agent as never);
 
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
 
+    // Anchor posted first (no thread parent) in the target channel.
+    expect(adapter.postMessage).toHaveBeenCalledWith('C123', '*Daily digest*');
+
+    // The prompt is prefixed with a [Sender: ...] header carrying channel + the
+    // anchor ts as thread, then the original prompt body.
     expect(backend.streamQuery).toHaveBeenCalledTimes(1);
-    expect(backend.streamQuery.mock.calls[0][0]).toBe('Summarize today');
-    // 3rd arg is the thread parent ts — undefined for the first (parent) post.
-    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' }, undefined);
+    const sentPrompt = backend.streamQuery.mock.calls[0][0] as string;
+    expect(sentPrompt).toContain('channel C123');
+    expect(sentPrompt).toContain('thread anchor-ts');
+    expect(sentPrompt.endsWith('Summarize today')).toBe(true);
+
+    // Output posts as a reply under the anchor.
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' }, 'anchor-ts');
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'Here is your digest.');
   });
 
@@ -55,7 +65,24 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(dmJob);
 
     expect(adapter.openDm).toHaveBeenCalledWith('U9');
-    expect(adapter.postPayload).toHaveBeenCalledWith('dm-U9', { text: 'dm result' }, undefined);
+    expect(adapter.postMessage).toHaveBeenCalledWith('dm-U9', '*Daily digest*');
+    expect(adapter.postPayload).toHaveBeenCalledWith('dm-U9', { text: 'dm result' }, 'anchor-ts');
+  });
+
+  it('falls back to inline thread parent when the anchor post fails', async () => {
+    const { agent, backend, adapter } = makeAgent('Here is your digest.');
+    adapter.postMessage.mockRejectedValueOnce(new Error('missing_scope'));
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+
+    // No thread ts available → header omits the thread clause...
+    const sentPrompt = backend.streamQuery.mock.calls[0][0] as string;
+    expect(sentPrompt).toContain('channel C123');
+    expect(sentPrompt).not.toContain('thread ');
+    // ...and the first payload posts as the parent (undefined thread arg).
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' }, undefined);
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'Here is your digest.');
   });
 
   it('skips silently when the target agent is not running', async () => {
