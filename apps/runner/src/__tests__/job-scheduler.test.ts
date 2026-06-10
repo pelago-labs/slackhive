@@ -44,6 +44,11 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     // Anchor posted first (no thread parent) in the target channel.
     expect(adapter.postMessage).toHaveBeenCalledWith('C123', '*Daily digest*');
 
+    // The anchor must exist BEFORE the run so the agent can upload into the
+    // thread mid-run — assert the anchor post precedes streamQuery.
+    expect(adapter.postMessage.mock.invocationCallOrder[0])
+      .toBeLessThan(backend.streamQuery.mock.invocationCallOrder[0]);
+
     // The prompt is prefixed with a [Sender: ...] header carrying channel + the
     // anchor ts as thread, then the original prompt body.
     expect(backend.streamQuery).toHaveBeenCalledTimes(1);
@@ -83,6 +88,41 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     // ...and the first payload posts as the parent (undefined thread arg).
     expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' }, undefined);
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'Here is your digest.');
+  });
+
+  it('posts the no-output fallback under the anchor when the run yields nothing', async () => {
+    const { agent, backend, adapter } = makeAgent('unused');
+    // Stream that emits neither assistant text nor a result → empty output.
+    backend.streamQuery.mockImplementationOnce(() => {
+      async function* silent() { yield { type: 'result', subtype: 'success', result: '' }; }
+      return silent();
+    });
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: '_Job completed with no output._' }, 'anchor-ts');
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', '_Job completed with no output._');
+  });
+
+  it('threads a failure note under the anchor when the run throws', async () => {
+    const { agent, backend, adapter } = makeAgent('unused');
+    backend.streamQuery.mockImplementationOnce(() => {
+      async function* boom(): AsyncGenerator<never> { throw new Error('backend exploded'); }
+      return boom();
+    });
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+
+    // Anchor was posted, run threw → a neutral note is threaded under the anchor
+    // (raw error stays in the run record, not the channel).
+    expect(adapter.postPayload).toHaveBeenCalledWith(
+      'C123',
+      { text: '_This scheduled job did not complete. The team has been notified._' },
+      'anchor-ts',
+    );
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'error', null, 'backend exploded');
   });
 
   it('skips silently when the target agent is not running', async () => {

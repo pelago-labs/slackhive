@@ -142,6 +142,11 @@ export class JobScheduler {
     const runId = await insertJobRun(job.id);
     logger.info('Job run started', { jobId: job.id, runId, name: job.name });
 
+    // Hoisted so the catch block can thread a failure note under the anchor
+    // (rather than leaving the pre-posted anchor orphaned with no content).
+    let targetChannelId: string | undefined;
+    let anchorTs: string | undefined;
+
     try {
 
       // Fresh session key per run (no resume)
@@ -152,14 +157,13 @@ export class JobScheduler {
       // anchor — to exist BEFORE the agent runs, so skills that upload files or
       // reply in-thread have a real channel/thread to target. The interactive
       // message path injects the same context via its [Sender: ...] header.
-      const targetChannelId = job.targetType === 'dm'
+      targetChannelId = job.targetType === 'dm'
         ? await agent.adapter.openDm(job.targetId)
         : job.targetId;
 
       // Pre-post a lightweight thread anchor so a thread_ts exists during the
       // run. Best-effort: on failure we fall back to the legacy behavior where
       // the first output payload becomes the thread parent.
-      let anchorTs: string | undefined;
       try {
         anchorTs = await agent.adapter.postMessage(targetChannelId, `*${job.name}*`);
       } catch (err) {
@@ -220,6 +224,24 @@ export class JobScheduler {
       const errMsg = (err as Error).message;
       await updateJobRun(runId, 'error', null, errMsg);
       logger.error('Job run failed', { jobId: job.id, runId, error: errMsg });
+
+      // If we already pre-posted an anchor, thread a neutral note under it so
+      // the channel isn't left with a bare title and no content. The raw error
+      // stays in the logs/run record — not surfaced to the (often leadership)
+      // channel. Best-effort: never let a posting failure mask the real error.
+      if (targetChannelId && anchorTs) {
+        try {
+          await agent.adapter.postPayload(
+            targetChannelId,
+            { text: '_This scheduled job did not complete. The team has been notified._' },
+            anchorTs,
+          );
+        } catch (postErr) {
+          logger.warn('Failed to post job-failure note under anchor', {
+            jobId: job.id, error: (postErr as Error).message,
+          });
+        }
+      }
     } finally {
       this.running.delete(job.id);
     }
