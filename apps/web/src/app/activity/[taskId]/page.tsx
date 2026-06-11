@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { deepLinkLabelForPlatform } from '@slackhive/shared';
@@ -26,34 +27,50 @@ import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
 import { markSensitive, SENS_COLOR, CAT_LABEL, humanizeTag, type SensCategory } from '../../../lib/sensitive-highlight';
 
-// A highlighted sensitive token. Click it to reveal what kind of data it is.
+// A highlighted sensitive token: a colored-background tag. Click it to reveal what
+// kind of data it is. The popover is portaled to <body> with fixed positioning so
+// the surrounding scroll container's overflow can't clip it ("on click is cut").
 function SensitiveMark({ cat, label, children }: { cat: SensCategory; label: string; children: React.ReactNode }): React.JSX.Element {
-  const [open, setOpen] = useState(false);
+  const [box, setBox] = useState<DOMRect | null>(null);
   const color = SENS_COLOR[cat];
   const human = humanizeTag(label);
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBox(box ? null : (e.currentTarget as HTMLElement).getBoundingClientRect());
+  };
+  useEffect(() => {
+    if (!box) return;
+    const close = () => setBox(null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
+  }, [box]);
+  const above = box ? box.top > 56 : true;
   return (
-    <span style={{ position: 'relative', display: 'inline' }}>
+    <>
       <mark
-        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        onClick={toggle}
         title="Click for details"
-        style={{ background: `${color}26`, color, borderRadius: 3, padding: '0 2px', fontWeight: 600, cursor: 'pointer' }}
+        style={{ background: `${color}33`, color, borderRadius: 3, padding: '0 3px', fontWeight: 600, cursor: 'pointer', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone' }}
       >{children}</mark>
-      {open && (
+      {box && createPortal(
         <>
-          <span onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 60 }} />
-          <span style={{
-            position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, zIndex: 61, whiteSpace: 'nowrap',
+          <div onClick={(e) => { e.stopPropagation(); setBox(null); }} style={{ position: 'fixed', inset: 0, zIndex: 1000 }} />
+          <div style={{
+            position: 'fixed', left: Math.round(box.left), top: Math.round(above ? box.top - 8 : box.bottom + 8),
+            transform: above ? 'translateY(-100%)' : 'none', zIndex: 1001, whiteSpace: 'nowrap',
             background: 'var(--surface)', border: `1px solid ${color}`, borderRadius: 6,
-            boxShadow: 'var(--shadow-md, 0 4px 14px rgba(0,0,0,0.18))', padding: '4px 8px',
-            fontSize: 11, fontFamily: 'var(--font-sans)', display: 'inline-flex', alignItems: 'center', gap: 5,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.2)', padding: '5px 9px',
+            fontSize: 11, fontFamily: 'var(--font-sans)', display: 'inline-flex', alignItems: 'center', gap: 6,
           }}>
-            <ShieldAlert size={11} style={{ color }} />
-            <span style={{ color, fontWeight: 600 }}>{human.label}</span>
+            <ShieldAlert size={12} style={{ color, flexShrink: 0 }} />
+            <span style={{ color, fontWeight: 700 }}>{human.label}</span>
             <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>{CAT_LABEL[cat] ?? cat}</span>
-          </span>
-        </>
+          </div>
+        </>,
+        document.body,
       )}
-    </span>
+    </>
   );
 }
 
