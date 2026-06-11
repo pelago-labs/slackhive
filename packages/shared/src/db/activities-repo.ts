@@ -354,6 +354,20 @@ export async function listTasks(
     cteParams.push(...filter.accessibleAgentIds);
   }
 
+  // Time window filters the ACTIVITIES (by started_at), not the task's
+  // last_activity_at — so a task is listed when it has a turn in the window,
+  // matching how the usage/stats aggregates scope the same range. (Otherwise a
+  // custom range's upper bound could hide a task from the list while its in-range
+  // turn still shows in the totals.)
+  if (filter.since) {
+    cteWheres.push(`started_at >= $${cteParams.length + 1}`);
+    cteParams.push(filter.since);
+  }
+  if (filter.until) {
+    cteWheres.push(`started_at <= $${cteParams.length + 1}`);
+    cteParams.push(filter.until);
+  }
+
   const cteWhereSql = cteWheres.length ? `WHERE ${cteWheres.join(' AND ')}` : '';
 
   // Task-level filters
@@ -362,14 +376,7 @@ export async function listTasks(
     taskParams.push(filter.userId);
   }
 
-  if (filter.since) {
-    taskWheres.push(`t.last_activity_at >= $${cteParams.length + taskParams.length + 1}`);
-    taskParams.push(filter.since);
-  }
-  if (filter.until) {
-    taskWheres.push(`t.last_activity_at <= $${cteParams.length + taskParams.length + 1}`);
-    taskParams.push(filter.until);
-  }
+  // (since/until are applied in the CTE above, on activity started_at.)
 
   // Column filter against pre-aggregated CTE columns
   if (column === 'active') {

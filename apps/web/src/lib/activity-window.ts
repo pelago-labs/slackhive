@@ -56,11 +56,12 @@ export function windowBounds(
 ): { since?: string; until?: string } {
   // An explicit from/to range takes precedence over any preset window — the
   // client may send the dates without a `window=custom` param.
-  let since = toBound(from, false);
-  let until = toBound(to, true);
-  // Tolerate a reversed range (e.g. a hand-crafted URL) by swapping the bounds
-  // so it never silently returns zero rows.
-  if (since && until && since > until) { const t = since; since = until; until = t; }
+  // Tolerate a reversed range (e.g. a hand-crafted URL) by swapping the RAW inputs
+  // before deriving bounds, so the start keeps 00:00:00 and the end 23:59:59 (a
+  // post-toBound swap would instead lop ~a day off each end).
+  if (from && to && from > to) { const t = from; from = to; to = t; }
+  const since = toBound(from, false);
+  const until = toBound(to, true);
   if (since || until) return { since, until };
   return { since: windowFloor(window) };
 }

@@ -448,12 +448,14 @@ function TurnCard({ turn, index }: { turn: TraceTurn; index: number }): React.JS
 type NodeKind = 'generation' | 'tool' | 'event' | 'final' | 'error';
 // Minimal palette: neutral grays everywhere; color reserved for the two signals
 // that matter — errors (red) and the final answer (green).
-const KIND: Record<NodeKind, { tag: string; tagColor: string; bar: string }> = {
-  generation: { tag: 'LLM',    tagColor: 'var(--muted)', bar: 'var(--text-2)' },
-  tool:       { tag: 'TOOL',   tagColor: 'var(--muted)', bar: 'var(--muted)' },
-  event:      { tag: 'EVENT',  tagColor: 'var(--muted)', bar: 'var(--muted)' },
-  final:      { tag: 'ANSWER', tagColor: 'var(--green)', bar: 'var(--text-2)' },
-  error:      { tag: 'ERROR',  tagColor: 'var(--red)',   bar: 'var(--red)' },
+// Per-kind tag label only; the tag/bar COLORS are derived inline in NodeRow from
+// node.kind / error state (see tagColor/barColor there).
+const KIND: Record<NodeKind, { tag: string }> = {
+  generation: { tag: 'LLM' },
+  tool:       { tag: 'TOOL' },
+  event:      { tag: 'EVENT' },
+  final:      { tag: 'ANSWER' },
+  error:      { tag: 'ERROR' },
 };
 
 interface NodeSection { label: string; body: string; markdown?: boolean }

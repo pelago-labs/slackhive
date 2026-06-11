@@ -11,7 +11,7 @@
 import React, { useState } from 'react';
 import { Filter as FilterIcon, Calendar as CalendarIcon } from 'lucide-react';
 
-export type WindowKey = '1h' | '5h' | '24h' | '7d' | '30d' | 'custom';
+export type WindowKey = '1h' | '5h' | '24h' | '7d' | '30d' | '90d' | 'custom';
 
 interface AgentOption {
   id: string;
@@ -24,18 +24,31 @@ export const WINDOWS: { key: WindowKey; label: string }[] = [
   { key: '24h',    label: 'Last 24 hours' },
   { key: '7d',     label: 'Last 7 days' },
   { key: '30d',    label: 'Last 30 days' },
+  { key: '90d',    label: 'Last 90 days' },
   { key: 'custom', label: 'Custom range…' },
 ];
 
 /** Parse a `WindowKey` from a URL param, accepting `custom`. */
 export function parseWindowKey(w: string | null | undefined): WindowKey {
-  return w === '1h' || w === '5h' || w === '24h' || w === '7d' || w === '30d' || w === 'custom' ? w : '24h';
+  return w === '1h' || w === '5h' || w === '24h' || w === '7d' || w === '30d' || w === '90d' || w === 'custom' ? w : '24h';
 }
 
 /** Time query params for an activity fetch — a preset `window`, or `from`/`to`
- * for a custom range. Shared by every activity page to avoid drift. */
+ * for a custom range. Shared by every activity page to avoid drift.
+ *
+ * For a custom range the picked `YYYY-MM-DD` days are resolved to absolute UTC
+ * instants HERE, in the browser, where the user's timezone is known — so the
+ * server stores them directly instead of reparsing a bare date in the host's
+ * timezone (which would shift the range when host and browser timezones differ). */
 export function timeParams(windowKey: WindowKey, from: string, to: string): Record<string, string> {
-  return windowKey === 'custom' && from && to ? { from, to } : { window: windowKey };
+  if (windowKey === 'custom' && from && to) {
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const [ty, tm, td] = to.split('-').map(Number);
+    const start = new Date(fy, fm - 1, fd, 0, 0, 0, 0);
+    const end = new Date(ty, tm - 1, td, 23, 59, 59, 999);
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+  return { window: windowKey };
 }
 
 /** Local `YYYY-MM-DD` for a `<input type="date">` value. */
