@@ -128,6 +128,19 @@ function ActivityPageBody(): React.JSX.Element {
   // checks inside `load`.
   const agentsByTaskRef = useRef(agentsByTask);
   useEffect(() => { agentsByTaskRef.current = agentsByTask; }, [agentsByTask]);
+  // Mirror how many rows each column currently shows, so the 4s poll can re-fetch
+  // the SAME expanded count (one page) instead of clobbering "Load more" back to
+  // the first page. Ref (not dep) so it doesn't rebuild `load`/restart the poll.
+  const shownCountRef = useRef<Record<Column, number>>({ active: 0, recent: 0, errored: 0 });
+  useEffect(() => {
+    shownCountRef.current = {
+      active: lists.active.tasks.length,
+      recent: lists.recent.tasks.length,
+      errored: lists.errored.tasks.length,
+    };
+  }, [lists]);
+  // Changing filter/window collapses back to the first page.
+  useEffect(() => { shownCountRef.current = { active: 0, recent: 0, errored: 0 }; }, [agentFilter, windowKey, from, to]);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -143,6 +156,10 @@ function ActivityPageBody(): React.JSX.Element {
   const fetchColumn = useCallback(async (col: Column): Promise<TaskListResult> => {
     const params = new URLSearchParams({ column: col, ...timeQs() });
     if (agentFilter) params.set('agent', agentFilter);
+    // Keep a "Load more"-expanded column expanded across polls: ask for as many
+    // rows as are shown now (capped at the route's 100), as a single page.
+    const shown = shownCountRef.current[col] ?? 0;
+    if (shown > 20) params.set('limit', String(Math.min(100, shown)));
     const r = await fetch(`/api/activity?${params.toString()}`);
     if (!r.ok) return { tasks: [], nextCursor: null };
     return r.json();
