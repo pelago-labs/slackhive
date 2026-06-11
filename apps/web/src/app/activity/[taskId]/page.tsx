@@ -24,6 +24,7 @@ import {
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
+import { markSensitive, SENS_COLOR } from '../../../lib/sensitive-highlight';
 
 /** Compact markdown styling for reasoning / answers inside trace nodes. */
 const MD: Components = {
@@ -130,7 +131,14 @@ export default function TaskTracePage(): React.JSX.Element {
   const [detail, setDetail] = useState<TraceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fbFilter, setFbFilter] = useState<'all' | 'up' | 'down'>('all');
+  // `?span=<id>` deep-link (from the Sensitive feed) — expand + scroll to that node.
+  const [highlightSpanId, setHighlightSpanId] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search).get('span');
+    if (sp) setHighlightSpanId(sp);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -212,7 +220,7 @@ export default function TaskTracePage(): React.JSX.Element {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {turns.length === 0 && <Empty>No activity recorded yet.</Empty>}
           {turns.length > 0 && visibleTurns.length === 0 && <Empty>No turns match this filter.</Empty>}
-          {visibleTurns.map(({ t, i }) => <TurnCard key={t.activityId} turn={t} index={i} />)}
+          {visibleTurns.map(({ t, i }) => <TurnCard key={t.activityId} turn={t} index={i} isLast={i === turns.length - 1} highlightSpanId={highlightSpanId} />)}
         </div>
       </div>
     </Shell>
@@ -370,8 +378,11 @@ function StackBars(props: { title: string; data: { label: string; input: number;
 }
 
 // ── Turn ────────────────────────────────────────────────────────────────────
-function TurnCard({ turn, index }: { turn: TraceTurn; index: number }): React.JSX.Element {
-  const [open, setOpen] = useState(turn.status === 'in_progress' || turn.status === 'error' || index === 0);
+function TurnCard({ turn, index, isLast, highlightSpanId }: { turn: TraceTurn; index: number; isLast?: boolean; highlightSpanId?: string | null }): React.JSX.Element {
+  const nodes = buildNodes(turn);
+  const containsHighlight = !!highlightSpanId && nodes.some(n => n.key === highlightSpanId);
+  // Only the most recent turn is expanded by default; a deep-linked turn also opens.
+  const [open, setOpen] = useState(!!isLast || containsHighlight);
   const label = turn.agentName ?? turn.agentId.slice(0, 8);
   const color = agentColor(turn.agentId);
   const statusColor = STATUS_COLOR[turn.status] ?? 'var(--muted)';
@@ -379,7 +390,6 @@ function TurnCard({ turn, index }: { turn: TraceTurn; index: number }): React.JS
   const toolCount = turn.spans.filter(s => s.kind === 'tool').length;
   const toolErrors = turn.spans.filter(s => s.kind === 'tool' && s.status === 'error').length;
   const sentiment = turn.feedback.length ? (turn.feedback.some(f => f.sentiment === 'down') ? 'down' : 'up') : null;
-  const nodes = buildNodes(turn);
   // Longest step drives the comparative duration-bar scale (left-aligned, not
   // absolute-positioned — clearer than a waterfall when tool spans are ~0ms).
   const maxStepMs = Math.max(1, ...nodes.map(n => n.durationMs ?? 0));
@@ -426,7 +436,7 @@ function TurnCard({ turn, index }: { turn: TraceTurn; index: number }): React.JS
           )}
           {/* Observation list: type tag · name · proportional duration bar · duration. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {nodes.map(node => <NodeRow key={node.key} node={node} maxMs={maxStepMs} />)}
+            {nodes.map(node => <NodeRow key={node.key} node={node} maxMs={maxStepMs} highlight={!!highlightSpanId && node.key === highlightSpanId} />)}
           </div>
 
           {turn.feedback.map((f, i) => (
@@ -531,9 +541,18 @@ const META = { fontSize: 11, color: 'var(--subtle)', flexShrink: 0, fontFamily: 
 /** One observation row: chevron · type tag · name · model/tokens · a comparative
  * duration bar (length ∝ how long this step took vs the slowest in the turn) ·
  * duration. Click to expand its content. */
-function NodeRow({ node, maxMs }: { node: NodeData; maxMs: number }): React.JSX.Element {
+function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; highlight?: boolean }): React.JSX.Element {
   const has = node.sections.length > 0;
-  const [open, setOpen] = useState(!!node.defaultOpen);
+  // Deep-linked node (from the Sensitive feed) opens automatically and flashes.
+  const [open, setOpen] = useState(!!node.defaultOpen || !!highlight);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [flash, setFlash] = useState(!!highlight);
+  useEffect(() => {
+    if (!highlight) return;
+    rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const t = setTimeout(() => setFlash(false), 2600);
+    return () => clearTimeout(t);
+  }, [highlight]);
   const k = KIND[node.kind];
   const isErr = node.kind === 'error' || node.error;
   const tagColor = isErr ? 'var(--red)' : node.kind === 'final' ? 'var(--green)' : 'var(--muted)';
@@ -546,7 +565,7 @@ function NodeRow({ node, maxMs }: { node: NodeData; maxMs: number }): React.JSX.
   const durText = !hasDur ? '' : (node.durationMs && node.durationMs > 0 ? formatMs(node.durationMs) : '<1ms');
 
   return (
-    <div>
+    <div id={`span-${node.key}`} ref={rowRef} style={{ borderRadius: 8, scrollMarginTop: 80, transition: 'box-shadow 0.4s, background 0.4s', ...(flash ? { boxShadow: '0 0 0 2px var(--accent)', background: 'var(--surface-2)' } : {}) }}>
       <div className="trace-node" onClick={() => has && setOpen(o => !o)}
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 8px', borderRadius: 6, minHeight: 30, cursor: has ? 'pointer' : 'default' }}>
         {has
@@ -570,7 +589,7 @@ function NodeRow({ node, maxMs }: { node: NodeData; maxMs: number }): React.JSX.
       </div>
       {open && has && (
         <div style={{ paddingLeft: 24, paddingRight: 4, paddingBottom: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} />)}
+          {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} />)}
         </div>
       )}
     </div>
@@ -579,7 +598,7 @@ function NodeRow({ node, maxMs }: { node: NodeData; maxMs: number }): React.JSX.
 
 /** Section body: markdown for prose (thinking / answers / responses), pretty
  * code for tool args/results. Filled (not bordered) for a calmer look. */
-function Content({ label, body, markdown, accent }: { label: string; body: string; markdown?: boolean; accent?: string }): React.JSX.Element {
+function Content({ label, body, markdown, accent, sensitive }: { label: string; body: string; markdown?: boolean; accent?: string; sensitive?: boolean }): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   let text = body;
   if (!markdown) {
@@ -607,7 +626,13 @@ function Content({ label, body, markdown, accent }: { label: string; body: strin
           <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
         </div>
       ) : (
-        <pre style={{ ...shell, margin: 0, fontSize: 11, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</pre>
+        <pre style={{ ...shell, margin: 0, fontSize: 11, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+          {sensitive
+            ? markSensitive(text).map((seg, i) => seg.cat
+                ? <mark key={i} title={`flagged: ${seg.label}`} style={{ background: `${SENS_COLOR[seg.cat]}26`, color: SENS_COLOR[seg.cat], borderRadius: 3, padding: '0 2px', fontWeight: 600 }}>{seg.text}</mark>
+                : <React.Fragment key={i}>{seg.text}</React.Fragment>)
+            : text}
+        </pre>
       )}
     </div>
   );

@@ -29,6 +29,47 @@ const CAT_META: Record<string, { label: string; icon: React.ReactNode; color: st
   secret: { label: 'Secret', icon: <KeyRound size={11} />,    color: '#b45309' },
 };
 
+// Human-readable labels for the privacy-safe `category:detail` reason tags the
+// sensitivity monitor records (e.g. `tool:database`, `pii:email`, `secret:aws_key`).
+// These say WHAT matched without ever exposing the matched value.
+const DETAIL_LABELS: Record<string, string> = {
+  'tool:database':      'Database access',
+  'tool:credentials':   'Credential / key file',
+  'tool:tool':          'Sensitive tool',
+  'pii:email':          'Email address',
+  'pii:phone':          'Phone number',
+  'pii:card':           'Card number',
+  'secret:openai_key':  'OpenAI key',
+  'secret:aws_key':     'AWS key',
+  'secret:github_token':'GitHub token',
+  'secret:slack_token': 'Slack token',
+  'secret:private_key': 'Private key',
+  'secret:bearer':      'Bearer token',
+  'secret:password':    'Password / secret',
+};
+const DATA_ACRONYMS = new Set(['ssn', 'dob', 'cvv', 'iban', 'tax_id']);
+
+/** Turn a `category:detail` tag into a category (for color/icon) + readable label. */
+function humanizeTag(tag: string): { category: string; label: string } {
+  const [category, ...rest] = tag.split(':');
+  const detail = rest.join(':');
+  if (DETAIL_LABELS[tag]) return { category, label: DETAIL_LABELS[tag] };
+  if (category === 'data' && detail) {
+    const label = DATA_ACRONYMS.has(detail)
+      ? detail.toUpperCase().replace('_', ' ')
+      : detail.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+    return { category, label };
+  }
+  return { category, label: detail || category };
+}
+
+/** Parse the reason string into specific chips; fall back to the broad categories. */
+function detailChips(reason: string | null, categories: string[]): { category: string; label: string }[] {
+  const tags = (reason ?? '').split(',').map(t => t.trim()).filter(Boolean);
+  if (tags.length) return tags.map(humanizeTag);
+  return categories.map(c => ({ category: c, label: CAT_META[c]?.label ?? c }));
+}
+
 function relativeTime(ms: number): string {
   const s = Math.floor(Math.max(0, Date.now() - ms) / 1000);
   if (s < 60) return `${s}s ago`;
@@ -104,26 +145,29 @@ function Body(): React.JSX.Element {
         )}
         {events.map((e, i) => {
           const agent = (e.agentId && agentById.get(e.agentId)) || null;
+          const chips = detailChips(e.reason, e.categories);
+          // Deep-link to the exact offending tool call so the full (flag-gated)
+          // args/result are one click away — that's where you see the actual value.
+          const href = `/activity/${encodeURIComponent(e.sessionId)}?span=${encodeURIComponent(e.spanId)}`;
           return (
-            <Link key={e.spanId} href={`/activity/${encodeURIComponent(e.sessionId)}`}
+            <Link key={e.spanId} href={href}
               className="trace-node"
               style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', textDecoration: 'none', borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
               <ShieldAlert size={16} style={{ color: '#b45309', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <code style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{e.toolName ?? 'tool'}</code>
-                  {e.categories.map(c => {
-                    const m = CAT_META[c] ?? { label: c, icon: null, color: 'var(--muted)' };
+                  {chips.map((c, ci) => {
+                    const m = CAT_META[c.category] ?? { label: c.label, icon: null, color: 'var(--muted)' };
                     return (
-                      <span key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: `${m.color}1a`, color: m.color }}>
-                        {m.icon}{m.label}
+                      <span key={ci} title={`${c.category} match`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: `${m.color}1a`, color: m.color }}>
+                        {m.icon}{c.label}
                       </span>
                     );
                   })}
                 </div>
                 <div style={{ marginTop: 3, fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {agent?.name ?? (e.agentName ?? 'agent')}
-                  {e.reason ? <span style={{ color: 'var(--subtle)', fontFamily: 'var(--font-mono, monospace)' }}> · {e.reason}</span> : null}
                   {e.sessionSummary ? <span style={{ color: 'var(--subtle)' }}> · {e.sessionSummary}</span> : null}
                 </div>
               </div>
