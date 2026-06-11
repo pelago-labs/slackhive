@@ -113,7 +113,6 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               </div>
             </div>
           )}
-          {!collapsed && <span style={{ marginLeft: 'auto', flexShrink: 0 }}><WhatsNew /></span>}
         </div>
 
         {/* ── Nav ─────────────────────────────────────────────────────────── */}
@@ -217,11 +216,13 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
 
           {!collapsed && (
-            <div style={{
-              fontSize: 11, fontWeight: 600, letterSpacing: '0.06em',
-              color: 'var(--subtle)', textTransform: 'uppercase',
-              padding: '2px 10px 6px',
-            }}>Workspace</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px 4px 10px' }}>
+              <span style={{
+                fontSize: 11, fontWeight: 600, letterSpacing: '0.06em',
+                color: 'var(--subtle)', textTransform: 'uppercase',
+              }}>Workspace</span>
+              <WhatsNew />
+            </div>
           )}
 
           <NavItem href="/knowledge" active={pathname.startsWith('/knowledge')} collapsed={collapsed} icon={<BookOpen size={16} strokeWidth={1.75} />}>Knowledge</NavItem>
