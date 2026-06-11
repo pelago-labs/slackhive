@@ -21,7 +21,7 @@ import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment, MessagePayload,
   SlackCredentials,
 } from '@slackhive/shared';
-import { recordMessageFeedback } from '@slackhive/shared';
+import { recordMessageFeedback, linkActivityReply, findActivityIdByReply } from '@slackhive/shared';
 import { agentLogger } from '../logger';
 import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
@@ -216,7 +216,10 @@ export class SlackAdapter implements PlatformAdapter {
       if (!userId || !ts) { this.log.warn('Feedback click missing user/ts', { userId, ts }); return; }
       // The clicked button's value, set in feedbackButtonsBlock ('up' | 'down').
       const sentiment: 'up' | 'down' = a.value === 'down' ? 'down' : 'up';
-      const activityId = this.feedbackTargets.get(`${channel}:${ts}`)?.activityId ?? null;
+      // Prefer the in-memory map; fall back to the durable reply→activity link so a
+      // click still resolves the turn after a restart cleared the map.
+      const activityId = this.feedbackTargets.get(`${channel}:${ts}`)?.activityId
+        ?? await findActivityIdByReply(ts).catch(() => null);
       const threadTs: string | undefined = b.message?.thread_ts;
       // On 👎, open the note modal FIRST — trigger_id is valid only briefly. The
       // note path re-upserts the row, so it needs only ts/channel/activity; the
@@ -418,12 +421,15 @@ export class SlackAdapter implements PlatformAdapter {
     return blocks.length + 1 > 50 ? null : blocks; // +1 for the feedback control
   }
 
-  /** Remember which message carries the buttons so a click maps to the activity. */
+  /** Remember which message carries the buttons so a click maps to the activity.
+   *  Also persists the link on the activity so a click still resolves after a
+   *  runner restart wipes this in-memory map. */
   private rememberFeedbackTarget(channelId: string, ts: string, activityId: string | null): void {
     if (this.feedbackTargets.size > 2000) {
       this.feedbackTargets.delete(this.feedbackTargets.keys().next().value as string);
     }
     this.feedbackTargets.set(`${channelId}:${ts}`, { activityId });
+    if (activityId) linkActivityReply(activityId, ts).catch(() => { /* best-effort */ });
   }
 
   /**

@@ -47,6 +47,7 @@ export {
   sweepStaleActivities,
   recordActivityUsage, getTokensByAgent, getTopUsers,
   recordMessageFeedback, getFeedbackReport,
+  linkActivityReply, findActivityIdByReply,
 } from './db/activities-repo';
 export type {
   BeginActivityInput, BeginToolCallInput, TaskListColumn, TaskListResult,

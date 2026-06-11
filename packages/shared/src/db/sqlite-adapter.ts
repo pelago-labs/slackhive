@@ -431,6 +431,7 @@ CREATE TABLE IF NOT EXISTS activities (
   initiator_handle       TEXT,
   message_ref            TEXT,
   message_preview        TEXT,
+  reply_ts               TEXT,
   started_at             TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at            TEXT,
   status                 TEXT NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress','done','error')),
@@ -894,6 +895,13 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   }
   if (!activityCols.includes('initiator_handle')) {
     db.exec('ALTER TABLE activities ADD COLUMN initiator_handle TEXT');
+  }
+  // Durable link from a posted reply (Slack message ts) to its activity, so
+  // feedback clicks resolve the turn even after a runner restart clears the
+  // in-memory feedback-target map.
+  if (!activityCols.includes('reply_ts')) {
+    db.exec('ALTER TABLE activities ADD COLUMN reply_ts TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_activities_reply_ts ON activities(reply_ts)');
   }
 
   // spans.sensitive* — added after the spans table shipped (sensitive-access monitor).

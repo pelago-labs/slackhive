@@ -744,6 +744,21 @@ export interface AgentFeedbackReport {
  * with the note, which is merged onto the existing row. Best-effort — never
  * break the Slack interaction path.
  */
+/** Record which posted reply (Slack message ts) belongs to an activity, so a later
+ *  feedback click can resolve the turn durably (survives a runner restart). */
+export async function linkActivityReply(activityId: string, replyTs: string): Promise<void> {
+  await getDb().query(`UPDATE activities SET reply_ts = $1 WHERE id = $2`, [replyTs, activityId]);
+}
+
+/** Resolve the activity a reply belongs to, by the reply's Slack message ts. */
+export async function findActivityIdByReply(replyTs: string): Promise<string | null> {
+  const { rows } = await getDb().query(
+    `SELECT id FROM activities WHERE reply_ts = $1 ORDER BY started_at DESC LIMIT 1`,
+    [replyTs],
+  );
+  return rows.length ? (rows[0].id as string) : null;
+}
+
 export async function recordMessageFeedback(input: MessageFeedbackInput): Promise<void> {
   const db = getDb();
   const id = randomUUID();
