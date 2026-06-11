@@ -14,6 +14,7 @@ import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 import { LayoutDashboard, Activity as ActivityIcon, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut } from 'lucide-react';
+import { WhatsNew } from './_components/WhatsNew';
 
 const STATUS_DOT: Record<string, string> = {
   running: '#059669', stopped: '#d4d4d4', error: '#dc2626', stale: '#f59e0b',
@@ -233,6 +234,8 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
           {role === 'superadmin' && (
             <NavItem href="/settings" active={pathname === '/settings'} collapsed={collapsed} icon={<SettingsIcon size={16} strokeWidth={1.75} />}>Settings</NavItem>
           )}
+
+          <WhatsNew collapsed={collapsed} />
 
         </div>
         </div>

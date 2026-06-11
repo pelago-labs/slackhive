@@ -1,0 +1,20 @@
+[
+  {
+    "id": "llm-activity-tracing",
+    "date": "2026-06-11",
+    "title": "LLM Activity Tracing",
+    "summary": "A Langfuse-style trace for every Slack thread — reasoning, tool calls, and the final answer in time order, with per-step tokens, cost, latency, and model."
+  },
+  {
+    "id": "sensitive-data-monitoring",
+    "date": "2026-06-11",
+    "title": "Sensitive Data Monitoring",
+    "summary": "Automatic flagging of PII, secrets, and credential access in agent tool calls and replies, with an audit feed, in-trace highlighting, and click-to-explain."
+  },
+  {
+    "id": "date-range-and-retention",
+    "date": "2026-06-11",
+    "title": "Custom Date Ranges & 6-Month Retention",
+    "summary": "Filter Activity, Usage, Tools, and Sensitive views by a custom date range. Trace data is automatically pruned to a rolling 6 months and idle session clones after 7 days."
+  }
+]
