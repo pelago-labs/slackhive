@@ -156,7 +156,7 @@ function Body(): React.JSX.Element {
               <ShieldAlert size={16} style={{ color: '#b45309', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <code style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{e.toolName ?? 'tool'}</code>
+                  <code style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{e.toolName ?? 'response'}</code>
                   {chips.map((c, ci) => {
                     const m = CAT_META[c.category] ?? { label: c.label, icon: null, color: 'var(--muted)' };
                     return (

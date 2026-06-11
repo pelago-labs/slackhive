@@ -130,6 +130,32 @@ export function detectSensitive(
   return { categories: [...categories], reason: [...new Set(tags)].join(', ') };
 }
 
+/**
+ * Detect sensitive DATA in free text — the model's own output / final answer,
+ * which `detectSensitive` (tool-call oriented) never sees. Scans for PII, secrets,
+ * and sensitive-data keywords. No tool/credential-path checks (those are specific
+ * to a tool invocation, not prose). Privacy-safe: returns category + kind tags only.
+ */
+export function detectInText(text: string | undefined): SensitiveHit | null {
+  const hay = (text ?? '').slice(0, SCAN_CAP);
+  if (!hay) return null;
+  const categories = new Set<SensitiveCategory>();
+  const tags: string[] = [];
+
+  const lower = hay.toLowerCase();
+  const dataHits = dataKeywords().filter(k => lower.includes(k));
+  if (dataHits.length) { categories.add('data'); for (const k of dataHits.slice(0, 4)) tags.push(`data:${k}`); }
+
+  const pii = detectPii(hay);
+  if (pii.length) { categories.add('pii'); for (const p of pii) tags.push(`pii:${p}`); }
+
+  const secrets = detectSecrets(hay);
+  if (secrets.length) { categories.add('secret'); for (const s of secrets) tags.push(`secret:${s}`); }
+
+  if (categories.size === 0) return null;
+  return { categories: [...categories], reason: [...new Set(tags)].join(', ') };
+}
+
 /** Merge several hits (e.g. across a turn's tools) into one. */
 export function mergeHits(hits: (SensitiveHit | null)[]): SensitiveHit | null {
   const real = hits.filter((h): h is SensitiveHit => !!h);

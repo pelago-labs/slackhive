@@ -19,7 +19,7 @@
 
 import { type Span, type Attributes, trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer, ATTR } from './otel';
-import { detectSensitive, mergeHits, type SensitiveHit } from './sensitivity';
+import { detectSensitive, detectInText, mergeHits, type SensitiveHit } from './sensitivity';
 
 const PREVIEW_LIMIT = 2000;
 
@@ -118,6 +118,11 @@ export class TurnTracer {
     if (input.toolNames?.length) attrs['slackhive.tool_requests'] = input.toolNames.join(', ');
     if (input.finishReason) attrs[ATTR.FINISH_REASON] = input.finishReason;
     const span = getTracer().startSpan('chat', { startTime: start, attributes: attrs }, this.ctx);
+    // Scan the model's OWN output (answer/reasoning) for PII/secrets/sensitive data
+    // — the tool-call path never sees this, so e.g. a phone number the agent writes
+    // into its reply would otherwise go unflagged. Bubbles up to the turn via hits.
+    const hit = detectInText(`${input.reasoning ?? ''}\n${input.text ?? ''}`);
+    if (hit) { applySensitive(span, hit); this.hits.push(hit); }
     span.end(now);
     this.lastBoundaryMs = now;
   }

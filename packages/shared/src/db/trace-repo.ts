@@ -426,7 +426,9 @@ export interface SensitiveFeedFilter {
  */
 export async function getSensitiveEvents(filter: SensitiveFeedFilter = {}): Promise<SensitiveEvent[]> {
   const db = getDb();
-  const wheres: string[] = [`s.sensitive = 1`, `s.kind = 'tool'`];
+  // Tool calls AND the model's own output (a generation span can be flagged when
+  // the agent writes PII/secrets into its reply).
+  const wheres: string[] = [`s.sensitive = 1`, `s.kind IN ('tool', 'generation')`];
   const params: unknown[] = [];
 
   if (filter.since) {

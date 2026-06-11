@@ -55,15 +55,18 @@ function luhnValid(s: string): boolean {
   return sum % 10 === 0;
 }
 
-function collect(re: RegExp, cat: SensCategory, label: string, text: string, out: Range[], validate?: (m: string) => boolean): void {
+function collect(re: RegExp, cat: SensCategory, label: string | ((m: string) => string), text: string, out: Range[], validate?: (m: string) => boolean): void {
   re.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m[0].length === 0) { re.lastIndex++; continue; }
-    if (!validate || validate(m[0])) out.push({ start: m.index, end: m.index + m[0].length, cat, label });
+    if (!validate || validate(m[0])) out.push({ start: m.index, end: m.index + m[0].length, cat, label: typeof label === 'function' ? label(m[0]) : label });
     if (out.length > 2_000) break; // sanity cap
   }
 }
+
+/** On overlap the higher-priority category wins (secret > pii > tool > data). */
+const PRIO: Record<SensCategory, number> = { secret: 3, pii: 2, tool: 1, data: 0 };
 
 /**
  * Split `body` into segments, flagging the substrings that match a sensitivity
@@ -81,12 +84,14 @@ export function markSensitive(str: string): SensSegment[] {
   collect(PHONE, 'pii', 'pii:phone', text, ranges);
   collect(CARD, 'pii', 'pii:card', text, ranges, luhnValid);
   collect(CRED, 'tool', 'tool:credentials', text, ranges);
-  collect(DATA_RE, 'data', 'data', text, ranges);
+  collect(DATA_RE, 'data', m => `data:${m.toLowerCase()}`, text, ranges);
 
   if (ranges.length === 0) return [{ text: str, cat: null, label: null }];
 
-  // Keep non-overlapping ranges, secrets-first via stable sort on (start, secret?).
-  ranges.sort((a, b) => a.start - b.start || (a.cat === 'secret' ? -1 : 1));
+  // Resolve overlaps deterministically: earliest start first; on equal start the
+  // higher-priority category (secret > pii > …) then the longer match wins. Then
+  // greedily keep non-overlapping ranges.
+  ranges.sort((a, b) => a.start - b.start || PRIO[b.cat] - PRIO[a.cat] || (b.end - b.start) - (a.end - a.start));
   const kept: Range[] = [];
   let lastEnd = -1;
   for (const r of ranges) {

@@ -26,23 +26,39 @@ import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
 import { markSensitive, SENS_COLOR } from '../../../lib/sensitive-highlight';
 
+// When on (sensitive section), wrap text runs in <mark> for any matched PII/secret/
+// data — so the agent's own answer (rendered as markdown) highlights like tool I/O.
+const SensCtx = React.createContext(false);
+function Hl({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const on = React.useContext(SensCtx);
+  if (!on) return <>{children}</>;
+  return <>{React.Children.map(children, (child) =>
+    typeof child === 'string'
+      ? markSensitive(child).map((seg, i) => seg.cat
+          ? <mark key={i} title={`flagged: ${seg.label}`} style={{ background: `${SENS_COLOR[seg.cat]}26`, color: SENS_COLOR[seg.cat], borderRadius: 3, padding: '0 2px', fontWeight: 600 }}>{seg.text}</mark>
+          : <React.Fragment key={i}>{seg.text}</React.Fragment>)
+      : child)}</>;
+}
+
 /** Compact markdown styling for reasoning / answers inside trace nodes. */
 const MD: Components = {
-  p: ({ children }) => <p style={{ margin: '0 0 6px', lineHeight: 1.6 }}>{children}</p>,
+  p: ({ children }) => <p style={{ margin: '0 0 6px', lineHeight: 1.6 }}><Hl>{children}</Hl></p>,
   ul: ({ children }) => <ul style={{ margin: '0 0 6px', paddingLeft: 18, lineHeight: 1.6 }}>{children}</ul>,
   ol: ({ children }) => <ol style={{ margin: '0 0 6px', paddingLeft: 18, lineHeight: 1.6 }}>{children}</ol>,
-  li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
-  h1: ({ children }) => <h1 style={{ fontSize: 14, fontWeight: 600, margin: '6px 0 4px' }}>{children}</h1>,
-  h2: ({ children }) => <h2 style={{ fontSize: 13, fontWeight: 600, margin: '6px 0 4px' }}>{children}</h2>,
-  h3: ({ children }) => <h3 style={{ fontSize: 13, fontWeight: 600, margin: '5px 0 3px' }}>{children}</h3>,
+  li: ({ children }) => <li style={{ marginBottom: 2 }}><Hl>{children}</Hl></li>,
+  h1: ({ children }) => <h1 style={{ fontSize: 14, fontWeight: 600, margin: '6px 0 4px' }}><Hl>{children}</Hl></h1>,
+  h2: ({ children }) => <h2 style={{ fontSize: 13, fontWeight: 600, margin: '6px 0 4px' }}><Hl>{children}</Hl></h2>,
+  h3: ({ children }) => <h3 style={{ fontSize: 13, fontWeight: 600, margin: '5px 0 3px' }}><Hl>{children}</Hl></h3>,
+  strong: ({ children }) => <strong><Hl>{children}</Hl></strong>,
+  em: ({ children }) => <em><Hl>{children}</Hl></em>,
   table: ({ children }) => <div style={{ overflow: 'auto', margin: '4px 0 8px' }}><table style={{ borderCollapse: 'collapse', fontSize: 11 }}>{children}</table></div>,
-  th: ({ children }) => <th style={{ border: '1px solid var(--border)', padding: '3px 7px', background: 'var(--surface-2)', textAlign: 'left', fontWeight: 600 }}>{children}</th>,
-  td: ({ children }) => <td style={{ border: '1px solid var(--border)', padding: '3px 7px' }}>{children}</td>,
+  th: ({ children }) => <th style={{ border: '1px solid var(--border)', padding: '3px 7px', background: 'var(--surface-2)', textAlign: 'left', fontWeight: 600 }}><Hl>{children}</Hl></th>,
+  td: ({ children }) => <td style={{ border: '1px solid var(--border)', padding: '3px 7px' }}><Hl>{children}</Hl></td>,
   code: ({ className, children, ...props }) => className?.startsWith('language-')
     ? <code className={className} style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }} {...props}>{children}</code>
-    : <code style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px', fontSize: 11.5, fontFamily: 'var(--font-mono)' }} {...props}>{children}</code>,
+    : <code style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px', fontSize: 11.5, fontFamily: 'var(--font-mono)' }} {...props}><Hl>{children}</Hl></code>,
   pre: ({ children }) => <pre style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: 10, margin: '4px 0 6px', fontSize: 11.5, lineHeight: 1.5, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{children}</pre>,
-  a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>{children}</a>,
+  a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}><Hl>{children}</Hl></a>,
 };
 
 interface Task {
@@ -220,7 +236,7 @@ export default function TaskTracePage(): React.JSX.Element {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {turns.length === 0 && <Empty>No activity recorded yet.</Empty>}
           {turns.length > 0 && visibleTurns.length === 0 && <Empty>No turns match this filter.</Empty>}
-          {visibleTurns.map(({ t, i }) => <TurnCard key={t.activityId} turn={t} index={i} isLast={i === turns.length - 1} highlightSpanId={highlightSpanId} />)}
+          {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} highlightSpanId={highlightSpanId} />)}
         </div>
       </div>
     </Shell>
@@ -381,8 +397,9 @@ function StackBars(props: { title: string; data: { label: string; input: number;
 function TurnCard({ turn, index, isLast, highlightSpanId }: { turn: TraceTurn; index: number; isLast?: boolean; highlightSpanId?: string | null }): React.JSX.Element {
   const nodes = buildNodes(turn);
   const containsHighlight = !!highlightSpanId && nodes.some(n => n.key === highlightSpanId);
-  // Only the most recent turn is expanded by default; a deep-linked turn also opens.
-  const [open, setOpen] = useState(!!isLast || containsHighlight);
+  // Expand the most recent (last visible) turn by default; also a deep-linked turn,
+  // and any still-running or errored turn so failures aren't hidden behind a card.
+  const [open, setOpen] = useState(!!isLast || containsHighlight || turn.status === 'in_progress' || turn.status === 'error');
   const label = turn.agentName ?? turn.agentId.slice(0, 8);
   const color = agentColor(turn.agentId);
   const statusColor = STATUS_COLOR[turn.status] ?? 'var(--muted)';
@@ -491,11 +508,18 @@ interface NodeData {
 function buildNodes(turn: TraceTurn): NodeData[] {
   const nodes: NodeData[] = [];
   const finalTrim = turn.finalAnswer?.trim();
+  // The generation that produced the final answer is shown as the green ANSWER
+  // node, so we skip it here — but carry its sensitivity + span id onto that node
+  // so a flagged answer still highlights and its Sensitive-feed deep-link resolves.
+  let answerGen: { sensitive?: boolean; cats?: string[]; spanId?: string } | null = null;
   for (const sp of turn.spans) {
     // Skip empty tool-decision generations and the generation that duplicates
     // the final answer (shown as the green ANSWER node).
     if (sp.kind === 'generation') {
-      if (finalTrim && sp.output && sp.output.trim() === finalTrim) continue;
+      if (finalTrim && sp.output && sp.output.trim() === finalTrim) {
+        answerGen = { sensitive: sp.sensitive, cats: sp.sensitiveCategories, spanId: sp.spanId };
+        continue;
+      }
       if (!sp.reasoning && !sp.output) continue;
     }
     const sections: NodeSection[] = [];
@@ -523,8 +547,9 @@ function buildNodes(turn: TraceTurn): NodeData[] {
   }
   if (turn.finalAnswer) {
     nodes.push({
-      key: '__final', kind: 'final', title: 'Final answer', model: null, durationMs: null,
+      key: answerGen?.spanId ?? '__final', kind: 'final', title: 'Final answer', model: null, durationMs: null,
       tokens: 0, costUsd: 0, sections: [{ label: 'answer', body: turn.finalAnswer, markdown: true }], defaultOpen: true,
+      sensitive: answerGen?.sensitive, sensitiveCategories: answerGen?.cats,
     });
   }
   if (turn.error) {
@@ -623,7 +648,9 @@ function Content({ label, body, markdown, accent, sensitive }: { label: string; 
       </div>
       {markdown ? (
         <div style={{ ...shell, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
-          <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+          <SensCtx.Provider value={!!sensitive}>
+            <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+          </SensCtx.Provider>
         </div>
       ) : (
         <pre style={{ ...shell, margin: 0, fontSize: 11, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
