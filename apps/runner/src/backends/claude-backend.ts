@@ -26,6 +26,7 @@ import {
   upsertSession,
   cleanupStaleSessions,
 } from '../db';
+import { pruneStaleSessionDirs, markSessionUsed, sessionDirName, SESSION_DIR_MAX_AGE_MS } from './prune-session-dirs';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
 import { findProcessesByEnv, killProcessesGracefully } from '../process-utils.js';
@@ -481,8 +482,10 @@ export class ClaudeBackend implements AgentBackend {
    */
   private getSessionWorkDir(sessionKey: string): string {
     // Sanitize key for use as a directory name
-    const safeName = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeName = sessionDirName(sessionKey);
     const sessionDir = path.join(this.sessionsDir, safeName);
+    // Stamp "last opened" so the 7-day idle prune never reaps an in-use session.
+    markSessionUsed(sessionDir);
 
     if (!fs.existsSync(sessionDir)) {
       fs.mkdirSync(sessionDir, { recursive: true });
@@ -924,6 +927,20 @@ export class ClaudeBackend implements AgentBackend {
       }
     } catch (error) {
       this.log.warn('Session cleanup failed', { error });
+    }
+    try {
+      // Protect sessions still live in memory; evict cache entries for any dir we
+      // reap so a later turn rebuilds the dir from scratch rather than reusing a
+      // session id whose on-disk state is gone.
+      const protect = new Set(Array.from(this.sessionCache.keys(), sessionDirName));
+      const { removed, names } = pruneStaleSessionDirs(this.sessionsDir, SESSION_DIR_MAX_AGE_MS, { protect });
+      if (removed > 0) {
+        const reaped = new Set(names);
+        for (const key of [...this.sessionCache.keys()]) if (reaped.has(sessionDirName(key))) this.sessionCache.delete(key);
+        this.log.info('Reclaimed stale session dirs (git clones)', { count: removed });
+      }
+    } catch (error) {
+      this.log.warn('Session dir prune failed', { error });
     }
   }
 }
