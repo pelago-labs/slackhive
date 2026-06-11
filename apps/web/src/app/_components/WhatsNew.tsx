@@ -29,6 +29,20 @@ function fmtDate(d: string): string {
   return y && m && day ? `${MONTHS[m - 1]} ${day}, ${y}` : d;
 }
 
+/** Place the panel below the bell, flipping above when there's more room there,
+ *  and cap its height to the available space so it never runs off-screen. */
+function panelPlacement(box: DOMRect): React.CSSProperties {
+  const MARGIN = 16;
+  const left = Math.round(Math.min(Math.max(8, box.left), window.innerWidth - 348));
+  const below = window.innerHeight - box.bottom - MARGIN;
+  const above = box.top - MARGIN;
+  const openUp = below < 300 && above > below;
+  const maxHeight = Math.round(Math.max(180, Math.min(460, openUp ? above : below)));
+  return openUp
+    ? { bottom: Math.round(window.innerHeight - box.top + 8), left, maxHeight }
+    : { top: Math.round(box.bottom + 8), left, maxHeight };
+}
+
 export function WhatsNew(): React.JSX.Element {
   const [lastSeen, setLastSeen] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -79,10 +93,10 @@ export function WhatsNew(): React.JSX.Element {
           <div onClick={() => setBox(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000 }} />
           <div style={{
             position: 'fixed', zIndex: 1001,
-            // Anchor below the bell, extending right, clamped to the viewport.
-            top: Math.round(box.bottom + 8),
-            left: Math.round(Math.min(Math.max(8, box.left), window.innerWidth - 348)),
-            width: 340, maxHeight: 'min(440px, calc(100vh - 80px))', overflowY: 'auto',
+            // Open below the bell, but flip above when there isn't room (the bell
+            // sits low in the sidebar, so the panel would otherwise run off-screen).
+            ...panelPlacement(box),
+            width: 340, overflowY: 'auto',
             background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
             boxShadow: '0 8px 28px rgba(0,0,0,0.22)', padding: 0,
           }}>
