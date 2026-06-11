@@ -26,9 +26,11 @@ export const SCAN_CAP = 16_000;
 // Patterns are NON-global so the boolean detectors can use `.test()`/`.match()`
 // safely; collect() clones them with the global flag for offset segmentation.
 const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/;
-// Phone numbers must look like phone numbers (a `+` prefix or separator-formatted
-// groups) — a bare digit run (epoch ms, ids) is not flagged.
-const PHONE = /(?:\+\d[\d().\- ]{7,16}\d)|(?:\b\d{3}[.\- ]\d{3}[.\- ]\d{4}\b)|(?:\(\d{3}\)[ ]?\d{3}[.\- ]?\d{4})/;
+// Phone numbers must carry a real phone signal — an international `+` country
+// code or a parenthesized area code. A bare separator-grouped 10-digit number
+// (`123-456-7890`) is NOT flagged: order/reference numbers look identical, so
+// requiring `+`/parens avoids flagging arbitrary grouped numbers as phones.
+const PHONE = /(?:\+\d[\d().\- ]{7,16}\d)|(?:\(\d{3}\)[ ]?\d{3}[.\- ]?\d{4})/;
 const CARD = /\b(?:\d[ -]?){13,19}\b/;
 /** Credential/key path tokens (for highlighting a path inside content). */
 const CRED = /(\.env|\.npmrc|credentials|secrets?|id_rsa|id_ed25519|\.pem|\.key|\.ssh\/|\.aws\/|\.kube\/|service[-_]?account)/i;
