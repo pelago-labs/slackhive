@@ -19,7 +19,7 @@
 
 import { type Span, type Attributes, trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer, ATTR } from './otel';
-import { detectSensitive, detectInText, mergeHits, type SensitiveHit } from './sensitivity';
+import { detectSensitive, detectInText, mergeHits, type SensitiveHit } from '@slackhive/shared';
 
 const PREVIEW_LIMIT = 2000;
 

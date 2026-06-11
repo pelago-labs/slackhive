@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ShieldAlert, Database, KeyRound, UserRound, FileWarning, ExternalLink, ArrowLeft } from 'lucide-react';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../_components/FilterRow';
-import { humanizeTag } from '../../../lib/sensitive-highlight';
+import { humanizeTag } from '@slackhive/shared';
 
 interface SensitiveEvent {
   spanId: string; sessionId: string; activityId: string | null;

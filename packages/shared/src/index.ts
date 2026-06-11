@@ -41,6 +41,11 @@ export { PERSONA_CATALOG, getPersonaById, getPersonasByCategory, searchPersonas 
 export type { PersonaTemplate, PersonaSkillSeed, PersonaCategory } from './personas';
 export { deepLinkForTask, deepLinkLabelForPlatform } from './deep-link';
 export {
+  detectSensitive, detectInText, mergeHits, markSensitive, humanizeTag,
+  SENS_COLOR, CAT_LABEL, SCAN_CAP,
+} from './sensitivity';
+export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope } from './sensitivity';
+export {
   upsertTask, beginActivity, finishActivity,
   beginToolCall, finishToolCall,
   listTasks, getTaskWithDetails, countInProgressByAgent,

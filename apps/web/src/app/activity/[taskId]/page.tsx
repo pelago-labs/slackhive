@@ -25,7 +25,7 @@ import {
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
-import { markSensitive, SENS_COLOR, CAT_LABEL, humanizeTag, type SensCategory } from '../../../lib/sensitive-highlight';
+import { markSensitive, SENS_COLOR, CAT_LABEL, humanizeTag, type SensitiveCategory as SensCategory, type SensScope } from '@slackhive/shared';
 
 // A highlighted sensitive token: a colored-background tag. Click it to reveal what
 // kind of data it is. The popover is portaled to <body> with fixed positioning so
@@ -74,15 +74,17 @@ function SensitiveMark({ cat, label, children }: { cat: SensCategory; label: str
   );
 }
 
-// When on (sensitive section), wrap text runs in marks for any matched PII/secret/
+// When set (sensitive section), wrap text runs in marks for matched PII/secrets/
 // data — so the agent's own answer (rendered as markdown) highlights like tool I/O.
-const SensCtx = React.createContext(false);
+// The context value is the highlight scope ('all' for tool I/O, 'text' for prose),
+// or null when off.
+const SensCtx = React.createContext<SensScope | null>(null);
 function Hl({ children }: { children: React.ReactNode }): React.JSX.Element {
-  const on = React.useContext(SensCtx);
-  if (!on) return <>{children}</>;
+  const scope = React.useContext(SensCtx);
+  if (!scope) return <>{children}</>;
   return <>{React.Children.map(children, (child) =>
     typeof child === 'string'
-      ? markSensitive(child).map((seg, i) => seg.cat
+      ? markSensitive(child, scope).map((seg, i) => seg.cat
           ? <SensitiveMark key={i} cat={seg.cat} label={seg.label ?? seg.cat}>{seg.text}</SensitiveMark>
           : <React.Fragment key={i}>{seg.text}</React.Fragment>)
       : child)}</>;
@@ -100,7 +102,11 @@ function slackToMd(s: string): string {
     .replace(/<((?:https?|mailto|tel):[^|>\s]+)>/gi, '$1')
     // <@U…|name> / <#C…|name> mentions → the readable name
     .replace(/<[@#!][^|>]+\|([^>]+)>/g, '$1')
-    .replace(/<[@#!]([^|>]+)>/g, '@$1');
+    .replace(/<[@#!]([^|>]+)>/g, '@$1')
+    // Slack bold *x* → GH **x** (skip `**`, word-adjacent, and `* ` list bullets)
+    .replace(/(^|[^*\w])\*(?=\S)([^*\n]+?)(?<=\S)\*(?!\*)/g, '$1**$2**')
+    // Slack strike ~x~ → GH ~~x~~
+    .replace(/(^|[^~])~(?=\S)([^~\n]+?)(?<=\S)~(?!~)/g, '$1~~$2~~');
 }
 
 /** Compact markdown styling for reasoning / answers inside trace nodes. */
@@ -679,7 +685,7 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
       </div>
       {open && has && (
         <div style={{ paddingLeft: 24, paddingRight: 4, paddingBottom: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} />)}
+          {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} scope={node.kind === 'tool' ? 'all' : 'text'} />)}
         </div>
       )}
     </div>
@@ -688,12 +694,14 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
 
 /** Section body: markdown for prose (thinking / answers / responses), pretty
  * code for tool args/results. Filled (not bordered) for a calmer look. */
-function Content({ label, body, markdown, accent, sensitive }: { label: string; body: string; markdown?: boolean; accent?: string; sensitive?: boolean }): React.JSX.Element {
+function Content({ label, body, markdown, accent, sensitive, scope = 'all' }: { label: string; body: string; markdown?: boolean; accent?: string; sensitive?: boolean; scope?: SensScope }): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   let text = body;
   if (!markdown) {
     try { const t = body.trim(); if (t.startsWith('{') || t.startsWith('[')) text = JSON.stringify(JSON.parse(t), null, 2); } catch { /* raw */ }
   }
+  // Memoize the regex scan so the 4s poll doesn't re-highlight unchanged content.
+  const segments = useMemo(() => (sensitive && !markdown ? markSensitive(text, scope) : null), [sensitive, markdown, text, scope]);
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard?.writeText(body).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {});
@@ -713,14 +721,14 @@ function Content({ label, body, markdown, accent, sensitive }: { label: string; 
       </div>
       {markdown ? (
         <div style={{ ...shell, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
-          <SensCtx.Provider value={!!sensitive}>
+          <SensCtx.Provider value={sensitive ? scope : null}>
             <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{slackToMd(body)}</ReactMarkdown>
           </SensCtx.Provider>
         </div>
       ) : (
         <pre style={{ ...shell, margin: 0, fontSize: 11, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-          {sensitive
-            ? markSensitive(text).map((seg, i) => seg.cat
+          {segments
+            ? segments.map((seg, i) => seg.cat
                 ? <SensitiveMark key={i} cat={seg.cat} label={seg.label ?? seg.cat}>{seg.text}</SensitiveMark>
                 : <React.Fragment key={i}>{seg.text}</React.Fragment>)
             : text}

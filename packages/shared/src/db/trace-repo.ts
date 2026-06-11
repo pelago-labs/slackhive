@@ -365,7 +365,7 @@ async function computeAgentRollup(opts: { agentId: string; since?: string; until
     db.query(`SELECT SUM(CASE WHEN sentiment='up' THEN 1 ELSE 0 END) up,
                      SUM(CASE WHEN sentiment='down' THEN 1 ELSE 0 END) down
                 FROM message_feedback WHERE ${fbWhere}`, fbParams),
-    db.query(`SELECT COUNT(*) c FROM spans WHERE ${spanWhere} AND sensitive = 1 AND kind = 'tool'`, spanParams),
+    db.query(`SELECT COUNT(*) c FROM spans WHERE ${spanWhere} AND sensitive = 1 AND kind IN ('tool', 'generation')`, spanParams),
   ]);
 
   const a0 = act.rows[0] ?? {};

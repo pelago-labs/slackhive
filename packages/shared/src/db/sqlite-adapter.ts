@@ -667,6 +667,8 @@ CREATE INDEX IF NOT EXISTS idx_spans_activity ON spans(activity_id, start_ms);
 CREATE INDEX IF NOT EXISTS idx_spans_trace    ON spans(trace_id);
 -- Covers the per-agent rollup / tool / sensitive aggregate queries (agent_id + window).
 CREATE INDEX IF NOT EXISTS idx_spans_agent_start ON spans(agent_id, start_ms);
+-- Lets the per-task EXISTS(spans … sensitive=1) check terminate on the index.
+CREATE INDEX IF NOT EXISTS idx_spans_session_sensitive ON spans(session_id, sensitive);
 `;
 
 // =============================================================================
