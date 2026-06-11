@@ -230,6 +230,31 @@ describe('listTasks', () => {
     expect(new Set(allIds).size).toBe(5);
   });
 
+  it('a single larger page equals the concatenation of cursor pages (Load-more poll consolidation)', async () => {
+    const agentId = await seedAgent();
+    for (let i = 0; i < 5; i++) {
+      const id = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: `t${i}` });
+      const act = await beginActivity({ taskId: id, agentId, platform: 'slack', initiatorKind: 'user' });
+      await finishActivity(act, 'done');
+    }
+
+    // What "Load more" builds up: two cursor pages of 2 → 4 rows shown.
+    const p1 = await listTasks('recent', {}, 2, null);
+    const p2 = await listTasks('recent', {}, 2, p1.nextCursor);
+    const paged = [...p1.tasks, ...p2.tasks].map(t => t.id);
+
+    // The 4s poll re-fetches that same count as ONE page; it must return the exact
+    // same rows in the same order, so the expansion isn't lost or reshuffled.
+    const consolidated = await listTasks('recent', {}, 4, null);
+    expect(consolidated.tasks.map(t => t.id)).toEqual(paged);
+    expect(consolidated.nextCursor).not.toBeNull(); // a 5th row remains → "Load more" still offered
+
+    // limit >= total returns everything with no further cursor.
+    const all = await listTasks('recent', {}, 100, null);
+    expect(all.tasks).toHaveLength(5);
+    expect(all.nextCursor).toBeNull();
+  });
+
   it('filters by agentId', async () => {
     const a1 = await seedAgent();
     const a2 = await seedAgent();
