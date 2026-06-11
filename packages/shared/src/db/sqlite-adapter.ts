@@ -428,6 +428,7 @@ CREATE TABLE IF NOT EXISTS activities (
   platform               TEXT NOT NULL DEFAULT 'slack',
   initiator_kind         TEXT NOT NULL CHECK (initiator_kind IN ('user','agent')),
   initiator_user_id      TEXT,
+  initiator_handle       TEXT,
   message_ref            TEXT,
   message_preview        TEXT,
   started_at             TEXT NOT NULL DEFAULT (datetime('now')),
@@ -618,6 +619,51 @@ CREATE TABLE IF NOT EXISTS message_feedback (
   UNIQUE (message_ts, rater_user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_message_feedback_agent ON message_feedback(agent_id, created_at DESC);
+
+-- ── LLM trace spans (OpenTelemetry GenAI semantic conventions) ──────────────
+-- One row per observation in a turn's span tree: the turn itself (kind='agent',
+-- = an activity / invoke_agent span), each LLM step (kind='generation', carries
+-- reasoning + text + per-step model/tokens), each tool execution
+-- (kind='tool' / execute_tool, full args + result), and system markers
+-- (kind='event', e.g. context_reset). session_id is the task id (the thread).
+-- Timestamps are epoch MILLISECONDS for exact, sub-second durations. Content
+-- columns (input/output/reasoning) are gated by TRACE_CAPTURE_CONTENT at write
+-- time. Written by the runner's DbSpanExporter (OTel SimpleSpanProcessor).
+CREATE TABLE IF NOT EXISTS spans (
+  span_id               TEXT PRIMARY KEY,
+  trace_id              TEXT NOT NULL,
+  parent_span_id        TEXT,
+  session_id            TEXT NOT NULL,
+  activity_id           TEXT,
+  kind                  TEXT NOT NULL CHECK (kind IN ('agent','generation','tool','event')),
+  name                  TEXT NOT NULL,
+  agent_id              TEXT,
+  provider              TEXT,
+  model                 TEXT,
+  start_ms              INTEGER NOT NULL,
+  end_ms                INTEGER,
+  status                TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','error')),
+  status_message        TEXT,
+  input_tokens          INTEGER,
+  output_tokens         INTEGER,
+  reasoning_tokens      INTEGER,
+  cache_read_tokens     INTEGER,
+  cache_creation_tokens INTEGER,
+  cost_usd              REAL,
+  finish_reason         TEXT,
+  tool_name             TEXT,
+  input                 TEXT,
+  output                TEXT,
+  reasoning             TEXT,
+  sensitive             INTEGER NOT NULL DEFAULT 0,
+  sensitive_categories  TEXT,
+  sensitive_reason      TEXT,
+  attributes            TEXT,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_spans_session  ON spans(session_id, start_ms);
+CREATE INDEX IF NOT EXISTS idx_spans_activity ON spans(activity_id, start_ms);
+CREATE INDEX IF NOT EXISTS idx_spans_trace    ON spans(trace_id);
 `;
 
 // =============================================================================
@@ -844,6 +890,19 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   if (!activityCols.includes('cache_creation_tokens')) {
     db.exec('ALTER TABLE activities ADD COLUMN cache_creation_tokens INTEGER');
   }
+  if (!activityCols.includes('initiator_handle')) {
+    db.exec('ALTER TABLE activities ADD COLUMN initiator_handle TEXT');
+  }
+
+  // spans.sensitive* — added after the spans table shipped (sensitive-access monitor).
+  const spanCols = (db.pragma('table_info(spans)') as { name: string }[]).map(c => c.name);
+  if (spanCols.length > 0) {
+    if (!spanCols.includes('sensitive')) db.exec('ALTER TABLE spans ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0');
+    if (!spanCols.includes('sensitive_categories')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_categories TEXT');
+    if (!spanCols.includes('sensitive_reason')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_reason TEXT');
+  }
+  // Partial index for the audit feed (only flagged rows).
+  db.exec("CREATE INDEX IF NOT EXISTS idx_spans_sensitive ON spans(start_ms DESC) WHERE sensitive = 1");
 
   // Perf: drop unused index that no query touches (users.created_at). The new
   // hot-path indexes (idx_agent_access_user, idx_agents_created_by) are

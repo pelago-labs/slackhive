@@ -79,6 +79,10 @@ function rowToActivity(row: Record<string, unknown>): Activity {
     status: row.status as ActivityStatus,
     error: (row.error as string | null) ?? undefined,
     toolCallCount: Number(row.tool_call_count ?? 0),
+    inputTokens: row.input_tokens == null ? undefined : Number(row.input_tokens),
+    outputTokens: row.output_tokens == null ? undefined : Number(row.output_tokens),
+    cacheReadTokens: row.cache_read_tokens == null ? undefined : Number(row.cache_read_tokens),
+    cacheCreationTokens: row.cache_creation_tokens == null ? undefined : Number(row.cache_creation_tokens),
   };
 }
 
@@ -146,6 +150,7 @@ export interface BeginActivityInput {
   platform: Platform;
   initiatorKind: Activity['initiatorKind'];
   initiatorUserId?: string;
+  initiatorHandle?: string;
   messageRef?: string;
   messagePreview?: string;
 }
@@ -157,9 +162,9 @@ export async function beginActivity(input: BeginActivityInput): Promise<string> 
   await db.query(
     `INSERT INTO activities (
        id, task_id, agent_id, platform,
-       initiator_kind, initiator_user_id,
+       initiator_kind, initiator_user_id, initiator_handle,
        message_ref, message_preview, status
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'in_progress')`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'in_progress')`,
     [
       id,
       input.taskId,
@@ -167,6 +172,7 @@ export async function beginActivity(input: BeginActivityInput): Promise<string> 
       input.platform,
       input.initiatorKind,
       input.initiatorUserId ?? null,
+      input.initiatorHandle ?? null,
       input.messageRef ?? null,
       truncate(input.messagePreview),
     ],
@@ -694,6 +700,9 @@ export interface FeedbackRating {
   note: string | null;
   permalink: string | null;
   createdAt: string;
+  /** Session (task) the rated turn belongs to — links to the trace view.
+   * Null for older ratings whose activity link is missing. */
+  sessionId: string | null;
 }
 
 export interface AgentFeedbackReport {
@@ -788,17 +797,18 @@ export async function getFeedbackReport(
 
   let recentRatings: FeedbackRating[] = [];
   if (wantList) {
-    const listWheres = [...wheres];
-    const listParams = [...params];
-    if (opts.sentiment) {
-      listWheres.push(`sentiment = $${listParams.length + 1}`);
-      listParams.push(opts.sentiment);
-    }
+    // Join activities to resolve the session (task) id for the "View session"
+    // link. Columns are f-qualified since agent_id exists on both tables.
+    const listWheres = [`f.agent_id = $1`];
+    const listParams: unknown[] = [agentId];
+    if (opts.since) { listWheres.push(`f.created_at >= $${listParams.length + 1}`); listParams.push(opts.since); }
+    if (opts.sentiment) { listWheres.push(`f.sentiment = $${listParams.length + 1}`); listParams.push(opts.sentiment); }
     const listRes = await db.query(
-      `SELECT sentiment, rater_handle, note, permalink, created_at
-         FROM message_feedback
+      `SELECT f.sentiment, f.rater_handle, f.note, f.permalink, f.created_at, a.task_id
+         FROM message_feedback f
+         LEFT JOIN activities a ON a.id = f.activity_id
         WHERE ${listWheres.join(' AND ')}
-        ORDER BY created_at DESC, id DESC
+        ORDER BY f.created_at DESC, f.id DESC
         LIMIT $${listParams.length + 1} OFFSET $${listParams.length + 2}`,
       [...listParams, limit, offset],
     );
@@ -808,6 +818,7 @@ export async function getFeedbackReport(
       note: (n.note as string | null) ?? null,
       permalink: (n.permalink as string | null) ?? null,
       createdAt: n.created_at as string,
+      sessionId: (n.task_id as string | null) ?? null,
     }));
   }
 

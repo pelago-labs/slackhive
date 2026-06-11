@@ -52,6 +52,11 @@ export interface BackendUsage {
 export type BackendMessage =
   | { type: 'assistant'; message: { role: 'assistant'; content: AssistantBlock[] }; [k: string]: unknown }
   | { type: 'user'; message: { role: 'user'; content: UserBlock[] }; [k: string]: unknown }
+  // Reasoning narration captured for tracing only — NOT posted to the platform.
+  // Claude surfaces reasoning inline as `thinking` blocks on assistant messages;
+  // Codex emits standalone reasoning items, which it forwards as this variant so
+  // the trace can show "thinking in between" without changing what Slack sees.
+  | { type: 'reasoning'; text: string; [k: string]: unknown }
   | {
       type: 'result';
       subtype?: string;

@@ -157,6 +157,14 @@ body {
   transform: translateY(-1px);
 }
 
+/* ─── Trace tree node (LLMOps session view) ──────────────────────────────────── */
+.trace-node { transition: background 0.12s; }
+.trace-node:hover { background: var(--surface-2); }
+
+/* Clickable metric card (e.g. the Sensitive KPI → audit feed). */
+.metric-clickable { cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
+.metric-clickable:hover { border-color: var(--border-2) !important; box-shadow: var(--shadow-sm); }
+
 /* ─── Entrance ───────────────────────────────────────────────────────────────── */
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(10px); }

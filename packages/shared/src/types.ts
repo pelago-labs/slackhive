@@ -1113,6 +1113,12 @@ export interface Activity {
   status: ActivityStatus;
   error?: string;
   toolCallCount: number;
+  /** Per-turn token usage (captured at the SDK `result` message; absent for
+   * pre-feature rows or turns that never reported usage). */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 }
 
 /** One tool invocation captured from the SDK stream. */

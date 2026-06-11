@@ -1255,10 +1255,19 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{handle}</span>
                           <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{fmtAgentDate(rt.createdAt)}</span>
-                          {rt.permalink && (
-                            <a href={rt.permalink} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'var(--accent)', textDecoration: 'none' }}>
-                              View thread <ExternalLink size={12} />
-                            </a>
+                          {(rt.sessionId || rt.permalink) && (
+                            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+                              {rt.sessionId && (
+                                <Link href={`/activity/${encodeURIComponent(rt.sessionId)}`} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'var(--accent)', textDecoration: 'none' }}>
+                                  View session <ArrowRight size={12} />
+                                </Link>
+                              )}
+                              {rt.permalink && (
+                                <a href={rt.permalink} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'var(--muted)', textDecoration: 'none' }}>
+                                  View thread <ExternalLink size={12} />
+                                </a>
+                              )}
+                            </span>
                           )}
                         </div>
                         {rt.note && <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, marginTop: 5 }}>{rt.note}</div>}

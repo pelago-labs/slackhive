@@ -13,8 +13,10 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDashed } from 'lucide-react';
+import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDashed, Layers, Wrench, Coins, Clock, ThumbsUp, ThumbsDown, ShieldAlert, ArrowRight } from 'lucide-react';
+import type { AgentRollup } from '@slackhive/shared';
 import { TabSwitcher } from './_components/TabSwitcher';
+import { formatTokens } from './_components/formatTokens';
 import { FilterRow, type WindowKey } from './_components/FilterRow';
 
 interface Task {
@@ -29,6 +31,8 @@ interface Task {
   startedAt: string;
   lastActivityAt: string;
   activityCount: number;
+  feedbackUp?: number;
+  feedbackDown?: number;
 }
 
 interface TaskListResult {
@@ -94,6 +98,7 @@ export default function ActivityPage(): React.JSX.Element {
 interface StatsResponse {
   counts: { active: number; recent: number; errored: number };
   inProgressByAgent: Record<string, number>;
+  agentRollup?: AgentRollup | null;
 }
 
 function ActivityPageBody(): React.JSX.Element {
@@ -170,7 +175,7 @@ function ActivityPageBody(): React.JSX.Element {
         const r = await fetch(`/api/activity/${encodeURIComponent(t.id)}`);
         if (!r.ok) return [t.id, [] as string[]] as const;
         const body = await r.json();
-        const ids = Array.from(new Set((body.activities ?? []).map((a: { agentId: string }) => a.agentId))) as string[];
+        const ids = Array.from(new Set((body.turns ?? []).map((t: { agentId: string }) => t.agentId))) as string[];
         return [t.id, ids] as const;
       }));
       setAgentsByTask(prev => {
@@ -239,6 +244,15 @@ function ActivityPageBody(): React.JSX.Element {
         onAgentChange={setAgentFilter}
         onWindowChange={setWindowKey}
       />
+
+      {agentFilter && stats?.agentRollup && (
+        <AgentPanel
+          name={agentById.get(agentFilter)?.name ?? 'Agent'}
+          rollup={stats.agentRollup}
+          agentId={agentFilter}
+          windowKey={windowKey}
+        />
+      )}
 
       <div style={{
         display: 'grid',
@@ -362,6 +376,12 @@ function TaskCard(props: {
         <span>{relativeTime(task.lastActivityAt)}</span>
         <span>·</span>
         <span style={{ color: 'var(--subtle)' }}>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</span>
+        {!!(task.feedbackUp || task.feedbackDown) && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+            {!!task.feedbackUp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#16a34a' }}><ThumbsUp size={11} />{task.feedbackUp}</span>}
+            {!!task.feedbackDown && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#dc2626' }}><ThumbsDown size={11} />{task.feedbackDown}</span>}
+          </span>
+        )}
       </div>
       {agentIds.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
@@ -424,55 +444,169 @@ function StatsStrip(props: { stats: StatsResponse | null; agentCount: number }):
   const total   = active + recent + errored;
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-      gap: 10,
-      marginBottom: 14,
-    }}>
-      <StatCard label="Active"     value={active}  color="#2563eb" pulse={active > 0}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+      <StatCard label="Active" value={active} color="#2563eb" pulse={active > 0}
                 sub={agentCount > 0 ? `${agentCount} agent${agentCount === 1 ? '' : 's'} working` : 'No agents in-flight'} />
-      <StatCard label="Completed"  value={recent}  color="#059669"
-                sub="Finished in window" />
-      <StatCard label="Errors"     value={errored} color={errored > 0 ? '#dc2626' : 'var(--muted)'}
+      <StatCard label="Completed" value={recent} color="#059669" sub="Finished in window" />
+      <StatCard label="Errors" value={errored} color={errored > 0 ? '#dc2626' : 'var(--muted)'}
                 sub={errored > 0 ? 'Needs attention' : 'No errors'} />
-      <StatCard label="Total"      value={total}
-                sub="In selected window" />
+      <StatCard label="Total" value={total} sub="In selected window" />
     </div>
   );
 }
 
-function StatCard(props: {
-  label: string; value: number; color?: string; sub?: string; pulse?: boolean;
-}): React.JSX.Element {
+function StatCard(props: { label: string; value: number; color?: string; sub?: string; pulse?: boolean }): React.JSX.Element {
   const { label, value, color, sub, pulse } = props;
   return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 10, padding: '12px 14px',
-    }}>
-      <div style={{
-        fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
-        color: 'var(--subtle)', textTransform: 'uppercase',
-        display: 'flex', alignItems: 'center', gap: 6,
-      }}>
-        {pulse && (
-          <span className="status-running" style={{
-            width: 6, height: 6, borderRadius: '50%', background: color ?? '#2563eb',
-          }} />
-        )}
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+        {pulse && <span className="status-running" style={{ width: 6, height: 6, borderRadius: '50%', background: color ?? '#2563eb' }} />}
         {label}
       </div>
-      <div style={{
-        fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em',
-        color: color ?? 'var(--text)', marginTop: 4, lineHeight: 1,
-        fontVariantNumeric: 'tabular-nums',
-      }}>
-        {value}
+      <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: color ?? 'var(--text)', marginTop: 4, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 5 }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── Per-agent analytics panel (shown when one agent is selected) ─────────────
+function fmtMs(ms: number): string {
+  if (!ms) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+  const m = Math.floor(s / 60); const r = Math.round(s - m * 60);
+  return r > 0 ? `${m}m ${r}s` : `${m}m`;
+}
+function fmtCost(n: number): string { return !n ? '—' : n < 1 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`; }
+
+function AgentPanel(props: { name: string; rollup: AgentRollup; agentId: string; windowKey: WindowKey }): React.JSX.Element {
+  const r = props.rollup;
+  const sensitiveHref = `/activity/sensitive?agent=${encodeURIComponent(props.agentId)}&window=${props.windowKey}`;
+  const fb = r.feedbackUp + r.feedbackDown;
+  const score = fb > 0 ? Math.round((r.feedbackUp / fb) * 100) : null;
+  const errRate = r.turns > 0 ? Math.round((r.errorTurns / r.turns) * 100) : 0;
+  return (
+    <div style={{ marginBottom: 14, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 7 }}>
+        <ActivityIcon size={14} /> {props.name} — all sessions
       </div>
-      {sub && (
-        <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 5 }}>{sub}</div>
-      )}
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+        <PanelKpi icon={<Layers size={13} />} label="Sessions" value={String(r.sessions)} sub={`${r.turns} turn${r.turns === 1 ? '' : 's'}`} />
+        <PanelKpi icon={<Wrench size={13} />} label="Tool calls" value={String(r.toolCalls)} />
+        <PanelKpi icon={<Coins size={13} />} label="Tokens" value={r.totalTokens > 0 ? formatTokens(r.totalTokens) : '—'} sub={r.totalTokens > 0 ? `${formatTokens(r.inputTokens)} in · ${formatTokens(r.outputTokens)} out` : undefined} />
+        <PanelKpi icon={<Clock size={13} />} label="Latency" value={fmtMs(r.p50DurationMs)} sub={`p95 ${fmtMs(r.p95DurationMs)}`} />
+        <PanelKpi icon={<AlertTriangle size={13} />} label="Error rate" value={`${errRate}%`} tone={errRate > 0 ? 'red' : undefined} />
+        <PanelKpi icon={<ThumbsUp size={13} />} label="Satisfaction" value={score == null ? '—' : `${score}%`} tone={score == null ? undefined : score < 50 ? 'red' : 'green'} />
+        <PanelKpi icon={<ShieldAlert size={13} />} label="Sensitive" value={String(r.sensitiveEvents ?? 0)} tone={(r.sensitiveEvents ?? 0) > 0 ? 'red' : undefined} href={sensitiveHref} />
+      </div>
+      <div style={{ marginTop: 12, display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+        {r.tokensByDay.length >= 2 && (
+          <PanelCard title="Tokens per day">
+            <DayBars data={r.tokensByDay} />
+          </PanelCard>
+        )}
+        {r.topTools.length > 0 && (
+          <PanelCard title="Top tools" titleHref={`/activity/tools?agent=${encodeURIComponent(props.agentId)}&window=${props.windowKey}`}>
+            <BarList items={r.topTools.map(t => ({ label: t.name, value: t.count, errors: t.errors }))} fmt={String} hrefFor={() => `/activity/tools?agent=${encodeURIComponent(props.agentId)}&window=${props.windowKey}`} />
+          </PanelCard>
+        )}
+        {r.models.length > 0 && (
+          <PanelCard title="Models">
+            <BarList items={r.models.map(m => ({ label: m.model, value: m.tokens }))} fmt={formatTokens} />
+          </PanelCard>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PanelKpi(props: { icon: React.ReactNode; label: string; value: string; sub?: string; tone?: 'green' | 'red'; href?: string }): React.JSX.Element {
+  const color = props.tone === 'green' ? '#047857' : props.tone === 'red' ? '#b91c1c' : 'var(--text)';
+  const inner = (
+    <>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'var(--subtle)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{props.icon}{props.label}</div>
+      <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{props.value}</div>
+      {props.sub && <div style={{ marginTop: 2, fontSize: 11, color: 'var(--subtle)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{props.sub}</div>}
+    </>
+  );
+  const style: React.CSSProperties = { display: 'block', padding: '10px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, textDecoration: 'none' };
+  return props.href
+    ? <Link href={props.href} className="metric-clickable" style={style} title="View sensitive access">{inner}</Link>
+    : <div style={style}>{inner}</div>;
+}
+function PanelCard(props: { title: string; titleHref?: string; children: React.ReactNode }): React.JSX.Element {
+  const titleStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' };
+  return (
+    <div style={{ padding: '12px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+      {props.titleHref
+        ? <Link href={props.titleHref} style={titleStyle}>{props.title} <ArrowRight size={11} /></Link>
+        : <div style={titleStyle}>{props.title}</div>}
+      {props.children}
+    </div>
+  );
+}
+/** Interactive stacked in/out token chart (input = lighter, output = darker). */
+function DayBars(props: { data: { date: string; input: number; output: number }[] }): React.JSX.Element {
+  const [hover, setHover] = useState<number | null>(null);
+  const max = Math.max(1, ...props.data.map(d => d.input + d.output));
+  const h = hover != null ? props.data[hover] : null;
+  return (
+    <div>
+      <div style={{ minHeight: 14, marginBottom: 6, textAlign: 'right', fontSize: 11, fontFamily: 'var(--font-mono, monospace)', color: 'var(--text)' }}>
+        {h ? <><span style={{ color: 'var(--subtle)' }}>{h.date}</span> {formatTokens(h.input)} in · {formatTokens(h.output)} out</> : ''}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 48 }} onMouseLeave={() => setHover(null)}>
+        {props.data.map((d, i) => {
+          const total = d.input + d.output;
+          return (
+            <div key={d.date} onMouseEnter={() => setHover(i)} style={{ flex: 1, maxWidth: 28, minWidth: 4, height: '100%', display: 'flex', alignItems: 'flex-end' }}>
+              <div style={{ width: '100%', height: `${Math.max(3, (total / max) * 100)}%`, display: 'flex', flexDirection: 'column', borderRadius: 2, overflow: 'hidden', opacity: hover === i ? 1 : 0.7, transition: 'opacity 0.1s' }}>
+                <div style={{ height: `${total ? (d.output / total) * 100 : 0}%`, background: 'var(--text-2)' }} />
+                <div style={{ height: `${total ? (d.input / total) * 100 : 0}%`, background: 'var(--muted)' }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <TokenLegend />
+    </div>
+  );
+}
+
+/** Two-swatch legend for stacked in/out token charts. */
+function TokenLegend(): React.JSX.Element {
+  const sw = (c: string) => <span style={{ width: 8, height: 8, borderRadius: 2, background: c, display: 'inline-block', marginRight: 4 }} />;
+  return (
+    <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 10, color: 'var(--subtle)' }}>
+      <span>{sw('var(--muted)')}in</span>
+      <span>{sw('var(--text-2)')}out</span>
+    </div>
+  );
+}
+function BarList(props: { items: { label: string; value: number; errors?: number }[]; fmt: (n: number) => string; hrefFor?: (label: string) => string }): React.JSX.Element {
+  const [hover, setHover] = useState<string | null>(null);
+  const max = Math.max(1, ...props.items.map(i => i.value));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }} onMouseLeave={() => setHover(null)}>
+      {props.items.map(it => {
+        const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, textDecoration: 'none', color: 'inherit', cursor: props.hrefFor ? 'pointer' : 'default' };
+        const inner = (
+          <>
+            <code title={it.label} style={{ flexShrink: 0, width: 150, color: hover === it.label ? 'var(--text)' : 'var(--text-2)', fontFamily: 'var(--font-mono, monospace)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.label}</code>
+            <div style={{ flex: 1, height: 8, background: 'var(--surface-3, var(--border))', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ width: `${Math.max(3, (it.value / max) * 100)}%`, height: '100%', background: 'var(--accent-2)', borderRadius: 4, opacity: hover === it.label ? 1 : 0.8, transition: 'opacity 0.1s' }} />
+            </div>
+            <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono, monospace)', fontSize: 11, minWidth: 52, textAlign: 'right' }}>
+              <span style={{ color: 'var(--text-2)' }}>{props.fmt(it.value)}</span>
+              {it.errors ? <span title={`${it.errors} failed`} style={{ color: 'var(--red)', marginLeft: 6 }}>{it.errors} err</span> : null}
+            </span>
+          </>
+        );
+        return props.hrefFor
+          ? <Link key={it.label} href={props.hrefFor(it.label)} onMouseEnter={() => setHover(it.label)} style={rowStyle}>{inner}</Link>
+          : <div key={it.label} onMouseEnter={() => setHover(it.label)} style={rowStyle}>{inner}</div>;
+      })}
     </div>
   );
 }

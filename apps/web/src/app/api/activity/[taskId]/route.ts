@@ -1,12 +1,13 @@
 /**
- * @fileoverview Detail endpoint for one task — returns the task plus its
- * activities (with nested tool_calls) for the dashboard's drilldown view.
+ * @fileoverview Detail endpoint for one task — returns the task, the full LLM
+ * trace (turns → span tree of reasoning / generations / tools / final answer),
+ * and session-level rollup analytics for the session/trace view.
  *
  * @module web/api/activity/[taskId]
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTaskWithDetails, deepLinkForTask } from '@slackhive/shared';
+import { getTaskWithDetails, getSessionTrace, deepLinkForTask } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/activity/[taskId]
- * Returns `{ task, activities: [{ ...activity, toolCalls }], deepLink }`
+ * Returns `{ task, turns: [{ ...turn, spans }], rollup, deepLink }`
  * or 404 if the id is unknown.
  */
 export async function GET(
@@ -45,8 +46,12 @@ export async function GET(
       }
     }
 
+    const trace = await getSessionTrace(taskId);
+
     return NextResponse.json({
-      ...details,
+      task: details.task,
+      turns: trace?.turns ?? [],
+      rollup: trace?.rollup ?? null,
       deepLink: deepLinkForTask(details.task),
     });
   } catch (err) {
