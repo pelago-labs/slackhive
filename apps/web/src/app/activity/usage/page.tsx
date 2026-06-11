@@ -12,7 +12,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'reac
 import { useSearchParams } from 'next/navigation';
 import { BarChart3, ExternalLink, Lock, RefreshCw } from 'lucide-react';
 import { TabSwitcher } from '../_components/TabSwitcher';
-import { FilterRow, type WindowKey } from '../_components/FilterRow';
+import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../_components/FilterRow';
 import { formatTokens } from '../_components/formatTokens';
 
 interface AgentLite { id: string; slug: string; name: string }
@@ -77,12 +77,12 @@ function UsagePageBody(): React.JSX.Element {
 
   const [agents, setAgents] = useState<AgentLite[]>([]);
   const [agentFilter, setAgentFilter] = useState<string>(searchParams?.get('agent') ?? '');
+  const [from, setFrom] = useState<string>(searchParams?.get('from') ?? '');
+  const [to, setTo] = useState<string>(searchParams?.get('to') ?? '');
   const [windowKey, setWindowKey] = useState<WindowKey>(
-    ((): WindowKey => {
-      const w = searchParams?.get('window');
-      return w === '1h' || w === '5h' || w === '24h' || w === '7d' || w === '30d' ? w : '5h';
-    })(),
+    parseWindowKey(searchParams?.get('window') ?? (searchParams?.get('from') && searchParams?.get('to') ? 'custom' : '5h')),
   );
+  const timeQs = () => timeParams(windowKey, from, to);
   const [data, setData] = useState<UsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
@@ -99,7 +99,7 @@ function UsagePageBody(): React.JSX.Element {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ window: windowKey });
+    const params = new URLSearchParams({ ...timeQs() });
     if (agentFilter) params.set('agent', agentFilter);
     try {
       const r = await fetch(`/api/activity/usage?${params.toString()}`);
@@ -113,7 +113,7 @@ function UsagePageBody(): React.JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [agentFilter, windowKey]);
+  }, [agentFilter, windowKey, from, to]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -168,6 +168,9 @@ function UsagePageBody(): React.JSX.Element {
               windowKey={windowKey}
               onAgentChange={setAgentFilter}
               onWindowChange={setWindowKey}
+              from={from}
+              to={to}
+              onRangeChange={(f, t) => { setFrom(f); setTo(t); }}
             />
           </div>
 
@@ -189,6 +192,7 @@ function windowLabel(w: WindowKey): string {
        : w === '5h' ? 'last 5 hours'
        : w === '24h' ? 'last 24 hours'
        : w === '7d' ? 'last 7 days'
+       : w === 'custom' ? 'selected range'
        : 'last 30 days';
 }
 

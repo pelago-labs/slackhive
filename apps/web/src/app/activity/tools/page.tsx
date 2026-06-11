@@ -12,7 +12,7 @@ import React, { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Wrench, ArrowLeft, ChevronRight, ChevronDown, ArrowUpRight } from 'lucide-react';
-import { FilterRow, type WindowKey } from '../_components/FilterRow';
+import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../_components/FilterRow';
 
 interface ToolErrorGroup { message: string; count: number; sampleSessionId: string | null }
 interface ToolStat { name: string; calls: number; errors: number; errorGroups: ToolErrorGroup[] }
@@ -28,22 +28,24 @@ function Body(): React.JSX.Element {
   const [tools, setTools] = useState<ToolStat[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [agentFilter, setAgentFilter] = useState(searchParams?.get('agent') ?? '');
-  const [windowKey, setWindowKey] = useState<WindowKey>(((): WindowKey => {
-    const w = searchParams?.get('window');
-    return w === '1h' || w === '5h' || w === '24h' || w === '7d' || w === '30d' ? w : '24h';
-  })());
+  const [from, setFrom] = useState(searchParams?.get('from') ?? '');
+  const [to, setTo] = useState(searchParams?.get('to') ?? '');
+  const [windowKey, setWindowKey] = useState<WindowKey>(
+    parseWindowKey(searchParams?.get('window') ?? (searchParams?.get('from') && searchParams?.get('to') ? 'custom' : null)),
+  );
+  const timeQs = () => timeParams(windowKey, from, to);
 
   useEffect(() => {
     fetch('/api/agents').then(r => r.json()).then((rows: AgentLite[]) => setAgents(rows)).catch(() => {});
   }, []);
 
   const load = useCallback(async () => {
-    const params = new URLSearchParams({ window: windowKey });
+    const params = new URLSearchParams({ ...timeQs() });
     if (agentFilter) params.set('agent', agentFilter);
     const r = await fetch(`/api/activity/tools?${params.toString()}`);
     if (r.ok) { const d = await r.json(); setTools(d.tools ?? []); }
     setLoaded(true);
-  }, [agentFilter, windowKey]);
+  }, [agentFilter, windowKey, from, to]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -63,7 +65,7 @@ function Body(): React.JSX.Element {
         </p>
       </div>
 
-      <FilterRow agents={agents} agentFilter={agentFilter} windowKey={windowKey} onAgentChange={setAgentFilter} onWindowChange={setWindowKey} />
+      <FilterRow agents={agents} agentFilter={agentFilter} windowKey={windowKey} onAgentChange={setAgentFilter} onWindowChange={setWindowKey} from={from} to={to} onRangeChange={(f, t) => { setFrom(f); setTo(t); }} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {loaded && tools.length === 0 && (

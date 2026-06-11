@@ -366,6 +366,10 @@ export async function listTasks(
     taskWheres.push(`t.last_activity_at >= $${cteParams.length + taskParams.length + 1}`);
     taskParams.push(filter.since);
   }
+  if (filter.until) {
+    taskWheres.push(`t.last_activity_at <= $${cteParams.length + taskParams.length + 1}`);
+    taskParams.push(filter.until);
+  }
 
   // Column filter against pre-aggregated CTE columns
   if (column === 'active') {
@@ -573,6 +577,10 @@ export async function getTokensByAgent(filter: ActivityFilter = {}): Promise<Age
     wheres.push(`a.started_at >= $${params.length + 1}`);
     params.push(filter.since);
   }
+  if (filter.until) {
+    wheres.push(`a.started_at <= $${params.length + 1}`);
+    params.push(filter.until);
+  }
 
   if (filter.agentId) {
     wheres.push(`a.agent_id = $${params.length + 1}`);
@@ -633,6 +641,10 @@ export async function getTopUsers(
   if (filter.since) {
     wheres.push(`a.started_at >= $${params.length + 1}`);
     params.push(filter.since);
+  }
+  if (filter.until) {
+    wheres.push(`a.started_at <= $${params.length + 1}`);
+    params.push(filter.until);
   }
 
   if (filter.agentId) {

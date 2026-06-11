@@ -311,19 +311,27 @@ export interface AgentRollup {
  * tool/model breakdown and ms-accurate latency come from `spans` (turns traced
  * since the feature shipped); feedback from `message_feedback`.
  */
-export async function getAgentRollup(opts: { agentId: string; since?: string }): Promise<AgentRollup> {
-  return cached(`agentRollup:${opts.agentId}:${opts.since ?? ''}`, 2500, () => computeAgentRollup(opts));
+export async function getAgentRollup(opts: { agentId: string; since?: string; until?: string }): Promise<AgentRollup> {
+  return cached(`agentRollup:${opts.agentId}:${opts.since ?? ''}:${opts.until ?? ''}`, 2500, () => computeAgentRollup(opts));
 }
 
-async function computeAgentRollup(opts: { agentId: string; since?: string }): Promise<AgentRollup> {
+async function computeAgentRollup(opts: { agentId: string; since?: string; until?: string }): Promise<AgentRollup> {
   const db = getDb();
-  const { agentId, since } = opts;
+  const { agentId, since, until } = opts;
   const sinceMs = sinceToMs(since);
+  const untilMs = sinceToMs(until);
 
-  const actWhere = since ? `agent_id = $1 AND started_at >= $2` : `agent_id = $1`;
-  const actParams: unknown[] = since ? [agentId, since] : [agentId];
-  const spanWhere = Number.isFinite(sinceMs) ? `agent_id = $1 AND start_ms >= $2` : `agent_id = $1`;
-  const spanParams: unknown[] = Number.isFinite(sinceMs) ? [agentId, sinceMs] : [agentId];
+  const actW: string[] = ['agent_id = $1'];
+  const actParams: unknown[] = [agentId];
+  if (since) { actW.push(`started_at >= $${actParams.length + 1}`); actParams.push(since); }
+  if (until) { actW.push(`started_at <= $${actParams.length + 1}`); actParams.push(until); }
+  const actWhere = actW.join(' AND ');
+
+  const spanW: string[] = ['agent_id = $1'];
+  const spanParams: unknown[] = [agentId];
+  if (Number.isFinite(sinceMs)) { spanW.push(`start_ms >= $${spanParams.length + 1}`); spanParams.push(sinceMs); }
+  if (Number.isFinite(untilMs)) { spanW.push(`start_ms <= $${spanParams.length + 1}`); spanParams.push(untilMs); }
+  const spanWhere = spanW.join(' AND ');
   // Feedback is a sparse, lifetime signal — NOT window-scoped, so satisfaction
   // always reflects the agent's standing rather than vanishing on a short window.
   const fbWhere = `agent_id = $1`;
@@ -405,6 +413,7 @@ export interface SensitiveEvent {
 
 export interface SensitiveFeedFilter {
   since?: string;
+  until?: string;
   agentId?: string;
   accessibleAgentIds?: string[];
   limit?: number;
@@ -423,6 +432,10 @@ export async function getSensitiveEvents(filter: SensitiveFeedFilter = {}): Prom
   if (filter.since) {
     const sinceMs = sinceToMs(filter.since);
     if (Number.isFinite(sinceMs)) { wheres.push(`s.start_ms >= $${params.length + 1}`); params.push(sinceMs); }
+  }
+  if (filter.until) {
+    const untilMs = sinceToMs(filter.until);
+    if (Number.isFinite(untilMs)) { wheres.push(`s.start_ms <= $${params.length + 1}`); params.push(untilMs); }
   }
   if (filter.agentId) { wheres.push(`s.agent_id = $${params.length + 1}`); params.push(filter.agentId); }
   if (filter.accessibleAgentIds !== undefined) {
@@ -486,6 +499,29 @@ async function computeFeedbackCountsForTasks(taskIds: string[]): Promise<Record<
   return out;
 }
 
+// ── Retention ────────────────────────────────────────────────────────────────
+
+/**
+ * Delete activity/trace data older than `retentionDays` (default 180 ≈ 6 months;
+ * override via TRACE_RETENTION_DAYS). Prunes spans (by epoch-ms), message
+ * feedback (by created_at), and whole tasks past their last activity — task
+ * deletion cascades to activities → tool_calls. Best-effort; returns row counts.
+ */
+export async function pruneTraceData(retentionDays?: number): Promise<{ spans: number; feedback: number; tasks: number }> {
+  const days = retentionDays ?? (Number(process.env.TRACE_RETENTION_DAYS) || 180);
+  const cutoffIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  // Prune by SESSION (whole thread), atomically: delete tasks past the cutoff
+  // (which cascades activities → tool_calls), then any spans whose session was
+  // removed. This keeps retained sessions WHOLE (no half-pruned traces) and
+  // never leaves orphan spans. Feedback is pruned by its own age.
+  return getDb().transaction(async (tx) => {
+    const tasks = await tx.query(`DELETE FROM tasks WHERE last_activity_at < $1`, [cutoffIso]);
+    const spans = await tx.query(`DELETE FROM spans WHERE session_id NOT IN (SELECT id FROM tasks)`);
+    const feedback = await tx.query(`DELETE FROM message_feedback WHERE created_at < $1`, [cutoffIso]);
+    return { spans: spans.rowCount, feedback: feedback.rowCount, tasks: tasks.rowCount };
+  });
+}
+
 // ── Per-tool stats + error-message aggregation ───────────────────────────────
 
 export interface ToolErrorGroup {
@@ -505,13 +541,15 @@ export interface ToolStat {
  * error messages aggregated by identical text → count. Powers the tool
  * drill-down opened from the dashboard's "Top tools".
  */
-export async function getToolStats(filter: { agentId?: string; since?: string; accessibleAgentIds?: string[] } = {}): Promise<ToolStat[]> {
+export async function getToolStats(filter: { agentId?: string; since?: string; until?: string; accessibleAgentIds?: string[] } = {}): Promise<ToolStat[]> {
   const db = getDb();
   const sinceMs = sinceToMs(filter.since);
+  const untilMs = sinceToMs(filter.until);
   const wheres = [`kind = 'tool'`, `tool_name IS NOT NULL`];
   const params: unknown[] = [];
   if (filter.agentId) { wheres.push(`agent_id = $${params.length + 1}`); params.push(filter.agentId); }
   if (Number.isFinite(sinceMs)) { wheres.push(`start_ms >= $${params.length + 1}`); params.push(sinceMs); }
+  if (Number.isFinite(untilMs)) { wheres.push(`start_ms <= $${params.length + 1}`); params.push(untilMs); }
   if (filter.accessibleAgentIds !== undefined) {
     if (filter.accessibleAgentIds.length === 0) return [];
     const ph = filter.accessibleAgentIds.map((_, i) => `$${params.length + 1 + i}`).join(', ');

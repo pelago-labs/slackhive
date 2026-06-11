@@ -380,10 +380,9 @@ function TurnCard({ turn, index }: { turn: TraceTurn; index: number }): React.JS
   const toolErrors = turn.spans.filter(s => s.kind === 'tool' && s.status === 'error').length;
   const sentiment = turn.feedback.length ? (turn.feedback.some(f => f.sentiment === 'down') ? 'down' : 'up') : null;
   const nodes = buildNodes(turn);
-  // Shared time axis for the waterfall bars (min start → max end across steps).
-  const axisStart = turn.spans.length ? Math.min(...turn.spans.map(s => s.startMs)) : 0;
-  const axisEnd = turn.spans.length ? Math.max(...turn.spans.map(s => s.endMs ?? s.startMs)) : 1;
-  const axisSpan = Math.max(1, axisEnd - axisStart);
+  // Longest step drives the comparative duration-bar scale (left-aligned, not
+  // absolute-positioned — clearer than a waterfall when tool spans are ~0ms).
+  const maxStepMs = Math.max(1, ...nodes.map(n => n.durationMs ?? 0));
 
   // Author line — who sent / whose idea.
   const author = turn.initiatorKind === 'agent'
@@ -421,18 +420,13 @@ function TurnCard({ turn, index }: { turn: TraceTurn; index: number }): React.JS
       </div>
 
       {open && (
-        <div style={{ padding: '2px 16px 16px 58px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ padding: '4px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {turn.spans.length === 0 && turn.status === 'in_progress' && (
-            <div style={{ fontSize: 12, color: 'var(--subtle)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} style={{ animation: 'spin 1.2s linear infinite' }} /> running…</div>
+            <div style={{ fontSize: 12, color: 'var(--subtle)', display: 'inline-flex', alignItems: 'center', gap: 6, paddingLeft: 4 }}><Loader2 size={12} style={{ animation: 'spin 1.2s linear infinite' }} /> running…</div>
           )}
-          {/* Langfuse/MLflow-style observation tree: type tag · name · latency
-              waterfall · duration/tokens. Click a row to expand its content. */}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {nodes.map((node, i) => (
-              <TreeNode key={node.key} isLast={i === nodes.length - 1}>
-                <NodeRow node={node} axisStart={axisStart} axisSpan={axisSpan} />
-              </TreeNode>
-            ))}
+          {/* Observation list: type tag · name · proportional duration bar · duration. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {nodes.map(node => <NodeRow key={node.key} node={node} maxMs={maxStepMs} />)}
           </div>
 
           {turn.feedback.map((f, i) => (
@@ -530,64 +524,50 @@ function buildNodes(turn: TraceTurn): NodeData[] {
   return nodes;
 }
 
-/** Tree node with subtle connector rails. The vertical rail spans the full node
- * (incl. expanded content) unless it's the last child. */
-function TreeNode({ isLast, children }: { isLast: boolean; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div style={{ position: 'relative', paddingLeft: 18 }}>
-      <div style={{ position: 'absolute', left: 6, top: 0, width: 1, background: 'var(--border)', height: isLast ? 15 : '100%' }} />
-      <div style={{ position: 'absolute', left: 6, top: 15, width: 9, height: 1, background: 'var(--border)' }} />
-      {children}
-    </div>
-  );
-}
-
 const META = { fontSize: 11, color: 'var(--subtle)', flexShrink: 0, fontFamily: 'var(--font-mono, monospace)', fontVariantNumeric: 'tabular-nums' } as const;
 
-/** A Langfuse/MLflow-style observation row: chevron · type tag · name · latency
- * waterfall · duration/tokens. Dense, hover-highlight, click to expand content. */
-function NodeRow({ node, axisStart, axisSpan }: { node: NodeData; axisStart: number; axisSpan: number }): React.JSX.Element {
+/** One observation row: chevron · type tag · name · model/tokens · a comparative
+ * duration bar (length ∝ how long this step took vs the slowest in the turn) ·
+ * duration. Click to expand its content. */
+function NodeRow({ node, maxMs }: { node: NodeData; maxMs: number }): React.JSX.Element {
   const has = node.sections.length > 0;
   const [open, setOpen] = useState(!!node.defaultOpen);
   const k = KIND[node.kind];
   const isErr = node.kind === 'error' || node.error;
-  const tagColor = isErr ? 'var(--red)' : k.tagColor;
-  const barColor = isErr ? 'var(--red)' : k.bar;
-  const titleColor = node.kind === 'final' ? 'var(--green)' : isErr ? 'var(--red)' : 'var(--text-2)';
+  const tagColor = isErr ? 'var(--red)' : node.kind === 'final' ? 'var(--green)' : 'var(--muted)';
+  const barColor = isErr ? 'var(--red)' : 'var(--text-2)';
+  const titleColor = node.kind === 'final' ? 'var(--green)' : isErr ? 'var(--red)' : 'var(--text)';
   const accent = node.kind === 'final' ? 'var(--green)' : isErr ? 'var(--red)' : undefined;
 
-  // Waterfall geometry (only for real spans with timing).
-  const hasBar = node.startMs != null;
-  const left = hasBar ? Math.min(99, Math.max(0, ((node.startMs! - axisStart) / axisSpan) * 100)) : 0;
-  const rawW = hasBar ? (((node.endMs ?? node.startMs!) - node.startMs!) / axisSpan) * 100 : 0;
-  const width = Math.max(1.5, Math.min(100 - left, rawW));
+  const hasDur = node.durationMs != null;
+  const pct = hasDur ? Math.max(2, Math.min(100, ((node.durationMs as number) / maxMs) * 100)) : 0;
+  const durText = !hasDur ? '' : (node.durationMs && node.durationMs > 0 ? formatMs(node.durationMs) : '<1ms');
 
   return (
     <div>
       <div className="trace-node" onClick={() => has && setOpen(o => !o)}
-        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 8px', borderRadius: 6, minHeight: 26, cursor: has ? 'pointer' : 'default' }}>
-        {has ? (open ? <ChevronDown size={12} style={{ color: 'var(--subtle)', flexShrink: 0 }} /> : <ChevronRight size={12} style={{ color: 'var(--subtle)', flexShrink: 0 }} />) : <span style={{ width: 12, flexShrink: 0 }} />}
-        {/* type tag column (fixed width so names align) — neutral pill */}
-        <span style={{ flexShrink: 0, width: 48, textAlign: 'center', fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', padding: '2px 0', borderRadius: 4, background: isErr ? 'rgba(220,38,38,0.1)' : 'var(--surface-2)', border: `1px solid ${isErr ? 'rgba(220,38,38,0.25)' : 'var(--border)'}`, color: tagColor }}>{k.tag}</span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 90, maxWidth: 320 }}>{node.title}</span>
+        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 8px', borderRadius: 6, minHeight: 30, cursor: has ? 'pointer' : 'default' }}>
+        {has
+          ? (open ? <ChevronDown size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} />)
+          : <span style={{ width: 13, flexShrink: 0 }} />}
+        {/* type tag — fixed width so names align into a column */}
+        <span style={{ flexShrink: 0, width: 50, textAlign: 'center', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', padding: '3px 0', borderRadius: 4, background: isErr ? 'rgba(220,38,38,0.1)' : node.kind === 'final' ? 'rgba(5,150,105,0.1)' : 'var(--surface-2)', color: tagColor }}>{k.tag}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 60 }}>{node.title}</span>
         {node.sensitive && <SensitiveBadge categories={node.sensitiveCategories ?? []} compact />}
         {node.model && <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>{node.model}</span>}
-        <div style={{ flex: 1, minWidth: 12 }} />
         {node.tokens > 0 && <span style={META}>{formatTokens(node.tokens)}</span>}
-        {/* latency waterfall */}
-        <div style={{ flexShrink: 0, width: '34%', maxWidth: 360, minWidth: 80 }}>
-          {hasBar && (
-            <div style={{ position: 'relative', height: 6, background: 'var(--surface-2)', borderRadius: 3, overflow: 'hidden' }}>
-              <div title={formatMs(node.durationMs)} style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, background: barColor, borderRadius: 3, opacity: 0.7 }} />
+        {/* comparative duration bar (left-aligned column) */}
+        <div style={{ flexShrink: 0, width: 200 }}>
+          {hasDur && (
+            <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 3, overflow: 'hidden' }}>
+              <div title={durText} style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 3, opacity: 0.55 }} />
             </div>
           )}
         </div>
-        <span style={{ ...META, minWidth: 46, textAlign: 'right' }} title={node.startMs != null && !(node.durationMs && node.durationMs > 0) ? 'Instant / not reported by backend' : undefined}>
-          {node.startMs == null ? '' : (node.durationMs && node.durationMs > 0 ? formatMs(node.durationMs) : '<1ms')}
-        </span>
+        <span style={{ ...META, minWidth: 50, textAlign: 'right' }} title={hasDur && !(node.durationMs && node.durationMs > 0) ? 'Instant / not reported by backend' : undefined}>{durText}</span>
       </div>
       {open && has && (
-        <div style={{ paddingLeft: 20, paddingBottom: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ paddingLeft: 24, paddingRight: 4, paddingBottom: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} />)}
         </div>
       )}

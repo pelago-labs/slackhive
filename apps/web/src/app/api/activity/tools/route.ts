@@ -11,7 +11,7 @@ import { getToolStats } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
-import { windowFloor } from '@/lib/activity-window';
+import { windowBounds } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,9 +24,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
     const { searchParams } = new URL(req.url);
+    const { since, until } = windowBounds(searchParams.get('window'), searchParams.get('from'), searchParams.get('to'));
 
     const tools = await getToolStats({
-      since: windowFloor(searchParams.get('window')),
+      since,
+      until,
       agentId: searchParams.get('agent') ?? undefined,
       accessibleAgentIds: accessibleAgentIds ?? undefined,
     });

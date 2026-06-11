@@ -1138,7 +1138,10 @@ export interface ActivityFilter {
   agentId?: string;
   userId?: string;
   status?: 'active' | 'recent' | 'errored';
+  /** Lower time bound (inclusive), stored `YYYY-MM-DD HH:MM:SS`. */
   since?: string;
+  /** Upper time bound (inclusive) — set for explicit custom date ranges. */
+  until?: string;
   /**
    * Restrict results to tasks with at least one activity from one of these
    * agent IDs. `undefined` = no restriction (admin view); empty array = the

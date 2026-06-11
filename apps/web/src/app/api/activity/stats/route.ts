@@ -12,7 +12,7 @@ import { listTasks, countInProgressByAgent, getAgentRollup, type ActivityFilter 
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
-import { windowFloor } from '@/lib/activity-window';
+import { windowBounds } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,10 +34,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
 
     const { searchParams } = new URL(req.url);
+    const { since, until } = windowBounds(searchParams.get('window'), searchParams.get('from'), searchParams.get('to'));
     const filter: ActivityFilter = {
       agentId: searchParams.get('agent') ?? undefined,
       userId: searchParams.get('user') ?? undefined,
-      since: windowFloor(searchParams.get('window')),
+      since,
+      until,
       accessibleAgentIds: accessibleAgentIds ?? undefined,
     };
 
@@ -53,7 +55,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       listTasks('recent', filter, 500, null),
       listTasks('errored', filter, 500, null),
       countInProgressByAgent(accessibleAgentIds ?? undefined),
-      canSeeAgent ? getAgentRollup({ agentId: agentId!, since: filter.since }) : Promise.resolve(null),
+      canSeeAgent ? getAgentRollup({ agentId: agentId!, since: filter.since, until: filter.until }) : Promise.resolve(null),
     ]);
 
     return NextResponse.json({

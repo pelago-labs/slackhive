@@ -17,7 +17,7 @@ import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDas
 import type { AgentRollup } from '@slackhive/shared';
 import { TabSwitcher } from './_components/TabSwitcher';
 import { formatTokens } from './_components/formatTokens';
-import { FilterRow, type WindowKey } from './_components/FilterRow';
+import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
 
 interface Task {
   id: string;
@@ -112,12 +112,12 @@ function ActivityPageBody(): React.JSX.Element {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [agentFilter, setAgentFilter] = useState<string>(searchParams?.get('agent') ?? '');
+  const [from, setFrom] = useState<string>(searchParams?.get('from') ?? '');
+  const [to, setTo] = useState<string>(searchParams?.get('to') ?? '');
   const [windowKey, setWindowKey] = useState<WindowKey>(
-    ((): WindowKey => {
-      const w = searchParams?.get('window');
-      return w === '1h' || w === '5h' || w === '24h' || w === '7d' || w === '30d' ? w : '24h';
-    })(),
+    parseWindowKey(searchParams?.get('window') ?? (searchParams?.get('from') && searchParams?.get('to') ? 'custom' : null)),
   );
+  const timeQs = () => timeParams(windowKey, from, to);
   // Per-activity agent participation map, populated lazily from task detail.
   const [agentsByTask, setAgentsByTask] = useState<Record<string, string[]>>({});
   // Ref mirror of `agentsByTask` so `load` can read the latest value without
@@ -140,20 +140,20 @@ function ActivityPageBody(): React.JSX.Element {
   }, [agents]);
 
   const fetchColumn = useCallback(async (col: Column): Promise<TaskListResult> => {
-    const params = new URLSearchParams({ column: col, window: windowKey });
+    const params = new URLSearchParams({ column: col, ...timeQs() });
     if (agentFilter) params.set('agent', agentFilter);
     const r = await fetch(`/api/activity?${params.toString()}`);
     if (!r.ok) return { tasks: [], nextCursor: null };
     return r.json();
-  }, [agentFilter, windowKey]);
+  }, [agentFilter, windowKey, from, to]);
 
   const fetchStats = useCallback(async (): Promise<StatsResponse | null> => {
-    const params = new URLSearchParams({ window: windowKey });
+    const params = new URLSearchParams({ ...timeQs() });
     if (agentFilter) params.set('agent', agentFilter);
     const r = await fetch(`/api/activity/stats?${params.toString()}`);
     if (!r.ok) return null;
     return r.json();
-  }, [agentFilter, windowKey]);
+  }, [agentFilter, windowKey, from, to]);
 
   const load = useCallback(async () => {
     const [active, recent, errored, s] = await Promise.all([
@@ -196,7 +196,7 @@ function ActivityPageBody(): React.JSX.Element {
   const loadMore = async (col: Column) => {
     const cursor = lists[col].nextCursor;
     if (!cursor) return;
-    const params = new URLSearchParams({ column: col, window: windowKey, cursor });
+    const params = new URLSearchParams({ column: col, ...timeQs(), cursor });
     if (agentFilter) params.set('agent', agentFilter);
     const r = await fetch(`/api/activity?${params.toString()}`);
     if (!r.ok) return;
@@ -243,6 +243,9 @@ function ActivityPageBody(): React.JSX.Element {
         windowKey={windowKey}
         onAgentChange={setAgentFilter}
         onWindowChange={setWindowKey}
+        from={from}
+        to={to}
+        onRangeChange={(f, t) => { setFrom(f); setTo(t); }}
       />
 
       {agentFilter && stats?.agentRollup && (

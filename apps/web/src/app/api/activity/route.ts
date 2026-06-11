@@ -11,7 +11,7 @@ import { listTasks, getFeedbackCountsForTasks, type TaskListColumn, type Activit
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
-import { windowFloor } from '@/lib/activity-window';
+import { windowBounds } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,10 +44,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // created or have explicit access to.
     const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
 
+    const { since, until } = windowBounds(searchParams.get('window'), searchParams.get('from'), searchParams.get('to'));
     const filter: ActivityFilter = {
       agentId: searchParams.get('agent') ?? undefined,
       userId: searchParams.get('user') ?? undefined,
-      since: windowFloor(searchParams.get('window')),
+      since,
+      until,
       accessibleAgentIds: accessibleAgentIds ?? undefined,
     };
 
