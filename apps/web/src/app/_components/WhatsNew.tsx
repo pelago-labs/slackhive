@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * @fileoverview "What's New" — a sidebar bell with an unread badge that opens a
- * dropdown of recent big features (title + summary + date). Entries are curated
- * in `src/data/whats-new.json` (one entry per significant feature merged to
+ * @fileoverview "What's New" — a fixed top-right bell with an unread badge that
+ * opens a dropdown of recent big features (title + summary + date). Entries are
+ * curated in `src/data/whats-new.json` (one per significant feature merged to
  * master). "Unread" is tracked in localStorage by the newest entry's date.
  *
  * @module web/app/_components/WhatsNew
@@ -27,7 +27,7 @@ function fmtDate(d: string): string {
   return y && m && day ? `${MONTHS[m - 1]} ${day}, ${y}` : d;
 }
 
-export function WhatsNew({ collapsed }: { collapsed?: boolean }): React.JSX.Element {
+export function WhatsNew(): React.JSX.Element {
   const [lastSeen, setLastSeen] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [box, setBox] = useState<DOMRect | null>(null);
@@ -51,33 +51,24 @@ export function WhatsNew({ collapsed }: { collapsed?: boolean }): React.JSX.Elem
     return () => window.removeEventListener('resize', close);
   }, [open]);
 
-  const navStyle: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: 10,
-    padding: collapsed ? '8px 0' : '8px 10px',
-    justifyContent: collapsed ? 'center' : 'flex-start',
-    borderRadius: 8, border: 'none', background: open ? 'var(--surface-2)' : 'transparent',
-    color: open ? 'var(--text)' : 'var(--muted)', fontSize: 13, fontWeight: open ? 600 : 400,
-    transition: 'background 0.12s, color 0.12s', cursor: 'pointer', width: '100%',
-    fontFamily: 'var(--font-sans)', position: 'relative',
-  };
-  const hover = (e: React.MouseEvent) => { if (!open) { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; } };
-  const leave = (e: React.MouseEvent) => { if (!open) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; } };
-
   return (
     <>
-      <button ref={btnRef} onClick={openPanel} title={collapsed ? "What's New" : undefined} style={navStyle} onMouseEnter={hover} onMouseLeave={leave}>
-        <span style={{ flexShrink: 0, position: 'relative' }}>
-          <Bell size={16} strokeWidth={1.75} />
-          {collapsed && unread > 0 && (
-            <span style={{ position: 'absolute', top: -2, right: -4, width: 8, height: 8, borderRadius: '50%', background: '#2563eb', border: '2px solid var(--surface)' }} />
-          )}
-        </span>
-        {!collapsed && <span style={{ flex: 1, textAlign: 'left' }}>What&apos;s New</span>}
-        {!collapsed && unread > 0 && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#2563eb' }} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#2563eb' }}>{unread}</span>
-          </span>
+      {/* Fixed top-right floating bell. */}
+      <button ref={btnRef} onClick={openPanel} title="What's New" aria-label="What's New" style={{
+        position: 'fixed', top: 12, right: 16, zIndex: 47,
+        width: 36, height: 36, borderRadius: 9,
+        background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', color: open ? 'var(--text)' : 'var(--muted)',
+      }}>
+        <Bell size={17} strokeWidth={1.75} />
+        {unread > 0 && (
+          <span style={{
+            position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px',
+            borderRadius: 8, background: '#2563eb', color: '#fff', border: '2px solid var(--surface)',
+            fontSize: 10, fontWeight: 700, lineHeight: '12px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>{unread}</span>
         )}
       </button>
 
@@ -86,9 +77,10 @@ export function WhatsNew({ collapsed }: { collapsed?: boolean }): React.JSX.Elem
           <div onClick={() => setBox(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000 }} />
           <div style={{
             position: 'fixed', zIndex: 1001,
-            left: Math.round(box.right + 8),
-            top: Math.min(Math.round(box.top), Math.max(8, window.innerHeight - 460)),
-            width: 340, maxHeight: 440, overflowY: 'auto',
+            // Anchor below the bell, right-aligned, clamped to the viewport.
+            top: Math.round(box.bottom + 8),
+            left: Math.round(Math.max(8, box.right - 340)),
+            width: 340, maxHeight: 'min(440px, calc(100vh - 80px))', overflowY: 'auto',
             background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
             boxShadow: '0 8px 28px rgba(0,0,0,0.22)', padding: 0,
           }}>
