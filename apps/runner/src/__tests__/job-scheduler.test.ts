@@ -9,7 +9,7 @@ vi.mock('../db', () => ({
   updateJobRun: (...a: unknown[]) => updateJobRun(...a),
 }));
 
-import { JobScheduler, extractJobAttachments } from '../job-scheduler';
+import { JobScheduler } from '../job-scheduler';
 
 function makeAgent(resultText: string) {
   async function* stream() {
@@ -22,7 +22,6 @@ function makeAgent(resultText: string) {
     postMessage: vi.fn(async () => 'anchor-ts'),
     buildPayloads: vi.fn((text: string) => [{ text }]),
     postPayload: vi.fn(async () => 'posted'),
-    uploadFile: vi.fn(async () => {}),
   };
   return { agent: { backend, adapter }, backend, adapter };
 }
@@ -126,79 +125,9 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'error', null, 'backend exploded');
   });
 
-  it('posts the body first, then uploads embedded attachments after it', async () => {
-    const out = 'L1 tables here\n\n<<<ATTACH filename="L2-2026-06-09.txt">>>\nL2 ascii body\n<<<END ATTACH>>>';
-    const { agent, adapter } = makeAgent(out);
-    const scheduler = new JobScheduler(() => agent as never);
-
-    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
-
-    // Body posted with the marker block stripped out.
-    expect(adapter.buildPayloads).toHaveBeenCalledWith('L1 tables here');
-    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'L1 tables here' }, 'anchor-ts');
-    // File uploaded into the same thread, after the body.
-    expect(adapter.uploadFile).toHaveBeenCalledWith('C123', 'L2 ascii body', 'L2-2026-06-09.txt', 'anchor-ts');
-    // Ordering: the body post happens before the file upload.
-    expect(adapter.postPayload.mock.invocationCallOrder[0])
-      .toBeLessThan(adapter.uploadFile.mock.invocationCallOrder[0]);
-  });
-
-  it('skips the body post when output is attachment-only (avoids blank message)', async () => {
-    const out = '<<<ATTACH filename="report.csv">>>\na,b,c\n<<<END ATTACH>>>';
-    const { agent, adapter } = makeAgent(out);
-    const scheduler = new JobScheduler(() => agent as never);
-
-    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
-
-    // No empty body posted...
-    expect(adapter.buildPayloads).not.toHaveBeenCalled();
-    expect(adapter.postPayload).not.toHaveBeenCalled();
-    // ...but the file still uploads under the anchor.
-    expect(adapter.uploadFile).toHaveBeenCalledWith('C123', 'a,b,c', 'report.csv', 'anchor-ts');
-  });
-
-  it('does not upload anything when the output has no attachment markers', async () => {
-    const { agent, adapter } = makeAgent('just a plain digest');
-    const scheduler = new JobScheduler(() => agent as never);
-
-    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
-
-    expect(adapter.uploadFile).not.toHaveBeenCalled();
-    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'just a plain digest' }, 'anchor-ts');
-  });
-
   it('skips silently when the target agent is not running', async () => {
     const scheduler = new JobScheduler(() => undefined);
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
     expect(insertJobRun).not.toHaveBeenCalled();
-  });
-});
-
-describe('extractJobAttachments', () => {
-  it('returns passthrough body and no attachments when there are no markers', () => {
-    expect(extractJobAttachments('plain text')).toEqual({ body: 'plain text', attachments: [] });
-  });
-
-  it('extracts a single attachment and strips it from the body', () => {
-    const text = 'before\n\n<<<ATTACH filename="a.txt">>>\nfile A\n<<<END ATTACH>>>';
-    expect(extractJobAttachments(text)).toEqual({
-      body: 'before',
-      attachments: [{ filename: 'a.txt', content: 'file A' }],
-    });
-  });
-
-  it('extracts multiple attachments in order', () => {
-    const text =
-      'body\n<<<ATTACH filename="a.txt">>>\nAAA\n<<<END ATTACH>>>\n<<<ATTACH filename="b.txt">>>\nBBB\n<<<END ATTACH>>>';
-    const { attachments } = extractJobAttachments(text);
-    expect(attachments).toEqual([
-      { filename: 'a.txt', content: 'AAA' },
-      { filename: 'b.txt', content: 'BBB' },
-    ]);
-  });
-
-  it('preserves multi-line content inside the marker', () => {
-    const text = '<<<ATTACH filename="t.txt">>>\nline1\nline2\nline3\n<<<END ATTACH>>>';
-    expect(extractJobAttachments(text).attachments[0].content).toBe('line1\nline2\nline3');
   });
 });

@@ -25,34 +25,6 @@ interface RunningAgent {
   backend: AgentBackend;
 }
 
-/** A file the agent embedded inline in its output for the scheduler to upload. */
-export interface JobAttachment {
-  filename: string;
-  content: string;
-}
-
-const ATTACH_RE =
-  /<<<ATTACH\s+filename="([^"]+)">>>\r?\n([\s\S]*?)\r?\n<<<END ATTACH>>>/g;
-
-/**
- * Pull `<<<ATTACH filename="...">>> ... <<<END ATTACH>>>` blocks out of job
- * output. Returns the text with those blocks removed (`body`) plus the parsed
- * `attachments`. Lets a skill say "post this text, then upload these files
- * after it" — the scheduler posts `body` first, uploads files second, so the
- * files appear below the text in the thread (e.g. L1 tables, then the L2 .txt).
- *
- * No markers → `body === text`, `attachments === []` — passthrough for every
- * job that doesn't opt in.
- */
-export function extractJobAttachments(text: string): { body: string; attachments: JobAttachment[] } {
-  const attachments: JobAttachment[] = [];
-  const body = text.replace(ATTACH_RE, (_match, filename: string, content: string) => {
-    attachments.push({ filename: filename.trim(), content });
-    return '';
-  }).trim();
-  return { body, attachments };
-}
-
 /**
  * Manages cron-scheduled jobs that are executed by any running agent.
  *
@@ -237,35 +209,13 @@ export class JobScheduler {
         output = '_Job completed with no output._';
       }
 
-      // Split off any inline file attachments the agent embedded via
-      // <<<ATTACH filename="...">>> ... <<<END ATTACH>>> markers. The body is
-      // posted first (rendered as messages/tables); the files are uploaded
-      // after, so they land *below* the body in the thread. Skills that emit no
-      // markers are unaffected — body === output, attachments === [].
-      const { body, attachments } = extractJobAttachments(output);
-
-      // Post the body under the thread anchor (if the anchor post failed, the
-      // first payload becomes the thread parent — legacy behavior). Skip when
-      // the body is empty (e.g. attachment-only output) — posting a blank
-      // message would error; the anchor + uploaded files stand on their own.
+      // Post all payloads under the thread anchor (if the anchor post failed,
+      // the first payload becomes the thread parent — legacy behavior).
+      const payloads = agent.adapter.buildPayloads(output);
       let threadId: string | undefined = anchorTs;
-      if (body) {
-        const payloads = agent.adapter.buildPayloads(body);
-        for (const payload of payloads) {
-          const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
-          if (!threadId) threadId = ts;
-        }
-      }
-
-      // Upload attachments AFTER the body so they appear beneath it.
-      for (const att of attachments) {
-        try {
-          await agent.adapter.uploadFile(targetChannelId, att.content, att.filename, threadId);
-        } catch (err) {
-          logger.warn('Job attachment upload failed', {
-            jobId: job.id, filename: att.filename, error: (err as Error).message,
-          });
-        }
+      for (const payload of payloads) {
+        const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
+        if (!threadId) threadId = ts;
       }
 
       await updateJobRun(runId, 'success', output.slice(0, 2000));
