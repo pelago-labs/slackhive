@@ -88,6 +88,21 @@ function Hl({ children }: { children: React.ReactNode }): React.JSX.Element {
       : child)}</>;
 }
 
+/** Normalize Slack mrkdwn the agent emitted so the trace renders it like Slack
+ * did, not as literal GitHub markdown. Most visibly, a Slack link `<url|label>`
+ * carries the value twice (in the url AND the label) — GH-markdown prints both,
+ * which looked like a "duplicated" phone number; Slack shows only the label. */
+function slackToMd(s: string): string {
+  return s
+    // <url|label> → label (Slack shows the label; keeps the value once)
+    .replace(/<((?:https?|mailto|tel):[^|>\s]+)\|([^>]+)>/gi, '$2')
+    // <url> (non-http schemes like tel: aren't GH autolinks) → bare url
+    .replace(/<((?:https?|mailto|tel):[^|>\s]+)>/gi, '$1')
+    // <@U…|name> / <#C…|name> mentions → the readable name
+    .replace(/<[@#!][^|>]+\|([^>]+)>/g, '$1')
+    .replace(/<[@#!]([^|>]+)>/g, '@$1');
+}
+
 /** Compact markdown styling for reasoning / answers inside trace nodes. */
 const MD: Components = {
   p: ({ children }) => <p style={{ margin: '0 0 6px', lineHeight: 1.6 }}><Hl>{children}</Hl></p>,
@@ -699,7 +714,7 @@ function Content({ label, body, markdown, accent, sensitive }: { label: string; 
       {markdown ? (
         <div style={{ ...shell, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
           <SensCtx.Provider value={!!sensitive}>
-            <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+            <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{slackToMd(body)}</ReactMarkdown>
           </SensCtx.Provider>
         </div>
       ) : (
