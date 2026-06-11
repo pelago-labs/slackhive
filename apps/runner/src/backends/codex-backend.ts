@@ -30,7 +30,7 @@ import type { Codex as CodexClient } from '@openai/codex-sdk';
 import type { Agent, McpServer, McpStdioConfig, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
 import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, splitCodexModel, type CodexReasoningEffort } from '@slackhive/shared';
 import { getSession, upsertSession, deleteSession, cleanupStaleSessions, getSetting } from '../db';
-import { pruneStaleSessionDirs, markSessionUsed, sessionDirName, SESSION_DIR_MAX_AGE_MS } from './prune-session-dirs';
+import { reapStaleSessionDirs, markSessionUsed, sessionDirName } from './prune-session-dirs';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
 import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject, CODEX_CAPABILITY_NOTE } from './codex-config';
@@ -529,17 +529,15 @@ export class CodexBackend implements AgentBackend {
       this.log.warn('Codex session cleanup failed', { error });
     }
     try {
-      // Protect sessions we still hold live in memory; evict in-memory state for any
-      // dir we reap so a later turn rebuilds it from scratch (AGENTS.md + skills + a
-      // fresh Codex thread) instead of trusting caches that outlived the files.
-      const protect = new Set(Array.from(this.sessionCache.keys(), sessionDirName));
-      const { removed, names } = pruneStaleSessionDirs(this.sessionsDir, SESSION_DIR_MAX_AGE_MS, { protect });
-      if (removed > 0) {
-        const reaped = new Set(names);
-        for (const key of [...this.sessionCache.keys()]) if (reaped.has(sessionDirName(key))) this.sessionCache.delete(key);
-        for (const key of [...this.lastSyncedDocMtime.keys()]) if (reaped.has(sessionDirName(key))) this.lastSyncedDocMtime.delete(key);
-        this.log.info('Reclaimed stale Codex session dirs (git clones)', { count: removed });
-      }
+      // Reap idle session dirs (git clones); protect live sessions and evict the
+      // Codex thread cache + doc-mtime cache for anything reaped so a later turn
+      // rebuilds the dir from scratch (AGENTS.md + skills + a fresh thread).
+      const { removed } = reapStaleSessionDirs(
+        this.sessionsDir,
+        this.sessionCache.keys(),
+        [this.sessionCache, this.lastSyncedDocMtime],
+      );
+      if (removed > 0) this.log.info('Reclaimed stale Codex session dirs (git clones)', { count: removed });
     } catch (error) {
       this.log.warn('Codex session dir prune failed', { error });
     }

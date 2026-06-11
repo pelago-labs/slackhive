@@ -86,3 +86,40 @@ export function pruneStaleSessionDirs(
   }
   return { removed: names.length, names };
 }
+
+/**
+ * Backend-shared "reap stale session dirs and keep in-memory state consistent"
+ * step, called from both backends' periodic cleanup so the protect/prune/evict
+ * logic lives in one place instead of being copy-pasted (and drifting).
+ *
+ * Protects dirs for sessions still live in memory (`liveKeys`), then evicts every
+ * reaped dir's key from the given caches so the next turn rebuilds the dir from
+ * scratch rather than trusting a session id / doc-mtime that outlived the files.
+ *
+ * @param sessionsDir Absolute path to the backend's `sessions/` root.
+ * @param liveKeys Raw session keys the backend still holds live (protected).
+ * @param evict Caches keyed by raw session key to drop reaped entries from
+ *   (typed by capability so maps of any value type compose without variance fights).
+ * @returns Count and dir names removed.
+ */
+export interface EvictableCache {
+  keys(): IterableIterator<string>;
+  delete(key: string): boolean;
+}
+
+export function reapStaleSessionDirs(
+  sessionsDir: string,
+  liveKeys: Iterable<string>,
+  evict: ReadonlyArray<EvictableCache>,
+): { removed: number; names: string[] } {
+  const protect = new Set<string>();
+  for (const key of liveKeys) protect.add(sessionDirName(key));
+  const res = pruneStaleSessionDirs(sessionsDir, SESSION_DIR_MAX_AGE_MS, { protect });
+  if (res.removed > 0) {
+    const reaped = new Set(res.names);
+    for (const cache of evict) {
+      for (const key of [...cache.keys()]) if (reaped.has(sessionDirName(key))) cache.delete(key);
+    }
+  }
+  return res;
+}

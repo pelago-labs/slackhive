@@ -508,15 +508,35 @@ async function computeFeedbackCountsForTasks(taskIds: string[]): Promise<Record<
  * deletion cascades to activities → tool_calls. Best-effort; returns row counts.
  */
 export async function pruneTraceData(retentionDays?: number): Promise<{ spans: number; feedback: number; tasks: number }> {
-  const days = retentionDays ?? (Number(process.env.TRACE_RETENTION_DAYS) || 180);
-  const cutoffIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
-  // Prune by SESSION (whole thread), atomically: delete tasks past the cutoff
-  // (which cascades activities → tool_calls), then any spans whose session was
-  // removed. This keeps retained sessions WHOLE (no half-pruned traces) and
-  // never leaves orphan spans. Feedback is pruned by its own age.
+  // Resolve the retention window. Use Number.isFinite (not `|| 180`) so an explicit
+  // `TRACE_RETENTION_DAYS=0` is honored as "prune everything" rather than silently
+  // coalescing the falsy zero back to the default.
+  const envDays = Number(process.env.TRACE_RETENTION_DAYS);
+  const days = retentionDays ?? (Number.isFinite(envDays) && envDays >= 0 ? envDays : 180);
+  const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+  const cutoffIso = new Date(cutoffMs).toISOString().replace('T', ' ').slice(0, 19);
+  // Prune by SESSION (whole thread), atomically, so retained sessions stay WHOLE:
+  //   1. feedback for the soon-to-be-pruned sessions — removed up front (before the
+  //      task cascade SET-NULLs activity_id and we can no longer tell which session
+  //      it belonged to), so a session's feedback dies with it regardless of its age.
+  //   2. tasks past the cutoff — cascades to activities → tool_calls.
+  //   3. spans of any removed session — orphan-join keeps whole-session semantics
+  //      (early spans of a *retained* long thread survive), but bounded by start_ms
+  //      so a fresh span written with the exporter's empty session_id fallback isn't
+  //      reaped, and the delete skips recent rows instead of scanning the whole table.
+  //   4. remaining standalone feedback past its own age.
   return getDb().transaction(async (tx) => {
+    await tx.query(
+      `DELETE FROM message_feedback WHERE activity_id IN (
+         SELECT a.id FROM activities a JOIN tasks t ON a.task_id = t.id
+         WHERE t.last_activity_at < $1)`,
+      [cutoffIso],
+    );
     const tasks = await tx.query(`DELETE FROM tasks WHERE last_activity_at < $1`, [cutoffIso]);
-    const spans = await tx.query(`DELETE FROM spans WHERE session_id NOT IN (SELECT id FROM tasks)`);
+    const spans = await tx.query(
+      `DELETE FROM spans WHERE start_ms < $1 AND session_id NOT IN (SELECT id FROM tasks)`,
+      [cutoffMs],
+    );
     const feedback = await tx.query(`DELETE FROM message_feedback WHERE created_at < $1`, [cutoffIso]);
     return { spans: spans.rowCount, feedback: feedback.rowCount, tasks: tasks.rowCount };
   });

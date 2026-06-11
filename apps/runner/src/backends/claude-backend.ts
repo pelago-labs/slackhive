@@ -26,7 +26,7 @@ import {
   upsertSession,
   cleanupStaleSessions,
 } from '../db';
-import { pruneStaleSessionDirs, markSessionUsed, sessionDirName, SESSION_DIR_MAX_AGE_MS } from './prune-session-dirs';
+import { reapStaleSessionDirs, markSessionUsed, sessionDirName } from './prune-session-dirs';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
 import { findProcessesByEnv, killProcessesGracefully } from '../process-utils.js';
@@ -929,16 +929,11 @@ export class ClaudeBackend implements AgentBackend {
       this.log.warn('Session cleanup failed', { error });
     }
     try {
-      // Protect sessions still live in memory; evict cache entries for any dir we
-      // reap so a later turn rebuilds the dir from scratch rather than reusing a
-      // session id whose on-disk state is gone.
-      const protect = new Set(Array.from(this.sessionCache.keys(), sessionDirName));
-      const { removed, names } = pruneStaleSessionDirs(this.sessionsDir, SESSION_DIR_MAX_AGE_MS, { protect });
-      if (removed > 0) {
-        const reaped = new Set(names);
-        for (const key of [...this.sessionCache.keys()]) if (reaped.has(sessionDirName(key))) this.sessionCache.delete(key);
-        this.log.info('Reclaimed stale session dirs (git clones)', { count: removed });
-      }
+      // Reap idle session dirs (git clones); protect live sessions and evict the
+      // session-id cache for anything reaped so a later turn rebuilds the dir from
+      // scratch rather than reusing a session id whose on-disk state is gone.
+      const { removed } = reapStaleSessionDirs(this.sessionsDir, this.sessionCache.keys(), [this.sessionCache]);
+      if (removed > 0) this.log.info('Reclaimed stale session dirs (git clones)', { count: removed });
     } catch (error) {
       this.log.warn('Session dir prune failed', { error });
     }

@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   pruneStaleSessionDirs,
+  reapStaleSessionDirs,
   markSessionUsed,
   sessionDirName,
   SESSION_DIR_MAX_AGE_MS,
@@ -141,5 +142,45 @@ describe('pruneStaleSessionDirs — own mtime is the signal (fix #3: no deep wal
 describe('markSessionUsed — best-effort (never breaks a turn)', () => {
   it('does not throw when the dir does not exist', () => {
     expect(() => markSessionUsed(path.join(root, 'missing'))).not.toThrow();
+  });
+});
+
+describe('reapStaleSessionDirs — protect live sessions + evict reaped caches (fix #7 helper)', () => {
+  // reapStaleSessionDirs uses real Date.now() internally, so age dirs relative to it.
+  const mkRealAged = (name: string, idleMs: number) => {
+    const dir = path.join(root, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const t = new Date(Date.now() - idleMs);
+    fs.utimesSync(dir, t, t);
+    return dir;
+  };
+
+  it('keeps the live session, reaps the dead one, and evicts the dead key from a stale (number-valued) cache', () => {
+    mkRealAged('live_key', 30 * DAY); // over-age but live → protected
+    mkRealAged('dead-key', 30 * DAY); // over-age and not live → reaped
+
+    // sessionCache holds only the live session (its keys are the protect source, so a
+    // reaped key is by definition absent here). The doc-mtime cache, NOT part of the
+    // protect source, still holds a stale 'dead-key' entry that must be evicted.
+    const sessionCache = new Map<string, string>([['live_key', 'th_live']]);
+    const docMtime = new Map<string, number>([['dead-key', 123], ['live_key', 5]]); // composes via EvictableCache
+
+    const res = reapStaleSessionDirs(root, sessionCache.keys(), [sessionCache, docMtime]);
+
+    expect(res.names).toEqual(['dead-key']);
+    expect(fs.existsSync(path.join(root, 'live_key'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'dead-key'))).toBe(false);
+    // live session's caches survive; the reaped key is evicted from the doc-mtime map.
+    expect(sessionCache.has('live_key')).toBe(true);
+    expect(docMtime.has('live_key')).toBe(true);
+    expect(docMtime.has('dead-key')).toBe(false);
+  });
+
+  it('evicts nothing when no dir is reaped', () => {
+    mkRealAged('fresh', 1 * DAY);
+    const cache = new Map<string, string>([['fresh', 'th']]);
+    const res = reapStaleSessionDirs(root, cache.keys(), [cache]);
+    expect(res.removed).toBe(0);
+    expect(cache.has('fresh')).toBe(true);
   });
 });

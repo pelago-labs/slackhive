@@ -421,9 +421,11 @@ export class AgentRunner {
   /** Prune old trace data, at most once per ~23h unless forced. Best-effort. */
   private async maybePrune(force: boolean): Promise<void> {
     if (!force && Date.now() - this.lastPruneMs < 23 * 60 * 60 * 1000) return;
-    this.lastPruneMs = Date.now();
     try {
       const pruned = await pruneTraceData();
+      // Only advance the throttle on success, so a failed prune is retried on the
+      // next sweep instead of being silently skipped for ~23h.
+      this.lastPruneMs = Date.now();
       if (pruned.spans || pruned.tasks || pruned.feedback) logger.info('Pruned old trace data', pruned);
     } catch (err) {
       logger.warn('Failed to prune old trace data', { error: (err as Error).message });
