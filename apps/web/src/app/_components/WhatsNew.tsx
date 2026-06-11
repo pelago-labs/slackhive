@@ -1,10 +1,12 @@
 'use client';
 
 /**
- * @fileoverview "What's New" — a fixed top-right bell with an unread badge that
- * opens a dropdown of recent big features (title + summary + date). Entries are
- * curated in `src/data/whats-new.json` (one per significant feature merged to
- * master). "Unread" is tracked in localStorage by the newest entry's date.
+ * @fileoverview "What's New" — a subtle bell (rendered in the sidebar header) with
+ * an unread dot that opens a dropdown of recent big features (title + summary +
+ * date). Entries are curated in `src/data/whats-new.json` (one per significant
+ * feature merged to master). "Unread" is tracked in localStorage by the newest
+ * entry's date. The panel is portaled with fixed positioning so the sidebar's
+ * overflow can't clip it.
  *
  * @module web/app/_components/WhatsNew
  */
@@ -53,22 +55,22 @@ export function WhatsNew(): React.JSX.Element {
 
   return (
     <>
-      {/* Fixed top-right floating bell. */}
+      {/* Subtle inline bell (sits in the sidebar header); dot signals updates. */}
       <button ref={btnRef} onClick={openPanel} title="What's New" aria-label="What's New" style={{
-        position: 'fixed', top: 12, right: 16, zIndex: 47,
-        width: 36, height: 36, borderRadius: 9,
-        background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)',
+        position: 'relative', width: 28, height: 28, borderRadius: 8, border: 'none', padding: 0,
+        background: open ? 'var(--surface-2)' : 'transparent', boxShadow: 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', color: open ? 'var(--text)' : 'var(--muted)',
-      }}>
-        <Bell size={17} strokeWidth={1.75} />
+        cursor: 'pointer', color: open ? 'var(--text)' : 'var(--muted)', transition: 'background 0.12s, color 0.12s',
+      }}
+        onMouseEnter={e => { if (!open) { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; } }}
+        onMouseLeave={e => { if (!open) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; } }}
+      >
+        <Bell size={16} strokeWidth={1.75} />
         {unread > 0 && (
           <span style={{
-            position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px',
-            borderRadius: 8, background: '#2563eb', color: '#fff', border: '2px solid var(--surface)',
-            fontSize: 10, fontWeight: 700, lineHeight: '12px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>{unread}</span>
+            position: 'absolute', top: 4, right: 4, width: 7, height: 7,
+            borderRadius: '50%', background: '#2563eb', border: '1.5px solid var(--surface)',
+          }} />
         )}
       </button>
 
@@ -77,9 +79,9 @@ export function WhatsNew(): React.JSX.Element {
           <div onClick={() => setBox(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000 }} />
           <div style={{
             position: 'fixed', zIndex: 1001,
-            // Anchor below the bell, right-aligned, clamped to the viewport.
+            // Anchor below the bell, extending right, clamped to the viewport.
             top: Math.round(box.bottom + 8),
-            left: Math.round(Math.max(8, box.right - 340)),
+            left: Math.round(Math.min(Math.max(8, box.left), window.innerWidth - 348)),
             width: 340, maxHeight: 'min(440px, calc(100vh - 80px))', overflowY: 'auto',
             background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
             boxShadow: '0 8px 28px rgba(0,0,0,0.22)', padding: 0,

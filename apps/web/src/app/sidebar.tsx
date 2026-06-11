@@ -14,6 +14,7 @@ import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 import { LayoutDashboard, Activity as ActivityIcon, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut } from 'lucide-react';
+import { WhatsNew } from './_components/WhatsNew';
 
 const STATUS_DOT: Record<string, string> = {
   running: '#059669', stopped: '#d4d4d4', error: '#dc2626', stale: '#f59e0b',
@@ -103,7 +104,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
             style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, objectFit: 'cover' }}
           />
           {!collapsed && (
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', letterSpacing: '-0.02em', whiteSpace: 'nowrap' }}>
                 {branding.appName}
               </div>
@@ -112,6 +113,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               </div>
             </div>
           )}
+          {!collapsed && <span style={{ marginLeft: 'auto', flexShrink: 0 }}><WhatsNew /></span>}
         </div>
 
         {/* ── Nav ─────────────────────────────────────────────────────────── */}

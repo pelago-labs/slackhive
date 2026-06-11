@@ -13,7 +13,6 @@ import { useContext, useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar, SidebarContext } from './sidebar';
 import { BackendBanner } from './backend-banner';
-import { WhatsNew } from './_components/WhatsNew';
 import { AuthProvider } from '@/lib/auth-context';
 import { ThemeProvider } from '@/lib/theme-context';
 
@@ -88,7 +87,6 @@ function Main({ children, isMobile, onHamburger }: { children: React.ReactNode; 
           </svg>
         </button>
       )}
-      <WhatsNew />
       <BackendBanner />
       {children}
     </main>
