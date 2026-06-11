@@ -143,6 +143,20 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
       .toBeLessThan(adapter.uploadFile.mock.invocationCallOrder[0]);
   });
 
+  it('skips the body post when output is attachment-only (avoids blank message)', async () => {
+    const out = '<<<ATTACH filename="report.csv">>>\na,b,c\n<<<END ATTACH>>>';
+    const { agent, adapter } = makeAgent(out);
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+
+    // No empty body posted...
+    expect(adapter.buildPayloads).not.toHaveBeenCalled();
+    expect(adapter.postPayload).not.toHaveBeenCalled();
+    // ...but the file still uploads under the anchor.
+    expect(adapter.uploadFile).toHaveBeenCalledWith('C123', 'a,b,c', 'report.csv', 'anchor-ts');
+  });
+
   it('does not upload anything when the output has no attachment markers', async () => {
     const { agent, adapter } = makeAgent('just a plain digest');
     const scheduler = new JobScheduler(() => agent as never);

@@ -245,12 +245,16 @@ export class JobScheduler {
       const { body, attachments } = extractJobAttachments(output);
 
       // Post the body under the thread anchor (if the anchor post failed, the
-      // first payload becomes the thread parent — legacy behavior).
-      const payloads = agent.adapter.buildPayloads(body);
+      // first payload becomes the thread parent — legacy behavior). Skip when
+      // the body is empty (e.g. attachment-only output) — posting a blank
+      // message would error; the anchor + uploaded files stand on their own.
       let threadId: string | undefined = anchorTs;
-      for (const payload of payloads) {
-        const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
-        if (!threadId) threadId = ts;
+      if (body) {
+        const payloads = agent.adapter.buildPayloads(body);
+        for (const payload of payloads) {
+          const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
+          if (!threadId) threadId = ts;
+        }
       }
 
       // Upload attachments AFTER the body so they appear beneath it.
