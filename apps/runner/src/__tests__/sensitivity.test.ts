@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  detectSensitive, detectInText, mergeHits, markSensitive, humanizeTag,
+  detectSensitive, detectInText, mergeHits, markSensitive, humanizeTag, SCAN_CAP,
 } from '@slackhive/shared';
 
 describe('detectInText — the model\'s own output (PII + secrets only)', () => {
@@ -38,15 +38,63 @@ describe('detectInText — the model\'s own output (PII + secrets only)', () => 
     expect(detectInText(undefined)).toBeNull();
   });
 
-  it('identifies DB credentials: connection strings and env-style password keys', () => {
-    expect(detectInText('postgres://admin:hunter2@db.internal:5432/app')?.reason).toContain('secret:connection_string');
-    expect(detectInText('mysql://u:p4ssw0rd@10.0.0.1/sales')?.reason).toContain('secret:connection_string');
-    expect(detectInText('DB_PASSWORD=s3cr3tValue')?.reason).toContain('secret:password');
-    expect(detectInText('PGPASSWORD=topSecret1')?.reason).toContain('secret:password');
-    expect(detectInText('password: hunter2')?.reason).toContain('secret:password');
-    // A bare username or a plain URL (no embedded creds) is not flagged.
-    expect(detectInText('user is admin')).toBeNull();
-    expect(detectInText('see https://example.com/db')).toBeNull();
+});
+
+describe('password / credential detection (hardened)', () => {
+  it.each([
+    ['password=hunter2', 'secret:password'],
+    ['password: hunter2', 'secret:password'],
+    ['pwd=swordfish', 'secret:password'],
+    ['api_key = abcd1234', 'secret:password'],
+    ['DB_PASSWORD=s3cr3tValue', 'secret:password'],     // env key, underscore-joined
+    ['PGPASSWORD=topSecret1', 'secret:password'],        // letter-joined, explicit
+    ['MYSQL_PWD=abcd1234', 'secret:password'],
+    ['my-secret=abcd', 'secret:password'],               // dash-joined key
+    ['{"password":"hunter2pw"}', 'secret:password'],     // JSON form
+    ["{'password': 's3cretval'}", 'secret:password'],
+  ])('flags %j', (input, tag) => {
+    expect(detectInText(input)?.reason).toContain(tag);
+  });
+
+  it.each([
+    'bypass=true',          // word ending in "pass" — not a credential
+    'compass=north123',
+    'encompass=largeValue',
+    'surpass=goal2024',
+    'password=x',           // value too short (<4)
+    'the password is secret', // prose, no assignment
+    'user is admin',        // bare username
+    'see https://example.com/db', // plain URL, no embedded creds
+  ])('does NOT flag %j', (input) => {
+    expect(detectInText(input)).toBeNull();
+  });
+
+  it('a URL with userinfo but no password is not a connection_string', () => {
+    // (host@example.com still trips the email detector, but it is NOT a credential URL)
+    expect(detectInText('https://host@example.com')?.reason ?? '').not.toContain('connection_string');
+  });
+
+  it.each([
+    'postgres://admin:hunter2@db.internal:5432/app',
+    'mysql://u:p4ssw0rd@10.0.0.1/sales',
+    'mongodb://svc:topsecret@cluster0.mongodb.net',
+    'redis://default:abc123@cache:6379',
+    'https://reader:welcome1@wiki.internal/page', // http basic-auth creds
+  ])('flags credentials embedded in a URL: %j', (input) => {
+    expect(detectInText(input)?.reason).toContain('secret:connection_string');
+  });
+});
+
+describe('secret token formats', () => {
+  it.each([
+    ['key sk-ABCDEFGHIJKLMNOPQRSTUV', 'secret:openai_key'],
+    ['AKIAIOSFODNN7EXAMPLE', 'secret:aws_key'],
+    ['token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345', 'secret:github_token'],
+    ['xoxb-123456789012-abcdefghij', 'secret:slack_token'],
+    ['-----BEGIN RSA PRIVATE KEY-----', 'secret:private_key'],
+    ['Authorization: Bearer abcdefghijklmnopqrstuvwx', 'secret:bearer'],
+  ])('flags %j', (input, tag) => {
+    expect(detectInText(input)?.reason).toContain(tag);
   });
 });
 
@@ -120,5 +168,31 @@ describe('mergeHits', () => {
   });
   it('returns null when all hits are null', () => {
     expect(mergeHits([null, null])).toBeNull();
+  });
+});
+
+describe('markSensitive — edge cases', () => {
+  it('produces non-overlapping segments (every char in at most one mark)', () => {
+    const segs = markSensitive('bob@acme.com +1 415-555-0186 sk-ABCDEFGHIJKLMNOPQRSTUV', 'all');
+    // Reconstructs exactly and the flagged ranges never overlap (offsets strictly advance).
+    expect(segs.map(s => s.text).join('')).toBe('bob@acme.com +1 415-555-0186 sk-ABCDEFGHIJKLMNOPQRSTUV');
+    expect(segs.filter(s => s.cat).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('reconstructs strings longer than SCAN_CAP and only scans the head', () => {
+    const head = 'reach bob@acme.com ';
+    const tail = 'x'.repeat(SCAN_CAP);            // pushes a later secret past the cap
+    const input = head + tail + ' password=hunter2beyondcap';
+    const segs = markSensitive(input, 'all');
+    expect(segs.map(s => s.text).join('')).toBe(input);          // lossless
+    expect(segs.some(s => s.label === 'pii:email')).toBe(true);  // head is scanned
+    // the secret after SCAN_CAP is not highlighted (only the head window is scanned)
+    expect(segs.some(s => s.label === 'secret:password')).toBe(false);
+  });
+
+  it('honors scope: data/cred only in "all", never in "text"', () => {
+    expect(markSensitive('select salary, .env', 'text').some(s => s.cat)).toBe(false);
+    const all = markSensitive('select salary from .env', 'all').filter(s => s.cat).map(s => s.cat);
+    expect(all).toEqual(expect.arrayContaining(['data']));
   });
 });

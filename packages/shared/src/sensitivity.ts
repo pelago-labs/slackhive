@@ -42,12 +42,15 @@ const SECRET_PATTERNS: { tag: string; re: RegExp }[] = [
   { tag: 'slack_token', re: /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/ },
   { tag: 'private_key', re: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/ },
   { tag: 'bearer', re: /\bbearer\s+[A-Za-z0-9._-]{20,}/i },
-  // Credentials embedded in a connection string: scheme://user:password@host
-  // (postgres/mysql/mongodb/redis/amqp/…). Captures the user:pass pair.
+  // Credentials embedded in a URL: scheme://user:password@host — DB protocols
+  // (postgres/mysql/mongodb/redis/amqp/…) AND http(s) basic-auth.
   { tag: 'connection_string', re: /\b[a-z][a-z0-9+.\-]*:\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/i },
-  // password=/pwd=/secret=/api_key= assignments — `[\w-]*` prefix so env-style
-  // keys (DB_PASSWORD, PGPASSWORD, MYSQL_PWD) are caught despite the underscore.
-  { tag: 'password', re: /\b[\w-]*(?:pass(?:word|wd)?|pwd|secret|api[_-]?key)\s*[=:]\s*['"]?\S{4,}/i },
+  // password=/pwd=/secret=/api_key= assignments, incl. JSON ("password":"…") and
+  // env-style keys (DB_PASSWORD, MYSQL_PWD, PGPASSWORD). The key segment must end
+  // at a real boundary — start, or a `_`/`-` separator — so ordinary words that
+  // merely END in a trigger token (bypass, compass, encompass, surpass) are NOT
+  // flagged. PGPASSWORD is letter-joined like those, so it's listed explicitly.
+  { tag: 'password', re: /(?<![a-z0-9])(?:pgpassword|(?:[a-z0-9]+[_-])?(?:pass(?:word|wd)?|pwd|secret|api[-_]?key))["']?\s*[=:]\s*['"]?\S{4,}/i },
 ];
 
 const DEFAULT_DATA_KEYWORDS = [
@@ -252,7 +255,7 @@ const DETAIL_LABELS: Record<string, string> = {
   'secret:private_key': 'Private key',
   'secret:bearer':      'Bearer token',
   'secret:password':    'Password / secret',
-  'secret:connection_string': 'DB connection string',
+  'secret:connection_string': 'Credentials in URL',
 };
 const DATA_ACRONYMS = new Set(['ssn', 'dob', 'cvv', 'iban', 'tax_id']);
 
