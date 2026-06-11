@@ -116,3 +116,41 @@ export const SENS_COLOR: Record<SensCategory, string> = {
   data:   '#0891b2',
   tool:   '#2563eb',
 };
+
+/** Broad category → display word (for the chip/popover header). */
+export const CAT_LABEL: Record<string, string> = {
+  pii: 'Personal info', secret: 'Secret', data: 'Sensitive data', tool: 'Sensitive action',
+};
+
+// Human-readable labels for the privacy-safe `category:detail` tags the monitor
+// records — single source of truth for the feed chips AND the in-trace popovers.
+const DETAIL_LABELS: Record<string, string> = {
+  'tool:database':      'Database access',
+  'tool:credentials':   'Credential / key file',
+  'tool:tool':          'Sensitive tool',
+  'pii:email':          'Email address',
+  'pii:phone':          'Phone number',
+  'pii:card':           'Card number',
+  'secret:openai_key':  'OpenAI key',
+  'secret:aws_key':     'AWS key',
+  'secret:github_token':'GitHub token',
+  'secret:slack_token': 'Slack token',
+  'secret:private_key': 'Private key',
+  'secret:bearer':      'Bearer token',
+  'secret:password':    'Password / secret',
+};
+const DATA_ACRONYMS = new Set(['ssn', 'dob', 'cvv', 'iban', 'tax_id']);
+
+/** Turn a `category:detail` tag into a category (for color/icon) + readable label. */
+export function humanizeTag(tag: string): { category: string; label: string } {
+  const [category, ...rest] = tag.split(':');
+  const detail = rest.join(':');
+  if (DETAIL_LABELS[tag]) return { category, label: DETAIL_LABELS[tag] };
+  if (category === 'data' && detail) {
+    const label = DATA_ACRONYMS.has(detail)
+      ? detail.toUpperCase().replace('_', ' ')
+      : detail.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+    return { category, label };
+  }
+  return { category, label: detail || category };
+}

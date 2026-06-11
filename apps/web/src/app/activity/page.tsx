@@ -33,6 +33,7 @@ interface Task {
   activityCount: number;
   feedbackUp?: number;
   feedbackDown?: number;
+  sensitive?: boolean;
 }
 
 interface TaskListResult {
@@ -364,11 +365,18 @@ function TaskCard(props: {
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; }}
     >
-      <div style={{
-        fontSize: 13, fontWeight: 500, color: 'var(--text)',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
-        {task.summary || '(empty message)'}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {task.sensitive && (
+          <ShieldAlert size={13} style={{ color: '#b45309', flexShrink: 0 }} aria-label="Contains sensitive data">
+            <title>Contains sensitive data</title>
+          </ShieldAlert>
+        )}
+        <span style={{
+          fontSize: 13, fontWeight: 500, color: 'var(--text)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {task.summary || '(empty message)'}
+        </span>
       </div>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, marginTop: 6,

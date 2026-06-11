@@ -24,9 +24,40 @@ import {
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
-import { markSensitive, SENS_COLOR } from '../../../lib/sensitive-highlight';
+import { markSensitive, SENS_COLOR, CAT_LABEL, humanizeTag, type SensCategory } from '../../../lib/sensitive-highlight';
 
-// When on (sensitive section), wrap text runs in <mark> for any matched PII/secret/
+// A highlighted sensitive token. Click it to reveal what kind of data it is.
+function SensitiveMark({ cat, label, children }: { cat: SensCategory; label: string; children: React.ReactNode }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const color = SENS_COLOR[cat];
+  const human = humanizeTag(label);
+  return (
+    <span style={{ position: 'relative', display: 'inline' }}>
+      <mark
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        title="Click for details"
+        style={{ background: `${color}26`, color, borderRadius: 3, padding: '0 2px', fontWeight: 600, cursor: 'pointer' }}
+      >{children}</mark>
+      {open && (
+        <>
+          <span onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 60 }} />
+          <span style={{
+            position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, zIndex: 61, whiteSpace: 'nowrap',
+            background: 'var(--surface)', border: `1px solid ${color}`, borderRadius: 6,
+            boxShadow: 'var(--shadow-md, 0 4px 14px rgba(0,0,0,0.18))', padding: '4px 8px',
+            fontSize: 11, fontFamily: 'var(--font-sans)', display: 'inline-flex', alignItems: 'center', gap: 5,
+          }}>
+            <ShieldAlert size={11} style={{ color }} />
+            <span style={{ color, fontWeight: 600 }}>{human.label}</span>
+            <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>{CAT_LABEL[cat] ?? cat}</span>
+          </span>
+        </>
+      )}
+    </span>
+  );
+}
+
+// When on (sensitive section), wrap text runs in marks for any matched PII/secret/
 // data — so the agent's own answer (rendered as markdown) highlights like tool I/O.
 const SensCtx = React.createContext(false);
 function Hl({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -35,7 +66,7 @@ function Hl({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <>{React.Children.map(children, (child) =>
     typeof child === 'string'
       ? markSensitive(child).map((seg, i) => seg.cat
-          ? <mark key={i} title={`flagged: ${seg.label}`} style={{ background: `${SENS_COLOR[seg.cat]}26`, color: SENS_COLOR[seg.cat], borderRadius: 3, padding: '0 2px', fontWeight: 600 }}>{seg.text}</mark>
+          ? <SensitiveMark key={i} cat={seg.cat} label={seg.label ?? seg.cat}>{seg.text}</SensitiveMark>
           : <React.Fragment key={i}>{seg.text}</React.Fragment>)
       : child)}</>;
 }
@@ -598,8 +629,10 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
           : <span style={{ width: 13, flexShrink: 0 }} />}
         {/* type tag — fixed width so names align into a column */}
         <span style={{ flexShrink: 0, width: 50, textAlign: 'center', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', padding: '3px 0', borderRadius: 4, background: isErr ? 'rgba(220,38,38,0.1)' : node.kind === 'final' ? 'rgba(5,150,105,0.1)' : 'var(--surface-2)', color: tagColor }}>{k.tag}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 60 }}>{node.title}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto', minWidth: 60 }}>{node.title}</span>
         {node.sensitive && <SensitiveBadge categories={node.sensitiveCategories ?? []} compact />}
+        {/* spacer keeps the badge next to the title and the metrics right-aligned */}
+        <div style={{ flex: 1, minWidth: 8 }} />
         {node.model && <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>{node.model}</span>}
         {node.tokens > 0 && <span style={META}>{formatTokens(node.tokens)}</span>}
         {/* comparative duration bar (left-aligned column) */}
@@ -656,7 +689,7 @@ function Content({ label, body, markdown, accent, sensitive }: { label: string; 
         <pre style={{ ...shell, margin: 0, fontSize: 11, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
           {sensitive
             ? markSensitive(text).map((seg, i) => seg.cat
-                ? <mark key={i} title={`flagged: ${seg.label}`} style={{ background: `${SENS_COLOR[seg.cat]}26`, color: SENS_COLOR[seg.cat], borderRadius: 3, padding: '0 2px', fontWeight: 600 }}>{seg.text}</mark>
+                ? <SensitiveMark key={i} cat={seg.cat} label={seg.label ?? seg.cat}>{seg.text}</SensitiveMark>
                 : <React.Fragment key={i}>{seg.text}</React.Fragment>)
             : text}
         </pre>

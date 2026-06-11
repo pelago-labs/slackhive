@@ -1096,6 +1096,8 @@ export interface Task {
   startedAt: string;
   lastActivityAt: string;
   activityCount: number;
+  /** True when any span in this session was flagged by the sensitivity monitor. */
+  sensitive?: boolean;
 }
 
 /** One agent's turn inside a task — the unit that the runner writes. */

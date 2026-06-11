@@ -61,6 +61,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     startedAt: row.started_at as string,
     lastActivityAt: row.last_activity_at as string,
     activityCount: Number(row.activity_count ?? 0),
+    sensitive: row.sensitive ? true : undefined,
   };
 }
 
@@ -417,7 +418,8 @@ export async function listTasks(
        SELECT task_id, has_active, status AS latest_status
        FROM ranked WHERE rn = 1
      )
-     SELECT t.*
+     SELECT t.*,
+            EXISTS(SELECT 1 FROM spans s WHERE s.session_id = t.id AND s.sensitive = 1) AS sensitive
        FROM tasks t
        JOIN agg ON agg.task_id = t.id
       WHERE 1=1 ${taskWhereSql}

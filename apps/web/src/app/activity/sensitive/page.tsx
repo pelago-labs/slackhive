@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ShieldAlert, Database, KeyRound, UserRound, FileWarning, ExternalLink, ArrowLeft } from 'lucide-react';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../_components/FilterRow';
+import { humanizeTag } from '../../../lib/sensitive-highlight';
 
 interface SensitiveEvent {
   spanId: string; sessionId: string; activityId: string | null;
@@ -28,40 +29,6 @@ const CAT_META: Record<string, { label: string; icon: React.ReactNode; color: st
   pii:    { label: 'PII',    icon: <UserRound size={11} />,   color: '#dc2626' },
   secret: { label: 'Secret', icon: <KeyRound size={11} />,    color: '#b45309' },
 };
-
-// Human-readable labels for the privacy-safe `category:detail` reason tags the
-// sensitivity monitor records (e.g. `tool:database`, `pii:email`, `secret:aws_key`).
-// These say WHAT matched without ever exposing the matched value.
-const DETAIL_LABELS: Record<string, string> = {
-  'tool:database':      'Database access',
-  'tool:credentials':   'Credential / key file',
-  'tool:tool':          'Sensitive tool',
-  'pii:email':          'Email address',
-  'pii:phone':          'Phone number',
-  'pii:card':           'Card number',
-  'secret:openai_key':  'OpenAI key',
-  'secret:aws_key':     'AWS key',
-  'secret:github_token':'GitHub token',
-  'secret:slack_token': 'Slack token',
-  'secret:private_key': 'Private key',
-  'secret:bearer':      'Bearer token',
-  'secret:password':    'Password / secret',
-};
-const DATA_ACRONYMS = new Set(['ssn', 'dob', 'cvv', 'iban', 'tax_id']);
-
-/** Turn a `category:detail` tag into a category (for color/icon) + readable label. */
-function humanizeTag(tag: string): { category: string; label: string } {
-  const [category, ...rest] = tag.split(':');
-  const detail = rest.join(':');
-  if (DETAIL_LABELS[tag]) return { category, label: DETAIL_LABELS[tag] };
-  if (category === 'data' && detail) {
-    const label = DATA_ACRONYMS.has(detail)
-      ? detail.toUpperCase().replace('_', ' ')
-      : detail.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
-    return { category, label };
-  }
-  return { category, label: detail || category };
-}
 
 /** Parse the reason string into specific chips; fall back to the broad categories. */
 function detailChips(reason: string | null, categories: string[]): { category: string; label: string }[] {
