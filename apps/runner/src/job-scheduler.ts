@@ -147,10 +147,13 @@ export class JobScheduler {
     const runId = await insertJobRun(job.id);
     logger.info('Job run started', { jobId: job.id, runId, name: job.name });
 
-    // Hoisted so the catch block can thread a failure note under the anchor
-    // (rather than leaving the pre-posted anchor orphaned with no content).
+    // Hoisted so the catch block can resolve the anchor to a failure state
+    // (rather than leaving the pre-posted "running…" anchor stuck). `anchorConsumed`
+    // guards against clobbering real output: once the headline has been promoted
+    // into the anchor, a later failure must NOT overwrite it with an error line.
     let targetChannelId: string | undefined;
     let anchorTs: string | undefined;
+    let anchorConsumed = false;
 
     try {
 
@@ -167,10 +170,13 @@ export class JobScheduler {
         : job.targetId;
 
       // Pre-post a lightweight thread anchor so a thread_ts exists during the
-      // run. Best-effort: on failure we fall back to the legacy behavior where
-      // the first output payload becomes the thread parent.
+      // run. The "running…" hint disambiguates an in-flight job from a finished
+      // or broken one during the (often multi-minute) run; it is overwritten by
+      // the headline table on success, or a failure line on error — so it never
+      // sits stuck. Best-effort: on failure we fall back to the legacy behavior
+      // where the first output payload becomes the thread parent.
       try {
-        anchorTs = await agent.adapter.postMessage(targetChannelId, `*${job.name}*`);
+        anchorTs = await agent.adapter.postMessage(targetChannelId, `*${job.name}* · ⏳ _running…_`);
       } catch (err) {
         logger.warn('Job anchor post failed; falling back to inline thread parent', {
           jobId: job.id, error: (err as Error).message,
@@ -240,6 +246,9 @@ export class JobScheduler {
           });
           await agent.adapter.postPayload(targetChannelId, payloads[0], anchorTs);
         }
+        // Real output now occupies/anchors the message — a later failure must
+        // not overwrite the anchor with an error line.
+        anchorConsumed = true;
         for (const payload of payloads.slice(1)) {
           await agent.adapter.postPayload(targetChannelId, payload, anchorTs);
         }
@@ -249,6 +258,7 @@ export class JobScheduler {
           const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
           if (!threadId) threadId = ts;
         }
+        anchorConsumed = true;
       }
 
       await updateJobRun(runId, 'success', output.slice(0, 2000));
@@ -258,19 +268,21 @@ export class JobScheduler {
       await updateJobRun(runId, 'error', null, errMsg);
       logger.error('Job run failed', { jobId: job.id, runId, error: errMsg });
 
-      // If we already pre-posted an anchor, thread a neutral note under it so
-      // the channel isn't left with a bare title and no content. The raw error
-      // stays in the logs/run record — not surfaced to the (often leadership)
-      // channel. Best-effort: never let a posting failure mask the real error.
-      if (targetChannelId && anchorTs) {
+      // Resolve the "running…" anchor to a neutral failure state so it isn't
+      // left stuck mid-flight. Only when the anchor still holds the placeholder
+      // (`!anchorConsumed`) — if real output was already promoted in, leave it
+      // be rather than clobber the dashboard. The raw error stays in the
+      // logs/run record, not the (often leadership) channel. Best-effort: never
+      // let a posting failure mask the real error.
+      if (targetChannelId && anchorTs && !anchorConsumed) {
         try {
-          await agent.adapter.postPayload(
+          await agent.adapter.updatePayload(
             targetChannelId,
-            { text: '_This scheduled job did not complete. The team has been notified._' },
             anchorTs,
+            { text: `*${job.name}* · ⚠️ _did not complete_` },
           );
         } catch (postErr) {
-          logger.warn('Failed to post job-failure note under anchor', {
+          logger.warn('Failed to update anchor to failure state', {
             jobId: job.id, error: (postErr as Error).message,
           });
         }

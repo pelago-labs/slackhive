@@ -42,8 +42,9 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
 
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
 
-    // Anchor posted first (no thread parent) in the target channel.
-    expect(adapter.postMessage).toHaveBeenCalledWith('C123', '*Daily digest*');
+    // Anchor posted first (no thread parent) in the target channel, with a
+    // "running…" hint that gets overwritten by the result.
+    expect(adapter.postMessage).toHaveBeenCalledWith('C123', '*Daily digest* · ⏳ _running…_');
 
     // The anchor must exist BEFORE the run so the agent can upload into the
     // thread mid-run — assert the anchor post precedes streamQuery.
@@ -89,7 +90,7 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(dmJob);
 
     expect(adapter.openDm).toHaveBeenCalledWith('U9');
-    expect(adapter.postMessage).toHaveBeenCalledWith('dm-U9', '*Daily digest*');
+    expect(adapter.postMessage).toHaveBeenCalledWith('dm-U9', '*Daily digest* · ⏳ _running…_');
     expect(adapter.updatePayload).toHaveBeenCalledWith('dm-U9', 'anchor-ts', { text: 'dm result' });
   });
 
@@ -126,7 +127,7 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', '_Job completed with no output._');
   });
 
-  it('threads a failure note under the anchor when the run throws', async () => {
+  it('resolves the anchor to a failure state when the run throws', async () => {
     const { agent, backend, adapter } = makeAgent('unused');
     backend.streamQuery.mockImplementationOnce(() => {
       async function* boom(): AsyncGenerator<never> { throw new Error('backend exploded'); }
@@ -136,14 +137,33 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
 
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
 
-    // Anchor was posted, run threw → a neutral note is threaded under the anchor
-    // (raw error stays in the run record, not the channel).
-    expect(adapter.postPayload).toHaveBeenCalledWith(
-      'C123',
-      { text: '_This scheduled job did not complete. The team has been notified._' },
-      'anchor-ts',
+    // Run threw before any output → the "running…" anchor is rewritten in place
+    // to a neutral failure line (so it isn't left stuck), not a thread reply.
+    // The raw error stays in the run record, not the channel.
+    expect(adapter.updatePayload).toHaveBeenCalledWith(
+      'C123', 'anchor-ts', { text: '*Daily digest* · ⚠️ _did not complete_' },
     );
+    expect(adapter.postPayload).not.toHaveBeenCalled();
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'error', null, 'backend exploded');
+  });
+
+  it('does NOT overwrite the anchor with a failure state once real output was promoted in', async () => {
+    const { agent, adapter } = makeAgent('headline\n\ndetail');
+    adapter.buildPayloads.mockReturnValueOnce([{ text: 'L1.0 table' }, { text: 'L1.2 table' }]);
+    // Headline promotes fine; threading a later sub-table fails.
+    adapter.postPayload.mockRejectedValueOnce(new Error('rate_limited'));
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+
+    // Anchor holds the real headline — the catch must NOT clobber it with the
+    // failure line. updatePayload was called only to promote L1.0.
+    expect(adapter.updatePayload).toHaveBeenCalledTimes(1);
+    expect(adapter.updatePayload).toHaveBeenCalledWith('C123', 'anchor-ts', { text: 'L1.0 table' });
+    expect(adapter.updatePayload).not.toHaveBeenCalledWith(
+      'C123', 'anchor-ts', { text: '*Daily digest* · ⚠️ _did not complete_' },
+    );
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'error', null, 'rate_limited');
   });
 
   it('falls back to a thread reply when promoting the headline into the anchor fails', async () => {
