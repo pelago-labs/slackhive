@@ -49,6 +49,16 @@ export interface PlatformAdapter {
   /** Update an existing message (e.g., status updates). */
   updateMessage(channelId: string, messageId: string, text: string): Promise<void>;
 
+  /**
+   * Update an existing message with a rich payload (text + blocks). Used to
+   * promote a formatted table into an already-posted anchor message — e.g. the
+   * job scheduler pre-posts an anchor (so a thread exists during the run) then
+   * swaps the headline table into it after the run, so the table is visible
+   * in-channel without opening the thread. Adapters that can't update with
+   * blocks (e.g. the test adapter) may treat this as a no-op.
+   */
+  updatePayload(channelId: string, messageId: string, payload: MessagePayload): Promise<void>;
+
   /** Add a reaction/emoji to a message. */
   postReaction(channelId: string, messageId: string, emoji: string): Promise<void>;
 

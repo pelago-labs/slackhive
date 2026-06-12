@@ -381,6 +381,26 @@ export class SlackAdapter implements PlatformAdapter {
     await this.app.client.chat.update({ channel: channelId, ts: messageId, text });
   }
 
+  async updatePayload(channelId: string, messageId: string, payload: MessagePayload): Promise<void> {
+    const opts: any = {
+      channel: channelId,
+      ts: messageId,
+      text: payload.text,
+      ...(payload.blocks && { blocks: payload.blocks }),
+    };
+    try {
+      await this.app.client.chat.update(opts);
+    } catch (err: any) {
+      // Same fallback as postPayload: if Slack rejects the blocks, update with
+      // plain text so the anchor still carries the content.
+      if (err?.data?.error === 'invalid_blocks' && payload.blocks) {
+        await this.app.client.chat.update({ channel: channelId, ts: messageId, text: payload.text });
+      } else {
+        throw err;
+      }
+    }
+  }
+
   async postReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
     try {
       await this.app.client.reactions.add({ channel: channelId, timestamp: messageId, name: emoji });

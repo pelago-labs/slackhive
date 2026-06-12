@@ -199,6 +199,8 @@ export class TestAdapter implements PlatformAdapter {
 
   async updateMessage(): Promise<void> { /* MessageHandler uses this for status edits; we ignore. */ }
 
+  async updatePayload(): Promise<void> { /* no rich in-place edit in the test adapter; ignore. */ }
+
   async postReaction(_channelId: string, _messageId: string, emoji: string): Promise<void> {
     this.emit({ type: 'reaction', agent: this.agentRef, emoji });
   }
