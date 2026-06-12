@@ -7,7 +7,8 @@
  *    [Sender: ...] header (channel + thread) into the prompt, so skills can
  *    reply or upload attachments into the job's own thread
  * 3. Sends the headed prompt to the boss via backend.streamQuery()
- * 4. Posts the result as replies under the thread anchor
+ * 4. Promotes the headline table into the anchor and threads the rest, so the
+ *    top-level message shows the key table (not a bare title)
  * 5. Records the run in the job_runs table
  *
  * @module runner/job-scheduler
@@ -209,13 +210,29 @@ export class JobScheduler {
         output = '_Job completed with no output._';
       }
 
-      // Post all payloads under the thread anchor (if the anchor post failed,
-      // the first payload becomes the thread parent — legacy behavior).
+      // Render the output into one payload per table. We want the headline
+      // table (L1.0) visible in-channel without opening the thread, mirroring
+      // the interactive path where the first table is the top-level message.
+      //
+      // The anchor was pre-posted as a placeholder title so a thread_ts exists
+      // during the run (skills upload attachments into it mid-run). Now promote
+      // the FIRST payload INTO that anchor (chat.update), so the parent message
+      // becomes the headline table instead of a dead title; thread the rest.
+      //
+      // If the anchor post failed earlier, fall back to legacy behavior: the
+      // first payload becomes the thread parent.
       const payloads = agent.adapter.buildPayloads(output);
-      let threadId: string | undefined = anchorTs;
-      for (const payload of payloads) {
-        const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
-        if (!threadId) threadId = ts;
+      if (anchorTs && payloads.length > 0) {
+        await agent.adapter.updatePayload(targetChannelId, anchorTs, payloads[0]);
+        for (const payload of payloads.slice(1)) {
+          await agent.adapter.postPayload(targetChannelId, payload, anchorTs);
+        }
+      } else {
+        let threadId: string | undefined = anchorTs;
+        for (const payload of payloads) {
+          const ts = await agent.adapter.postPayload(targetChannelId, payload, threadId);
+          if (!threadId) threadId = ts;
+        }
       }
 
       await updateJobRun(runId, 'success', output.slice(0, 2000));

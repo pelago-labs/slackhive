@@ -22,6 +22,7 @@ function makeAgent(resultText: string) {
     postMessage: vi.fn(async () => 'anchor-ts'),
     buildPayloads: vi.fn((text: string) => [{ text }]),
     postPayload: vi.fn(async () => 'posted'),
+    updatePayload: vi.fn(async () => {}),
   };
   return { agent: { backend, adapter }, backend, adapter };
 }
@@ -57,9 +58,27 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     expect(sentPrompt).toContain('thread anchor-ts');
     expect(sentPrompt.endsWith('Summarize today')).toBe(true);
 
-    // Output posts as a reply under the anchor.
-    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' }, 'anchor-ts');
+    // Single-table output → promoted INTO the anchor (becomes the parent
+    // message), not threaded as a reply.
+    expect(adapter.updatePayload).toHaveBeenCalledWith('C123', 'anchor-ts', { text: 'Here is your digest.' });
+    expect(adapter.postPayload).not.toHaveBeenCalled();
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'Here is your digest.');
+  });
+
+  it('promotes the first table into the anchor and threads the remaining tables', async () => {
+    const { agent, adapter } = makeAgent('headline\n\ndetail');
+    // Simulate buildPayloads splitting the output into one payload per table.
+    adapter.buildPayloads.mockReturnValueOnce([{ text: 'L1.0 table' }, { text: 'L1.2 table' }]);
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+
+    // Headline table is swapped INTO the anchor → it's the top-level message.
+    expect(adapter.updatePayload).toHaveBeenCalledWith('C123', 'anchor-ts', { text: 'L1.0 table' });
+    // Remaining tables thread under the anchor…
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'L1.2 table' }, 'anchor-ts');
+    // …and the headline is NOT also re-posted as a reply.
+    expect(adapter.postPayload).not.toHaveBeenCalledWith('C123', { text: 'L1.0 table' }, 'anchor-ts');
   });
 
   it('routes DM jobs through openDm', async () => {
@@ -71,7 +90,7 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
 
     expect(adapter.openDm).toHaveBeenCalledWith('U9');
     expect(adapter.postMessage).toHaveBeenCalledWith('dm-U9', '*Daily digest*');
-    expect(adapter.postPayload).toHaveBeenCalledWith('dm-U9', { text: 'dm result' }, 'anchor-ts');
+    expect(adapter.updatePayload).toHaveBeenCalledWith('dm-U9', 'anchor-ts', { text: 'dm result' });
   });
 
   it('falls back to inline thread parent when the anchor post fails', async () => {
@@ -85,7 +104,9 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     const sentPrompt = backend.streamQuery.mock.calls[0][0] as string;
     expect(sentPrompt).toContain('channel C123');
     expect(sentPrompt).not.toContain('thread ');
-    // ...and the first payload posts as the parent (undefined thread arg).
+    // ...and with no anchor to promote into, the first payload posts as the
+    // parent (undefined thread arg) — legacy fallback, no in-place update.
+    expect(adapter.updatePayload).not.toHaveBeenCalled();
     expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' }, undefined);
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'Here is your digest.');
   });
@@ -101,7 +122,7 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
 
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
 
-    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: '_Job completed with no output._' }, 'anchor-ts');
+    expect(adapter.updatePayload).toHaveBeenCalledWith('C123', 'anchor-ts', { text: '_Job completed with no output._' });
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', '_Job completed with no output._');
   });
 
