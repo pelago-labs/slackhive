@@ -146,9 +146,46 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     expect(updateJobRun).toHaveBeenCalledWith('run-1', 'error', null, 'backend exploded');
   });
 
+  it('falls back to a thread reply when promoting the headline into the anchor fails', async () => {
+    const { agent, adapter } = makeAgent('Here is your digest.');
+    // chat.update rejects with something other than invalid_blocks (e.g. the
+    // anchor was deleted, or a transient error). The run itself succeeded.
+    adapter.updatePayload.mockRejectedValueOnce(new Error('message_not_found'));
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+
+    // Headline degrades to a thread reply so the content still lands…
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Here is your digest.' }, 'anchor-ts');
+    // …the run is still recorded success (a failed promotion must not fail the run)…
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'Here is your digest.');
+    // …and no scary "did not complete" note is posted.
+    expect(adapter.postPayload).not.toHaveBeenCalledWith(
+      'C123',
+      { text: '_This scheduled job did not complete. The team has been notified._' },
+      'anchor-ts',
+    );
+  });
+
   it('skips silently when the target agent is not running', async () => {
     const scheduler = new JobScheduler(() => undefined);
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
     expect(insertJobRun).not.toHaveBeenCalled();
+  });
+
+  it('does not wedge a job when the agent was briefly down (no running-set leak)', async () => {
+    // First tick: agent down → skipped. Second tick: agent back → must actually
+    // run. If executeJob leaked job.id into `running` on the skip path, the
+    // second tick would be dropped as an "overlapping" run and never fire.
+    const { agent } = makeAgent('recovered');
+    let agentUp = false;
+    const scheduler = new JobScheduler(() => (agentUp ? (agent as never) : undefined));
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+    expect(insertJobRun).not.toHaveBeenCalled(); // skipped while down
+
+    agentUp = true;
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+    expect(insertJobRun).toHaveBeenCalledTimes(1); // ran once the agent returned
   });
 });

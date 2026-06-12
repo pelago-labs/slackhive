@@ -131,14 +131,18 @@ export class JobScheduler {
       logger.warn('Skipping overlapping job run', { jobId: job.id });
       return;
     }
-    this.running.add(job.id);
 
-    // Skip silently if agent is not running — avoids noisy error runs
+    // Skip silently if agent is not running — avoids noisy error runs. Checked
+    // BEFORE marking the job running: this path returns before the try/finally
+    // that clears `running`, so adding here would leak the job id and wedge it
+    // as permanently "overlapping" (e.g. a job firing during a deploy/restart
+    // when the agent is briefly down would never run again until process exit).
     const agent = this.getAgent(job.agentId);
     if (!agent) {
       logger.warn('Skipping job — agent not running', { jobId: job.id, agentId: job.agentId });
       return;
     }
+    this.running.add(job.id);
 
     const runId = await insertJobRun(job.id);
     logger.info('Job run started', { jobId: job.id, runId, name: job.name });
@@ -223,7 +227,19 @@ export class JobScheduler {
       // first payload becomes the thread parent.
       const payloads = agent.adapter.buildPayloads(output);
       if (anchorTs && payloads.length > 0) {
-        await agent.adapter.updatePayload(targetChannelId, anchorTs, payloads[0]);
+        // Promote the headline into the anchor. If the in-place edit fails for
+        // any reason other than the blocks (which updatePayload itself retries
+        // as text), don't fail the whole run — the output is real and partly
+        // posted already. Degrade to posting the headline as a thread reply so
+        // the content still lands; the anchor just keeps its title.
+        try {
+          await agent.adapter.updatePayload(targetChannelId, anchorTs, payloads[0]);
+        } catch (err) {
+          logger.warn('Anchor promotion failed; posting headline as a reply instead', {
+            jobId: job.id, error: (err as Error).message,
+          });
+          await agent.adapter.postPayload(targetChannelId, payloads[0], anchorTs);
+        }
         for (const payload of payloads.slice(1)) {
           await agent.adapter.postPayload(targetChannelId, payload, anchorTs);
         }
