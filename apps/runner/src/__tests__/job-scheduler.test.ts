@@ -193,6 +193,22 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     expect(insertJobRun).not.toHaveBeenCalled();
   });
 
+  it('does not wedge a job when insertJobRun fails (no running-set leak)', async () => {
+    // A DB blip recording the run must not leak job.id into `running`. First
+    // tick: insert throws → run aborts cleanly. Second tick: insert works → the
+    // job must actually run, proving it wasn't wedged as "overlapping".
+    const { agent, adapter } = makeAgent('recovered');
+    insertJobRun.mockRejectedValueOnce(new Error('db down'));
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+    expect(adapter.postMessage).not.toHaveBeenCalled(); // aborted before posting
+
+    await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
+    expect(insertJobRun).toHaveBeenCalledTimes(2);
+    expect(adapter.updatePayload).toHaveBeenCalledWith('C123', 'anchor-ts', { text: 'recovered' });
+  });
+
   it('does not wedge a job when the agent was briefly down (no running-set leak)', async () => {
     // First tick: agent down → skipped. Second tick: agent back → must actually
     // run. If executeJob leaked job.id into `running` on the skip path, the

@@ -144,18 +144,25 @@ export class JobScheduler {
     }
     this.running.add(job.id);
 
-    const runId = await insertJobRun(job.id);
-    logger.info('Job run started', { jobId: job.id, runId, name: job.name });
-
     // Hoisted so the catch block can resolve the anchor to a failure state
     // (rather than leaving the pre-posted "running…" anchor stuck). `anchorConsumed`
     // guards against clobbering real output: once the headline has been promoted
     // into the anchor, a later failure must NOT overwrite it with an error line.
+    // `runId` is hoisted (and may be undefined) because insertJobRun runs inside
+    // the try — see below.
+    let runId: string | undefined;
     let targetChannelId: string | undefined;
     let anchorTs: string | undefined;
     let anchorConsumed = false;
 
     try {
+      // Record the run INSIDE the try: it's a DB write, and the finally below is
+      // the only place `running` is cleared. If it ran outside the try and threw
+      // (DB blip during a deploy/restart), job.id would leak into `running` and
+      // wedge the job as permanently "overlapping" — the same failure we guard
+      // against on the agent-not-running path above.
+      runId = await insertJobRun(job.id);
+      logger.info('Job run started', { jobId: job.id, runId, name: job.name });
 
       // Fresh session key per run (no resume)
       const sessionKey = `job-${job.id}-${Date.now()}`;
@@ -265,7 +272,8 @@ export class JobScheduler {
       logger.info('Job run succeeded', { jobId: job.id, runId });
     } catch (err) {
       const errMsg = (err as Error).message;
-      await updateJobRun(runId, 'error', null, errMsg);
+      // runId is undefined only if insertJobRun itself threw — nothing to update.
+      if (runId) await updateJobRun(runId, 'error', null, errMsg);
       logger.error('Job run failed', { jobId: job.id, runId, error: errMsg });
 
       // Resolve the "running…" anchor to a neutral failure state so it isn't
