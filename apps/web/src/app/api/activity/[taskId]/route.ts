@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTaskWithDetails, getSessionTrace, deepLinkForTask, redactSensitive, humanizeTag, type TraceTurn } from '@slackhive/shared';
+import { getTaskWithDetails, getSessionTrace, deepLinkForTask, redactSensitive, humanizeTag, type TraceTurn, type SessionRollup } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
@@ -46,18 +46,23 @@ export async function GET(
       }
     }
 
-    const trace = await getSessionTrace(taskId);
+    // Scope the trace to the caller's accessible agents — a delegated session can
+    // span agents the user can't see, so don't return the whole thing on overlap.
+    const trace = await getSessionTrace(taskId, accessibleAgentIds);
 
     // Only admins/superadmins may see raw sensitive values. For everyone else,
     // redact every flagged value in the content server-side (not just visually),
     // so the real value never reaches a non-admin's browser.
     const canSeeRaw = session.role === 'admin' || session.role === 'superadmin';
-    const turns = trace?.turns ?? [];
+    const turns = (trace?.turns ?? []).map(t => canSeeRaw ? t : redactTurn(t));
+
+    // Token/cost are billing-adjacent — superadmin only (matches /api/activity/usage).
+    const billing = session.role === 'superadmin';
 
     return NextResponse.json({
       task: details.task,
-      turns: canSeeRaw ? turns : turns.map(redactTurn),
-      rollup: trace?.rollup ?? null,
+      turns: billing ? turns : turns.map(stripTurnBilling),
+      rollup: billing ? (trace?.rollup ?? null) : stripRollupBilling(trace?.rollup ?? null),
       flows: trace?.flows ?? [],
       deepLink: deepLinkForTask(details.task),
     });
@@ -85,5 +90,30 @@ function redactTurn(t: TraceTurn): TraceTurn {
     ...t,
     finalAnswer: r(t.finalAnswer),
     spans: t.spans.map(sp => ({ ...sp, input: r(sp.input), output: r(sp.output), reasoning: r(sp.reasoning), sensitiveLlmHits: [] })),
+  };
+}
+
+/** Zero out billing-adjacent fields (tokens + cost) on a turn + its spans for
+ *  non-superadmins. The UI hides token/cost chips when the value is 0/null. */
+function stripTurnBilling(t: TraceTurn): TraceTurn {
+  return {
+    ...t,
+    inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0,
+    spans: t.spans.map(sp => ({
+      ...sp,
+      inputTokens: null, outputTokens: null, reasoningTokens: null,
+      cacheReadTokens: null, cacheCreationTokens: null, costUsd: null,
+    })),
+  };
+}
+
+/** Same for the session rollup (drops per-model token counts too). */
+function stripRollupBilling(r: SessionRollup | null): SessionRollup | null {
+  if (!r) return r;
+  return {
+    ...r,
+    inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    totalTokens: 0, costUsd: 0,
+    models: r.models.map(m => ({ ...m, tokens: 0 })),
   };
 }

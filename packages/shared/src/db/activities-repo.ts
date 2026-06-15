@@ -451,7 +451,9 @@ export async function getTaskWithDetails(taskId: string): Promise<TaskWithDetail
   const task = rowToTask(taskRes.rows[0]);
 
   const actRes = await db.query(
-    `SELECT * FROM activities WHERE task_id = $1 ORDER BY started_at ASC, id ASC`,
+    // Tiebreak on rowid (insert order) — started_at is 1-second resolution and id is
+    // a random UUID, so same-second activities would otherwise sort arbitrarily.
+    `SELECT * FROM activities WHERE task_id = $1 ORDER BY started_at ASC, rowid ASC`,
     [taskId],
   );
   const activities = actRes.rows.map(rowToActivity);

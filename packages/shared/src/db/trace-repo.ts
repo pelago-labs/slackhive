@@ -288,13 +288,23 @@ function percentile(sortedAsc: number[], p: number): number {
  * Full trace for one session (Slack thread): every turn with its span tree and
  * authorship, plus aggregate analytics. Returns null if the task is unknown.
  */
-export async function getSessionTrace(taskId: string): Promise<SessionTrace | null> {
+export async function getSessionTrace(taskId: string, accessibleAgentIds?: string[] | null): Promise<SessionTrace | null> {
   const db = getDb();
 
   const taskRes = await db.query(`SELECT id FROM tasks WHERE id = $1`, [taskId]);
   if (taskRes.rows.length === 0) return null;
 
+  // Restrict to agents the caller may access (a delegated session can span agents
+  // the user can't see). undefined/null = no restriction (admin); [] = no access.
+  const restrict = Array.isArray(accessibleAgentIds);
+  if (restrict && accessibleAgentIds!.length === 0) return { turns: [], rollup: emptyRollup(), flows: [] };
+  const actFilter = restrict ? ` AND a.agent_id IN (${accessibleAgentIds!.map((_, i) => `$${i + 2}`).join(', ')})` : '';
+  const spanFilter = restrict ? ` AND agent_id IN (${accessibleAgentIds!.map((_, i) => `$${i + 2}`).join(', ')})` : '';
+  const agentParams = restrict ? accessibleAgentIds! : [];
+
   // Turns (live, from activities) + agent name/slug + delegating-agent resolution.
+  // Tiebreak on rowid (monotonic insert order) — started_at is 1-second resolution
+  // and the id is a random UUID, so same-second turns would otherwise sort randomly.
   const actRes = await db.query(
     `SELECT a.*,
             ag.name  AS agent_name,
@@ -308,9 +318,9 @@ export async function getSessionTrace(taskId: string): Promise<SessionTrace | nu
              AND pi.platform = a.platform
              AND a.initiator_kind = 'agent'
        LEFT JOIN agents dag ON dag.id = pi.agent_id
-      WHERE a.task_id = $1
-      ORDER BY a.started_at ASC, a.id ASC`,
-    [taskId],
+      WHERE a.task_id = $1${actFilter}
+      ORDER BY a.started_at ASC, a.rowid ASC`,
+    [taskId, ...agentParams],
   );
   if (actRes.rows.length === 0) {
     return { turns: [], rollup: emptyRollup(), flows: [] };
@@ -318,8 +328,8 @@ export async function getSessionTrace(taskId: string): Promise<SessionTrace | nu
 
   // All spans for the session, grouped by activity.
   const spanRes = await db.query(
-    `SELECT * FROM spans WHERE session_id = $1 ORDER BY start_ms ASC, rowid ASC`,
-    [taskId],
+    `SELECT * FROM spans WHERE session_id = $1${spanFilter} ORDER BY start_ms ASC, rowid ASC`,
+    [taskId, ...agentParams],
   );
   const spansByActivity = new Map<string, TraceSpan[]>();
   const flowRows: FlowRow[] = [];
@@ -472,7 +482,7 @@ async function computeAgentRollup(opts: { agentId: string; since?: string; until
                 FROM spans
                WHERE ${spanWhere} AND kind='tool' AND tool_name IS NOT NULL
                GROUP BY tool_name ORDER BY c DESC LIMIT 8`, spanParams),
-    db.query(`SELECT model, COUNT(*) turns,
+    db.query(`SELECT model, COUNT(DISTINCT activity_id) turns,
                      COALESCE(SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)),0) tokens
                 FROM spans WHERE ${spanWhere} AND model IS NOT NULL
                GROUP BY model ORDER BY tokens DESC LIMIT 6`, spanParams),
@@ -695,9 +705,10 @@ export async function pruneTraceData(retentionDays?: number): Promise<{ spans: n
   //      it belonged to), so a session's feedback dies with it regardless of its age.
   //   2. tasks past the cutoff — cascades to activities → tool_calls.
   //   3. spans of any removed session — orphan-join keeps whole-session semantics
-  //      (early spans of a *retained* long thread survive), but bounded by start_ms
-  //      so a fresh span written with the exporter's empty session_id fallback isn't
-  //      reaped, and the delete skips recent rows instead of scanning the whole table.
+  //      (early spans of a *retained* long thread survive). Orphans of a just-pruned
+  //      task are removed regardless of age (else a task's RECENT spans outlive it and
+  //      leak past retention); only the exporter's empty-session_id fallback spans stay
+  //      age-bounded so a fresh one written mid-flush isn't reaped.
   //   4. remaining standalone feedback past its own age.
   return getDb().transaction(async (tx) => {
     await tx.query(
@@ -708,7 +719,9 @@ export async function pruneTraceData(retentionDays?: number): Promise<{ spans: n
     );
     const tasks = await tx.query(`DELETE FROM tasks WHERE last_activity_at < $1`, [cutoffIso]);
     const spans = await tx.query(
-      `DELETE FROM spans WHERE start_ms < $1 AND session_id NOT IN (SELECT id FROM tasks)`,
+      `DELETE FROM spans
+        WHERE session_id NOT IN (SELECT id FROM tasks)
+          AND (session_id <> '' OR start_ms < $1)`,
       [cutoffMs],
     );
     const feedback = await tx.query(`DELETE FROM message_feedback WHERE created_at < $1`, [cutoffIso]);
