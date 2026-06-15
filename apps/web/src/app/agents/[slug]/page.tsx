@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown, ShieldCheck, AlertTriangle, Info } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown, ShieldCheck, AlertTriangle, Info, ClipboardCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot, AgentFeedbackReport, FeedbackRating } from '@slackhive/shared';
@@ -506,11 +506,15 @@ function InfoTip({ children }: { children: React.ReactNode }): React.JSX.Element
   );
 }
 
-function Card({ title, children, fill }: { title?: string; children: React.ReactNode; fill?: boolean }) {
+function Card({ title, children, fill, grow }: { title?: string; children: React.ReactNode; fill?: boolean; grow?: boolean }) {
+  // `fill` stretches to the parent's height (e.g. a stretched flex column);
+  // `grow` makes the card flex-grow to absorb leftover space in a flex column
+  // so the last card's bottom lines up with a taller sibling column.
+  const stretch = fill || grow;
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '20px 22px', ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : {}) }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '20px 22px', ...(grow ? { flex: 1, minHeight: 0 } : {}), ...(stretch ? { display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : {}), ...(fill && !grow ? { height: '100%' } : {}) }}>
       {title && <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', marginBottom: 18 }}>{title}</div>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, ...(fill ? { flex: 1 } : {}) }}>{children}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, ...(stretch ? { flex: 1 } : {}) }}>{children}</div>
     </div>
   );
 }
@@ -542,6 +546,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
     persona:     agent.persona ?? '',
     model:       agent.model,
     tags:        agent.tags ?? [] as string[],
+    isBoss:      agent.isBoss,
+    reportsTo:   agent.reportsTo ?? [] as string[],
   });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
@@ -628,7 +634,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
     try {
       const r = await fetch(`/api/agents/${agent.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, persona: form.persona, description: form.description, model: form.model, tags: form.tags }),
+        body: JSON.stringify({ name: form.name, persona: form.persona, description: form.description, model: form.model, tags: form.tags, isBoss: form.isBoss, reportsTo: form.reportsTo }),
       });
       const data = await r.json();
       if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
@@ -689,6 +695,50 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
           <TextArea label="Persona" value={form.persona}
             onChange={v => setForm(f => ({ ...f, persona: v }))}
             hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={6} readOnly={!canEdit} />
+
+          {/* Role & Hierarchy — part of the agent's identity. Boss agents
+              orchestrate others; non-bosses can report to one or more bosses. */}
+          <div style={{ paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Orchestrates other agents &amp; delegates tasks</div>
+              </div>
+              <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} style={{
+                width: 44, height: 24, borderRadius: 12, border: 'none', background: form.isBoss ? '#d97706' : 'var(--border-2)',
+                cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+              }}>
+                <div style={{ position: 'absolute', top: 3, left: form.isBoss ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+              </button>
+            </div>
+            {!form.isBoss && (() => {
+              const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
+              if (!bosses.length) return null;
+              return (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports to</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {bosses.map(boss => {
+                      const checked = form.reportsTo.includes(boss.id);
+                      return (
+                        <label key={boss.id} style={{
+                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8,
+                          border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
+                          background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)', cursor: canEdit ? 'pointer' : 'default',
+                        }}>
+                          <input type="checkbox" checked={checked} disabled={!canEdit}
+                            onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
+                            style={{ accentColor: '#d97706', width: 13, height: 13 }} />
+                          <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{boss.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
           {canEdit && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 'auto', paddingTop: 14, borderTop: '1px solid var(--border)' }}>
               {msg && <span style={{ fontSize: 12.5, color: msg === 'Saved' ? 'var(--green)' : 'var(--muted)' }}>{msg}</span>}
@@ -742,7 +792,7 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
           );
         })()}
 
-        <Card title="Details">
+        <Card title="Details" grow>
           {/* Counts — wrapping stat chips */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {[
@@ -779,7 +829,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
             <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
           </div>
 
-          {/* Evals — healthcheck status + last run, click → Settings → Evals. */}
+          {/* Evals — healthcheck + last regression run as two rows; click → Settings → Evals. */}
+          <MetaGroupLabel>Quality</MetaGroupLabel>
           {(() => {
             const tier = evalTier(evalHealth);
             const run = evalRun;
@@ -787,20 +838,32 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
             // (pass/fail/suspect/infra) so the denominator is the real case count.
             const ranTotal = run ? run.passCount + run.failCount + run.suspectCount + run.infraCount : 0;
             const ran = run && run.status === 'done' && ranTotal > 0;
+            const rate = ran ? Math.round((run!.passCount / ranTotal) * 100) : 0;
+            const rateColor = !ran ? 'var(--muted)' : rate >= 80 ? '#16a34a' : rate >= 50 ? '#d97706' : '#dc2626';
+            const rowBtn: React.CSSProperties = {
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+              background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            };
             return (
-              <button onClick={onViewEvals} title="Open Evals" style={{
-                display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
-                background: 'none', border: 'none', borderTop: '1px solid var(--border)',
-                padding: '9px 0 0', marginTop: 10, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              }}>
-                <tier.Icon size={13} style={{ color: tier.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Evals</span>
-                <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: tier.color }}>{tier.label}</span>
-                  {ran && <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>· {run!.passCount}/{ranTotal} passed</span>}
-                  <ArrowRight size={12} style={{ color: 'var(--subtle)' }} />
-                </span>
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                <button onClick={onViewEvals} title="Open Evals" style={rowBtn}>
+                  <tier.Icon size={13} style={{ color: tier.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Health</span>
+                  <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: tier.color }}>{tier.label}</span>
+                    <ArrowRight size={12} style={{ color: 'var(--subtle)' }} />
+                  </span>
+                </button>
+                <button onClick={onViewEvals} title="Open Evals" style={rowBtn}>
+                  <ClipboardCheck size={13} style={{ color: rateColor, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Regression</span>
+                  <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: rateColor }}>{ran ? `${rate}%` : 'No runs'}</span>
+                    {ran && <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>· {run!.passCount}/{ranTotal}</span>}
+                    <ArrowRight size={12} style={{ color: 'var(--subtle)' }} />
+                  </span>
+                </button>
+              </div>
             );
           })()}
 
@@ -812,8 +875,6 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
             View full activity <ArrowRight size={13} />
           </Link>
         </Card>
-
-        <RoleHierarchyCard agent={agent} onUpdate={onUpdate} canEdit={canEdit} allAgents={allAgents} />
       </aside>
       </div>
     </div>
@@ -859,87 +920,23 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
   );
 }
 
-/** Lean editable Role & Hierarchy card — lives in the Overview aside. Saves on
- *  change (no permanent save button) so it stays compact. */
-function RoleHierarchyCard({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
-  const [form, setForm] = useState({ isBoss: agent.isBoss, reportsTo: agent.reportsTo ?? [] as string[] });
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState('');
-  const dirty = form.isBoss !== agent.isBoss ||
-    JSON.stringify([...form.reportsTo].sort()) !== JSON.stringify([...(agent.reportsTo ?? [])].sort());
-  const save = async () => {
-    setSaving(true);
-    try {
-      const r = await fetch(`/api/agents/${agent.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isBoss: form.isBoss, reportsTo: form.reportsTo }),
-      });
-      const data = await r.json();
-      if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
-    } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
-  };
-  const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
-  return (
-    <Card title="Role & Hierarchy">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Orchestrates other agents &amp; delegates tasks</div>
-        </div>
-        <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} style={{
-          width: 44, height: 24, borderRadius: 12, border: 'none', background: form.isBoss ? '#d97706' : 'var(--border-2)',
-          cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-        }}>
-          <div style={{ position: 'absolute', top: 3, left: form.isBoss ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
-        </button>
-      </div>
-      {!form.isBoss && bosses.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports to</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {bosses.map(boss => {
-              const checked = form.reportsTo.includes(boss.id);
-              return (
-                <label key={boss.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8,
-                  border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
-                  background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)', cursor: canEdit ? 'pointer' : 'default',
-                }}>
-                  <input type="checkbox" checked={checked} disabled={!canEdit}
-                    onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
-                    style={{ accentColor: '#d97706', width: 13, height: 13 }} />
-                  <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{boss.name}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {canEdit && dirty && (
-        <div style={{ marginTop: 14, display: 'flex', gap: 10, alignItems: 'center' }}>
-          <PrimaryBtn onClick={save} loading={saving}>Save</PrimaryBtn>
-          {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean }) {
   const [form, setForm] = useState({
     verbose: agent.verbose ?? true,
     sensitivityCheck: agent.sensitivityCheck ?? 'deterministic',
     enforcementRedaction: agent.enforcementRedaction ?? false,
     redactionLevel: agent.redactionLevel ?? 'secrets',
+    sensitivityGuidance: agent.sensitivityGuidance ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [guideOpen, setGuideOpen] = useState(!!(agent.sensitivityGuidance ?? '').trim());
   const save = async () => {
     setSaving(true);
     try {
       const r = await fetch(`/api/agents/${agent.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ verbose: form.verbose, sensitivityCheck: form.sensitivityCheck, enforcementRedaction: form.enforcementRedaction, redactionLevel: form.redactionLevel }),
+        body: JSON.stringify({ verbose: form.verbose, sensitivityCheck: form.sensitivityCheck, enforcementRedaction: form.enforcementRedaction, redactionLevel: form.redactionLevel, sensitivityGuidance: form.sensitivityGuidance }),
       });
       const data = await r.json();
       if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
@@ -969,7 +966,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
             <InfoTip>
               <div><strong style={{ color: 'var(--text)' }}>Off</strong> — no detection, no overhead. Use for agents that never handle personal data, secrets, or external sends.</div>
               <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Deterministic</strong> (recommended) — fast pattern rules flag PII, secrets, DB credentials, and source→sink exfiltration flows; no model calls. Good default for most agents.</div>
-              <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Smart</strong> — same rules, plus one cheap LLM pass per flagged turn to confirm findings and drop false positives. Use for high-stakes agents (finance, customer PII) or noisy contexts where rules over-flag. Adds slight latency + cost.</div>
+              <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Smart</strong> — the rules, plus one cheap LLM pass per turn that (a) confirms findings and drops false positives, and (b) independently catches sensitive data the rules miss, like obfuscated PII (a phone number spelled out in words). LLM-only finds are marked &quot;caught by LLM&quot; in sessions — report-only, never blocks. Adds slight latency + cost.</div>
             </InfoTip>
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
@@ -979,7 +976,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
             {([
               ['off', 'Off', 'No scanning'],
               ['deterministic', 'Deterministic', 'Regex / pattern rules'],
-              ['smart', 'Smart', 'Rules + LLM confirmation'],
+              ['smart', 'Smart', 'Rules + LLM detection'],
             ] as const).map(([val, label, sub]) => {
               const active = form.sensitivityCheck === val;
               return (
@@ -995,6 +992,45 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
             })}
           </div>
         </div>
+
+        {/* Smart-only: per-agent guidance on what counts as sensitive, fed into the
+            LLM detector prompt. A small toggle keeps the card lean by default. */}
+        {form.sensitivityCheck === 'smart' && (
+          <div style={{ marginTop: 4, padding: '12px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div>
+                <div style={{ marginBottom: 2 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>What&apos;s sensitive for this agent</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Optional. Tell the LLM detector what to treat as sensitive here, beyond the built-in PII/secrets.</div>
+              </div>
+              {!guideOpen && (
+                <button disabled={!canEdit} onClick={() => setGuideOpen(true)} style={{
+                  flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 7,
+                  border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12, fontWeight: 500,
+                  cursor: canEdit ? 'pointer' : 'default', fontFamily: 'var(--font-sans)',
+                }}><Pencil size={12} /> {form.sensitivityGuidance.trim() ? 'Edit' : 'Add rules'}</button>
+              )}
+            </div>
+            {guideOpen && (
+              <div style={{ marginTop: 10 }}>
+                <textarea
+                  value={form.sensitivityGuidance}
+                  onChange={e => setForm(f => ({ ...f, sensitivityGuidance: e.target.value }))}
+                  readOnly={!canEdit}
+                  rows={4}
+                  placeholder={'e.g. Internal project codenames (Project Atlas, Bluebird)\nUnreleased pricing or revenue figures\nPatient or case identifiers'}
+                  style={{
+                    width: '100%', boxSizing: 'border-box', resize: 'vertical', padding: '8px 10px', borderRadius: 7,
+                    border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
+                    fontSize: 12.5, fontFamily: 'var(--font-sans)', lineHeight: 1.5,
+                  }} />
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--subtle)' }}>One rule per line. Findings from these still appear marked &quot;caught by LLM&quot; — report-only, never blocks.</div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: form.sensitivityCheck === 'off' ? 0.5 : 1 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>

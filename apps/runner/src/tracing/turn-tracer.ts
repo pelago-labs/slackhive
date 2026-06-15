@@ -25,6 +25,14 @@ import { computeFps, type FpEntry } from './fingerprint';
 /** A flagged finding queued for optional smart (LLM) verification. */
 export interface SmartCandidate { spanId: string; reason: string; sample: string }
 
+/** A piece of turn content the Smart (LLM) detector scans for sensitive data that
+ *  regex missed (e.g. obfuscated PII). The full content is sent to the cheap model
+ *  but never persisted; only a privacy-safe tag is stored if a finding lands. */
+export interface SmartScanTarget { spanId: string; kind: 'generation' | 'tool'; content: string }
+
+/** Cap per-target content sent to the smart detector (keeps the batched call cheap). */
+const SMART_SCAN_LIMIT = 1500;
+
 /** A short, redacted hint of the first match (first 4 chars + length) so the LLM
  *  has signal to confirm/deny without receiving the full value. */
 function sampleHint(content: string | null | undefined, scope: SensScope): string {
@@ -92,6 +100,7 @@ export class TurnTracer {
   /** When true (mode 'smart'), flagged findings are queued for LLM verification. */
   private readonly smart: boolean;
   private readonly candidates: SmartCandidate[] = [];
+  private readonly scanTargets: SmartScanTarget[] = [];
   private lastBoundaryMs: number;
   private readonly tools = new Map<string, { span: Span; name: string; args?: string }>();
   private readonly hits: (SensitiveHit | null)[] = [];
@@ -150,6 +159,8 @@ export class TurnTracer {
       if (hit) { applySensitive(span, hit); this.hits.push(hit); this.queueSmart(span, hit, input.text, 'text'); }
       // The model's visible answer text is a flow SINK (data heading to Slack).
       setFps(span, computeFps(input.text, 'text', 'sink'));
+      // Smart mode scans the agent's OWN reply for obfuscated PII regex can't match.
+      this.queueScan(span, 'generation', input.text);
     }
     span.end(now);
     this.lastBoundaryMs = now;
@@ -190,6 +201,8 @@ export class TurnTracer {
       const fps: FpEntry[] = computeFps(output, 'all', 'source');
       if (egressKind(name, args)) fps.push(...computeFps(args, 'all', 'sink'));
       setFps(span, fps);
+      // Smart mode scans the tool's result for obfuscated PII regex can't match.
+      this.queueScan(span, 'tool', output);
     }
 
     span.end();
@@ -206,6 +219,20 @@ export class TurnTracer {
   /** Findings to verify in smart mode (empty otherwise). Read after the turn ends. */
   smartCandidates(): SmartCandidate[] {
     return this.candidates;
+  }
+
+  /** Queue a piece of content for the smart (LLM) detector to scan independently
+   *  of regex. Only in smart mode; empty/whitespace content is skipped. */
+  private queueScan(span: Span, kind: SmartScanTarget['kind'], content: string | null | undefined): void {
+    if (!this.smart) return;
+    const text = (content ?? '').trim();
+    if (!text) return;
+    this.scanTargets.push({ spanId: span.spanContext().spanId, kind, content: text.slice(0, SMART_SCAN_LIMIT) });
+  }
+
+  /** Content pieces for the smart detector to scan (empty unless smart mode). */
+  smartScanTargets(): SmartScanTarget[] {
+    return this.scanTargets;
   }
 
   /** A system marker (e.g. context_reset) as a zero-duration `event` span. */

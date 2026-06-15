@@ -256,13 +256,17 @@ export function mergeHits(hits: (SensitiveHit | null)[]): SensitiveHit | null {
 // ── Highlight segmentation (web trace UI) ────────────────────────────────────
 
 /** A run of text, flagged with its category when it matched a detector. */
-export interface SensSegment { text: string; cat: SensitiveCategory | null; label: string | null }
+export interface SensSegment { text: string; cat: SensitiveCategory | null; label: string | null; llm?: boolean }
+
+/** An extra substring to highlight (e.g. an excerpt the Smart/LLM detector found
+ *  that regex can't match). `label` is the kind tag (e.g. `pii:phone`). */
+export interface ExtraMark { text: string; cat: SensitiveCategory; label: string }
 
 /** Highlight scope: `all` for tool I/O (matches detectSensitive); `text` for the
  *  model's own output (PII + secrets only — matches detectInText). */
 export type SensScope = 'all' | 'text';
 
-interface Range { start: number; end: number; cat: SensitiveCategory; label: string }
+interface Range { start: number; end: number; cat: SensitiveCategory; label: string; llm?: boolean }
 
 /** On overlap the higher-priority category wins (secret > pii > tool > data). */
 const PRIO: Record<SensitiveCategory, number> = { secret: 3, pii: 2, tool: 1, data: 0 };
@@ -289,6 +293,20 @@ function collect(re: RegExp, cat: SensitiveCategory, label: string | ((m: string
  * secrets only (the model's prose). Non-overlapping; higher-priority wins on tie.
  */
 export function markSensitive(str: string, scope: SensScope = 'all'): SensSegment[] {
+  return markSensitiveWith(str, scope, []);
+}
+
+/** Escape a literal string for use inside a RegExp. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Like {@link markSensitive}, but also highlights each `extras` substring (e.g. an
+ * excerpt the Smart/LLM detector flagged that regex can't match). Extra marks take
+ * priority on overlap so an LLM finding is never hidden by a weaker regex match.
+ */
+export function markSensitiveWith(str: string, scope: SensScope, extras: ExtraMark[]): SensSegment[] {
   const text = str.length > SCAN_CAP ? str.slice(0, SCAN_CAP) : str;
   const ranges: Range[] = [];
 
@@ -303,10 +321,18 @@ export function markSensitive(str: string, scope: SensScope = 'all'): SensSegmen
     collect(CRED, 'tool', 'tool:credentials', text, ranges);
     collect(HL_DATA_RE, 'data', m => `data:${m.toLowerCase()}`, text, ranges);
   }
+  // LLM excerpts: literal, case-insensitive; flagged `llm` so the UI can mark them.
+  for (const ex of extras) {
+    if (!ex.text) continue;
+    const before = ranges.length;
+    collect(new RegExp(escapeRe(ex.text), 'gi'), ex.cat, ex.label, text, ranges);
+    for (let i = before; i < ranges.length; i++) ranges[i].llm = true;
+  }
 
   if (ranges.length === 0) return [{ text: str, cat: null, label: null }];
 
-  ranges.sort((a, b) => a.start - b.start || PRIO[b.cat] - PRIO[a.cat] || (b.end - b.start) - (a.end - a.start));
+  // Extra (llm) marks win overlap ties so an LLM finding is never masked by regex.
+  ranges.sort((a, b) => a.start - b.start || (b.llm ? 1 : 0) - (a.llm ? 1 : 0) || PRIO[b.cat] - PRIO[a.cat] || (b.end - b.start) - (a.end - a.start));
   const kept: Range[] = [];
   let lastEnd = -1;
   for (const r of ranges) if (r.start >= lastEnd) { kept.push(r); lastEnd = r.end; }
@@ -315,7 +341,7 @@ export function markSensitive(str: string, scope: SensScope = 'all'): SensSegmen
   let cursor = 0;
   for (const r of kept) {
     if (r.start > cursor) segs.push({ text: text.slice(cursor, r.start), cat: null, label: null });
-    segs.push({ text: text.slice(r.start, r.end), cat: r.cat, label: r.label });
+    segs.push({ text: text.slice(r.start, r.end), cat: r.cat, label: r.label, llm: r.llm });
     cursor = r.end;
   }
   if (cursor < str.length) segs.push({ text: str.slice(cursor), cat: null, label: null });

@@ -50,7 +50,7 @@ import { VERBOSE_NARRATION_DIRECTIVE } from './compile-instructions';
 import { getKnownAgentsByBotId } from './agent-registry';
 import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import { TurnTracer } from './tracing/turn-tracer';
-import { verifySmartFindings } from './tracing/smart-verify';
+import { verifySmartFindings, detectSmartFindings } from './tracing/smart-verify';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -508,11 +508,14 @@ export class MessageHandler {
         });
       } catch { /* trace best-effort */ }
     } finally {
-      // Smart mode: confirm flagged findings with one cheap LLM call, off the hot
-      // path (after the reply is sent), downgrading false positives in the feed.
+      // Smart mode (off the hot path, after the reply is sent): (1) confirm the
+      // regex hits and downgrade false positives; (2) independently scan the turn's
+      // content for sensitive data regex missed, flagged "caught by LLM" (report-only).
       if (turn) {
         const cands = turn.smartCandidates();
         if (cands.length) void verifySmartFindings(cands);
+        const scans = turn.smartScanTargets();
+        if (scans.length) void detectSmartFindings(scans, this.agent.sensitivityGuidance);
       }
       this.activeControllers.delete(sessionKey);
       setTimeout(() => this.currentReactions.delete(sessionKey), 5 * 60 * 1000);

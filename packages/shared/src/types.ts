@@ -150,6 +150,9 @@ export interface Agent {
   enforcementRedaction: boolean;
   /** How much to mask when redaction is on. @default 'secrets' */
   redactionLevel: 'secrets' | 'pii' | 'all';
+  /** Free-text "what counts as sensitive for THIS agent" — fed into the Smart
+   *  (LLM) detector prompt to tailor what it flags. Empty = default behavior. */
+  sensitivityGuidance: string;
   /** UUIDs of boss agents this agent reports to. Empty array if this agent is a boss. */
   reportsTo: string[];
   /**
@@ -784,6 +787,7 @@ export interface UpdateAgentRequest {
   sensitivityCheck?: 'off' | 'deterministic' | 'smart';
   enforcementRedaction?: boolean;
   redactionLevel?: 'secrets' | 'pii' | 'all';
+  sensitivityGuidance?: string;
 }
 
 /**

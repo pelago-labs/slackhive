@@ -41,11 +41,11 @@ export { PERSONA_CATALOG, getPersonaById, getPersonasByCategory, searchPersonas 
 export type { PersonaTemplate, PersonaSkillSeed, PersonaCategory } from './personas';
 export { deepLinkForTask, deepLinkLabelForPlatform } from './deep-link';
 export {
-  detectSensitive, detectInText, mergeHits, markSensitive, humanizeTag,
+  detectSensitive, detectInText, mergeHits, markSensitive, markSensitiveWith, humanizeTag,
   SENS_COLOR, CAT_LABEL, SCAN_CAP,
   severityForTag, maxSeverity, SEVERITY_RANK, SEVERITY_COLOR, egressKind, redactSensitive,
 } from './sensitivity';
-export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope, Severity, RedactionLevel } from './sensitivity';
+export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope, Severity, RedactionLevel, ExtraMark } from './sensitivity';
 export {
   upsertTask, beginActivity, finishActivity,
   beginToolCall, finishToolCall,

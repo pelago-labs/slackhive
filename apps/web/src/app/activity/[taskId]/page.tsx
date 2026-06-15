@@ -25,7 +25,7 @@ import {
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
-import { markSensitive, SENS_COLOR, CAT_LABEL, humanizeTag, type SensitiveCategory as SensCategory, type SensScope } from '@slackhive/shared';
+import { markSensitiveWith, SENS_COLOR, CAT_LABEL, humanizeTag, type SensitiveCategory as SensCategory, type SensScope, type ExtraMark } from '@slackhive/shared';
 
 // A highlighted sensitive token: a colored-background tag. Click it to reveal what
 // kind of data it is. The popover is portaled to <body> with fixed positioning so
@@ -36,23 +36,27 @@ const RevealCtx = React.createContext(false);
 /** A sensitive value, MASKED by default (shown as its kind, e.g. "Phone number").
  *  Admins can click to reveal/hide the real value; non-admins only ever see the
  *  masked label. */
-function SensitiveMark({ cat, label, children }: { cat: SensCategory; label: string; children: React.ReactNode }): React.JSX.Element {
+function SensitiveMark({ cat, label, llm, children }: { cat: SensCategory; label: string; llm?: boolean; children: React.ReactNode }): React.JSX.Element {
   const canReveal = React.useContext(RevealCtx);
   const [revealed, setRevealed] = useState(false);
   const color = SENS_COLOR[cat];
   const human = humanizeTag(label);
   const shown = revealed && canReveal;
   const onClick = (e: React.MouseEvent) => { e.stopPropagation(); if (canReveal) setRevealed(r => !r); };
+  const kindNote = llm ? `${CAT_LABEL[cat] ?? cat} · caught by LLM` : (CAT_LABEL[cat] ?? cat);
   return (
     <mark
       onClick={onClick}
-      title={canReveal ? (shown ? 'Click to hide' : `Click to reveal (${CAT_LABEL[cat] ?? cat})`) : `Hidden — admins only (${CAT_LABEL[cat] ?? cat})`}
+      title={canReveal ? (shown ? 'Click to hide' : `Click to reveal (${kindNote})`) : `Hidden — admins only (${kindNote})`}
       style={{
         background: `${color}26`, color, borderRadius: 3, padding: '0 4px', fontWeight: 600,
         cursor: canReveal ? 'pointer' : 'not-allowed', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone',
+        ...(llm ? { boxShadow: `inset 0 -2px 0 ${color}` } : {}),
       }}
     >
-      {shown ? children : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} style={{ flexShrink: 0 }} />{human.label}</span>}
+      {shown ? children : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        <Lock size={10} style={{ flexShrink: 0 }} />{human.label}
+      </span>}
     </mark>
   );
 }
@@ -62,13 +66,17 @@ function SensitiveMark({ cat, label, children }: { cat: SensCategory; label: str
 // The context value is the highlight scope ('all' for tool I/O, 'text' for prose),
 // or null when off.
 const SensCtx = React.createContext<SensScope | null>(null);
+// LLM-detector excerpts to also highlight inline (regex can't re-match these).
+const EMPTY_HITS: ExtraMark[] = [];
+const LlmHitsCtx = React.createContext<ExtraMark[]>(EMPTY_HITS);
 function Hl({ children }: { children: React.ReactNode }): React.JSX.Element {
   const scope = React.useContext(SensCtx);
+  const llmHits = React.useContext(LlmHitsCtx);
   if (!scope) return <>{children}</>;
   return <>{React.Children.map(children, (child) =>
     typeof child === 'string'
-      ? markSensitive(child, scope).map((seg, i) => seg.cat
-          ? <SensitiveMark key={i} cat={seg.cat} label={seg.label ?? seg.cat}>{seg.text}</SensitiveMark>
+      ? markSensitiveWith(child, scope, llmHits).map((seg, i) => seg.cat
+          ? <SensitiveMark key={i} cat={seg.cat} label={seg.label ?? seg.cat} llm={seg.llm}>{seg.text}</SensitiveMark>
           : <React.Fragment key={i}>{seg.text}</React.Fragment>)
       : child)}</>;
 }
@@ -129,6 +137,8 @@ interface TraceSpan {
   costUsd: number | null; finishReason: string | null;
   input: string | null; output: string | null; reasoning: string | null;
   sensitive: boolean; sensitiveCategories: string[]; sensitiveReason: string | null;
+  sensitiveLlm?: boolean;
+  sensitiveLlmHits?: { text: string; category: SensCategory; label: string; severity: string }[];
 }
 interface TurnFeedback { sentiment: 'up' | 'down'; note: string | null; raterHandle: string | null }
 interface TraceTurn {
@@ -584,6 +594,8 @@ interface NodeData {
   defaultOpen?: boolean;
   sensitive?: boolean;
   sensitiveCategories?: string[];
+  sensitiveLlm?: boolean;
+  sensitiveLlmHits?: ExtraMark[];
 }
 
 /** Flatten a turn into ordered tree nodes: each span, then the final answer,
@@ -594,13 +606,15 @@ function buildNodes(turn: TraceTurn): NodeData[] {
   // The generation that produced the final answer is shown as the green ANSWER
   // node, so we skip it here — but carry its sensitivity + span id onto that node
   // so a flagged answer still highlights and its Sensitive-feed deep-link resolves.
-  let answerGen: { sensitive?: boolean; cats?: string[]; spanId?: string } | null = null;
+  const toExtra = (hits?: TraceSpan['sensitiveLlmHits']): ExtraMark[] =>
+    (hits ?? []).map(h => ({ text: h.text, cat: h.category, label: h.label }));
+  let answerGen: { sensitive?: boolean; cats?: string[]; spanId?: string; llm?: boolean; hits?: ExtraMark[] } | null = null;
   for (const sp of turn.spans) {
     // Skip empty tool-decision generations and the generation that duplicates
     // the final answer (shown as the green ANSWER node).
     if (sp.kind === 'generation') {
       if (finalTrim && sp.output && sp.output.trim() === finalTrim) {
-        answerGen = { sensitive: sp.sensitive, cats: sp.sensitiveCategories, spanId: sp.spanId };
+        answerGen = { sensitive: sp.sensitive, cats: sp.sensitiveCategories, spanId: sp.spanId, llm: sp.sensitiveLlm, hits: toExtra(sp.sensitiveLlmHits) };
         continue;
       }
       if (!sp.reasoning && !sp.output) continue;
@@ -626,13 +640,15 @@ function buildNodes(turn: TraceTurn): NodeData[] {
       sections,
       sensitive: sp.sensitive,
       sensitiveCategories: sp.sensitiveCategories,
+      sensitiveLlm: sp.sensitiveLlm,
+      sensitiveLlmHits: toExtra(sp.sensitiveLlmHits),
     });
   }
   if (turn.finalAnswer) {
     nodes.push({
       key: answerGen?.spanId ?? '__final', kind: 'final', title: 'Final answer', model: null, durationMs: null,
       tokens: 0, costUsd: 0, sections: [{ label: 'answer', body: turn.finalAnswer, markdown: true }], defaultOpen: true,
-      sensitive: answerGen?.sensitive, sensitiveCategories: answerGen?.cats,
+      sensitive: answerGen?.sensitive, sensitiveCategories: answerGen?.cats, sensitiveLlm: answerGen?.llm, sensitiveLlmHits: answerGen?.hits,
     });
   }
   if (turn.error) {
@@ -683,6 +699,13 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
         <span style={{ flexShrink: 0, width: 50, textAlign: 'center', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', padding: '3px 0', borderRadius: 4, background: isErr ? 'rgba(220,38,38,0.1)' : node.kind === 'final' ? 'rgba(5,150,105,0.1)' : 'var(--surface-2)', color: tagColor }}>{k.tag}</span>
         <span style={{ fontSize: 12.5, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto', minWidth: 60 }}>{node.title}</span>
         {node.sensitive && <SensitiveBadge categories={node.sensitiveCategories ?? []} compact />}
+        {node.sensitiveLlm && (
+          <span title="Found by the Smart (LLM) detector — regex did not match this" style={{
+            flexShrink: 0, display: 'inline-flex', alignItems: 'center', fontSize: 9, fontWeight: 700,
+            letterSpacing: '0.03em', textTransform: 'uppercase', padding: '2px 5px', borderRadius: 5,
+            background: 'rgba(124,58,237,0.12)', color: '#7c3aed',
+          }}>LLM</span>
+        )}
         {/* spacer keeps the badge next to the title and the metrics right-aligned */}
         <div style={{ flex: 1, minWidth: 8 }} />
         {node.model && <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>{node.model}</span>}
@@ -699,7 +722,7 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
       </div>
       {open && has && (
         <div style={{ paddingLeft: 24, paddingRight: 4, paddingBottom: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} scope={node.kind === 'tool' ? 'all' : 'text'} />)}
+          {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} scope={node.kind === 'tool' ? 'all' : 'text'} llmHits={node.sensitiveLlmHits} />)}
         </div>
       )}
     </div>
@@ -708,14 +731,15 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
 
 /** Section body: markdown for prose (thinking / answers / responses), pretty
  * code for tool args/results. Filled (not bordered) for a calmer look. */
-function Content({ label, body, markdown, accent, sensitive, scope = 'all' }: { label: string; body: string; markdown?: boolean; accent?: string; sensitive?: boolean; scope?: SensScope }): React.JSX.Element {
+function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmHits }: { label: string; body: string; markdown?: boolean; accent?: string; sensitive?: boolean; scope?: SensScope; llmHits?: ExtraMark[] }): React.JSX.Element {
   const [copied, setCopied] = useState(false);
+  const hits = llmHits ?? EMPTY_HITS;
   let text = body;
   if (!markdown) {
     try { const t = body.trim(); if (t.startsWith('{') || t.startsWith('[')) text = JSON.stringify(JSON.parse(t), null, 2); } catch { /* raw */ }
   }
   // Memoize the regex scan so the 4s poll doesn't re-highlight unchanged content.
-  const segments = useMemo(() => (sensitive && !markdown ? markSensitive(text, scope) : null), [sensitive, markdown, text, scope]);
+  const segments = useMemo(() => (sensitive && !markdown ? markSensitiveWith(text, scope, hits) : null), [sensitive, markdown, text, scope, hits]);
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard?.writeText(body).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {});
@@ -736,14 +760,16 @@ function Content({ label, body, markdown, accent, sensitive, scope = 'all' }: { 
       {markdown ? (
         <div style={{ ...shell, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
           <SensCtx.Provider value={sensitive ? scope : null}>
-            <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{slackToMd(body)}</ReactMarkdown>
+            <LlmHitsCtx.Provider value={hits}>
+              <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{slackToMd(body)}</ReactMarkdown>
+            </LlmHitsCtx.Provider>
           </SensCtx.Provider>
         </div>
       ) : (
         <pre style={{ ...shell, margin: 0, fontSize: 11, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
           {segments
             ? segments.map((seg, i) => seg.cat
-                ? <SensitiveMark key={i} cat={seg.cat} label={seg.label ?? seg.cat}>{seg.text}</SensitiveMark>
+                ? <SensitiveMark key={i} cat={seg.cat} label={seg.label ?? seg.cat} llm={seg.llm}>{seg.text}</SensitiveMark>
                 : <React.Fragment key={i}>{seg.text}</React.Fragment>)
             : text}
         </pre>

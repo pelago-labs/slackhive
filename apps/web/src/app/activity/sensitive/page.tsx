@@ -20,7 +20,7 @@ type Severity = 'critical' | 'high' | 'medium' | 'low';
 interface SensitiveEvent {
   spanId: string; sessionId: string; activityId: string | null;
   agentId: string | null; agentName: string | null; toolName: string | null;
-  categories: string[]; reason: string | null; severity: Severity | null; startMs: number; sessionSummary: string | null;
+  categories: string[]; reason: string | null; severity: Severity | null; caughtByLlm?: boolean; startMs: number; sessionSummary: string | null;
 }
 interface SensitiveFlow {
   id: string; label: string; category: string; severity: Severity;
@@ -42,6 +42,17 @@ const SEV_RANK: Record<string, number> = { critical: 3, high: 2, medium: 1, low:
 function SeverityBadge({ severity }: { severity: Severity }): React.JSX.Element {
   const c = SEV_COLOR[severity];
   return <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: `${c}1a`, color: c }}>{severity}</span>;
+}
+
+/** Badge marking a finding the Smart (LLM) detector caught, not regex. */
+function CaughtByLlmBadge(): React.JSX.Element {
+  return (
+    <span title="Found by the Smart (LLM) detector — regex did not match this" style={{
+      flexShrink: 0, display: 'inline-flex', alignItems: 'center', fontSize: 9.5, fontWeight: 700,
+      letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6,
+      background: 'rgba(124,58,237,0.12)', color: '#7c3aed',
+    }}>Caught by LLM</span>
+  );
 }
 
 /** Parse the reason string into specific chips; fall back to the broad categories. */
@@ -171,6 +182,7 @@ function Body(): React.JSX.Element {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   {e.severity && <SeverityBadge severity={e.severity} />}
+                  {e.caughtByLlm && <CaughtByLlmBadge />}
                   <code style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{e.toolName ?? 'response'}</code>
                   {chips.map((c, ci) => {
                     const m = CAT_META[c.category] ?? { label: c.label, icon: null, color: 'var(--muted)' };

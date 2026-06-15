@@ -110,6 +110,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     sensitivityCheck: (row.sensitivity_check as 'off' | 'deterministic' | 'smart') ?? 'deterministic',
     enforcementRedaction: row.enforcement_redaction === 1 || row.enforcement_redaction === true,
     redactionLevel: (row.redaction_level as 'secrets' | 'pii' | 'all') ?? 'secrets',
+    sensitivityGuidance: (row.sensitivity_guidance as string) ?? '',
     reportsTo: (row.reports_to as string[]) ?? [],
     tags: (row.tags as string[]) ?? [],
     claudeMd: (row.claude_md as string) ?? '',
@@ -472,6 +473,7 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
   if (req.sensitivityCheck !== undefined) { fields.push(`sensitivity_check = $${idx++}`); values.push(req.sensitivityCheck); }
   if (req.enforcementRedaction !== undefined) { fields.push(`enforcement_redaction = $${idx++}`); values.push(req.enforcementRedaction ? 1 : 0); }
   if (req.redactionLevel !== undefined) { fields.push(`redaction_level = $${idx++}`); values.push(req.redactionLevel); }
+  if (req.sensitivityGuidance !== undefined) { fields.push(`sensitivity_guidance = $${idx++}`); values.push(req.sensitivityGuidance); }
 
   // Upsert platform credentials if provided
   if (req.platformCredentials) {

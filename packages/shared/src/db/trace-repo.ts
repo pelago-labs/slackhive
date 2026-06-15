@@ -45,6 +45,10 @@ export interface TraceSpan {
   sensitiveCategories: string[];
   sensitiveReason: string | null;
   sensitiveSeverity: Severity | null;
+  /** True when the Smart (LLM) detector flagged this span (regex may have missed it). */
+  sensitiveLlm: boolean;
+  /** Excerpts the Smart detector flagged, so the trace can highlight which part + type. */
+  sensitiveLlmHits: { text: string; category: string; label: string; severity: string }[];
 }
 
 export interface TraceTurn {
@@ -171,7 +175,18 @@ function rowToSpan(r: Record<string, unknown>): TraceSpan {
     sensitiveCategories: s(r.sensitive_categories)?.split(',').filter(Boolean) ?? [],
     sensitiveReason: s(r.sensitive_reason),
     sensitiveSeverity: s(r.sensitive_severity) as Severity | null,
+    sensitiveLlm: !!Number(r.sensitive_llm ?? 0),
+    sensitiveLlmHits: parseLlmHits(r.sensitive_llm_hits),
   };
+}
+
+/** Parse the JSON array stored in spans.sensitive_llm_hits (best-effort). */
+function parseLlmHits(raw: unknown): TraceSpan['sensitiveLlmHits'] {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter(h => h && typeof h.text === 'string') : [];
+  } catch { return []; }
 }
 
 // ── Sensitive-data flow lineage (taint) ──────────────────────────────────────
@@ -496,6 +511,8 @@ export interface SensitiveEvent {
   categories: string[];
   reason: string | null;
   severity: Severity | null;
+  /** True when the Smart (LLM) detector flagged this (vs. deterministic regex). */
+  caughtByLlm: boolean;
   startMs: number;
   sessionSummary: string | null;
 }
@@ -539,7 +556,7 @@ export async function getSensitiveEvents(filter: SensitiveFeedFilter = {}): Prom
 
   const { rows } = await db.query(
     `SELECT s.span_id, s.session_id, s.activity_id, s.agent_id, s.tool_name,
-            s.sensitive_categories, s.sensitive_reason, s.sensitive_severity, s.start_ms,
+            s.sensitive_categories, s.sensitive_reason, s.sensitive_severity, s.sensitive_llm, s.start_ms,
             ag.name AS agent_name, t.summary AS session_summary
        FROM spans s
        LEFT JOIN agents ag ON ag.id = s.agent_id
@@ -559,6 +576,7 @@ export async function getSensitiveEvents(filter: SensitiveFeedFilter = {}): Prom
     categories: s(r.sensitive_categories)?.split(',').filter(Boolean) ?? [],
     reason: s(r.sensitive_reason),
     severity: s(r.sensitive_severity) as Severity | null,
+    caughtByLlm: !!Number(r.sensitive_llm ?? 0),
     startMs: n(r.start_ms),
     sessionSummary: s(r.session_summary),
   }));

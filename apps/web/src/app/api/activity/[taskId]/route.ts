@@ -66,12 +66,21 @@ export async function GET(
   }
 }
 
-/** Redact every flagged value in a turn's content for non-admin viewers. */
+/** Redact every flagged value in a turn's content for non-admin viewers — both the
+ *  regex matches AND the excerpts the Smart (LLM) detector flagged (which regex
+ *  can't re-match), so an obfuscated value never reaches a non-admin's browser. */
 function redactTurn(t: TraceTurn): TraceTurn {
-  const r = (s: string | null) => (s == null ? s : redactSensitive(s, 'all', 'all'));
+  // All LLM excerpts across the turn — redacted from every field (the offending
+  // value may also appear in the final answer / a sibling span).
+  const llmHits = t.spans.flatMap(sp => sp.sensitiveLlmHits ?? []);
+  const stripLlm = (s: string) => llmHits.reduce(
+    (acc, h) => (h.text ? acc.split(h.text).join(`[redacted:${h.label}]`) : acc),
+    s,
+  );
+  const r = (s: string | null) => (s == null ? s : stripLlm(redactSensitive(s, 'all', 'all')));
   return {
     ...t,
     finalAnswer: r(t.finalAnswer),
-    spans: t.spans.map(sp => ({ ...sp, input: r(sp.input), output: r(sp.output), reasoning: r(sp.reasoning) })),
+    spans: t.spans.map(sp => ({ ...sp, input: r(sp.input), output: r(sp.output), reasoning: r(sp.reasoning), sensitiveLlmHits: [] })),
   };
 }
