@@ -19,7 +19,8 @@
 
 import { type Span, type Attributes, trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer, ATTR } from './otel';
-import { detectSensitive, detectInText, mergeHits, type SensitiveHit } from '@slackhive/shared';
+import { detectSensitive, detectInText, mergeHits, egressKind, type SensitiveHit } from '@slackhive/shared';
+import { computeFps, type FpEntry } from './fingerprint';
 
 const PREVIEW_LIMIT = 2000;
 
@@ -100,6 +101,8 @@ export class TurnTracer {
     this.model = input.model;
     this.ctx = trace.setSpan(context.active(), this.turn);
     this.lastBoundaryMs = Date.now();
+    // The user's message is a flow SOURCE (sensitive values entering the turn).
+    setFps(this.turn, computeFps(input.userMessage, 'text', 'source'));
   }
 
   /** Record one assistant LLM step as a `generation` span spanning the gap
@@ -123,6 +126,8 @@ export class TurnTracer {
     // into its reply would otherwise go unflagged. Bubbles up to the turn via hits.
     const hit = detectInText(`${input.reasoning ?? ''}\n${input.text ?? ''}`);
     if (hit) { applySensitive(span, hit); this.hits.push(hit); }
+    // The model's visible answer text is a flow SINK (data heading to Slack).
+    setFps(span, computeFps(input.text, 'text', 'sink'));
     span.end(now);
     this.lastBoundaryMs = now;
   }
@@ -155,6 +160,12 @@ export class TurnTracer {
     const hit = detectSensitive(name, args, output ?? undefined);
     if (hit) applySensitive(span, hit);
     this.hits.push(hit);
+
+    // Flow roles: the tool's RESULT is a source (data the agent now holds); if the
+    // tool is an outbound sink, sensitive values in its ARGS are data leaving.
+    const fps: FpEntry[] = computeFps(output, 'all', 'source');
+    if (egressKind(name, args)) fps.push(...computeFps(args, 'all', 'sink'));
+    setFps(span, fps);
 
     span.end();
     this.tools.delete(toolUseId);
@@ -214,4 +225,10 @@ function applySensitive(span: Span, hit: SensitiveHit): void {
   span.setAttribute(ATTR.SENSITIVE, true);
   span.setAttribute(ATTR.SENSITIVE_CATEGORIES, hit.categories.join(','));
   span.setAttribute(ATTR.SENSITIVE_REASON, hit.reason);
+  span.setAttribute(ATTR.SENSITIVE_SEVERITY, hit.severity);
+}
+
+/** Stash privacy-safe per-match fingerprints (source/sink roles) for flow lineage. */
+function setFps(span: Span, fps: FpEntry[]): void {
+  if (fps.length) span.setAttribute(ATTR.SENSITIVE_FPS, JSON.stringify(fps));
 }

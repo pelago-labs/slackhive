@@ -659,6 +659,8 @@ CREATE TABLE IF NOT EXISTS spans (
   sensitive             INTEGER NOT NULL DEFAULT 0,
   sensitive_categories  TEXT,
   sensitive_reason      TEXT,
+  sensitive_severity    TEXT,
+  sensitive_fps         TEXT,
   attributes            TEXT,
   created_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -912,6 +914,9 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
     if (!spanCols.includes('sensitive')) db.exec('ALTER TABLE spans ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0');
     if (!spanCols.includes('sensitive_categories')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_categories TEXT');
     if (!spanCols.includes('sensitive_reason')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_reason TEXT');
+    if (!spanCols.includes('sensitive_severity')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_severity TEXT');
+    // Per-match privacy-safe fingerprints + role (source/sink) for flow lineage.
+    if (!spanCols.includes('sensitive_fps')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_fps TEXT');
   }
   // Partial index for the audit feed (only flagged rows).
   db.exec("CREATE INDEX IF NOT EXISTS idx_spans_sensitive ON spans(start_ms DESC) WHERE sensitive = 1");
