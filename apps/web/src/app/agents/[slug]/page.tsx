@@ -812,6 +812,8 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
             View full activity <ArrowRight size={13} />
           </Link>
         </Card>
+
+        <RoleHierarchyCard agent={agent} onUpdate={onUpdate} canEdit={canEdit} allAgents={allAgents} />
       </aside>
       </div>
     </div>
@@ -845,7 +847,7 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
         ))}
       </div>
       <div style={{ flex: 1, minWidth: 320 }}>
-        {section === 'general' && <GeneralSettingsSection agent={agent} onUpdate={onUpdate} canEdit={canEdit} allAgents={allAgents} />}
+        {section === 'general' && <GeneralSettingsSection agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
         {section === 'slack'   && <SlackSettingsSection   agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
         {section === 'evals'   && <EvalsPanel agent={agent} onAskCoach={onAskCoach} onOpenCoach={onOpenCoach} />}
         {section === 'feedback' && <FeedbackPanel agent={agent} />}
@@ -857,9 +859,75 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
   );
 }
 
-function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
+/** Lean editable Role & Hierarchy card — lives in the Overview aside. Saves on
+ *  change (no permanent save button) so it stays compact. */
+function RoleHierarchyCard({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
+  const [form, setForm] = useState({ isBoss: agent.isBoss, reportsTo: agent.reportsTo ?? [] as string[] });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const dirty = form.isBoss !== agent.isBoss ||
+    JSON.stringify([...form.reportsTo].sort()) !== JSON.stringify([...(agent.reportsTo ?? [])].sort());
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isBoss: form.isBoss, reportsTo: form.reportsTo }),
+      });
+      const data = await r.json();
+      if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
+    } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
+  };
+  const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
+  return (
+    <Card title="Role & Hierarchy">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Orchestrates other agents &amp; delegates tasks</div>
+        </div>
+        <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} style={{
+          width: 44, height: 24, borderRadius: 12, border: 'none', background: form.isBoss ? '#d97706' : 'var(--border-2)',
+          cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+        }}>
+          <div style={{ position: 'absolute', top: 3, left: form.isBoss ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+        </button>
+      </div>
+      {!form.isBoss && bosses.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports to</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {bosses.map(boss => {
+              const checked = form.reportsTo.includes(boss.id);
+              return (
+                <label key={boss.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8,
+                  border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
+                  background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)', cursor: canEdit ? 'pointer' : 'default',
+                }}>
+                  <input type="checkbox" checked={checked} disabled={!canEdit}
+                    onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
+                    style={{ accentColor: '#d97706', width: 13, height: 13 }} />
+                  <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{boss.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {canEdit && dirty && (
+        <div style={{ marginTop: 14, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <PrimaryBtn onClick={save} loading={saving}>Save</PrimaryBtn>
+          {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean }) {
   const [form, setForm] = useState({
-    isBoss: agent.isBoss, verbose: agent.verbose ?? true, reportsTo: agent.reportsTo ?? [] as string[],
+    verbose: agent.verbose ?? true,
     sensitivityCheck: agent.sensitivityCheck ?? 'deterministic',
     enforcementRedaction: agent.enforcementRedaction ?? false,
     redactionLevel: agent.redactionLevel ?? 'secrets',
@@ -871,7 +939,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
     try {
       const r = await fetch(`/api/agents/${agent.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isBoss: form.isBoss, verbose: form.verbose, reportsTo: form.reportsTo, sensitivityCheck: form.sensitivityCheck, enforcementRedaction: form.enforcementRedaction, redactionLevel: form.redactionLevel }),
+        body: JSON.stringify({ verbose: form.verbose, sensitivityCheck: form.sensitivityCheck, enforcementRedaction: form.enforcementRedaction, redactionLevel: form.redactionLevel }),
       });
       const data = await r.json();
       if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
@@ -892,53 +960,6 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
             <div style={{ position: 'absolute', top: 3, left: form.verbose ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
           </button>
         </div>
-      </Card>
-
-      <Card title="Role & Hierarchy">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Boss Agent</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Boss agents orchestrate other agents and delegate tasks</div>
-          </div>
-          <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} style={{
-            width: 44, height: 24, borderRadius: 12, border: 'none', background: form.isBoss ? '#d97706' : 'var(--border-2)',
-            cursor: canEdit ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-          }}>
-            <div style={{ position: 'absolute', top: 3, left: form.isBoss ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
-          </button>
-        </div>
-        {!form.isBoss && (() => {
-          const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
-          if (bosses.length === 0) return (
-            <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic' }}>No boss agents available. Create a boss agent first.</div>
-          );
-          return (
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>Reports To</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {bosses.map(boss => {
-                  const checked = form.reportsTo.includes(boss.id);
-                  return (
-                    <label key={boss.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8,
-                      border: `1px solid ${checked ? 'rgba(217,119,6,0.3)' : 'var(--border)'}`,
-                      background: checked ? 'rgba(217,119,6,0.04)' : 'var(--surface)',
-                      cursor: canEdit ? 'pointer' : 'default', transition: 'all 0.15s',
-                    }}>
-                      <input type="checkbox" checked={checked} disabled={!canEdit}
-                        onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
-                        style={{ accentColor: '#d97706', width: 14, height: 14 }} />
-                      <div style={{ width: 24, height: 24, borderRadius: 6, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--accent-fg)', flexShrink: 0 }}>{boss.name.charAt(0).toUpperCase()}</div>
-                      <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{boss.name}</div></div>
-                      {checked && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, color: '#d97706', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Reports to</span>}
-                    </label>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 8 }}>An agent can report to multiple bosses.</div>
-            </div>
-          );
-        })()}
       </Card>
 
       <Card title="Sensitive data monitoring">
