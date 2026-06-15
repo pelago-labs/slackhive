@@ -67,9 +67,36 @@ describe('QA006 — PII & secrets', () => {
     expect(codes('call +1 415-555-0142')).toHaveLength(1);
   });
 
+  it('flags a bare US phone in 3-3-4 shape', () => {
+    expect(codes('call 415-555-0142')).toHaveLength(1);
+  });
+
+  it('flags a parenthesized area-code phone', () => {
+    expect(codes('call (415) 555-0142')).toHaveLength(1);
+  });
+
   it('does NOT flag a bare digit run as a phone', () => {
     // No separators, not Luhn-valid, not SSN-shaped → no PII.
     expect(codes('value 4155550142')).toHaveLength(0);
+  });
+
+  it('does NOT flag an ISO date as a phone', () => {
+    // 4-2-2 group shape, not 3-3-4 → must not look like a phone number.
+    expect(codes('Released on 2026-06-15.')).toHaveLength(0);
+  });
+
+  it('does NOT flag a dotted version string as a phone', () => {
+    expect(codes('build 12.34.56 shipped')).toHaveLength(0);
+  });
+
+  it('does NOT allowlist a real domain that merely starts with a placeholder', () => {
+    // @example.com / @your-domain must be the full host, not a prefix.
+    expect(codes('leak bob@example.com.evil.io')).toHaveLength(1);
+    expect(codes('leak bob@your-domain-is-real.com')).toHaveLength(1);
+  });
+
+  it('still allowlists the literal placeholder your-domain address', () => {
+    expect(codes('you@your-domain.com')).toHaveLength(0);
   });
 
   it('scans skills too and reports the skill path', () => {

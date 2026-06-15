@@ -12,11 +12,15 @@
 
 import type { CheckContext, HealthcheckIssue } from '../types';
 
-/** Mask the middle of a match so secrets aren't echoed into issues. */
+/**
+ * Mask a match so the secret/PII is never echoed into an issue. Reveals
+ * only the last 4 characters (enough to locate it alongside the file +
+ * line) — short structured ids like SSNs must not be reconstructable.
+ */
 function mask(s: string): string {
   const t = s.trim();
-  if (t.length <= 8) return `${t[0] ?? ''}***`;
-  return `${t.slice(0, 4)}****…****${t.slice(-4)}`;
+  if (t.length <= 4) return '****';
+  return `****…${t.slice(-4)}`;
 }
 
 /** Standard Luhn checksum — used to filter credit-card-shaped digit runs. */
@@ -37,7 +41,11 @@ function luhnValid(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-const EMAIL_ALLOW = /(@(example\.(com|org|net)|test\.com)|^(email|user|noreply|no-reply)@|@your-domain)/i;
+// Allowlist placeholder addresses. Domain branches are anchored to the
+// end of the (full) email match so `bob@example.com.evil.io` and
+// `bob@your-domain-is-real.com` are NOT suppressed — only the literal
+// placeholder domains are. Local-part branch is anchored to the start.
+const EMAIL_ALLOW = /(@(example\.(com|org|net)|test\.com|your-domain(\.[a-z]+)?)$|^(email|user|noreply|no-reply)@)/i;
 
 /**
  * A detector matches candidate substrings on a line. `valid` (optional)
@@ -74,8 +82,11 @@ const DETECTORS: Detector[] = [
     valid: (m) => !EMAIL_ALLOW.test(m),
   },
   {
+    // Constrained to the US 3-3-4 shape (or a parenthesized area code),
+    // optionally with a `+<country>` prefix. Looser group sizes matched
+    // ISO dates (`2026-06-15`) and dotted versions (`12.34.56`).
     label: 'phone number',
-    pattern: /(?:\+\d{1,3}[ .-]?)?(?:\(\d{2,4}\)[ .-]?|\d{2,4}[ .-])\d{2,4}[ .-]\d{2,4}\b/g,
+    pattern: /(?:\+\d{1,3}[ .-]?)?(?:\(\d{3}\)[ .-]?\d{3}[ .-]?\d{4}|\d{3}[ .-]\d{3}[ .-]\d{4})\b/g,
   },
 ];
 
