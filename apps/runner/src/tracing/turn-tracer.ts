@@ -19,7 +19,30 @@
 
 import { type Span, type Attributes, trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer, ATTR } from './otel';
-import { detectSensitive, detectInText, mergeHits, type SensitiveHit } from '@slackhive/shared';
+import { detectSensitive, detectInText, mergeHits, egressKind, markSensitive, type SensitiveHit, type SensScope } from '@slackhive/shared';
+import { computeFps, type FpEntry } from './fingerprint';
+
+/** A flagged finding queued for optional smart (LLM) verification. */
+export interface SmartCandidate { spanId: string; reason: string; sample: string }
+
+/** A piece of turn content the Smart (LLM) detector scans for sensitive data that
+ *  regex missed (e.g. obfuscated PII). The full content is sent to the cheap model
+ *  but never persisted; only a privacy-safe tag is stored if a finding lands. */
+export interface SmartScanTarget { spanId: string; kind: 'generation' | 'tool'; content: string }
+
+/** Cap per-target content sent to the smart detector (keeps the batched call cheap). */
+const SMART_SCAN_LIMIT = 1500;
+
+/** A short, redacted hint of the first match (first 4 chars + length) so the LLM
+ *  has signal to confirm/deny without receiving the full value. */
+function sampleHint(content: string | null | undefined, scope: SensScope): string {
+  for (const seg of markSensitive(content ?? '', scope)) {
+    // Always redact: at most the first 2 chars + length, never the full value
+    // (short matches like a 4-digit PIN must not be sent verbatim to the verifier).
+    if (seg.cat) { const t = seg.text; return `${t.slice(0, 2)}…(${t.length})`; }
+  }
+  return '';
+}
 
 const PREVIEW_LIMIT = 2000;
 
@@ -45,6 +68,8 @@ export interface BeginTurnInput {
   initiatorKind: 'user' | 'agent';
   initiatorUserId?: string;
   initiatorHandle?: string;
+  /** Per-agent sensitivity mode. `off` skips all detection/flows. @default 'deterministic' */
+  sensitivityCheck?: 'off' | 'deterministic' | 'smart';
 }
 
 export interface GenerationInput {
@@ -72,6 +97,12 @@ export class TurnTracer {
   private readonly ctx: ReturnType<typeof trace.setSpan>;
   private readonly base: Attributes;
   private readonly model: string;
+  /** When false (mode 'off'), detection + flow fingerprinting are skipped. */
+  private readonly detect: boolean;
+  /** When true (mode 'smart'), flagged findings are queued for LLM verification. */
+  private readonly smart: boolean;
+  private readonly candidates: SmartCandidate[] = [];
+  private readonly scanTargets: SmartScanTarget[] = [];
   private lastBoundaryMs: number;
   private readonly tools = new Map<string, { span: Span; name: string; args?: string }>();
   private readonly hits: (SensitiveHit | null)[] = [];
@@ -98,8 +129,12 @@ export class TurnTracer {
       },
     });
     this.model = input.model;
+    this.detect = input.sensitivityCheck !== 'off';
+    this.smart = input.sensitivityCheck === 'smart';
     this.ctx = trace.setSpan(context.active(), this.turn);
     this.lastBoundaryMs = Date.now();
+    // The user's message is a flow SOURCE (sensitive values entering the turn).
+    if (this.detect) setFps(this.turn, computeFps(input.userMessage, 'text', 'source'));
   }
 
   /** Record one assistant LLM step as a `generation` span spanning the gap
@@ -121,8 +156,14 @@ export class TurnTracer {
     // Scan the model's OWN output (answer/reasoning) for PII/secrets/sensitive data
     // — the tool-call path never sees this, so e.g. a phone number the agent writes
     // into its reply would otherwise go unflagged. Bubbles up to the turn via hits.
-    const hit = detectInText(`${input.reasoning ?? ''}\n${input.text ?? ''}`);
-    if (hit) { applySensitive(span, hit); this.hits.push(hit); }
+    if (this.detect) {
+      const hit = detectInText(`${input.reasoning ?? ''}\n${input.text ?? ''}`);
+      if (hit) { applySensitive(span, hit); this.hits.push(hit); this.queueSmart(span, hit, input.text, 'text'); }
+      // The model's visible answer text is a flow SINK (data heading to Slack).
+      setFps(span, computeFps(input.text, 'text', 'sink'));
+      // Smart mode scans the agent's OWN reply for obfuscated PII regex can't match.
+      this.queueScan(span, 'generation', input.text);
+    }
     span.end(now);
     this.lastBoundaryMs = now;
   }
@@ -152,13 +193,48 @@ export class TurnTracer {
     if (out) span.setAttribute(ATTR.OUTPUT, out);
     if (isError) span.setStatus({ code: SpanStatusCode.ERROR });
 
-    const hit = detectSensitive(name, args, output ?? undefined);
-    if (hit) applySensitive(span, hit);
-    this.hits.push(hit);
+    if (this.detect) {
+      const hit = detectSensitive(name, args, output ?? undefined);
+      if (hit) { applySensitive(span, hit); this.queueSmart(span, hit, output ?? args, 'all'); }
+      this.hits.push(hit);
+
+      // Flow roles: the tool's RESULT is a source (data the agent now holds); if the
+      // tool is an outbound sink, sensitive values in its ARGS are data leaving.
+      const fps: FpEntry[] = computeFps(output, 'all', 'source');
+      if (egressKind(name, args)) fps.push(...computeFps(args, 'all', 'sink'));
+      setFps(span, fps);
+      // Smart mode scans the tool's result for obfuscated PII regex can't match.
+      this.queueScan(span, 'tool', output);
+    }
 
     span.end();
     this.tools.delete(toolUseId);
     this.lastBoundaryMs = Date.now();
+  }
+
+  /** Queue a flagged finding for smart (LLM) verification, with a redacted sample. */
+  private queueSmart(span: Span, hit: SensitiveHit, content: string | null | undefined, scope: SensScope): void {
+    if (!this.smart) return;
+    this.candidates.push({ spanId: span.spanContext().spanId, reason: hit.reason, sample: sampleHint(content, scope) });
+  }
+
+  /** Findings to verify in smart mode (empty otherwise). Read after the turn ends. */
+  smartCandidates(): SmartCandidate[] {
+    return this.candidates;
+  }
+
+  /** Queue a piece of content for the smart (LLM) detector to scan independently
+   *  of regex. Only in smart mode; empty/whitespace content is skipped. */
+  private queueScan(span: Span, kind: SmartScanTarget['kind'], content: string | null | undefined): void {
+    if (!this.smart) return;
+    const text = (content ?? '').trim();
+    if (!text) return;
+    this.scanTargets.push({ spanId: span.spanContext().spanId, kind, content: text.slice(0, SMART_SCAN_LIMIT) });
+  }
+
+  /** Content pieces for the smart detector to scan (empty unless smart mode). */
+  smartScanTargets(): SmartScanTarget[] {
+    return this.scanTargets;
   }
 
   /** A system marker (e.g. context_reset) as a zero-duration `event` span. */
@@ -214,4 +290,10 @@ function applySensitive(span: Span, hit: SensitiveHit): void {
   span.setAttribute(ATTR.SENSITIVE, true);
   span.setAttribute(ATTR.SENSITIVE_CATEGORIES, hit.categories.join(','));
   span.setAttribute(ATTR.SENSITIVE_REASON, hit.reason);
+  span.setAttribute(ATTR.SENSITIVE_SEVERITY, hit.severity);
+}
+
+/** Stash privacy-safe per-match fingerprints (source/sink roles) for flow lineage. */
+function setFps(span: Span, fps: FpEntry[]): void {
+  if (fps.length) span.setAttribute(ATTR.SENSITIVE_FPS, JSON.stringify(fps));
 }

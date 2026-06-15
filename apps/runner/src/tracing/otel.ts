@@ -49,6 +49,10 @@ export const ATTR = {
   SENSITIVE: 'slackhive.sensitive',
   SENSITIVE_CATEGORIES: 'slackhive.sensitive.categories',
   SENSITIVE_REASON: 'slackhive.sensitive.reason',
+  SENSITIVE_SEVERITY: 'slackhive.sensitive.severity',
+  /** JSON array of `{fp, tag, role}` per match — privacy-safe value fingerprints
+   *  for source→sink flow lineage. No raw values. */
+  SENSITIVE_FPS: 'slackhive.sensitive.fps',
 } as const;
 
 let _provider: BasicTracerProvider | null = null;

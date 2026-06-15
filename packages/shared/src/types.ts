@@ -142,6 +142,17 @@ export interface Agent {
    * @default true
    */
   verbose: boolean;
+  /** Sensitive-data check mode: off (no detection), deterministic (regex only),
+   *  or smart (regex + LLM confirmation). @default 'deterministic' */
+  sensitivityCheck: 'off' | 'deterministic' | 'smart';
+  /** When true, redact detected sensitive values from the agent's outbound reply
+   *  before it's posted. @default false */
+  enforcementRedaction: boolean;
+  /** How much to mask when redaction is on. @default 'secrets' */
+  redactionLevel: 'secrets' | 'pii' | 'all';
+  /** Free-text "what counts as sensitive for THIS agent" — fed into the Smart
+   *  (LLM) detector prompt to tailor what it flags. Empty = default behavior. */
+  sensitivityGuidance: string;
   /** UUIDs of boss agents this agent reports to. Empty array if this agent is a boss. */
   reportsTo: string[];
   /**
@@ -773,6 +784,10 @@ export interface UpdateAgentRequest {
   reportsTo?: string[];
   tags?: string[];
   verbose?: boolean;
+  sensitivityCheck?: 'off' | 'deterministic' | 'smart';
+  enforcementRedaction?: boolean;
+  redactionLevel?: 'secrets' | 'pii' | 'all';
+  sensitivityGuidance?: string;
 }
 
 /**

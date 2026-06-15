@@ -72,11 +72,12 @@ export class DbSpanExporter implements SpanExporter {
              input_tokens, output_tokens, reasoning_tokens,
              cache_read_tokens, cache_creation_tokens, cost_usd,
              finish_reason, tool_name, input, output, reasoning,
-             sensitive, sensitive_categories, sensitive_reason, attributes
+             sensitive, sensitive_categories, sensitive_reason,
+             sensitive_severity, sensitive_fps, attributes
            ) VALUES (
              $1,$2,$3,$4,$5, $6,$7,$8,$9,$10,
              $11,$12,$13,$14, $15,$16,$17, $18,$19,$20,
-             $21,$22,$23,$24,$25, $26,$27,$28,$29
+             $21,$22,$23,$24,$25, $26,$27,$28, $29,$30,$31
            )
            ON CONFLICT (span_id) DO NOTHING`,
           [
@@ -108,6 +109,8 @@ export class DbSpanExporter implements SpanExporter {
             a[ATTR.SENSITIVE] ? 1 : 0,
             str(a[ATTR.SENSITIVE_CATEGORIES]),
             str(a[ATTR.SENSITIVE_REASON]),
+            str(a[ATTR.SENSITIVE_SEVERITY]),
+            str(a[ATTR.SENSITIVE_FPS]),
             JSON.stringify(meta),
           ],
         ).catch((err: unknown) => {

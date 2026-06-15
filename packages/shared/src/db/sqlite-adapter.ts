@@ -217,6 +217,12 @@ CREATE TABLE IF NOT EXISTS agents (
   enabled              INTEGER NOT NULL DEFAULT 1,
   is_boss              INTEGER NOT NULL DEFAULT 0,
   verbose              INTEGER NOT NULL DEFAULT 1,
+  sensitivity_check    TEXT NOT NULL DEFAULT 'deterministic'
+                                     CHECK (sensitivity_check IN ('off','deterministic','smart')),
+  enforcement_redaction INTEGER NOT NULL DEFAULT 0,
+  redaction_level      TEXT NOT NULL DEFAULT 'secrets'
+                                     CHECK (redaction_level IN ('secrets','pii','all')),
+  sensitivity_guidance TEXT NOT NULL DEFAULT '',
   reports_to           TEXT NOT NULL DEFAULT '[]',
   claude_md            TEXT NOT NULL DEFAULT '',
   created_by           TEXT NOT NULL DEFAULT 'system',
@@ -659,6 +665,10 @@ CREATE TABLE IF NOT EXISTS spans (
   sensitive             INTEGER NOT NULL DEFAULT 0,
   sensitive_categories  TEXT,
   sensitive_reason      TEXT,
+  sensitive_severity    TEXT,
+  sensitive_fps         TEXT,
+  sensitive_llm         INTEGER NOT NULL DEFAULT 0,
+  sensitive_llm_hits    TEXT,
   attributes            TEXT,
   created_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -716,6 +726,20 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const agentCols = (db.pragma('table_info(agents)') as { name: string }[]).map(c => c.name);
   if (!agentCols.includes('verbose')) {
     db.exec('ALTER TABLE agents ADD COLUMN verbose INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!agentCols.includes('sensitivity_check')) {
+    db.exec("ALTER TABLE agents ADD COLUMN sensitivity_check TEXT NOT NULL DEFAULT 'deterministic'");
+  }
+  if (!agentCols.includes('enforcement_redaction')) {
+    db.exec('ALTER TABLE agents ADD COLUMN enforcement_redaction INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!agentCols.includes('redaction_level')) {
+    db.exec("ALTER TABLE agents ADD COLUMN redaction_level TEXT NOT NULL DEFAULT 'secrets'");
+  }
+  // sensitivity_guidance — free-text "what counts as sensitive for THIS agent",
+  // fed into the Smart (LLM) detector prompt.
+  if (!agentCols.includes('sensitivity_guidance')) {
+    db.exec("ALTER TABLE agents ADD COLUMN sensitivity_guidance TEXT NOT NULL DEFAULT ''");
   }
   if (!agentCols.includes('last_error')) {
     db.exec('ALTER TABLE agents ADD COLUMN last_error TEXT');
@@ -912,6 +936,15 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
     if (!spanCols.includes('sensitive')) db.exec('ALTER TABLE spans ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0');
     if (!spanCols.includes('sensitive_categories')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_categories TEXT');
     if (!spanCols.includes('sensitive_reason')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_reason TEXT');
+    if (!spanCols.includes('sensitive_severity')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_severity TEXT');
+    // Per-match privacy-safe fingerprints + role (source/sink) for flow lineage.
+    if (!spanCols.includes('sensitive_fps')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_fps TEXT');
+    // sensitive_llm — marks a span the Smart (LLM) detector flagged independently
+    // of regex (e.g. obfuscated PII). Surfaced as a "caught by LLM" badge.
+    if (!spanCols.includes('sensitive_llm')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_llm INTEGER NOT NULL DEFAULT 0');
+    // sensitive_llm_hits — JSON [{text,category,label,severity}] of the excerpts the
+    // Smart detector flagged, so the trace can highlight which part + what type.
+    if (!spanCols.includes('sensitive_llm_hits')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_llm_hits TEXT');
   }
   // Partial index for the audit feed (only flagged rows).
   db.exec("CREATE INDEX IF NOT EXISTS idx_spans_sensitive ON spans(start_ms DESC) WHERE sensitive = 1");

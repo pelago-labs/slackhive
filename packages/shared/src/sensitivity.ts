@@ -13,25 +13,68 @@
  */
 
 export type SensitiveCategory = 'tool' | 'pii' | 'data' | 'secret';
+export type Severity = 'critical' | 'high' | 'medium' | 'low';
 
 export interface SensitiveHit {
   categories: SensitiveCategory[];
-  /** Privacy-safe tags, e.g. `pii:email, secret:aws_key`. No values. */
+  /** Parsed `category:detail` tags (deduped). */
+  tags: string[];
+  /** Privacy-safe tags joined, e.g. `pii:email, secret:aws_key`. No values. */
   reason: string;
+  /** Highest severity across this hit's tags. */
+  severity: Severity;
 }
 
 /** Cap scanned length so a multi-MB dump can't stall detection/highlighting. */
 export const SCAN_CAP = 16_000;
 
+// ── Severity model (skillspector-style scoring) ──────────────────────────────
+
+export const SEVERITY_RANK: Record<Severity, number> = { critical: 3, high: 2, medium: 1, low: 0 };
+export const SEVERITY_COLOR: Record<Severity, string> = {
+  critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#0891b2',
+};
+
+// Specific tag overrides; everything else falls back to its category severity.
+const TAG_SEVERITY: Record<string, Severity> = {
+  'pii:card': 'high', 'pii:ssn': 'high', 'pii:iban': 'high',
+  'pii:email': 'medium', 'pii:phone': 'medium',
+  'tool:credentials': 'medium',
+};
+const CATEGORY_SEVERITY: Record<SensitiveCategory, Severity> = {
+  secret: 'critical', pii: 'medium', data: 'low', tool: 'low',
+};
+
+/** Severity for a single `category:detail` tag. */
+export function severityForTag(tag: string): Severity {
+  return TAG_SEVERITY[tag] ?? CATEGORY_SEVERITY[tag.split(':')[0] as SensitiveCategory] ?? 'low';
+}
+
+/** Highest severity across a set of tags. */
+export function maxSeverity(tags: string[]): Severity {
+  let best: Severity = 'low';
+  for (const t of tags) { const s = severityForTag(t); if (SEVERITY_RANK[s] > SEVERITY_RANK[best]) best = s; }
+  return best;
+}
+
+function buildHit(categories: Set<SensitiveCategory>, tags: string[]): SensitiveHit | null {
+  if (categories.size === 0) return null;
+  const uniq = [...new Set(tags)];
+  return { categories: [...categories], tags: uniq, reason: uniq.join(', '), severity: maxSeverity(uniq) };
+}
+
+// ── Patterns ─────────────────────────────────────────────────────────────────
 // Patterns are NON-global so the boolean detectors can use `.test()`/`.match()`
 // safely; collect() clones them with the global flag for offset segmentation.
+
 const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/;
 // Phone numbers must carry a real phone signal — an international `+` country
 // code or a parenthesized area code. A bare separator-grouped 10-digit number
-// (`123-456-7890`) is NOT flagged: order/reference numbers look identical, so
-// requiring `+`/parens avoids flagging arbitrary grouped numbers as phones.
+// (`123-456-7890`) is NOT flagged: order/reference numbers look identical.
 const PHONE = /(?:\+\d[\d().\- ]{7,16}\d)|(?:\(\d{3}\)[ ]?\d{3}[.\- ]?\d{4})/;
 const CARD = /\b(?:\d[ -]?){13,19}\b/;
+const SSN = /\b\d{3}-\d{2}-\d{4}\b/;
+const IBAN = /\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/;
 /** Credential/key path tokens (for highlighting a path inside content). */
 const CRED = /(\.env|\.npmrc|credentials|secrets?|id_rsa|id_ed25519|\.pem|\.key|\.ssh\/|\.aws\/|\.kube\/|service[-_]?account)/i;
 
@@ -40,6 +83,14 @@ const SECRET_PATTERNS: { tag: string; re: RegExp }[] = [
   { tag: 'aws_key', re: /\bAKIA[0-9A-Z]{16}\b/ },
   { tag: 'github_token', re: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/ },
   { tag: 'slack_token', re: /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/ },
+  { tag: 'slack_webhook', re: /\bhooks\.slack\.com\/services\/[A-Za-z0-9_/]+/ },
+  { tag: 'stripe_key', re: /\b[sprk]k_(?:live|test)_[A-Za-z0-9]{16,}\b/ },
+  { tag: 'google_api_key', re: /\bAIza[0-9A-Za-z_-]{35}\b/ },
+  { tag: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/ },
+  // Require a 2nd service-account marker near the type field so arbitrary JSON
+  // that merely contains "type":"service_account" isn't flagged. Bounded window,
+  // both field orders; the literal anchors keep it ReDoS-safe.
+  { tag: 'gcp_sa', re: /"type"\s*:\s*"service_account"[\s\S]{0,500}"(?:private_key|client_email)"\s*:|"(?:private_key|client_email)"\s*:[\s\S]{0,500}"type"\s*:\s*"service_account"/ },
   { tag: 'private_key', re: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/ },
   { tag: 'bearer', re: /\bbearer\s+[A-Za-z0-9._-]{20,}/i },
   // Credentials embedded in a URL: scheme://user:password@host — DB protocols
@@ -52,6 +103,31 @@ const SECRET_PATTERNS: { tag: string; re: RegExp }[] = [
   // flagged. PGPASSWORD is letter-joined like those, so it's listed explicitly.
   { tag: 'password', re: /(?<![a-z0-9])(?:pgpassword|(?:[a-z0-9]+[_-])?(?:pass(?:word|wd)?|pwd|secret|api[-_]?key))["']?\s*[=:]\s*['"]?\S{4,}/i },
 ];
+
+// Generic high-entropy token (random API tokens). Candidate then entropy-validated
+// so it doesn't fire on prose, hex hashes, or single-case strings.
+const HIGH_ENTROPY = /[A-Za-z0-9+/_=-]{40,}/;
+function shannon(s: string): number {
+  const freq: Record<string, number> = {};
+  for (const ch of s) freq[ch] = (freq[ch] ?? 0) + 1;
+  let e = 0;
+  for (const k in freq) { const p = freq[k] / s.length; e -= p * Math.log2(p); }
+  return e;
+}
+function looksHighEntropy(tok: string): boolean {
+  if (tok.length < 40) return false;
+  const hasLower = /[a-z]/.test(tok), hasUpper = /[A-Z]/.test(tok), hasDigit = /[0-9]/.test(tok), hasB64 = /[+/_=-]/.test(tok);
+  // Skip low-variety tokens (pure-hex hashes, single-case ids): require base64
+  // special chars OR a mixed-case-with-digit token.
+  if (!(hasB64 || (hasLower && hasUpper && hasDigit))) return false;
+  return shannon(tok) >= 4.2;
+}
+function hasHighEntropyToken(hay: string): boolean {
+  const re = /[A-Za-z0-9+/_=-]{40,}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(hay)) !== null) { if (looksHighEntropy(m[0])) return true; }
+  return false;
+}
 
 const DEFAULT_DATA_KEYWORDS = [
   'email', 'phone', 'ssn', 'social_security', 'password', 'passwd', 'salary',
@@ -84,12 +160,15 @@ function detectPii(haystack: string): string[] {
   if (PHONE.test(haystack)) hits.push('phone');
   const card = haystack.match(CARD);
   if (card && luhnValid(card[0])) hits.push('card');
+  if (SSN.test(haystack)) hits.push('ssn');
+  if (IBAN.test(haystack)) hits.push('iban');
   return hits;
 }
 
 function detectSecrets(haystack: string): string[] {
   const hits: string[] = [];
   for (const { tag, re } of SECRET_PATTERNS) if (re.test(haystack)) hits.push(tag);
+  if (hasHighEntropyToken(haystack)) hits.push('high_entropy');
   return hits;
 }
 
@@ -100,6 +179,23 @@ function sensitiveTool(toolName: string, argsText: string): string | null {
   const extra = (process.env.SENSITIVE_TOOLS ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   if (extra.some(p => name.includes(p))) return 'tool';
   if (/(^|[\s"'/=])(\.env|\.npmrc|credentials|secrets?|id_rsa|id_ed25519|\.pem|\.key|\.ssh\/|\.aws\/|\.kube\/|service[-_]?account)/i.test(argsText)) return 'credentials';
+  return null;
+}
+
+/**
+ * Classify a tool call as an outbound **sink** (where data leaves the agent) and
+ * return its kind, else null. Used for exfiltration flows (Phase: deep tracing):
+ * sensitive data appearing in a sink's ARGS is data leaving the agent.
+ * - `web`   — WebFetch / WebSearch
+ * - `tool`  — a network-ish tool by name (http/fetch/send/post/upload/email/webhook/…) or any MCP tool
+ * - `shell` — Bash/exec whose command runs a network client (curl/wget/nc/ssh/scp/rsync)
+ */
+export function egressKind(toolName: string, argsText = ''): 'web' | 'tool' | 'shell' | null {
+  const n = (toolName || '').toLowerCase();
+  const a = argsText.toLowerCase();
+  if (/^web_?fetch$|^web_?search$/.test(n)) return 'web';
+  if (/\b(bash|shell|exec|terminal|command|run_command)\b/.test(n) && /\b(curl|wget|nc|netcat|ssh|scp|rsync|telnet)\b/.test(a)) return 'shell';
+  if (n.startsWith('mcp__') || /(^|[._-])(http|fetch|request|upload|send|post|email|mail|webhook|sms|notify|publish|slack|telegram|discord)/.test(n)) return 'tool';
   return null;
 }
 
@@ -125,8 +221,7 @@ export function detectSensitive(toolName: string, args: string | undefined, resu
   const secrets = detectSecrets(haystack);
   if (secrets.length) { categories.add('secret'); for (const s of secrets) tags.push(`secret:${s}`); }
 
-  if (categories.size === 0) return null;
-  return { categories: [...categories], reason: [...new Set(tags)].join(', ') };
+  return buildHit(categories, tags);
 }
 
 /**
@@ -148,8 +243,7 @@ export function detectInText(text: string | undefined): SensitiveHit | null {
   const secrets = detectSecrets(hay);
   if (secrets.length) { categories.add('secret'); for (const s of secrets) tags.push(`secret:${s}`); }
 
-  if (categories.size === 0) return null;
-  return { categories: [...categories], reason: [...new Set(tags)].join(', ') };
+  return buildHit(categories, tags);
 }
 
 /** Merge several hits (e.g. across a turn's tools + generations) into one. */
@@ -158,20 +252,24 @@ export function mergeHits(hits: (SensitiveHit | null)[]): SensitiveHit | null {
   if (!real.length) return null;
   const categories = new Set<SensitiveCategory>();
   const tags = new Set<string>();
-  for (const h of real) { h.categories.forEach(c => categories.add(c)); h.reason.split(', ').forEach(t => t && tags.add(t)); }
-  return { categories: [...categories], reason: [...tags].join(', ') };
+  for (const h of real) { h.categories.forEach(c => categories.add(c)); h.tags.forEach(t => tags.add(t)); }
+  return buildHit(categories, [...tags]);
 }
 
 // ── Highlight segmentation (web trace UI) ────────────────────────────────────
 
 /** A run of text, flagged with its category when it matched a detector. */
-export interface SensSegment { text: string; cat: SensitiveCategory | null; label: string | null }
+export interface SensSegment { text: string; cat: SensitiveCategory | null; label: string | null; llm?: boolean }
+
+/** An extra substring to highlight (e.g. an excerpt the Smart/LLM detector found
+ *  that regex can't match). `label` is the kind tag (e.g. `pii:phone`). */
+export interface ExtraMark { text: string; cat: SensitiveCategory; label: string }
 
 /** Highlight scope: `all` for tool I/O (matches detectSensitive); `text` for the
  *  model's own output (PII + secrets only — matches detectInText). */
 export type SensScope = 'all' | 'text';
 
-interface Range { start: number; end: number; cat: SensitiveCategory; label: string }
+interface Range { start: number; end: number; cat: SensitiveCategory; label: string; llm?: boolean }
 
 /** On overlap the higher-priority category wins (secret > pii > tool > data). */
 const PRIO: Record<SensitiveCategory, number> = { secret: 3, pii: 2, tool: 1, data: 0 };
@@ -198,21 +296,46 @@ function collect(re: RegExp, cat: SensitiveCategory, label: string | ((m: string
  * secrets only (the model's prose). Non-overlapping; higher-priority wins on tie.
  */
 export function markSensitive(str: string, scope: SensScope = 'all'): SensSegment[] {
+  return markSensitiveWith(str, scope, []);
+}
+
+/** Escape a literal string for use inside a RegExp. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Like {@link markSensitive}, but also highlights each `extras` substring (e.g. an
+ * excerpt the Smart/LLM detector flagged that regex can't match). Extra marks take
+ * priority on overlap so an LLM finding is never hidden by a weaker regex match.
+ */
+export function markSensitiveWith(str: string, scope: SensScope, extras: ExtraMark[]): SensSegment[] {
   const text = str.length > SCAN_CAP ? str.slice(0, SCAN_CAP) : str;
   const ranges: Range[] = [];
 
   for (const { tag, re } of SECRET_PATTERNS) collect(re, 'secret', `secret:${tag}`, text, ranges);
+  collect(HIGH_ENTROPY, 'secret', 'secret:high_entropy', text, ranges, looksHighEntropy);
   collect(EMAIL, 'pii', 'pii:email', text, ranges);
   collect(PHONE, 'pii', 'pii:phone', text, ranges);
   collect(CARD, 'pii', 'pii:card', text, ranges, luhnValid);
+  collect(SSN, 'pii', 'pii:ssn', text, ranges);
+  collect(IBAN, 'pii', 'pii:iban', text, ranges);
   if (scope === 'all') {
     collect(CRED, 'tool', 'tool:credentials', text, ranges);
     collect(HL_DATA_RE, 'data', m => `data:${m.toLowerCase()}`, text, ranges);
   }
+  // LLM excerpts: literal, case-insensitive; flagged `llm` so the UI can mark them.
+  for (const ex of extras) {
+    if (!ex.text) continue;
+    const before = ranges.length;
+    collect(new RegExp(escapeRe(ex.text), 'gi'), ex.cat, ex.label, text, ranges);
+    for (let i = before; i < ranges.length; i++) ranges[i].llm = true;
+  }
 
   if (ranges.length === 0) return [{ text: str, cat: null, label: null }];
 
-  ranges.sort((a, b) => a.start - b.start || PRIO[b.cat] - PRIO[a.cat] || (b.end - b.start) - (a.end - a.start));
+  // Extra (llm) marks win overlap ties so an LLM finding is never masked by regex.
+  ranges.sort((a, b) => a.start - b.start || (b.llm ? 1 : 0) - (a.llm ? 1 : 0) || PRIO[b.cat] - PRIO[a.cat] || (b.end - b.start) - (a.end - a.start));
   const kept: Range[] = [];
   let lastEnd = -1;
   for (const r of ranges) if (r.start >= lastEnd) { kept.push(r); lastEnd = r.end; }
@@ -221,11 +344,35 @@ export function markSensitive(str: string, scope: SensScope = 'all'): SensSegmen
   let cursor = 0;
   for (const r of kept) {
     if (r.start > cursor) segs.push({ text: text.slice(cursor, r.start), cat: null, label: null });
-    segs.push({ text: text.slice(r.start, r.end), cat: r.cat, label: r.label });
+    segs.push({ text: text.slice(r.start, r.end), cat: r.cat, label: r.label, llm: r.llm });
     cursor = r.end;
   }
   if (cursor < str.length) segs.push({ text: str.slice(cursor), cat: null, label: null });
   return segs;
+}
+
+/** How much an agent's outbound reply is masked when redaction is on. */
+export type RedactionLevel = 'secrets' | 'pii' | 'all';
+
+/**
+ * Mask sensitive values in `text`, replacing each match with `[redacted:<label>]`.
+ * The `level` controls scope:
+ *  - `secrets` — secrets + high/critical values (keys, cards, SSNs); emails/phones kept.
+ *  - `pii`     — the above PLUS all PII (emails, phones, …).
+ *  - `all`     — every flagged value (also data keywords / tool/cred paths).
+ * Returns text unchanged when nothing qualifies.
+ */
+export function redactSensitive(text: string, scope: SensScope = 'text', level: RedactionLevel = 'secrets'): string {
+  if (!text) return text;
+  return markSensitive(text, scope).map(seg => {
+    if (!seg.cat || !seg.label) return seg.text;
+    const sev = severityForTag(seg.label);
+    const masked =
+      level === 'all' ? true :
+      level === 'pii' ? (seg.cat === 'secret' || seg.cat === 'pii' || sev === 'critical' || sev === 'high') :
+      /* secrets */     (seg.cat === 'secret' || sev === 'critical' || sev === 'high');
+    return masked ? `[redacted:${humanizeTag(seg.label).label}]` : seg.text;
+  }).join('');
 }
 
 export const SENS_COLOR: Record<SensitiveCategory, string> = {
@@ -248,14 +395,22 @@ const DETAIL_LABELS: Record<string, string> = {
   'pii:email':          'Email address',
   'pii:phone':          'Phone number',
   'pii:card':           'Card number',
+  'pii:ssn':            'Social Security number',
+  'pii:iban':           'IBAN',
   'secret:openai_key':  'OpenAI key',
   'secret:aws_key':     'AWS key',
   'secret:github_token':'GitHub token',
   'secret:slack_token': 'Slack token',
+  'secret:slack_webhook':'Slack webhook',
+  'secret:stripe_key':  'Stripe key',
+  'secret:google_api_key':'Google API key',
+  'secret:jwt':         'JWT',
+  'secret:gcp_sa':      'GCP service account',
   'secret:private_key': 'Private key',
   'secret:bearer':      'Bearer token',
   'secret:password':    'Password / secret',
   'secret:connection_string': 'Credentials in URL',
+  'secret:high_entropy': 'High-entropy secret',
 };
 const DATA_ACRONYMS = new Set(['ssn', 'dob', 'cvv', 'iban', 'tax_id']);
 

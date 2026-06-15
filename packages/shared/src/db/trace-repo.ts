@@ -14,6 +14,7 @@
  */
 
 import { getDb } from './adapter';
+import { humanizeTag, type Severity } from '../sensitivity';
 
 export type SpanKind = 'agent' | 'generation' | 'tool' | 'event';
 
@@ -43,6 +44,11 @@ export interface TraceSpan {
   sensitive: boolean;
   sensitiveCategories: string[];
   sensitiveReason: string | null;
+  sensitiveSeverity: Severity | null;
+  /** True when the Smart (LLM) detector flagged this span (regex may have missed it). */
+  sensitiveLlm: boolean;
+  /** Excerpts the Smart detector flagged, so the trace can highlight which part + type. */
+  sensitiveLlmHits: { text: string; category: string; label: string; severity: string }[];
 }
 
 export interface TraceTurn {
@@ -113,6 +119,8 @@ export interface SessionRollup {
 export interface SessionTrace {
   turns: TraceTurn[];
   rollup: SessionRollup;
+  /** Sensitive-data flows (source→sink lineage) across this session. */
+  flows: SensitiveFlow[];
 }
 
 function n(v: unknown): number { return v == null ? 0 : Number(v); }
@@ -166,7 +174,108 @@ function rowToSpan(r: Record<string, unknown>): TraceSpan {
     sensitive: !!Number(r.sensitive ?? 0),
     sensitiveCategories: s(r.sensitive_categories)?.split(',').filter(Boolean) ?? [],
     sensitiveReason: s(r.sensitive_reason),
+    sensitiveSeverity: s(r.sensitive_severity) as Severity | null,
+    sensitiveLlm: !!Number(r.sensitive_llm ?? 0),
+    sensitiveLlmHits: parseLlmHits(r.sensitive_llm_hits),
   };
+}
+
+/** Parse the JSON array stored in spans.sensitive_llm_hits (best-effort). Drops any
+ *  element missing a required string field so malformed JSON can't surface as
+ *  `undefined` in the UI (which expects all four fields). */
+function parseLlmHits(raw: unknown): TraceSpan['sensitiveLlmHits'] {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v)
+      ? v.filter(h => h && typeof h.text === 'string' && typeof h.category === 'string'
+          && typeof h.label === 'string' && typeof h.severity === 'string')
+      : [];
+  } catch { return []; }
+}
+
+// ── Sensitive-data flow lineage (taint) ──────────────────────────────────────
+
+export interface SensitiveFlow {
+  /** Stable id (fingerprint + endpoint spans). */
+  id: string;
+  tag: string;
+  label: string;
+  category: string;
+  severity: Severity;
+  sourceSpanId: string;
+  sinkSpanId: string;
+  sourceLabel: string;
+  sinkLabel: string;
+  /** Sink timestamp (when the value left). */
+  startMs: number;
+  // Filled by the feed (getSensitiveFlows); null in the single-session view.
+  sessionId: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  sessionSummary: string | null;
+}
+
+interface FpRec { fp: string; tag: string; role: 'source' | 'sink' }
+interface FlowRow { spanId: string; kind: string; toolName: string | null; startMs: number; fps: FpRec[] }
+
+function parseFps(v: unknown): FpRec[] {
+  if (v == null) return [];
+  try {
+    const a = JSON.parse(String(v));
+    return Array.isArray(a)
+      ? a.filter(e => e && typeof e.fp === 'string' && typeof e.tag === 'string'
+          && (e.role === 'source' || e.role === 'sink'))
+      : [];
+  } catch { return []; }
+}
+
+function spanLabel(kind: string, toolName: string | null, role: 'source' | 'sink'): string {
+  if (kind === 'tool') return toolName || 'tool';
+  if (kind === 'generation') return 'Agent reply';
+  if (kind === 'agent') return role === 'source' ? 'User message' : 'Final answer';
+  return kind;
+}
+
+/** Exfiltration severity: source→sink of a secret is critical (TT3), PII/cred high, data medium. */
+function flowSeverity(tag: string): Severity {
+  const cat = tag.split(':')[0];
+  return cat === 'secret' ? 'critical' : cat === 'pii' || cat === 'tool' ? 'high' : 'medium';
+}
+
+/** Correlate per-span fingerprints within one session into source→sink flows:
+ *  the same value seen as a source (earlier) and a sink (later, different span). */
+function deriveFlows(rows: FlowRow[]): Omit<SensitiveFlow, 'sessionId' | 'agentId' | 'agentName' | 'sessionSummary'>[] {
+  const sources = new Map<string, FlowRow & { tag: string }>();
+  const sinks: (FlowRow & { tag: string; fp: string })[] = [];
+  for (const row of rows) {
+    for (const e of row.fps) {
+      if (e.role === 'source') {
+        const cur = sources.get(e.fp);
+        if (!cur || row.startMs < cur.startMs) sources.set(e.fp, { ...row, tag: e.tag });
+      } else {
+        sinks.push({ ...row, tag: e.tag, fp: e.fp });
+      }
+    }
+  }
+  const out: Omit<SensitiveFlow, 'sessionId' | 'agentId' | 'agentName' | 'sessionSummary'>[] = [];
+  const seen = new Set<string>();
+  for (const sink of sinks) {
+    const src = sources.get(sink.fp);
+    if (!src || src.spanId === sink.spanId || src.startMs > sink.startMs) continue;
+    const id = `${sink.fp}:${src.spanId}:${sink.spanId}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id, tag: sink.tag, label: humanizeTag(sink.tag).label, category: sink.tag.split(':')[0],
+      severity: flowSeverity(sink.tag),
+      sourceSpanId: src.spanId, sinkSpanId: sink.spanId,
+      sourceLabel: spanLabel(src.kind, src.toolName, 'source'),
+      sinkLabel: spanLabel(sink.kind, sink.toolName, 'sink'),
+      startMs: sink.startMs,
+    });
+  }
+  return out;
 }
 
 function percentile(sortedAsc: number[], p: number): number {
@@ -204,7 +313,7 @@ export async function getSessionTrace(taskId: string): Promise<SessionTrace | nu
     [taskId],
   );
   if (actRes.rows.length === 0) {
-    return { turns: [], rollup: emptyRollup() };
+    return { turns: [], rollup: emptyRollup(), flows: [] };
   }
 
   // All spans for the session, grouped by activity.
@@ -213,12 +322,17 @@ export async function getSessionTrace(taskId: string): Promise<SessionTrace | nu
     [taskId],
   );
   const spansByActivity = new Map<string, TraceSpan[]>();
+  const flowRows: FlowRow[] = [];
   for (const row of spanRes.rows) {
     const aid = (row.activity_id as string | null) ?? '';
     const bucket = spansByActivity.get(aid) ?? [];
     bucket.push(rowToSpan(row));
     spansByActivity.set(aid, bucket);
+    const fps = parseFps(row.sensitive_fps);
+    if (fps.length) flowRows.push({ spanId: row.span_id as string, kind: String(row.kind), toolName: s(row.tool_name), startMs: n(row.start_ms), fps });
   }
+  const flows: SensitiveFlow[] = deriveFlows(flowRows)
+    .map(f => ({ ...f, sessionId: taskId, agentId: null, agentName: null, sessionSummary: null }));
 
   // Per-turn feedback (👍/👎), keyed by activity.
   const fbRes = await db.query(
@@ -280,7 +394,7 @@ export async function getSessionTrace(taskId: string): Promise<SessionTrace | nu
     };
   });
 
-  return { turns, rollup: rollupFromTurns(turns) };
+  return { turns, rollup: rollupFromTurns(turns), flows };
 }
 
 // ── Per-agent aggregate (all sessions of one agent) ──────────────────────────
@@ -407,6 +521,9 @@ export interface SensitiveEvent {
   toolName: string | null;
   categories: string[];
   reason: string | null;
+  severity: Severity | null;
+  /** True when the Smart (LLM) detector flagged this (vs. deterministic regex). */
+  caughtByLlm: boolean;
   startMs: number;
   sessionSummary: string | null;
 }
@@ -450,7 +567,7 @@ export async function getSensitiveEvents(filter: SensitiveFeedFilter = {}): Prom
 
   const { rows } = await db.query(
     `SELECT s.span_id, s.session_id, s.activity_id, s.agent_id, s.tool_name,
-            s.sensitive_categories, s.sensitive_reason, s.start_ms,
+            s.sensitive_categories, s.sensitive_reason, s.sensitive_severity, s.sensitive_llm, s.start_ms,
             ag.name AS agent_name, t.summary AS session_summary
        FROM spans s
        LEFT JOIN agents ag ON ag.id = s.agent_id
@@ -469,9 +586,64 @@ export async function getSensitiveEvents(filter: SensitiveFeedFilter = {}): Prom
     toolName: s(r.tool_name),
     categories: s(r.sensitive_categories)?.split(',').filter(Boolean) ?? [],
     reason: s(r.sensitive_reason),
+    severity: s(r.sensitive_severity) as Severity | null,
+    caughtByLlm: !!Number(r.sensitive_llm ?? 0),
     startMs: n(r.start_ms),
     sessionSummary: s(r.session_summary),
   }));
+}
+
+/**
+ * Sensitive-data FLOWS (source→sink lineage) across the window — the exfiltration
+ * feed. Pulls spans carrying flow fingerprints, groups by session, and correlates
+ * a value seen as a source then a sink. Privacy-safe: fingerprints + kind tags only.
+ */
+export async function getSensitiveFlows(filter: SensitiveFeedFilter = {}): Promise<SensitiveFlow[]> {
+  const db = getDb();
+  const wheres: string[] = [`s.sensitive_fps IS NOT NULL`];
+  const params: unknown[] = [];
+  if (filter.since) { const m = sinceToMs(filter.since); if (Number.isFinite(m)) { wheres.push(`s.start_ms >= $${params.length + 1}`); params.push(m); } }
+  if (filter.until) { const m = sinceToMs(filter.until); if (Number.isFinite(m)) { wheres.push(`s.start_ms <= $${params.length + 1}`); params.push(m); } }
+  if (filter.agentId) { wheres.push(`s.agent_id = $${params.length + 1}`); params.push(filter.agentId); }
+  if (filter.accessibleAgentIds !== undefined) {
+    if (filter.accessibleAgentIds.length === 0) return [];
+    const ph = filter.accessibleAgentIds.map((_, i) => `$${params.length + 1 + i}`).join(', ');
+    wheres.push(`s.agent_id IN (${ph})`);
+    params.push(...filter.accessibleAgentIds);
+  }
+  const limit = Math.min(500, Math.max(1, filter.limit ?? 100));
+
+  const { rows } = await db.query(
+    `SELECT s.span_id, s.session_id, s.agent_id, s.kind, s.tool_name, s.start_ms, s.sensitive_fps,
+            ag.name AS agent_name, t.summary AS session_summary
+       FROM spans s
+       LEFT JOIN agents ag ON ag.id = s.agent_id
+       LEFT JOIN tasks  t  ON t.id = s.session_id
+      WHERE ${wheres.join(' AND ')}
+      ORDER BY s.start_ms ASC`,
+    params,
+  );
+
+  // Group by session, then correlate source→sink within each.
+  const bySession = new Map<string, Record<string, unknown>[]>();
+  for (const r of rows) {
+    const sid = r.session_id as string;
+    (bySession.get(sid) ?? bySession.set(sid, []).get(sid)!).push(r);
+  }
+  const flows: SensitiveFlow[] = [];
+  for (const [sid, sessionRows] of bySession) {
+    const meta = sessionRows[0];
+    const flowRows: FlowRow[] = sessionRows.map(r => ({
+      spanId: r.span_id as string, kind: String(r.kind), toolName: s(r.tool_name), startMs: n(r.start_ms), fps: parseFps(r.sensitive_fps),
+    }));
+    for (const f of deriveFlows(flowRows)) {
+      flows.push({ ...f, sessionId: sid, agentId: s(meta.agent_id), agentName: s(meta.agent_name), sessionSummary: s(meta.session_summary) });
+    }
+  }
+  // Most severe first, then most recent.
+  const rank: Record<Severity, number> = { critical: 3, high: 2, medium: 1, low: 0 };
+  flows.sort((a, b) => rank[b.severity] - rank[a.severity] || b.startMs - a.startMs);
+  return flows.slice(0, limit);
 }
 
 /**

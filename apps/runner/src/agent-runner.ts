@@ -27,6 +27,7 @@ import { randomUUID } from 'crypto';
 import type { Agent, PlatformAdapter, ThreadMessage, AgentBackend } from '@slackhive/shared';
 import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, pruneTraceData, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
 import { generateText } from './backends/generate-text';
+import { loadFingerprintSalt } from './tracing/fingerprint';
 import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
@@ -596,6 +597,8 @@ export class AgentRunner {
     }
     // Retention: drop activity/trace data older than ~6 months (TRACE_RETENTION_DAYS).
     await this.maybePrune(true);
+    // Load the stable per-install salt for sensitive-data flow fingerprints.
+    await loadFingerprintSalt().catch(() => { /* falls back to an in-memory salt */ });
     await this.startInternalServer();
     await this.loadAllAgents();
     await this.jobScheduler.start();

@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTaskWithDetails, getSessionTrace, deepLinkForTask } from '@slackhive/shared';
+import { getTaskWithDetails, getSessionTrace, deepLinkForTask, redactSensitive, type TraceTurn } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
@@ -48,13 +48,39 @@ export async function GET(
 
     const trace = await getSessionTrace(taskId);
 
+    // Only admins/superadmins may see raw sensitive values. For everyone else,
+    // redact every flagged value in the content server-side (not just visually),
+    // so the real value never reaches a non-admin's browser.
+    const canSeeRaw = session.role === 'admin' || session.role === 'superadmin';
+    const turns = trace?.turns ?? [];
+
     return NextResponse.json({
       task: details.task,
-      turns: trace?.turns ?? [],
+      turns: canSeeRaw ? turns : turns.map(redactTurn),
       rollup: trace?.rollup ?? null,
+      flows: trace?.flows ?? [],
       deepLink: deepLinkForTask(details.task),
     });
   } catch (err) {
     return apiError('activity-detail', err);
   }
+}
+
+/** Redact every flagged value in a turn's content for non-admin viewers — both the
+ *  regex matches AND the excerpts the Smart (LLM) detector flagged (which regex
+ *  can't re-match), so an obfuscated value never reaches a non-admin's browser. */
+function redactTurn(t: TraceTurn): TraceTurn {
+  // All LLM excerpts across the turn — redacted from every field (the offending
+  // value may also appear in the final answer / a sibling span).
+  const llmHits = t.spans.flatMap(sp => sp.sensitiveLlmHits ?? []);
+  const stripLlm = (s: string) => llmHits.reduce(
+    (acc, h) => (h.text ? acc.split(h.text).join(`[redacted:${h.label}]`) : acc),
+    s,
+  );
+  const r = (s: string | null) => (s == null ? s : stripLlm(redactSensitive(s, 'all', 'all')));
+  return {
+    ...t,
+    finalAnswer: r(t.finalAnswer),
+    spans: t.spans.map(sp => ({ ...sp, input: r(sp.input), output: r(sp.output), reasoning: r(sp.reasoning), sensitiveLlmHits: [] })),
+  };
 }

@@ -21,6 +21,7 @@ import {
   finishToolCall,
   recordActivityUsage,
   getDb,
+  redactSensitive,
 } from '@slackhive/shared';
 import { getSetting } from './db';
 
@@ -49,6 +50,7 @@ import { VERBOSE_NARRATION_DIRECTIVE } from './compile-instructions';
 import { getKnownAgentsByBotId } from './agent-registry';
 import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import { TurnTracer } from './tracing/turn-tracer';
+import { verifySmartFindings, detectSmartFindings } from './tracing/smart-verify';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -213,6 +215,7 @@ export class MessageHandler {
           initiatorKind: recorder.initiatorKind,
           initiatorUserId: recorder.initiatorUserId,
           initiatorHandle: recorder.initiatorHandle,
+          sensitivityCheck: this.agent.sensitivityCheck,
         });
       } catch (err) {
         this.log.warn('trace: begin turn failed', { error: (err as Error).message });
@@ -505,6 +508,15 @@ export class MessageHandler {
         });
       } catch { /* trace best-effort */ }
     } finally {
+      // Smart mode (off the hot path, after the reply is sent): (1) confirm the
+      // regex hits and downgrade false positives; (2) independently scan the turn's
+      // content for sensitive data regex missed, flagged "caught by LLM" (report-only).
+      if (turn) {
+        const cands = turn.smartCandidates();
+        if (cands.length) void verifySmartFindings(cands);
+        const scans = turn.smartScanTargets();
+        if (scans.length) void detectSmartFindings(scans, this.agent.sensitivityGuidance);
+      }
       this.activeControllers.delete(sessionKey);
       setTimeout(() => this.currentReactions.delete(sessionKey), 5 * 60 * 1000);
     }
@@ -588,14 +600,26 @@ export class MessageHandler {
    * caller can attach feedback controls to that final reply.
    */
   private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<{ ts: string; payload: MessagePayload }> {
-    const payloads = this.adapter.buildPayloads(text);
+    const out = this.maybeRedact(text);
+    const payloads = this.adapter.buildPayloads(out);
     let last: { ts: string; payload: MessagePayload } | undefined;
     for (const payload of payloads) {
       const ts = await this.adapter.postPayload(channelId, payload, threadId);
       last = { ts, payload };
     }
     // buildPayloads always yields ≥1 payload; the fallback keeps the return honest.
-    return last ?? { ts: '', payload: { text } };
+    return last ?? { ts: '', payload: { text: out } };
+  }
+
+  /**
+   * Opt-in enforcement: mask detected secrets / critical+high values in the
+   * agent's outbound reply before it reaches Slack (enabled per-agent via
+   * `enforcementRedaction`). The stored trace keeps the real output; only the
+   * posted message is redacted. Medium-severity PII (email/phone) is left intact.
+   */
+  private maybeRedact(text: string): string {
+    if (!text || !this.agent.enforcementRedaction || this.agent.sensitivityCheck === 'off') return text;
+    return redactSensitive(text, 'text', this.agent.redactionLevel ?? 'secrets');
   }
 
   /** Swap reaction — remove old, add new. */
