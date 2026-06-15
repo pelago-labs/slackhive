@@ -20,6 +20,7 @@ import { runQA001 } from './checks/qa001-mcp-coverage';
 import { runQA002 } from './checks/qa002-cross-refs';
 import { runQA004 } from './checks/qa004-skill-overlap';
 import { runQA005 } from './checks/qa005-persona-hygiene';
+import { runQA006 } from './checks/qa006-pii';
 
 export function runHealthcheck(
   agent: Agent,
@@ -39,6 +40,7 @@ export function runHealthcheck(
     ...runQA002(ctx),
     ...runQA004(ctx),
     ...runQA005(ctx),
+    ...runQA006(ctx),
   ];
 
   const errors = issues.filter((i) => i.severity === 'error').length;
