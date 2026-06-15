@@ -50,6 +50,7 @@ import { VERBOSE_NARRATION_DIRECTIVE } from './compile-instructions';
 import { getKnownAgentsByBotId } from './agent-registry';
 import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import { TurnTracer } from './tracing/turn-tracer';
+import { verifySmartFindings } from './tracing/smart-verify';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -507,6 +508,12 @@ export class MessageHandler {
         });
       } catch { /* trace best-effort */ }
     } finally {
+      // Smart mode: confirm flagged findings with one cheap LLM call, off the hot
+      // path (after the reply is sent), downgrading false positives in the feed.
+      if (turn) {
+        const cands = turn.smartCandidates();
+        if (cands.length) void verifySmartFindings(cands);
+      }
       this.activeControllers.delete(sessionKey);
       setTimeout(() => this.currentReactions.delete(sessionKey), 5 * 60 * 1000);
     }

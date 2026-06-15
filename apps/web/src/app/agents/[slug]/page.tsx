@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState, useRef, use, useMemo } from 'react';
-import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2, FileText, GitBranch, BookOpen, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, Library, X, Search, Code2, Database, Layers, Briefcase, Sparkles, MessageSquare, Activity as ActivityIcon, Home, Wrench, Users, Settings as SettingsIcon, Calendar, UserCircle, ArrowRight, RotateCcw, Square, Terminal, Globe, Radio, Plus, ExternalLink, Plug, Check, Pencil, Minus, Copy, MoreHorizontal, Trash2, Slack, ThumbsUp, ThumbsDown, ShieldCheck, AlertTriangle, Info } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot, AgentFeedbackReport, FeedbackRating } from '@slackhive/shared';
@@ -485,6 +485,27 @@ function MarkdownView({ children }: { children: string }) {
 }
 
 /** Card wrapper used across the Overview for a cohesive SaaS look. */
+/** A small info icon that reveals a help tooltip on hover/focus. */
+function InfoTip({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', verticalAlign: 'middle' }}
+      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-label="More info" style={{ display: 'inline-flex', background: 'none', border: 'none', padding: 0, cursor: 'help', color: 'var(--subtle)' }}>
+        <Info size={13} />
+      </button>
+      {open && (
+        <span style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 30, width: 320,
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.18)', padding: '10px 12px',
+          fontSize: 11.5, lineHeight: 1.55, color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0,
+        }}>{children}</span>
+      )}
+    </span>
+  );
+}
+
 function Card({ title, children, fill }: { title?: string; children: React.ReactNode; fill?: boolean }) {
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: '20px 22px', ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : {}) }}>
@@ -921,7 +942,14 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
 
       <Card title="Sensitive data monitoring">
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Detection mode</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Detection mode</span>
+            <InfoTip>
+              <div><strong style={{ color: 'var(--text)' }}>Off</strong> — no detection, no overhead. Use for agents that never handle personal data, secrets, or external sends.</div>
+              <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Deterministic</strong> (recommended) — fast pattern rules flag PII, secrets, DB credentials, and source→sink exfiltration flows; no model calls. Good default for most agents.</div>
+              <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Smart</strong> — same rules, plus one cheap LLM pass per flagged turn to confirm findings and drop false positives. Use for high-stakes agents (finance, customer PII) or noisy contexts where rules over-flag. Adds slight latency + cost.</div>
+            </InfoTip>
+          </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
             How this agent&apos;s tool I/O and replies are scanned for PII, secrets, and exfiltration flows.
           </div>
@@ -944,17 +972,16 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
               );
             })}
           </div>
-          {/* What each mode means + when to pick it. */}
-          <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.55 }}>
-            <div><strong style={{ color: 'var(--text)' }}>Off</strong> — no detection, no overhead. Use for agents that never handle personal data, secrets, or external sends.</div>
-            <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Deterministic</strong> (recommended) — fast pattern rules flag PII, secrets, DB credentials, and source→sink exfiltration flows; no model calls. Good default for most agents.</div>
-            <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Smart</strong> — same rules, plus one cheap LLM pass per flagged turn to confirm findings and drop false positives. Use for high-stakes agents (finance, customer PII) or noisy contexts where rules over-flag. Adds slight latency + cost.</div>
-          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: form.sensitivityCheck === 'off' ? 0.5 : 1 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Redact secrets in replies</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Mask detected secrets and high-risk values (keys, cards, SSNs) as <code>[redacted]</code> in the agent&apos;s outbound message before it reaches the channel. Enable for agents that read from credential stores / databases and post into shared channels. Emails &amp; phone numbers are left intact; the full value is still kept in the private trace.</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Redact secrets in replies</span>
+              <InfoTip>
+                Mask detected secrets and high-risk values (keys, cards, SSNs) as <code>[redacted]</code> in the agent&apos;s outbound message before it reaches the channel. Enable for agents that read from credential stores / databases and post into shared channels. Emails &amp; phone numbers are left intact; the full value is still kept in the private trace.
+              </InfoTip>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Strip leaked secrets from messages before they&apos;re posted.</div>
           </div>
           <button disabled={!canEdit || form.sensitivityCheck === 'off'} onClick={() => setForm(f => ({ ...f, enforcementRedaction: !f.enforcementRedaction }))} style={{
             width: 44, height: 24, borderRadius: 12, border: 'none', background: form.enforcementRedaction ? '#dc2626' : 'var(--border-2)',

@@ -19,8 +19,20 @@
 
 import { type Span, type Attributes, trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer, ATTR } from './otel';
-import { detectSensitive, detectInText, mergeHits, egressKind, type SensitiveHit } from '@slackhive/shared';
+import { detectSensitive, detectInText, mergeHits, egressKind, markSensitive, type SensitiveHit, type SensScope } from '@slackhive/shared';
 import { computeFps, type FpEntry } from './fingerprint';
+
+/** A flagged finding queued for optional smart (LLM) verification. */
+export interface SmartCandidate { spanId: string; reason: string; sample: string }
+
+/** A short, redacted hint of the first match (first 4 chars + length) so the LLM
+ *  has signal to confirm/deny without receiving the full value. */
+function sampleHint(content: string | null | undefined, scope: SensScope): string {
+  for (const seg of markSensitive(content ?? '', scope)) {
+    if (seg.cat) { const t = seg.text; return t.length <= 6 ? t : `${t.slice(0, 4)}…(${t.length})`; }
+  }
+  return '';
+}
 
 const PREVIEW_LIMIT = 2000;
 
@@ -77,6 +89,9 @@ export class TurnTracer {
   private readonly model: string;
   /** When false (mode 'off'), detection + flow fingerprinting are skipped. */
   private readonly detect: boolean;
+  /** When true (mode 'smart'), flagged findings are queued for LLM verification. */
+  private readonly smart: boolean;
+  private readonly candidates: SmartCandidate[] = [];
   private lastBoundaryMs: number;
   private readonly tools = new Map<string, { span: Span; name: string; args?: string }>();
   private readonly hits: (SensitiveHit | null)[] = [];
@@ -104,6 +119,7 @@ export class TurnTracer {
     });
     this.model = input.model;
     this.detect = input.sensitivityCheck !== 'off';
+    this.smart = input.sensitivityCheck === 'smart';
     this.ctx = trace.setSpan(context.active(), this.turn);
     this.lastBoundaryMs = Date.now();
     // The user's message is a flow SOURCE (sensitive values entering the turn).
@@ -131,7 +147,7 @@ export class TurnTracer {
     // into its reply would otherwise go unflagged. Bubbles up to the turn via hits.
     if (this.detect) {
       const hit = detectInText(`${input.reasoning ?? ''}\n${input.text ?? ''}`);
-      if (hit) { applySensitive(span, hit); this.hits.push(hit); }
+      if (hit) { applySensitive(span, hit); this.hits.push(hit); this.queueSmart(span, hit, input.text, 'text'); }
       // The model's visible answer text is a flow SINK (data heading to Slack).
       setFps(span, computeFps(input.text, 'text', 'sink'));
     }
@@ -166,7 +182,7 @@ export class TurnTracer {
 
     if (this.detect) {
       const hit = detectSensitive(name, args, output ?? undefined);
-      if (hit) applySensitive(span, hit);
+      if (hit) { applySensitive(span, hit); this.queueSmart(span, hit, output ?? args, 'all'); }
       this.hits.push(hit);
 
       // Flow roles: the tool's RESULT is a source (data the agent now holds); if the
@@ -179,6 +195,17 @@ export class TurnTracer {
     span.end();
     this.tools.delete(toolUseId);
     this.lastBoundaryMs = Date.now();
+  }
+
+  /** Queue a flagged finding for smart (LLM) verification, with a redacted sample. */
+  private queueSmart(span: Span, hit: SensitiveHit, content: string | null | undefined, scope: SensScope): void {
+    if (!this.smart) return;
+    this.candidates.push({ spanId: span.spanContext().spanId, reason: hit.reason, sample: sampleHint(content, scope) });
+  }
+
+  /** Findings to verify in smart mode (empty otherwise). Read after the turn ends. */
+  smartCandidates(): SmartCandidate[] {
+    return this.candidates;
   }
 
   /** A system marker (e.g. context_reset) as a zero-duration `event` span. */
