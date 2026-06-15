@@ -103,10 +103,19 @@ export function parseSmartFindings(reply: string, targets: SmartScanTarget[]): S
     if (!target) continue;
     const rest = m[2].trim();
     if (/^none\b/i.test(rest) || !rest) continue;
-    const parts = rest.split('|').map(p => p.trim());
-    const category = (parts[0] || 'other').toLowerCase();
-    const severity = VALID_SEVERITY.has((parts[1] || '').toLowerCase()) ? parts[1].toLowerCase() : 'medium';
-    const excerpt = parts.slice(2).join(' | ').trim();
+    // Split into at most kind | severity | excerpt on the FIRST two pipes only, so
+    // any '|' inside the excerpt (shell pipes, JSON, tables) is preserved verbatim —
+    // otherwise the stored excerpt won't match the source text for highlight/redaction.
+    const bar1 = rest.indexOf('|');
+    const category = (bar1 === -1 ? rest : rest.slice(0, bar1)).trim().toLowerCase() || 'other';
+    let severity = 'medium';
+    let excerpt = '';
+    if (bar1 !== -1) {
+      const bar2 = rest.indexOf('|', bar1 + 1);
+      const sevRaw = (bar2 === -1 ? rest.slice(bar1 + 1) : rest.slice(bar1 + 1, bar2)).trim().toLowerCase();
+      if (VALID_SEVERITY.has(sevRaw)) severity = sevRaw;
+      if (bar2 !== -1) excerpt = rest.slice(bar2 + 1).trim();
+    }
     out.push({ spanId: target.spanId, category, severity, excerpt });
   }
   return out;

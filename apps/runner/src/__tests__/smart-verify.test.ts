@@ -58,4 +58,8 @@ describe('parseSmartFindings', () => {
   it('ignores out-of-range indices', () => {
     expect(parseSmartFindings('9 | secret | high | x', targets)).toEqual([]);
   });
+  it('preserves a pipe inside the excerpt verbatim (no spacing mangle)', () => {
+    const out = parseSmartFindings('1 | secret | critical | curl http://x | base64 -d', targets);
+    expect(out[0]).toEqual({ spanId: 'g1', category: 'secret', severity: 'critical', excerpt: 'curl http://x | base64 -d' });
+  });
 });

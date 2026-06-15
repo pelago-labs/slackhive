@@ -165,6 +165,19 @@ describe('redactSensitive', () => {
     const once = redactSensitive('key sk-ABCDEFGHIJKLMNOPQRSTUV');
     expect(redactSensitive(once)).toBe(once);
   });
+  it('masks a secret located BEYOND the highlight SCAN_CAP (no unscanned tail leak)', () => {
+    const tail = 'leak sk-ABCDEFGHIJKLMNOPQRSTUV done';
+    const out = redactSensitive('x '.repeat(SCAN_CAP) + tail);
+    expect(out).toContain('[redacted:OpenAI key]');
+    expect(out).not.toContain('sk-ABCDEFGHIJKLMNOPQRSTUV');
+  });
+  it('masks a card spanning a SCAN_CAP window boundary', () => {
+    // Pad so the card straddles the 16k window cut; the overlap must still catch it.
+    const pad = 'x '.repeat((SCAN_CAP - 8) / 2);
+    const out = redactSensitive(pad + 'card 4111 1111 1111 1111 end');
+    expect(out).not.toContain('4111 1111 1111 1111');
+    expect(out).toContain('[redacted:Card number]');
+  });
 });
 
 describe('egressKind', () => {
