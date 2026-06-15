@@ -220,6 +220,8 @@ CREATE TABLE IF NOT EXISTS agents (
   sensitivity_check    TEXT NOT NULL DEFAULT 'deterministic'
                                      CHECK (sensitivity_check IN ('off','deterministic','smart')),
   enforcement_redaction INTEGER NOT NULL DEFAULT 0,
+  redaction_level      TEXT NOT NULL DEFAULT 'secrets'
+                                     CHECK (redaction_level IN ('secrets','pii','all')),
   reports_to           TEXT NOT NULL DEFAULT '[]',
   claude_md            TEXT NOT NULL DEFAULT '',
   created_by           TEXT NOT NULL DEFAULT 'system',
@@ -727,6 +729,9 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   }
   if (!agentCols.includes('enforcement_redaction')) {
     db.exec('ALTER TABLE agents ADD COLUMN enforcement_redaction INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!agentCols.includes('redaction_level')) {
+    db.exec("ALTER TABLE agents ADD COLUMN redaction_level TEXT NOT NULL DEFAULT 'secrets'");
   }
   if (!agentCols.includes('last_error')) {
     db.exec('ALTER TABLE agents ADD COLUMN last_error TEXT');

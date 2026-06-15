@@ -245,6 +245,19 @@ describe('redactSensitive — outbound masking', () => {
     expect(redactSensitive('reply to bob@acme.com')).toBe('reply to bob@acme.com');
     expect(redactSensitive('nothing sensitive here')).toBe('nothing sensitive here');
   });
+
+  it('honors redaction level: secrets / pii / all', () => {
+    const t = 'call +1 415-555-0186 key sk-ABCDEFGHIJKLMNOPQRSTUV';
+    // secrets-only (default): secret masked, phone kept
+    expect(redactSensitive(t, 'text', 'secrets')).toBe('call +1 415-555-0186 key [redacted:OpenAI key]');
+    // pii: phone masked too
+    const pii = redactSensitive(t, 'text', 'pii');
+    expect(pii).toContain('[redacted:Phone number]');
+    expect(pii).toContain('[redacted:OpenAI key]');
+    // all: also masks low-severity data keywords (needs 'all' scope to see them)
+    expect(redactSensitive('salary is high', 'all', 'all')).toBe('[redacted:Salary] is high');
+    expect(redactSensitive('salary is high', 'all', 'pii')).toBe('salary is high');
+  });
 });
 
 describe('severity model', () => {

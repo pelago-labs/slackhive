@@ -616,7 +616,7 @@ export class MessageHandler {
    */
   private maybeRedact(text: string): string {
     if (!text || !this.agent.enforcementRedaction || this.agent.sensitivityCheck === 'off') return text;
-    return redactSensitive(text);
+    return redactSensitive(text, 'text', this.agent.redactionLevel ?? 'secrets');
   }
 
   /** Swap reaction — remove old, add new. */

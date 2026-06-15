@@ -322,20 +322,27 @@ export function markSensitive(str: string, scope: SensScope = 'all'): SensSegmen
   return segs;
 }
 
+/** How much an agent's outbound reply is masked when redaction is on. */
+export type RedactionLevel = 'secrets' | 'pii' | 'all';
+
 /**
- * Mask secrets + critical/high-severity values in `text`, replacing each match
- * with `[redacted:<label>]`. Medium-severity PII (email/phone) is left intact.
- * Used for opt-in redaction of an agent's outbound reply. Returns text unchanged
- * when nothing qualifies.
+ * Mask sensitive values in `text`, replacing each match with `[redacted:<label>]`.
+ * The `level` controls scope:
+ *  - `secrets` — secrets + high/critical values (keys, cards, SSNs); emails/phones kept.
+ *  - `pii`     — the above PLUS all PII (emails, phones, …).
+ *  - `all`     — every flagged value (also data keywords / tool/cred paths).
+ * Returns text unchanged when nothing qualifies.
  */
-export function redactSensitive(text: string, scope: SensScope = 'text'): string {
+export function redactSensitive(text: string, scope: SensScope = 'text', level: RedactionLevel = 'secrets'): string {
   if (!text) return text;
   return markSensitive(text, scope).map(seg => {
     if (!seg.cat || !seg.label) return seg.text;
     const sev = severityForTag(seg.label);
-    return seg.cat === 'secret' || sev === 'critical' || sev === 'high'
-      ? `[redacted:${humanizeTag(seg.label).label}]`
-      : seg.text;
+    const masked =
+      level === 'all' ? true :
+      level === 'pii' ? (seg.cat === 'secret' || seg.cat === 'pii' || sev === 'critical' || sev === 'high') :
+      /* secrets */     (seg.cat === 'secret' || sev === 'critical' || sev === 'high');
+    return masked ? `[redacted:${humanizeTag(seg.label).label}]` : seg.text;
   }).join('');
 }
 

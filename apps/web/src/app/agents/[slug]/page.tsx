@@ -862,6 +862,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
     isBoss: agent.isBoss, verbose: agent.verbose ?? true, reportsTo: agent.reportsTo ?? [] as string[],
     sensitivityCheck: agent.sensitivityCheck ?? 'deterministic',
     enforcementRedaction: agent.enforcementRedaction ?? false,
+    redactionLevel: agent.redactionLevel ?? 'secrets',
   });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
@@ -870,7 +871,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
     try {
       const r = await fetch(`/api/agents/${agent.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isBoss: form.isBoss, verbose: form.verbose, reportsTo: form.reportsTo, sensitivityCheck: form.sensitivityCheck, enforcementRedaction: form.enforcementRedaction }),
+        body: JSON.stringify({ isBoss: form.isBoss, verbose: form.verbose, reportsTo: form.reportsTo, sensitivityCheck: form.sensitivityCheck, enforcementRedaction: form.enforcementRedaction, redactionLevel: form.redactionLevel }),
       });
       const data = await r.json();
       if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
@@ -990,6 +991,30 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
             <div style={{ position: 'absolute', top: 3, left: form.enforcementRedaction ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
           </button>
         </div>
+        {form.enforcementRedaction && form.sensitivityCheck !== 'off' && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>What to redact</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {([
+                ['secrets', 'Secrets only', 'Keys, tokens, cards, SSNs'],
+                ['pii', 'Secrets + PII', 'Also emails & phone numbers'],
+                ['all', 'Everything flagged', 'All detected matches'],
+              ] as const).map(([val, label, sub]) => {
+                const active = form.redactionLevel === val;
+                return (
+                  <button key={val} disabled={!canEdit} onClick={() => setForm(f => ({ ...f, redactionLevel: val }))} style={{
+                    flex: 1, textAlign: 'left', padding: '8px 12px', borderRadius: 8, cursor: canEdit ? 'pointer' : 'default',
+                    border: `1px solid ${active ? '#dc2626' : 'var(--border)'}`,
+                    background: active ? 'rgba(220,38,38,0.06)' : 'var(--surface)', transition: 'all 0.15s',
+                  }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: active ? 'var(--text)' : 'var(--muted)' }}>{label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--subtle)' }}>{sub}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card title="Capabilities">

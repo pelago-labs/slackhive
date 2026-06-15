@@ -45,7 +45,7 @@ export {
   SENS_COLOR, CAT_LABEL, SCAN_CAP,
   severityForTag, maxSeverity, SEVERITY_RANK, SEVERITY_COLOR, egressKind, redactSensitive,
 } from './sensitivity';
-export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope, Severity } from './sensitivity';
+export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope, Severity, RedactionLevel } from './sensitivity';
 export {
   upsertTask, beginActivity, finishActivity,
   beginToolCall, finishToolCall,
