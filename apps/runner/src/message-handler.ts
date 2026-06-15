@@ -21,6 +21,7 @@ import {
   finishToolCall,
   recordActivityUsage,
   getDb,
+  redactSensitive,
 } from '@slackhive/shared';
 import { getSetting } from './db';
 
@@ -589,14 +590,26 @@ export class MessageHandler {
    * caller can attach feedback controls to that final reply.
    */
   private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<{ ts: string; payload: MessagePayload }> {
-    const payloads = this.adapter.buildPayloads(text);
+    const out = this.maybeRedact(text);
+    const payloads = this.adapter.buildPayloads(out);
     let last: { ts: string; payload: MessagePayload } | undefined;
     for (const payload of payloads) {
       const ts = await this.adapter.postPayload(channelId, payload, threadId);
       last = { ts, payload };
     }
     // buildPayloads always yields ≥1 payload; the fallback keeps the return honest.
-    return last ?? { ts: '', payload: { text } };
+    return last ?? { ts: '', payload: { text: out } };
+  }
+
+  /**
+   * Opt-in enforcement: mask detected secrets / critical+high values in the
+   * agent's outbound reply before it reaches Slack (enabled per-agent via
+   * `enforcementRedaction`). The stored trace keeps the real output; only the
+   * posted message is redacted. Medium-severity PII (email/phone) is left intact.
+   */
+  private maybeRedact(text: string): string {
+    if (!text || !this.agent.enforcementRedaction || this.agent.sensitivityCheck === 'off') return text;
+    return redactSensitive(text);
   }
 
   /** Swap reaction — remove old, add new. */

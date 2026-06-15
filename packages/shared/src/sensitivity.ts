@@ -322,6 +322,23 @@ export function markSensitive(str: string, scope: SensScope = 'all'): SensSegmen
   return segs;
 }
 
+/**
+ * Mask secrets + critical/high-severity values in `text`, replacing each match
+ * with `[redacted:<label>]`. Medium-severity PII (email/phone) is left intact.
+ * Used for opt-in redaction of an agent's outbound reply. Returns text unchanged
+ * when nothing qualifies.
+ */
+export function redactSensitive(text: string, scope: SensScope = 'text'): string {
+  if (!text) return text;
+  return markSensitive(text, scope).map(seg => {
+    if (!seg.cat || !seg.label) return seg.text;
+    const sev = severityForTag(seg.label);
+    return seg.cat === 'secret' || sev === 'critical' || sev === 'high'
+      ? `[redacted:${humanizeTag(seg.label).label}]`
+      : seg.text;
+  }).join('');
+}
+
 export const SENS_COLOR: Record<SensitiveCategory, string> = {
   pii:    '#dc2626',
   secret: '#b45309',

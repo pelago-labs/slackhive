@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectSensitive, detectInText, mergeHits, markSensitive, humanizeTag, SCAN_CAP,
-  severityForTag, maxSeverity, egressKind,
+  severityForTag, maxSeverity, egressKind, redactSensitive,
 } from '@slackhive/shared';
 
 describe('detectInText — the model\'s own output (PII + secrets only)', () => {
@@ -233,6 +233,17 @@ describe('egressKind — outbound sink classification', () => {
     expect(egressKind('Bash', 'ls -la && cat file.txt')).toBeNull();
     expect(egressKind('Read')).toBeNull();
     expect(egressKind('redshift_query', 'select * from t')).toBeNull();
+  });
+});
+
+describe('redactSensitive — outbound masking', () => {
+  it('masks secrets and critical/high values, keeps medium PII and clean text', () => {
+    expect(redactSensitive('key sk-ABCDEFGHIJKLMNOPQRSTUV here'))
+      .toBe('key [redacted:OpenAI key] here');
+    expect(redactSensitive('ssn 111-22-3333')).toBe('ssn [redacted:Social Security number]');
+    // email is medium-severity → left visible
+    expect(redactSensitive('reply to bob@acme.com')).toBe('reply to bob@acme.com');
+    expect(redactSensitive('nothing sensitive here')).toBe('nothing sensitive here');
   });
 });
 
