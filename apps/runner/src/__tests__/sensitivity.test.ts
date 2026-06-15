@@ -204,7 +204,7 @@ describe('extended secret + PII detectors', () => {
     ['sk_live_abcdefghijklmnop1234', 'secret:stripe_key'],
     ['rk_test_abcdefghijklmnop1234', 'secret:stripe_key'],
     ['posted to hooks.slack.com/services/T000/B000/abcDEF123', 'secret:slack_webhook'],
-    ['{"type": "service_account", "project_id": "x"}', 'secret:gcp_sa'],
+    ['{"type": "service_account", "project_id": "x", "client_email": "a@x.iam.gserviceaccount.com"}', 'secret:gcp_sa'],
     ['SSN 111-22-3333', 'pii:ssn'],
     ['IBAN GB82WEST12345698765432', 'pii:iban'],
   ])('flags %j', (input, tag) => {

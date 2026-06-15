@@ -37,7 +37,9 @@ const SMART_SCAN_LIMIT = 1500;
  *  has signal to confirm/deny without receiving the full value. */
 function sampleHint(content: string | null | undefined, scope: SensScope): string {
   for (const seg of markSensitive(content ?? '', scope)) {
-    if (seg.cat) { const t = seg.text; return t.length <= 6 ? t : `${t.slice(0, 4)}…(${t.length})`; }
+    // Always redact: at most the first 2 chars + length, never the full value
+    // (short matches like a 4-digit PIN must not be sent verbatim to the verifier).
+    if (seg.cat) { const t = seg.text; return `${t.slice(0, 2)}…(${t.length})`; }
   }
   return '';
 }

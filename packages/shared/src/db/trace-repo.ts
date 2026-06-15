@@ -180,12 +180,17 @@ function rowToSpan(r: Record<string, unknown>): TraceSpan {
   };
 }
 
-/** Parse the JSON array stored in spans.sensitive_llm_hits (best-effort). */
+/** Parse the JSON array stored in spans.sensitive_llm_hits (best-effort). Drops any
+ *  element missing a required string field so malformed JSON can't surface as
+ *  `undefined` in the UI (which expects all four fields). */
 function parseLlmHits(raw: unknown): TraceSpan['sensitiveLlmHits'] {
   if (typeof raw !== 'string' || !raw) return [];
   try {
     const v = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter(h => h && typeof h.text === 'string') : [];
+    return Array.isArray(v)
+      ? v.filter(h => h && typeof h.text === 'string' && typeof h.category === 'string'
+          && typeof h.label === 'string' && typeof h.severity === 'string')
+      : [];
   } catch { return []; }
 }
 
@@ -216,7 +221,13 @@ interface FlowRow { spanId: string; kind: string; toolName: string | null; start
 
 function parseFps(v: unknown): FpRec[] {
   if (v == null) return [];
-  try { const a = JSON.parse(String(v)); return Array.isArray(a) ? a : []; } catch { return []; }
+  try {
+    const a = JSON.parse(String(v));
+    return Array.isArray(a)
+      ? a.filter(e => e && typeof e.fp === 'string' && typeof e.tag === 'string'
+          && (e.role === 'source' || e.role === 'sink'))
+      : [];
+  } catch { return []; }
 }
 
 function spanLabel(kind: string, toolName: string | null, role: 'source' | 'sink'): string {

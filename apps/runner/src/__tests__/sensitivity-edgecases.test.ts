@@ -64,6 +64,16 @@ describe('ssn / iban', () => {
   });
 });
 
+describe('gcp service account', () => {
+  it('needs a 2nd SA marker (type alone is not flagged)', () => {
+    // Arbitrary JSON that merely contains the type field must NOT be flagged.
+    expect(detectInText('{"type": "service_account", "project_id": "x"}')).toBeNull();
+    // A real SA blob (type + private_key/client_email) IS flagged.
+    expect(detectInText('{"type":"service_account","private_key":"-----BEGIN PRIVATE KEY-----"}')?.reason)
+      .toContain('secret:gcp_sa');
+  });
+});
+
 describe('high-entropy secret — entropy + charset guards', () => {
   it('flags a long mixed token, rejects hashes / single-char runs / short tokens', () => {
     expect(detectInText('Xb7Kp9Lm2Qw8Rt4Yu1Zs6Vd3Nf0Hg5Jc8Ke2Pa7Mq')?.reason).toContain('secret:high_entropy');

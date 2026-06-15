@@ -87,7 +87,10 @@ const SECRET_PATTERNS: { tag: string; re: RegExp }[] = [
   { tag: 'stripe_key', re: /\b[sprk]k_(?:live|test)_[A-Za-z0-9]{16,}\b/ },
   { tag: 'google_api_key', re: /\bAIza[0-9A-Za-z_-]{35}\b/ },
   { tag: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/ },
-  { tag: 'gcp_sa', re: /"type"\s*:\s*"service_account"/ },
+  // Require a 2nd service-account marker near the type field so arbitrary JSON
+  // that merely contains "type":"service_account" isn't flagged. Bounded window,
+  // both field orders; the literal anchors keep it ReDoS-safe.
+  { tag: 'gcp_sa', re: /"type"\s*:\s*"service_account"[\s\S]{0,500}"(?:private_key|client_email)"\s*:|"(?:private_key|client_email)"\s*:[\s\S]{0,500}"type"\s*:\s*"service_account"/ },
   { tag: 'private_key', re: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/ },
   { tag: 'bearer', re: /\bbearer\s+[A-Za-z0-9._-]{20,}/i },
   // Credentials embedded in a URL: scheme://user:password@host — DB protocols
