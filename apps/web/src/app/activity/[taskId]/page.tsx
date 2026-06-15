@@ -20,7 +20,7 @@ import { deepLinkLabelForPlatform } from '@slackhive/shared';
 import {
   ArrowLeft, ExternalLink, ChevronRight, ChevronDown,
   Wrench, CheckCircle2, AlertTriangle, Loader2,
-  ThumbsUp, ThumbsDown, Coins, GitBranch, Copy, Check, Layers, Clock, ShieldAlert,
+  ThumbsUp, ThumbsDown, Coins, GitBranch, Copy, Check, Layers, Clock, ShieldAlert, ArrowRight,
 } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -168,7 +168,13 @@ interface SessionRollup {
   costUsd: number; errorCount: number;
   totalDurationMs: number; p50DurationMs: number; p95DurationMs: number; models: ModelUsage[];
 }
-interface TraceDetail { task: Task; turns: TraceTurn[]; rollup: SessionRollup | null; deepLink: string | null }
+type Severity = 'critical' | 'high' | 'medium' | 'low';
+interface TraceFlow {
+  id: string; label: string; category: string; severity: Severity;
+  sourceLabel: string; sinkLabel: string; sourceSpanId: string; sinkSpanId: string;
+}
+interface TraceDetail { task: Task; turns: TraceTurn[]; rollup: SessionRollup | null; deepLink: string | null; flows?: TraceFlow[] }
+const SEV_COLOR: Record<Severity, string> = { critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#0891b2' };
 
 function parseIso(s?: string): number | null {
   if (!s) return null;
@@ -246,6 +252,7 @@ export default function TaskTracePage(): React.JSX.Element {
   if (!detail) return <Shell><div style={{ marginTop: 20, padding: 24, color: 'var(--muted)', fontSize: 13 }}>Loading…</div></Shell>;
 
   const { task, turns, rollup, deepLink } = detail;
+  const flows = detail.flows ?? [];
   const initiator = task.initiatorHandle || task.initiatorUserId || 'unknown';
   const anyRunning = turns.some(t => t.status === 'in_progress');
   const anyError = turns.some(t => t.status === 'error');
@@ -289,6 +296,26 @@ export default function TaskTracePage(): React.JSX.Element {
         </div>
         {rollup && <Analytics rollup={rollup} turns={turns} />}
       </div>
+
+      {flows.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <SectionLabel>Sensitive data flows</SectionLabel>
+          <div style={{ marginTop: 8, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+            {flows.map((f, i) => (
+              <a key={f.id} href={`#span-${f.sinkSpanId}`}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', textDecoration: 'none', color: 'inherit', borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
+                <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: `${SEV_COLOR[f.severity]}1a`, color: SEV_COLOR[f.severity] }}>{f.severity}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>{f.label}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)', minWidth: 0 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.sourceLabel}</span>
+                  <ArrowRight size={12} style={{ color: 'var(--red)', flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.sinkLabel}</span>
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Timeline */}
       <div style={{ marginTop: 18 }}>

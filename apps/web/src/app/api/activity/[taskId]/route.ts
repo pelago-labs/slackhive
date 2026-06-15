@@ -52,6 +52,7 @@ export async function GET(
       task: details.task,
       turns: trace?.turns ?? [],
       rollup: trace?.rollup ?? null,
+      flows: trace?.flows ?? [],
       deepLink: deepLinkForTask(details.task),
     });
   } catch (err) {

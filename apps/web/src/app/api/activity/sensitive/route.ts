@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getSensitiveEvents } from '@slackhive/shared';
+import { getSensitiveEvents, getSensitiveFlows } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
@@ -26,15 +26,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { searchParams } = new URL(req.url);
     const { since, until } = windowBounds(searchParams.get('window'), searchParams.get('from'), searchParams.get('to'));
 
-    const events = await getSensitiveEvents({
+    const filter = {
       since,
       until,
       agentId: searchParams.get('agent') ?? undefined,
       accessibleAgentIds: accessibleAgentIds ?? undefined,
       limit: 200,
-    });
+    };
+    const [events, flows] = await Promise.all([getSensitiveEvents(filter), getSensitiveFlows(filter)]);
 
-    return NextResponse.json({ events });
+    return NextResponse.json({ events, flows });
   } catch (err) {
     return apiError('activity-sensitive', err);
   }
