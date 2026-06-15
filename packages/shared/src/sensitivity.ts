@@ -187,15 +187,21 @@ function sensitiveTool(toolName: string, argsText: string): string | null {
  * return its kind, else null. Used for exfiltration flows (Phase: deep tracing):
  * sensitive data appearing in a sink's ARGS is data leaving the agent.
  * - `web`   — WebFetch / WebSearch
- * - `tool`  — a network-ish tool by name (http/fetch/send/post/upload/email/webhook/…) or any MCP tool
+ * - `tool`  — a tool whose NAME carries an outbound action verb (send/post/upload/create/…)
  * - `shell` — Bash/exec whose command runs a network client (curl/wget/nc/ssh/scp/rsync)
+ *
+ * Heuristic: classified by an outbound *verb*, not by being an MCP tool. A blanket
+ * `mcp__*` rule (or matching bare platform names like "slack") flagged read-only
+ * tools (`mcp__db__query`, `get_slack_thread`) as sinks, producing spurious
+ * exfiltration flows. The trade-off: an egress MCP tool whose name lacks a known
+ * verb won't be detected as a sink.
  */
 export function egressKind(toolName: string, argsText = ''): 'web' | 'tool' | 'shell' | null {
   const n = (toolName || '').toLowerCase();
   const a = argsText.toLowerCase();
   if (/^web_?fetch$|^web_?search$/.test(n)) return 'web';
   if (/\b(bash|shell|exec|terminal|command|run_command)\b/.test(n) && /\b(curl|wget|nc|netcat|ssh|scp|rsync|telnet)\b/.test(a)) return 'shell';
-  if (n.startsWith('mcp__') || /(^|[._-])(http|fetch|request|upload|send|post|email|mail|webhook|sms|notify|publish|slack|telegram|discord)/.test(n)) return 'tool';
+  if (/(^|[._-])(http|fetch|request|upload|send|post|email|mail|webhook|sms|notify|publish|create|update|insert|write|dispatch)/.test(n)) return 'tool';
   return null;
 }
 
@@ -311,8 +317,26 @@ function escapeRe(s: string): string {
  */
 export function markSensitiveWith(str: string, scope: SensScope, extras: ExtraMark[]): SensSegment[] {
   const text = str.length > SCAN_CAP ? str.slice(0, SCAN_CAP) : str;
-  const ranges: Range[] = [];
+  const kept = scanRanges(text, scope, extras);
+  if (kept.length === 0) return [{ text: str, cat: null, label: null }];
 
+  const segs: SensSegment[] = [];
+  let cursor = 0;
+  for (const r of kept) {
+    if (r.start > cursor) segs.push({ text: text.slice(cursor, r.start), cat: null, label: null });
+    segs.push({ text: text.slice(r.start, r.end), cat: r.cat, label: r.label, llm: r.llm });
+    cursor = r.end;
+  }
+  // Note: for highlighting, the tail past SCAN_CAP is shown unflagged (display only).
+  // Redaction must NOT do this — it uses collectRangesFull to scan the whole string.
+  if (cursor < str.length) segs.push({ text: str.slice(cursor), cat: null, label: null });
+  return segs;
+}
+
+/** Collect the kept (non-overlapping, priority-resolved) match ranges in `text`.
+ *  Callers bound `text` to SCAN_CAP; {@link collectRangesFull} windows longer input. */
+function scanRanges(text: string, scope: SensScope, extras: ExtraMark[]): Range[] {
+  const ranges: Range[] = [];
   for (const { tag, re } of SECRET_PATTERNS) collect(re, 'secret', `secret:${tag}`, text, ranges);
   collect(HIGH_ENTROPY, 'secret', 'secret:high_entropy', text, ranges, looksHighEntropy);
   collect(EMAIL, 'pii', 'pii:email', text, ranges);
@@ -331,24 +355,32 @@ export function markSensitiveWith(str: string, scope: SensScope, extras: ExtraMa
     collect(new RegExp(escapeRe(ex.text), 'gi'), ex.cat, ex.label, text, ranges);
     for (let i = before; i < ranges.length; i++) ranges[i].llm = true;
   }
-
-  if (ranges.length === 0) return [{ text: str, cat: null, label: null }];
+  if (ranges.length === 0) return [];
 
   // Extra (llm) marks win overlap ties so an LLM finding is never masked by regex.
   ranges.sort((a, b) => a.start - b.start || (b.llm ? 1 : 0) - (a.llm ? 1 : 0) || PRIO[b.cat] - PRIO[a.cat] || (b.end - b.start) - (a.end - a.start));
   const kept: Range[] = [];
   let lastEnd = -1;
   for (const r of ranges) if (r.start >= lastEnd) { kept.push(r); lastEnd = r.end; }
+  return kept;
+}
 
-  const segs: SensSegment[] = [];
-  let cursor = 0;
-  for (const r of kept) {
-    if (r.start > cursor) segs.push({ text: text.slice(cursor, r.start), cat: null, label: null });
-    segs.push({ text: text.slice(r.start, r.end), cat: r.cat, label: r.label, llm: r.llm });
-    cursor = r.end;
+/** Kept ranges over the FULL string (no SCAN_CAP truncation), windowing long input
+ *  with overlap so a match near a window boundary is still caught. Used by
+ *  redaction, which must never emit an unscanned tail verbatim. */
+function collectRangesFull(str: string, scope: SensScope): Range[] {
+  if (str.length <= SCAN_CAP) return scanRanges(str, scope, []);
+  const OVERLAP = 256; // > any whitespace-containing match (card/phone), so none is split
+  const all: Range[] = [];
+  for (let i = 0; i < str.length; i += SCAN_CAP - OVERLAP) {
+    for (const r of scanRanges(str.slice(i, i + SCAN_CAP), scope, [])) all.push({ ...r, start: r.start + i, end: r.end + i });
+    if (i + SCAN_CAP >= str.length) break;
   }
-  if (cursor < str.length) segs.push({ text: str.slice(cursor), cat: null, label: null });
-  return segs;
+  all.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+  const merged: Range[] = [];
+  let lastEnd = -1;
+  for (const r of all) if (r.start >= lastEnd) { merged.push(r); lastEnd = r.end; }
+  return merged;
 }
 
 /** How much an agent's outbound reply is masked when redaction is on. */
@@ -364,15 +396,27 @@ export type RedactionLevel = 'secrets' | 'pii' | 'all';
  */
 export function redactSensitive(text: string, scope: SensScope = 'text', level: RedactionLevel = 'secrets'): string {
   if (!text) return text;
-  return markSensitive(text, scope).map(seg => {
-    if (!seg.cat || !seg.label) return seg.text;
-    const sev = severityForTag(seg.label);
+  // Scan the WHOLE string (collectRangesFull windows past SCAN_CAP) so a value
+  // beyond the highlight cap is never emitted unmasked.
+  const ranges = collectRangesFull(text, scope);
+  if (ranges.length === 0) return text;
+  let out = '', cursor = 0;
+  for (const r of ranges) {
+    if (r.start > cursor) out += text.slice(cursor, r.start);
+    const sev = severityForTag(r.label);
+    // high_entropy is a heuristic guess, not a confirmed secret — auto-stripping it
+    // from replies corrupts benign long tokens (data URIs, hashes), so only mask it
+    // at the explicit `all` level.
+    const heuristic = r.label === 'secret:high_entropy';
     const masked =
       level === 'all' ? true :
-      level === 'pii' ? (seg.cat === 'secret' || seg.cat === 'pii' || sev === 'critical' || sev === 'high') :
-      /* secrets */     (seg.cat === 'secret' || sev === 'critical' || sev === 'high');
-    return masked ? `[redacted:${humanizeTag(seg.label).label}]` : seg.text;
-  }).join('');
+      level === 'pii' ? (!heuristic && (r.cat === 'secret' || r.cat === 'pii' || sev === 'critical' || sev === 'high')) :
+      /* secrets */     (!heuristic && (r.cat === 'secret' || sev === 'critical' || sev === 'high'));
+    out += masked ? `[redacted:${humanizeTag(r.label).label}]` : text.slice(r.start, r.end);
+    cursor = r.end;
+  }
+  if (cursor < text.length) out += text.slice(cursor);
+  return out;
 }
 
 export const SENS_COLOR: Record<SensitiveCategory, string> = {

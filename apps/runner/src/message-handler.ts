@@ -513,9 +513,17 @@ export class MessageHandler {
       // content for sensitive data regex missed, flagged "caught by LLM" (report-only).
       if (turn) {
         const cands = turn.smartCandidates();
-        if (cands.length) void verifySmartFindings(cands);
         const scans = turn.smartScanTargets();
-        if (scans.length) void detectSmartFindings(scans, this.agent.sensitivityGuidance);
+        // Run verify BEFORE detect (sequentially): both can UPDATE the same span, and
+        // detect's real findings (sensitive=1) must land last so a concurrent verify
+        // downgrade (sensitive=0) can't clobber a genuine LLM-caught value.
+        if (cands.length || scans.length) {
+          const guidance = this.agent.sensitivityGuidance;
+          void (async () => {
+            if (cands.length) await verifySmartFindings(cands);
+            if (scans.length) await detectSmartFindings(scans, guidance);
+          })();
+        }
       }
       this.activeControllers.delete(sessionKey);
       setTimeout(() => this.currentReactions.delete(sessionKey), 5 * 60 * 1000);

@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  detectInText, detectSensitive, markSensitive, mergeHits, humanizeTag,
+  detectInText, detectSensitive, markSensitive, markSensitiveWith, mergeHits, humanizeTag,
   severityForTag, maxSeverity, egressKind, redactSensitive, SCAN_CAP,
 } from '@slackhive/shared';
 import { computeFps, fingerprint } from '../tracing/fingerprint';
@@ -165,6 +165,40 @@ describe('redactSensitive', () => {
     const once = redactSensitive('key sk-ABCDEFGHIJKLMNOPQRSTUV');
     expect(redactSensitive(once)).toBe(once);
   });
+  it('masks a secret located BEYOND the highlight SCAN_CAP (no unscanned tail leak)', () => {
+    const tail = 'leak sk-ABCDEFGHIJKLMNOPQRSTUV done';
+    const out = redactSensitive('x '.repeat(SCAN_CAP) + tail);
+    expect(out).toContain('[redacted:OpenAI key]');
+    expect(out).not.toContain('sk-ABCDEFGHIJKLMNOPQRSTUV');
+  });
+  it('masks a card spanning a SCAN_CAP window boundary', () => {
+    // Pad so the card straddles the 16k window cut; the overlap must still catch it.
+    const pad = 'x '.repeat((SCAN_CAP - 8) / 2);
+    const out = redactSensitive(pad + 'card 4111 1111 1111 1111 end');
+    expect(out).not.toContain('4111 1111 1111 1111');
+    expect(out).toContain('[redacted:Card number]');
+  });
+  it('does not auto-strip heuristic high-entropy tokens below the "all" level', () => {
+    const blob = 'aA1' + 'bC2dE3fG4hI5jK6lM7nO8pQ9rS0'.repeat(2); // ~40+ char mixed token
+    const text = `data uri ${blob} here`;
+    // secrets / pii levels keep it (avoid corrupting benign long tokens)...
+    expect(redactSensitive(text, 'text', 'secrets')).toBe(text);
+    expect(redactSensitive(text, 'text', 'pii')).toBe(text);
+    // ...but the explicit "all" level still masks everything flagged.
+    expect(redactSensitive(text, 'text', 'all')).toContain('[redacted:High-entropy secret]');
+  });
+});
+
+describe('markSensitiveWith — value-stable output (memoization)', () => {
+  it('returns identical segments for equal-content but different-reference extras', () => {
+    const text = 'call me at five five five oh one two six';
+    const a = markSensitiveWith(text, 'text', [{ text: 'five five five', cat: 'pii', label: 'pii:phone' }]);
+    const b = markSensitiveWith(text, 'text', [{ text: 'five five five', cat: 'pii', label: 'pii:phone' }]);
+    // The trace memo keys on the hits' VALUE, not reference; equal content must
+    // yield deep-equal output so a fresh array each poll doesn't change the result.
+    expect(a).toEqual(b);
+    expect(a.some(s => s.llm && s.label === 'pii:phone')).toBe(true);
+  });
 });
 
 describe('egressKind', () => {
@@ -177,6 +211,16 @@ describe('egressKind', () => {
   });
   it.each([['Read', ''], ['Bash', 'ls -la'], ['redshift_query', 'select 1'], ['', '']])('returns null for %j', (name, args) => {
     expect(egressKind(name, args)).toBeNull();
+  });
+  it('classifies write-verb MCP tools as sinks but not read-only ones', () => {
+    expect(egressKind('mcp__slack__post_message', '')).toBe('tool');
+    expect(egressKind('mcp__github__create_issue', '')).toBe('tool');
+    expect(egressKind('mcp__crm__update_record', '')).toBe('tool');
+    // Read-only tools must NOT be flagged as outbound sinks (no spurious flows).
+    expect(egressKind('mcp__db__query', '')).toBeNull();
+    expect(egressKind('mcp__slack__get_thread', '')).toBeNull();
+    expect(egressKind('get_slack_thread', '')).toBeNull();
+    expect(egressKind('mcp__notion__list_pages', '')).toBeNull();
   });
 });
 
