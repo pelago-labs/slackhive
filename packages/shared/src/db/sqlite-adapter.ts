@@ -217,6 +217,9 @@ CREATE TABLE IF NOT EXISTS agents (
   enabled              INTEGER NOT NULL DEFAULT 1,
   is_boss              INTEGER NOT NULL DEFAULT 0,
   verbose              INTEGER NOT NULL DEFAULT 1,
+  sensitivity_check    TEXT NOT NULL DEFAULT 'deterministic'
+                                     CHECK (sensitivity_check IN ('off','deterministic','smart')),
+  enforcement_redaction INTEGER NOT NULL DEFAULT 0,
   reports_to           TEXT NOT NULL DEFAULT '[]',
   claude_md            TEXT NOT NULL DEFAULT '',
   created_by           TEXT NOT NULL DEFAULT 'system',
@@ -718,6 +721,12 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const agentCols = (db.pragma('table_info(agents)') as { name: string }[]).map(c => c.name);
   if (!agentCols.includes('verbose')) {
     db.exec('ALTER TABLE agents ADD COLUMN verbose INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!agentCols.includes('sensitivity_check')) {
+    db.exec("ALTER TABLE agents ADD COLUMN sensitivity_check TEXT NOT NULL DEFAULT 'deterministic'");
+  }
+  if (!agentCols.includes('enforcement_redaction')) {
+    db.exec('ALTER TABLE agents ADD COLUMN enforcement_redaction INTEGER NOT NULL DEFAULT 0');
   }
   if (!agentCols.includes('last_error')) {
     db.exec('ALTER TABLE agents ADD COLUMN last_error TEXT');

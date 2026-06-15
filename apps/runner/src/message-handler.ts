@@ -213,6 +213,7 @@ export class MessageHandler {
           initiatorKind: recorder.initiatorKind,
           initiatorUserId: recorder.initiatorUserId,
           initiatorHandle: recorder.initiatorHandle,
+          sensitivityCheck: this.agent.sensitivityCheck,
         });
       } catch (err) {
         this.log.warn('trace: begin turn failed', { error: (err as Error).message });

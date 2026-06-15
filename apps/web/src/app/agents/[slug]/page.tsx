@@ -837,7 +837,11 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
 }
 
 function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; allAgents: Agent[] }) {
-  const [form, setForm] = useState({ isBoss: agent.isBoss, verbose: agent.verbose ?? true, reportsTo: agent.reportsTo ?? [] as string[] });
+  const [form, setForm] = useState({
+    isBoss: agent.isBoss, verbose: agent.verbose ?? true, reportsTo: agent.reportsTo ?? [] as string[],
+    sensitivityCheck: agent.sensitivityCheck ?? 'deterministic',
+    enforcementRedaction: agent.enforcementRedaction ?? false,
+  });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const save = async () => {
@@ -845,7 +849,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
     try {
       const r = await fetch(`/api/agents/${agent.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isBoss: form.isBoss, verbose: form.verbose, reportsTo: form.reportsTo }),
+        body: JSON.stringify({ isBoss: form.isBoss, verbose: form.verbose, reportsTo: form.reportsTo, sensitivityCheck: form.sensitivityCheck, enforcementRedaction: form.enforcementRedaction }),
       });
       const data = await r.json();
       if (r.ok) { onUpdate(data); setMsg('Saved'); } else setMsg(data.error ?? 'Error');
@@ -913,6 +917,46 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
             </div>
           );
         })()}
+      </Card>
+
+      <Card title="Sensitive data monitoring">
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Detection mode</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+            How this agent&apos;s tool I/O and replies are scanned for PII, secrets, and exfiltration flows.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {([
+              ['off', 'Off', 'No scanning'],
+              ['deterministic', 'Deterministic', 'Regex / pattern rules'],
+              ['smart', 'Smart', 'Rules + LLM confirmation'],
+            ] as const).map(([val, label, sub]) => {
+              const active = form.sensitivityCheck === val;
+              return (
+                <button key={val} disabled={!canEdit} onClick={() => setForm(f => ({ ...f, sensitivityCheck: val }))} style={{
+                  flex: 1, textAlign: 'left', padding: '8px 12px', borderRadius: 8, cursor: canEdit ? 'pointer' : 'default',
+                  border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                  background: active ? 'var(--surface-2)' : 'var(--surface)', transition: 'all 0.15s',
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: active ? 'var(--text)' : 'var(--muted)' }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--subtle)' }}>{sub}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: form.sensitivityCheck === 'off' ? 0.5 : 1 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Redact secrets in replies</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Mask detected secrets / critical values in the agent&apos;s outbound message before it&apos;s posted.</div>
+          </div>
+          <button disabled={!canEdit || form.sensitivityCheck === 'off'} onClick={() => setForm(f => ({ ...f, enforcementRedaction: !f.enforcementRedaction }))} style={{
+            width: 44, height: 24, borderRadius: 12, border: 'none', background: form.enforcementRedaction ? '#dc2626' : 'var(--border-2)',
+            cursor: canEdit && form.sensitivityCheck !== 'off' ? 'pointer' : 'default', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          }}>
+            <div style={{ position: 'absolute', top: 3, left: form.enforcementRedaction ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+          </button>
+        </div>
       </Card>
 
       <Card title="Capabilities">

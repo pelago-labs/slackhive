@@ -46,6 +46,8 @@ export interface BeginTurnInput {
   initiatorKind: 'user' | 'agent';
   initiatorUserId?: string;
   initiatorHandle?: string;
+  /** Per-agent sensitivity mode. `off` skips all detection/flows. @default 'deterministic' */
+  sensitivityCheck?: 'off' | 'deterministic' | 'smart';
 }
 
 export interface GenerationInput {
@@ -73,6 +75,8 @@ export class TurnTracer {
   private readonly ctx: ReturnType<typeof trace.setSpan>;
   private readonly base: Attributes;
   private readonly model: string;
+  /** When false (mode 'off'), detection + flow fingerprinting are skipped. */
+  private readonly detect: boolean;
   private lastBoundaryMs: number;
   private readonly tools = new Map<string, { span: Span; name: string; args?: string }>();
   private readonly hits: (SensitiveHit | null)[] = [];
@@ -99,10 +103,11 @@ export class TurnTracer {
       },
     });
     this.model = input.model;
+    this.detect = input.sensitivityCheck !== 'off';
     this.ctx = trace.setSpan(context.active(), this.turn);
     this.lastBoundaryMs = Date.now();
     // The user's message is a flow SOURCE (sensitive values entering the turn).
-    setFps(this.turn, computeFps(input.userMessage, 'text', 'source'));
+    if (this.detect) setFps(this.turn, computeFps(input.userMessage, 'text', 'source'));
   }
 
   /** Record one assistant LLM step as a `generation` span spanning the gap
@@ -124,10 +129,12 @@ export class TurnTracer {
     // Scan the model's OWN output (answer/reasoning) for PII/secrets/sensitive data
     // — the tool-call path never sees this, so e.g. a phone number the agent writes
     // into its reply would otherwise go unflagged. Bubbles up to the turn via hits.
-    const hit = detectInText(`${input.reasoning ?? ''}\n${input.text ?? ''}`);
-    if (hit) { applySensitive(span, hit); this.hits.push(hit); }
-    // The model's visible answer text is a flow SINK (data heading to Slack).
-    setFps(span, computeFps(input.text, 'text', 'sink'));
+    if (this.detect) {
+      const hit = detectInText(`${input.reasoning ?? ''}\n${input.text ?? ''}`);
+      if (hit) { applySensitive(span, hit); this.hits.push(hit); }
+      // The model's visible answer text is a flow SINK (data heading to Slack).
+      setFps(span, computeFps(input.text, 'text', 'sink'));
+    }
     span.end(now);
     this.lastBoundaryMs = now;
   }
@@ -157,15 +164,17 @@ export class TurnTracer {
     if (out) span.setAttribute(ATTR.OUTPUT, out);
     if (isError) span.setStatus({ code: SpanStatusCode.ERROR });
 
-    const hit = detectSensitive(name, args, output ?? undefined);
-    if (hit) applySensitive(span, hit);
-    this.hits.push(hit);
+    if (this.detect) {
+      const hit = detectSensitive(name, args, output ?? undefined);
+      if (hit) applySensitive(span, hit);
+      this.hits.push(hit);
 
-    // Flow roles: the tool's RESULT is a source (data the agent now holds); if the
-    // tool is an outbound sink, sensitive values in its ARGS are data leaving.
-    const fps: FpEntry[] = computeFps(output, 'all', 'source');
-    if (egressKind(name, args)) fps.push(...computeFps(args, 'all', 'sink'));
-    setFps(span, fps);
+      // Flow roles: the tool's RESULT is a source (data the agent now holds); if the
+      // tool is an outbound sink, sensitive values in its ARGS are data leaving.
+      const fps: FpEntry[] = computeFps(output, 'all', 'source');
+      if (egressKind(name, args)) fps.push(...computeFps(args, 'all', 'sink'));
+      setFps(span, fps);
+    }
 
     span.end();
     this.tools.delete(toolUseId);
