@@ -179,6 +179,23 @@ function sensitiveTool(toolName: string, argsText: string): string | null {
   return null;
 }
 
+/**
+ * Classify a tool call as an outbound **sink** (where data leaves the agent) and
+ * return its kind, else null. Used for exfiltration flows (Phase: deep tracing):
+ * sensitive data appearing in a sink's ARGS is data leaving the agent.
+ * - `web`   — WebFetch / WebSearch
+ * - `tool`  — a network-ish tool by name (http/fetch/send/post/upload/email/webhook/…) or any MCP tool
+ * - `shell` — Bash/exec whose command runs a network client (curl/wget/nc/ssh/scp/rsync)
+ */
+export function egressKind(toolName: string, argsText = ''): 'web' | 'tool' | 'shell' | null {
+  const n = (toolName || '').toLowerCase();
+  const a = argsText.toLowerCase();
+  if (/^web_?fetch$|^web_?search$/.test(n)) return 'web';
+  if (/\b(bash|shell|exec|terminal|command|run_command)\b/.test(n) && /\b(curl|wget|nc|netcat|ssh|scp|rsync|telnet)\b/.test(a)) return 'shell';
+  if (n.startsWith('mcp__') || /(^|[._-])(http|fetch|request|upload|send|post|email|mail|webhook|sms|notify|publish|slack|telegram|discord)/.test(n)) return 'tool';
+  return null;
+}
+
 /** Evaluate one tool call (name + args + result). Returns null when nothing matched. */
 export function detectSensitive(toolName: string, args: string | undefined, result: string | undefined): SensitiveHit | null {
   const argsText = (args ?? '').slice(0, SCAN_CAP);

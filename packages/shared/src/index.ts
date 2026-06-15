@@ -43,7 +43,7 @@ export { deepLinkForTask, deepLinkLabelForPlatform } from './deep-link';
 export {
   detectSensitive, detectInText, mergeHits, markSensitive, humanizeTag,
   SENS_COLOR, CAT_LABEL, SCAN_CAP,
-  severityForTag, maxSeverity, SEVERITY_RANK, SEVERITY_COLOR,
+  severityForTag, maxSeverity, SEVERITY_RANK, SEVERITY_COLOR, egressKind,
 } from './sensitivity';
 export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope, Severity } from './sensitivity';
 export {
