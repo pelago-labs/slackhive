@@ -13,14 +13,14 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
 import { deepLinkLabelForPlatform } from '@slackhive/shared';
 import {
   ArrowLeft, ExternalLink, ChevronRight, ChevronDown,
   Wrench, CheckCircle2, AlertTriangle, Loader2,
-  ThumbsUp, ThumbsDown, Coins, GitBranch, Copy, Check, Layers, Clock, ShieldAlert, ArrowRight,
+  ThumbsUp, ThumbsDown, Coins, GitBranch, Copy, Check, Layers, Clock, ShieldAlert, ArrowRight, Lock,
 } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -30,47 +30,30 @@ import { markSensitive, SENS_COLOR, CAT_LABEL, humanizeTag, type SensitiveCatego
 // A highlighted sensitive token: a colored-background tag. Click it to reveal what
 // kind of data it is. The popover is portaled to <body> with fixed positioning so
 // the surrounding scroll container's overflow can't clip it ("on click is cut").
+/** True when the viewer may reveal raw sensitive values (admins only). */
+const RevealCtx = React.createContext(false);
+
+/** A sensitive value, MASKED by default (shown as its kind, e.g. "Phone number").
+ *  Admins can click to reveal/hide the real value; non-admins only ever see the
+ *  masked label. */
 function SensitiveMark({ cat, label, children }: { cat: SensCategory; label: string; children: React.ReactNode }): React.JSX.Element {
-  const [box, setBox] = useState<DOMRect | null>(null);
+  const canReveal = React.useContext(RevealCtx);
+  const [revealed, setRevealed] = useState(false);
   const color = SENS_COLOR[cat];
   const human = humanizeTag(label);
-  const toggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setBox(box ? null : (e.currentTarget as HTMLElement).getBoundingClientRect());
-  };
-  useEffect(() => {
-    if (!box) return;
-    const close = () => setBox(null);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
-  }, [box]);
-  const above = box ? box.top > 56 : true;
+  const shown = revealed && canReveal;
+  const onClick = (e: React.MouseEvent) => { e.stopPropagation(); if (canReveal) setRevealed(r => !r); };
   return (
-    <>
-      <mark
-        onClick={toggle}
-        title="Click for details"
-        style={{ background: `${color}33`, color, borderRadius: 3, padding: '0 3px', fontWeight: 600, cursor: 'pointer', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone' }}
-      >{children}</mark>
-      {box && createPortal(
-        <>
-          <div onClick={(e) => { e.stopPropagation(); setBox(null); }} style={{ position: 'fixed', inset: 0, zIndex: 1000 }} />
-          <div style={{
-            position: 'fixed', left: Math.round(box.left), top: Math.round(above ? box.top - 8 : box.bottom + 8),
-            transform: above ? 'translateY(-100%)' : 'none', zIndex: 1001, whiteSpace: 'nowrap',
-            background: 'var(--surface)', border: `1px solid ${color}`, borderRadius: 6,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.2)', padding: '5px 9px',
-            fontSize: 11, fontFamily: 'var(--font-sans)', display: 'inline-flex', alignItems: 'center', gap: 6,
-          }}>
-            <ShieldAlert size={12} style={{ color, flexShrink: 0 }} />
-            <span style={{ color, fontWeight: 700 }}>{human.label}</span>
-            <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>{CAT_LABEL[cat] ?? cat}</span>
-          </div>
-        </>,
-        document.body,
-      )}
-    </>
+    <mark
+      onClick={onClick}
+      title={canReveal ? (shown ? 'Click to hide' : `Click to reveal (${CAT_LABEL[cat] ?? cat})`) : `Hidden — admins only (${CAT_LABEL[cat] ?? cat})`}
+      style={{
+        background: `${color}26`, color, borderRadius: 3, padding: '0 4px', fontWeight: 600,
+        cursor: canReveal ? 'pointer' : 'not-allowed', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone',
+      }}
+    >
+      {shown ? children : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} style={{ flexShrink: 0 }} />{human.label}</span>}
+    </mark>
   );
 }
 
@@ -219,6 +202,8 @@ const STATUS_COLOR: Record<string, string> = {
 export default function TaskTracePage(): React.JSX.Element {
   const params = useParams<{ taskId: string }>();
   const taskId = decodeURIComponent(params?.taskId ?? '');
+  const { role } = useAuth();
+  const canReveal = role === 'admin' || role === 'superadmin';
   const [detail, setDetail] = useState<TraceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fbFilter, setFbFilter] = useState<'all' | 'up' | 'down'>('all');
@@ -267,6 +252,7 @@ export default function TaskTracePage(): React.JSX.Element {
     : indexedTurns.filter(({ t }) => t.feedback.some(f => f.sentiment === fbFilter));
 
   return (
+    <RevealCtx.Provider value={canReveal}>
     <Shell>
       {/* Session header */}
       <div style={{ marginTop: 16, padding: '18px 22px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
@@ -336,6 +322,7 @@ export default function TaskTracePage(): React.JSX.Element {
         </div>
       </div>
     </Shell>
+    </RevealCtx.Provider>
   );
 }
 

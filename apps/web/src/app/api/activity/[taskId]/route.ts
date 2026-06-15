@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTaskWithDetails, getSessionTrace, deepLinkForTask } from '@slackhive/shared';
+import { getTaskWithDetails, getSessionTrace, deepLinkForTask, redactSensitive, type TraceTurn } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
@@ -48,9 +48,15 @@ export async function GET(
 
     const trace = await getSessionTrace(taskId);
 
+    // Only admins/superadmins may see raw sensitive values. For everyone else,
+    // redact every flagged value in the content server-side (not just visually),
+    // so the real value never reaches a non-admin's browser.
+    const canSeeRaw = session.role === 'admin' || session.role === 'superadmin';
+    const turns = trace?.turns ?? [];
+
     return NextResponse.json({
       task: details.task,
-      turns: trace?.turns ?? [],
+      turns: canSeeRaw ? turns : turns.map(redactTurn),
       rollup: trace?.rollup ?? null,
       flows: trace?.flows ?? [],
       deepLink: deepLinkForTask(details.task),
@@ -58,4 +64,14 @@ export async function GET(
   } catch (err) {
     return apiError('activity-detail', err);
   }
+}
+
+/** Redact every flagged value in a turn's content for non-admin viewers. */
+function redactTurn(t: TraceTurn): TraceTurn {
+  const r = (s: string | null) => (s == null ? s : redactSensitive(s, 'all', 'all'));
+  return {
+    ...t,
+    finalAnswer: r(t.finalAnswer),
+    spans: t.spans.map(sp => ({ ...sp, input: r(sp.input), output: r(sp.output), reasoning: r(sp.reasoning) })),
+  };
 }
