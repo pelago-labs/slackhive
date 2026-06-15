@@ -739,7 +739,11 @@ function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmH
     try { const t = body.trim(); if (t.startsWith('{') || t.startsWith('[')) text = JSON.stringify(JSON.parse(t), null, 2); } catch { /* raw */ }
   }
   // Memoize the regex scan so the 4s poll doesn't re-highlight unchanged content.
-  const segments = useMemo(() => (sensitive && !markdown ? markSensitiveWith(text, scope, hits) : null), [sensitive, markdown, text, scope, hits]);
+  // buildNodes allocates a fresh hits array each render, so key the memo on the
+  // hits' VALUE (text/cat/label), not its reference, or it would recompute every poll.
+  const hitsKey = hits.map(h => `${h.text}${h.cat}${h.label}`).join('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hitsKey is the value-stable proxy for `hits`
+  const segments = useMemo(() => (sensitive && !markdown ? markSensitiveWith(text, scope, hits) : null), [sensitive, markdown, text, scope, hitsKey]);
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard?.writeText(body).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {});

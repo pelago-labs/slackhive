@@ -187,15 +187,21 @@ function sensitiveTool(toolName: string, argsText: string): string | null {
  * return its kind, else null. Used for exfiltration flows (Phase: deep tracing):
  * sensitive data appearing in a sink's ARGS is data leaving the agent.
  * - `web`   — WebFetch / WebSearch
- * - `tool`  — a network-ish tool by name (http/fetch/send/post/upload/email/webhook/…) or any MCP tool
+ * - `tool`  — a tool whose NAME carries an outbound action verb (send/post/upload/create/…)
  * - `shell` — Bash/exec whose command runs a network client (curl/wget/nc/ssh/scp/rsync)
+ *
+ * Heuristic: classified by an outbound *verb*, not by being an MCP tool. A blanket
+ * `mcp__*` rule (or matching bare platform names like "slack") flagged read-only
+ * tools (`mcp__db__query`, `get_slack_thread`) as sinks, producing spurious
+ * exfiltration flows. The trade-off: an egress MCP tool whose name lacks a known
+ * verb won't be detected as a sink.
  */
 export function egressKind(toolName: string, argsText = ''): 'web' | 'tool' | 'shell' | null {
   const n = (toolName || '').toLowerCase();
   const a = argsText.toLowerCase();
   if (/^web_?fetch$|^web_?search$/.test(n)) return 'web';
   if (/\b(bash|shell|exec|terminal|command|run_command)\b/.test(n) && /\b(curl|wget|nc|netcat|ssh|scp|rsync|telnet)\b/.test(a)) return 'shell';
-  if (n.startsWith('mcp__') || /(^|[._-])(http|fetch|request|upload|send|post|email|mail|webhook|sms|notify|publish|slack|telegram|discord)/.test(n)) return 'tool';
+  if (/(^|[._-])(http|fetch|request|upload|send|post|email|mail|webhook|sms|notify|publish|create|update|insert|write|dispatch)/.test(n)) return 'tool';
   return null;
 }
 
@@ -398,10 +404,14 @@ export function redactSensitive(text: string, scope: SensScope = 'text', level: 
   for (const r of ranges) {
     if (r.start > cursor) out += text.slice(cursor, r.start);
     const sev = severityForTag(r.label);
+    // high_entropy is a heuristic guess, not a confirmed secret — auto-stripping it
+    // from replies corrupts benign long tokens (data URIs, hashes), so only mask it
+    // at the explicit `all` level.
+    const heuristic = r.label === 'secret:high_entropy';
     const masked =
       level === 'all' ? true :
-      level === 'pii' ? (r.cat === 'secret' || r.cat === 'pii' || sev === 'critical' || sev === 'high') :
-      /* secrets */     (r.cat === 'secret' || sev === 'critical' || sev === 'high');
+      level === 'pii' ? (!heuristic && (r.cat === 'secret' || r.cat === 'pii' || sev === 'critical' || sev === 'high')) :
+      /* secrets */     (!heuristic && (r.cat === 'secret' || sev === 'critical' || sev === 'high'));
     out += masked ? `[redacted:${humanizeTag(r.label).label}]` : text.slice(r.start, r.end);
     cursor = r.end;
   }
