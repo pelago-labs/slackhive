@@ -43,8 +43,9 @@ export { deepLinkForTask, deepLinkLabelForPlatform } from './deep-link';
 export {
   detectSensitive, detectInText, mergeHits, markSensitive, humanizeTag,
   SENS_COLOR, CAT_LABEL, SCAN_CAP,
+  severityForTag, maxSeverity, SEVERITY_RANK, SEVERITY_COLOR,
 } from './sensitivity';
-export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope } from './sensitivity';
+export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope, Severity } from './sensitivity';
 export {
   upsertTask, beginActivity, finishActivity,
   beginToolCall, finishToolCall,
