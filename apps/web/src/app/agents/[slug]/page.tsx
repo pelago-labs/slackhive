@@ -944,11 +944,17 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit, allAgents }: { agent
               );
             })}
           </div>
+          {/* What each mode means + when to pick it. */}
+          <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+            <div><strong style={{ color: 'var(--text)' }}>Off</strong> — no detection, no overhead. Use for agents that never handle personal data, secrets, or external sends.</div>
+            <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Deterministic</strong> (recommended) — fast pattern rules flag PII, secrets, DB credentials, and source→sink exfiltration flows; no model calls. Good default for most agents.</div>
+            <div style={{ marginTop: 4 }}><strong style={{ color: 'var(--text)' }}>Smart</strong> — same rules, plus one cheap LLM pass per flagged turn to confirm findings and drop false positives. Use for high-stakes agents (finance, customer PII) or noisy contexts where rules over-flag. Adds slight latency + cost.</div>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: form.sensitivityCheck === 'off' ? 0.5 : 1 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>Redact secrets in replies</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Mask detected secrets / critical values in the agent&apos;s outbound message before it&apos;s posted.</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Mask detected secrets and high-risk values (keys, cards, SSNs) as <code>[redacted]</code> in the agent&apos;s outbound message before it reaches the channel. Enable for agents that read from credential stores / databases and post into shared channels. Emails &amp; phone numbers are left intact; the full value is still kept in the private trace.</div>
           </div>
           <button disabled={!canEdit || form.sensitivityCheck === 'off'} onClick={() => setForm(f => ({ ...f, enforcementRedaction: !f.enforcementRedaction }))} style={{
             width: 44, height: 24, borderRadius: 12, border: 'none', background: form.enforcementRedaction ? '#dc2626' : 'var(--border-2)',

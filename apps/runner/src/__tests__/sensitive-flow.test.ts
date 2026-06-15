@@ -74,6 +74,37 @@ describe('getSensitiveFlows — source→sink correlation', () => {
     expect(await getSensitiveFlows()).toHaveLength(0);
   });
 
+  it('emits one flow per sink when a source reaches multiple sinks', async () => {
+    const fp = fingerprint('AKIAIOSFODNN7EXAMPLE');
+    await getDb().query(`INSERT INTO tasks (id, platform, channel_id, thread_ts) VALUES ($1,'slack','C','t')`, ['multi']);
+    await insertSpan({ id: 'srcM', session: 'multi', kind: 'tool', name: 'read', tool: 'db', start: 1000, fps: [{ fp, tag: 'secret:aws_key', role: 'source' }] });
+    await insertSpan({ id: 'snkA', session: 'multi', kind: 'tool', name: 'a', tool: 'WebFetch', start: 2000, fps: [{ fp, tag: 'secret:aws_key', role: 'sink' }] });
+    await insertSpan({ id: 'snkB', session: 'multi', kind: 'generation', name: 'b', start: 3000, fps: [{ fp, tag: 'secret:aws_key', role: 'sink' }] });
+    const flows = await getSensitiveFlows();
+    expect(flows).toHaveLength(2);
+    expect(new Set(flows.map(f => f.sinkSpanId))).toEqual(new Set(['snkA', 'snkB']));
+  });
+
+  it('does not correlate fingerprints across different sessions', async () => {
+    const fp = fingerprint('bob@acme.com');
+    await getDb().query(`INSERT INTO tasks (id, platform, channel_id, thread_ts) VALUES ('sA','slack','C','t1'),('sB','slack','C','t2')`);
+    await insertSpan({ id: 'srcA', session: 'sA', kind: 'tool', name: 'r', tool: 'db', start: 1000, fps: [{ fp, tag: 'pii:email', role: 'source' }] });
+    await insertSpan({ id: 'snkB', session: 'sB', kind: 'generation', name: 'c', start: 2000, fps: [{ fp, tag: 'pii:email', role: 'sink' }] });
+    expect(await getSensitiveFlows()).toHaveLength(0);
+  });
+
+  it('orders critical flows before lower-severity ones', async () => {
+    const secretFp = fingerprint('AKIAIOSFODNN7EXAMPLE');
+    const dataFp = fingerprint('salary');
+    await getDb().query(`INSERT INTO tasks (id, platform, channel_id, thread_ts) VALUES ('ord','slack','C','t')`);
+    await insertSpan({ id: 'dS', session: 'ord', kind: 'tool', name: 'r', tool: 'db', start: 1000, fps: [{ fp: dataFp, tag: 'data:salary', role: 'source' }] });
+    await insertSpan({ id: 'dK', session: 'ord', kind: 'generation', name: 'c', start: 1500, fps: [{ fp: dataFp, tag: 'data:salary', role: 'sink' }] });
+    await insertSpan({ id: 'sS', session: 'ord', kind: 'tool', name: 'r', tool: 'db', start: 2000, fps: [{ fp: secretFp, tag: 'secret:aws_key', role: 'source' }] });
+    await insertSpan({ id: 'sK', session: 'ord', kind: 'tool', name: 'x', tool: 'WebFetch', start: 2500, fps: [{ fp: secretFp, tag: 'secret:aws_key', role: 'sink' }] });
+    const flows = await getSensitiveFlows();
+    expect(flows.map(f => f.severity)).toEqual(['critical', 'medium']);
+  });
+
   it('surfaces flows in the single-session trace too', async () => {
     const fp = fingerprint('bob@acme.com');
     await getDb().query(`INSERT INTO tasks (id, platform, channel_id, thread_ts) VALUES ($1,'slack','C','t')`, ['sess3']);
