@@ -366,20 +366,27 @@ function scanRanges(text: string, scope: SensScope, extras: ExtraMark[]): Range[
 }
 
 /** Kept ranges over the FULL string (no SCAN_CAP truncation), windowing long input
- *  with overlap so a match near a window boundary is still caught. Used by
- *  redaction, which must never emit an unscanned tail verbatim. */
+ *  so a match near a boundary is still caught. Used by redaction, which must never
+ *  emit an unscanned tail verbatim. A match can appear truncated in one window and
+ *  whole in the next (and high-entropy/URL matches are unbounded in length), so
+ *  overlapping ranges are UNIONed — never dropped — to cover the full extent. */
 function collectRangesFull(str: string, scope: SensScope): Range[] {
   if (str.length <= SCAN_CAP) return scanRanges(str, scope, []);
-  const OVERLAP = 256; // > any whitespace-containing match (card/phone), so none is split
+  // Windows overlap so a match crossing a boundary is caught whole in ≥1 window;
+  // the union-merge then stitches the truncated copy from the adjacent window.
+  const STEP = Math.max(1, Math.floor(SCAN_CAP / 2));
   const all: Range[] = [];
-  for (let i = 0; i < str.length; i += SCAN_CAP - OVERLAP) {
+  for (let i = 0; i < str.length; i += STEP) {
     for (const r of scanRanges(str.slice(i, i + SCAN_CAP), scope, [])) all.push({ ...r, start: r.start + i, end: r.end + i });
     if (i + SCAN_CAP >= str.length) break;
   }
   all.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
   const merged: Range[] = [];
-  let lastEnd = -1;
-  for (const r of all) if (r.start >= lastEnd) { merged.push(r); lastEnd = r.end; }
+  for (const r of all) {
+    const last = merged[merged.length - 1];
+    if (last && r.start < last.end) { if (r.end > last.end) last.end = r.end; } // overlap → extend, don't drop the tail
+    else merged.push({ ...r });
+  }
   return merged;
 }
 

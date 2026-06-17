@@ -178,6 +178,18 @@ describe('redactSensitive', () => {
     expect(out).not.toContain('4111 1111 1111 1111');
     expect(out).toContain('[redacted:Card number]');
   });
+  it('masks a long match straddling a SCAN_CAP window boundary (no leaked tail)', () => {
+    // A high-entropy token far longer than the window overlap, positioned to cross
+    // the 16k boundary: one window sees it truncated, the next whole — the union of
+    // ranges must cover the FULL token so its tail isn't emitted unmasked.
+    const b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    const token = b64.repeat(24).slice(0, 1500);          // ~1500 chars, high entropy
+    const text = 'x '.repeat(SCAN_CAP / 2) + token + ' end'; // token starts at offset SCAN_CAP
+    const out = redactSensitive(text, 'text', 'all');
+    expect(out).not.toContain(token);
+    expect(out).not.toContain(token.slice(-200));          // the tail specifically
+    expect(out).toContain('[redacted:High-entropy secret]');
+  });
   it('does not auto-strip heuristic high-entropy tokens below the "all" level', () => {
     const blob = 'aA1' + 'bC2dE3fG4hI5jK6lM7nO8pQ9rS0'.repeat(2); // ~40+ char mixed token
     const text = `data uri ${blob} here`;
