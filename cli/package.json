@@ -30,9 +30,9 @@
     "prompts": "^2.4.2"
   },
   "devDependencies": {
-    "@types/node": "^20.19.41",
+    "@types/node": "^20.19.43",
     "@types/prompts": "^2.4.9",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.3.0"
   },
   "engines": {
