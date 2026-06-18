@@ -39,6 +39,10 @@ const RevealCtx = React.createContext(false);
 function SensitiveMark({ cat, label, llm, children }: { cat: SensCategory; label: string; llm?: boolean; children: React.ReactNode }): React.JSX.Element {
   const canReveal = React.useContext(RevealCtx);
   const [revealed, setRevealed] = useState(false);
+  // Only mask actual VALUES (PII / secrets) and LLM-found excerpts. The data:/tool:
+  // categories are keyword/path LABELS (e.g. "payment", "cvv", ".env"), not values —
+  // masking those common words is pure noise, so render them as plain text.
+  if (!llm && cat !== 'secret' && cat !== 'pii') return <>{children}</>;
   const color = SENS_COLOR[cat];
   const human = humanizeTag(label);
   const shown = revealed && canReveal;

@@ -85,7 +85,9 @@ function redactTurn(t: TraceTurn): TraceTurn {
   // Strip the verbatim LLM excerpts FIRST, then run regex redaction. If regex ran
   // first it could rewrite part of an excerpt to [redacted:…], so the excerpt would
   // no longer match verbatim and its remainder would leak.
-  const r = (s: string | null) => (s == null ? s : redactSensitive(stripLlm(s), 'all', 'all'));
+  // Level 'pii' masks real values (secrets + PII) but leaves keyword/path LABELS
+  // (data: like "payment"/"cvv", tool: like ".env") visible — those aren't values.
+  const r = (s: string | null) => (s == null ? s : redactSensitive(stripLlm(s), 'all', 'pii'));
   return {
     ...t,
     finalAnswer: r(t.finalAnswer),
