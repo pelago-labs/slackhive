@@ -219,7 +219,6 @@ export default function TaskTracePage(): React.JSX.Element {
   const [fbFilter, setFbFilter] = useState<'all' | 'up' | 'down'>('all');
   // `?span=<id>` deep-link (from the Sensitive feed) — expand + scroll to that node.
   const [highlightSpanId, setHighlightSpanId] = useState<string | null>(null);
-  const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search).get('span');
@@ -235,13 +234,18 @@ export default function TaskTracePage(): React.JSX.Element {
     } catch { setError('Failed to load task'); }
   }, [taskId]);
 
+  // Initial load (and reload when the task changes).
+  useEffect(() => { load(); }, [load]);
+
+  // Poll ONLY while a turn is in progress, and re-evaluate only when that boolean
+  // flips — depending on `detail.turns` here re-ran the effect (and refetched) on
+  // every response, a tight loop that hammered the API and re-rendered constantly.
+  const inflight = detail ? detail.turns.some(t => t.status === 'in_progress') : false;
   useEffect(() => {
-    load();
-    if (pollRef.current) clearInterval(pollRef.current);
-    const inflight = detail?.turns.some(t => t.status === 'in_progress') ?? true;
-    if (inflight) pollRef.current = window.setInterval(load, 4000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [load, detail?.turns]);
+    if (!inflight) return;
+    const id = window.setInterval(load, 4000);
+    return () => clearInterval(id);
+  }, [inflight, load]);
 
   if (error) return <Shell><Empty>{error}</Empty></Shell>;
   if (!detail) return <Shell><div style={{ marginTop: 20, padding: 24, color: 'var(--muted)', fontSize: 13 }}>Loading…</div></Shell>;
