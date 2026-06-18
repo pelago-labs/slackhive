@@ -1,17 +1,5 @@
 [
   {
-    "id": "smart-sensitive-detection",
-    "date": "2026-06-18",
-    "title": "Smart Sensitive Detection & Per-Agent Modes",
-    "summary": "Set how each agent scans for sensitive data — Off, Deterministic (fast rules), or Smart, which adds a cheap LLM pass that catches obfuscated PII the rules miss (e.g. a phone number spelled out in words), surfaced as \"caught by LLM\". Add per-agent guidance for what counts as sensitive, and optionally redact secrets from replies with a configurable level."
-  },
-  {
-    "id": "exfiltration-flows-severity",
-    "date": "2026-06-18",
-    "title": "Exfiltration Flows & Severity",
-    "summary": "Every sensitive finding now carries a severity (critical to low), and the trace traces a value from where it enters to where it leaves — flagging when a secret or PII heads toward an outbound tool. Matched values in traces are masked by default and revealable by admins only."
-  },
-  {
     "id": "llm-activity-tracing",
     "date": "2026-06-11",
     "title": "LLM Activity Tracing",
@@ -21,7 +9,7 @@
     "id": "sensitive-data-monitoring",
     "date": "2026-06-11",
     "title": "Sensitive Data Monitoring",
-    "summary": "Automatic flagging of PII, secrets, and credential access in agent tool calls and replies, with an audit feed, in-trace highlighting, and click-to-explain."
+    "summary": "Flagging of PII, secrets, and credential access in agent tool calls and replies — with severity tiers, an audit feed, and in-trace highlighting (masked by default, admin-only reveal). Set each agent to Off, Deterministic (rules), or Smart, which adds an LLM pass that catches obfuscated PII the rules miss (\"caught by LLM\") and takes per-agent guidance. Exfiltration flows trace a value from where it enters to where it leaves, and secrets can be optionally redacted from replies."
   },
   {
     "id": "date-range-and-retention",
