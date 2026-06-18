@@ -3,7 +3,7 @@
     "id": "llm-activity-tracing",
     "date": "2026-06-11",
     "title": "LLM Activity Tracing",
-    "summary": "A Langfuse-style trace for every Slack thread — reasoning, tool calls, and the final answer in time order, with per-step tokens, cost, latency, and model."
+    "summary": "A step-by-step trace for every Slack thread — the agent's reasoning, tool calls, and final answer in order, with per-step tokens, cost, latency, and model."
   },
   {
     "id": "sensitive-data-monitoring",
