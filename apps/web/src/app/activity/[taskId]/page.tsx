@@ -755,6 +755,7 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
       {open && has && (
         <div style={{ paddingLeft: 24, paddingRight: 4, paddingBottom: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} scope={node.kind === 'tool' ? 'all' : 'text'} llmHits={node.sensitiveLlmHits} />)}
+          {node.sensitive && <SensitiveNote categories={node.sensitiveCategories ?? []} llm={node.sensitiveLlm} />}
         </div>
       )}
     </div>
@@ -834,12 +835,7 @@ function FbChip({ label, icon, active, color, onClick }: { label: string; icon?:
 function SensitiveBadge({ categories, compact, llm }: { categories: string[]; compact?: boolean; llm?: boolean }): React.JSX.Element {
   // Keep the shield as the sensitive icon; when the Smart (LLM) detector caught it,
   // mark it with a small "AI" superscript (same amber color — no purple, no pill).
-  // Don't just say "Sensitive" — name WHAT is sensitive (humanized category labels)
-  // inline, capped with +N overflow; the full list stays in the hover tooltip.
-  const labels = [...new Set(categories.map(c => humanizeTag(c).label).filter(Boolean))];
-  const shown = labels.slice(0, 2).join(', ') + (labels.length > 2 ? ` +${labels.length - 2}` : '');
-  const text = labels.length ? shown : 'Sensitive';
-  const cats = labels.length ? labels.join(', ') : 'data touched';
+  const cats = categories.length ? categories.join(', ') : 'data touched';
   const title = llm ? `Sensitive (caught by the Smart LLM detector): ${cats}` : `Sensitive: ${cats}`;
   return (
     <span title={title} style={{
@@ -850,8 +846,20 @@ function SensitiveBadge({ categories, compact, llm }: { categories: string[]; co
         <ShieldAlert size={compact ? 12 : 13} />
         {llm && <sup style={{ fontSize: 7, fontWeight: 700, lineHeight: 1, marginLeft: 0.5 }}>AI</sup>}
       </span>
-      {text}
+      {compact ? null : 'Sensitive'}
     </span>
+  );
+}
+
+/** One simple line under the node content naming WHAT was flagged sensitive. */
+function SensitiveNote({ categories, llm }: { categories: string[]; llm?: boolean }): React.JSX.Element {
+  const labels = [...new Set(categories.map(c => humanizeTag(c).label).filter(Boolean))];
+  const what = labels.length ? labels.join(', ') : 'sensitive data';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#b45309' }}>
+      <ShieldAlert size={12} style={{ flexShrink: 0 }} />
+      <span>Contains {what}{llm ? ' (caught by the Smart detector)' : ''}.</span>
+    </div>
   );
 }
 
