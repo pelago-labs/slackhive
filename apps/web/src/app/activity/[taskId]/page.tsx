@@ -863,31 +863,37 @@ function catLabel(tag: string): string {
  * viewer can find the value in the message above. */
 function SensitiveNote({ categories, hits, llm }: { categories: string[]; hits: ExtraMark[]; llm?: boolean }): React.JSX.Element {
   const suffix = llm ? ' (caught by the Smart detector)' : '';
-  // Prefer the captured excerpts — they say both what and where. Render each through
-  // SensitiveMark so it stays MASKED (shown as its kind + lock); only an admin can
-  // click to reveal the raw value, exactly like the highlight in the message body.
-  const quoted = [...new Map(hits.filter(h => h.text?.trim()).map(h => [`${h.label}:${h.text}`, h])).values()].slice(0, 4);
-  if (quoted.length) {
+  const cap = (s: string): string => s.replace(/^\w/, c => c.toUpperCase());
+  // Only PII/secrets are actual VALUES worth masking + revealing. data/tool hits
+  // ("financial", ".env") are category keywords, not values — they have nothing
+  // to reveal, so don't render them as clickable locks (matches SensitiveMark).
+  const valueHits = [...new Map(
+    hits.filter(h => (h.cat === 'pii' || h.cat === 'secret') && h.text?.trim()).map(h => [`${h.label}:${h.text}`, h]),
+  ).values()].slice(0, 4);
+  if (valueHits.length) {
     return (
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11.5, color: '#b45309' }}>
         <ShieldAlert size={12} style={{ flexShrink: 0, marginTop: 1 }} />
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
           <span>Flagged{suffix}:</span>
-          {quoted.map((h, i) => (
+          {valueHits.map((h, i) => (
             <SensitiveMark key={i} cat={(h.cat ?? 'pii') as SensCategory} label={h.label} llm>{h.text}</SensitiveMark>
           ))}
         </span>
       </div>
     );
   }
-  // No captured span — the detector flagged the content as a whole. Say so plainly
-  // rather than implying a highlight the viewer won't find.
-  const labels = [...new Set(categories.map(catLabel).filter(Boolean))];
+  // No revealable value — the detector classified the content (e.g. "Financial").
+  // Name the classification plainly instead of faking a maskable value.
+  const labels = [...new Set([
+    ...categories.map(catLabel),
+    ...hits.filter(h => h.cat !== 'pii' && h.cat !== 'secret').map(h => cap(catLabel(h.label))),
+  ].filter(Boolean))];
   const what = labels.length ? labels.join(', ') : 'sensitive data';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#b45309' }}>
       <ShieldAlert size={12} style={{ flexShrink: 0 }} />
-      <span>Flagged as {what}{suffix} — no specific span identified.</span>
+      <span>Flagged as {what}{suffix}.</span>
     </div>
   );
 }
