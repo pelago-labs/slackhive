@@ -209,8 +209,9 @@ function Bars({ rows, max }: { rows: { label: string; value: number; sub: string
 
 // ── Table primitive + cell helpers ───────────────────────────────────────────
 
-function relativeTime(isoLike: string): string {
-  const ts = Date.parse(isoLike.replace(' ', 'T') + 'Z');
+/** Accepts a ms epoch (span timestamps) OR a SQLite 'YYYY-MM-DD HH:MM:SS' string. */
+function relativeTime(when: string | number): string {
+  const ts = typeof when === 'number' ? when : Date.parse(when.replace(' ', 'T') + 'Z');
   if (Number.isNaN(ts)) return '';
   const s = Math.floor(Math.max(0, Date.now() - ts) / 1000);
   if (s < 60) return `${s}s ago`;
@@ -223,21 +224,34 @@ interface Col<T> { label: string; align?: 'left' | 'right' | 'center'; width?: s
 
 function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; rowHref?: (r: T) => string; empty: string }) {
   const router = useRouter();
-  if (rows.length === 0) return <div style={{ padding: '14px 4px', color: 'var(--muted)', fontSize: 12.5 }}>{empty}</div>;
-  const th: React.CSSProperties = { textAlign: 'left', fontSize: 10.5, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '6px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' };
-  const td: React.CSSProperties = { fontSize: 12.5, color: 'var(--text)', padding: '8px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' };
+  const [hover, setHover] = useState<number | null>(null);
+  if (rows.length === 0) return <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center' }}>{empty}</div>;
+  const th: React.CSSProperties = {
+    fontSize: 11, fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase',
+    color: 'var(--subtle)', padding: '8px 12px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
+  };
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div style={{ overflowX: 'auto', margin: '0 -16px -14px', borderTop: '1px solid var(--border)' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans)' }}>
-        <thead><tr>{cols.map((c, i) => <th key={i} style={{ ...th, textAlign: c.align ?? 'left', width: c.width }}>{c.label}</th>)}</tr></thead>
+        <thead><tr>{cols.map((c, i) => <th key={i} style={{ ...th, textAlign: c.align ?? 'left', width: c.width, paddingLeft: i === 0 ? 16 : 12, paddingRight: i === cols.length - 1 ? 16 : 12 }}>{c.label}</th>)}</tr></thead>
         <tbody>
           {rows.map((row, ri) => {
             const href = rowHref?.(row);
+            const last = ri === rows.length - 1;
             return (
-              <tr key={ri} className={href ? 'trace-node' : undefined}
+              <tr key={ri}
                 onClick={href ? () => router.push(href) : undefined}
-                style={{ cursor: href ? 'pointer' : 'default' }}>
-                {cols.map((c, ci) => <td key={ci} style={{ ...td, textAlign: c.align ?? 'left' }}>{c.render(row)}</td>)}
+                onMouseEnter={() => setHover(ri)} onMouseLeave={() => setHover(null)}
+                style={{ cursor: href ? 'pointer' : 'default', background: hover === ri ? 'var(--surface-2)' : 'transparent', transition: 'background 0.1s' }}>
+                {cols.map((c, ci) => (
+                  <td key={ci} style={{
+                    fontSize: 13, color: 'var(--text)', padding: '10px 12px',
+                    paddingLeft: ci === 0 ? 16 : 12, paddingRight: ci === cols.length - 1 ? 16 : 12,
+                    borderBottom: last ? 'none' : '1px solid var(--border)', whiteSpace: 'nowrap', verticalAlign: 'middle',
+                    textAlign: c.align ?? 'left',
+                    ...(c.align === 'right' ? { fontVariantNumeric: 'tabular-nums' } : {}),
+                  }}>{c.render(row)}</td>
+                ))}
               </tr>
             );
           })}
@@ -360,7 +374,7 @@ function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse;
               { label: 'Severity', render: e => e.severity ? <SevBadge s={e.severity} /> : <Subtle>—</Subtle> },
               { label: 'Type', render: e => <Mono>{e.reason ?? ''}</Mono> },
               { label: 'Where', render: e => <code style={{ fontSize: 12, fontWeight: 600 }}>{e.toolName ?? 'response'}</code> },
-              { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(new Date(e.startMs).toISOString())}</Subtle> },
+              { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(e.startMs)}</Subtle> },
             ]} />
         </div>
       )}
@@ -411,7 +425,7 @@ function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }
               { label: 'Severity', render: f => <SevBadge s={f.severity} /> },
               { label: 'Kind', render: f => <span style={{ fontWeight: 500 }}>{f.label}</span> },
               { label: 'Source → Sink', render: f => <Mono>{f.sourceLabel} → {f.sinkLabel}</Mono> },
-              { label: 'When', align: 'right', render: f => <Subtle>{relativeTime(new Date(f.startMs).toISOString())}</Subtle> },
+              { label: 'When', align: 'right', render: f => <Subtle>{relativeTime(f.startMs)}</Subtle> },
             ]} />
         </div>
       )}
@@ -427,7 +441,7 @@ function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }
               ? <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>Caught by LLM</span>
               : <Subtle>regex</Subtle> },
             { label: 'Agent', render: e => <Subtle>{e.agentName ?? ''}</Subtle> },
-            { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(new Date(e.startMs).toISOString())}</Subtle> },
+            { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(e.startMs)}</Subtle> },
           ]} />
       </div>
     </div>
