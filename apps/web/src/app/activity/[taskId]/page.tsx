@@ -863,16 +863,18 @@ function catLabel(tag: string): string {
  * viewer can find the value in the message above. */
 function SensitiveNote({ categories, hits, llm }: { categories: string[]; hits: ExtraMark[]; llm?: boolean }): React.JSX.Element {
   const suffix = llm ? ' (caught by the Smart detector)' : '';
-  // Prefer the captured excerpts — they say both what and where. Non-admins get
-  // these already redacted server-side, so quoting them never leaks a raw value.
+  // Prefer the captured excerpts — they say both what and where. Render each through
+  // SensitiveMark so it stays MASKED (shown as its kind + lock); only an admin can
+  // click to reveal the raw value, exactly like the highlight in the message body.
   const quoted = [...new Map(hits.filter(h => h.text?.trim()).map(h => [`${h.label}:${h.text}`, h])).values()].slice(0, 4);
   if (quoted.length) {
     return (
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11.5, color: '#b45309' }}>
         <ShieldAlert size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-        <span>
-          Flagged{suffix}: {quoted.map((h, i) => (
-            <span key={i}>{i > 0 ? ', ' : ''}{catLabel(h.cat ?? h.label)} <code style={{ background: 'rgba(180,83,9,0.12)', borderRadius: 4, padding: '0 4px' }}>{h.text}</code></span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+          <span>Flagged{suffix}:</span>
+          {quoted.map((h, i) => (
+            <SensitiveMark key={i} cat={(h.cat ?? 'pii') as SensCategory} label={h.label} llm>{h.text}</SensitiveMark>
           ))}
         </span>
       </div>
