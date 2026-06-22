@@ -34,6 +34,7 @@ interface Task {
   feedbackUp?: number;
   feedbackDown?: number;
   sensitive?: boolean;
+  agentIds?: string[];
 }
 
 interface TaskListResult {
@@ -119,15 +120,8 @@ function ActivityPageBody(): React.JSX.Element {
     parseWindowKey(searchParams?.get('window') ?? (searchParams?.get('from') && searchParams?.get('to') ? 'custom' : null)),
   );
   const timeQs = () => timeParams(windowKey, from, to);
-  // Per-activity agent participation map, populated lazily from task detail.
-  const [agentsByTask, setAgentsByTask] = useState<Record<string, string[]>>({});
-  // Ref mirror of `agentsByTask` so `load` can read the latest value without
-  // taking it as a dependency — otherwise every hydrated task rebuilds `load`,
-  // re-fires the mount effect, tears down & recreates the 4s polling interval,
-  // and kicks off an extra fetch. Keep the state for rendering, the ref for
-  // checks inside `load`.
-  const agentsByTaskRef = useRef(agentsByTask);
-  useEffect(() => { agentsByTaskRef.current = agentsByTask; }, [agentsByTask]);
+  // Agent participation per task now comes straight from the list response
+  // (Task.agentIds) — no per-card trace fetch needed.
   // Mirror how many rows each column currently shows, so the 4s poll can re-fetch
   // the SAME expanded count (one page) instead of clobbering "Load more" back to
   // the first page. Ref (not dep) so it doesn't rebuild `load`/restart the poll.
@@ -183,25 +177,6 @@ function ActivityPageBody(): React.JSX.Element {
     setLists({ active, recent, errored });
     setStats(s);
     setLoaded(true);
-
-    // Hydrate per-task agent lists for avatar stacks — only for visible tasks.
-    const visible = [...active.tasks, ...recent.tasks, ...errored.tasks];
-    const cache = agentsByTaskRef.current;
-    const needDetail = visible.filter(t => !cache[t.id] && t.activityCount > 1).slice(0, 12);
-    if (needDetail.length > 0) {
-      const detailed = await Promise.all(needDetail.map(async t => {
-        const r = await fetch(`/api/activity/${encodeURIComponent(t.id)}`);
-        if (!r.ok) return [t.id, [] as string[]] as const;
-        const body = await r.json();
-        const ids = Array.from(new Set((body.turns ?? []).map((t: { agentId: string }) => t.agentId))) as string[];
-        return [t.id, ids] as const;
-      }));
-      setAgentsByTask(prev => {
-        const next = { ...prev };
-        for (const [id, ids] of detailed) next[id] = ids;
-        return next;
-      });
-    }
   }, [fetchColumn, fetchStats]);
 
   useEffect(() => {
@@ -288,7 +263,6 @@ function ActivityPageBody(): React.JSX.Element {
             hasMore={!!lists[col.key].nextCursor}
             loaded={loaded}
             agentById={agentById}
-            agentsByTask={agentsByTask}
             onLoadMore={() => loadMore(col.key)}
           />
         ))}
@@ -303,10 +277,9 @@ function ColumnView(props: {
   hasMore: boolean;
   loaded: boolean;
   agentById: Map<string, AgentLite>;
-  agentsByTask: Record<string, string[]>;
   onLoadMore: () => void;
 }): React.JSX.Element {
-  const { column, tasks, hasMore, loaded, agentById, agentsByTask, onLoadMore } = props;
+  const { column, tasks, hasMore, loaded, agentById, onLoadMore } = props;
 
   return (
     <div style={{
@@ -340,7 +313,7 @@ function ColumnView(props: {
             key={t.id}
             task={t}
             agentById={agentById}
-            agentIds={agentsByTask[t.id] ?? (t.initialAgentId ? [t.initialAgentId] : [])}
+            agentIds={t.agentIds ?? (t.initialAgentId ? [t.initialAgentId] : [])}
           />
         ))}
         {hasMore && (

@@ -1113,6 +1113,9 @@ export interface Task {
   activityCount: number;
   /** True when any span in this session was flagged by the sensitivity monitor. */
   sensitive?: boolean;
+  /** Distinct agent ids that took a turn in this task (within the caller's scope) —
+   *  populated by listTasks so the dashboard avatar stack needs no per-task fetch. */
+  agentIds?: string[];
 }
 
 /** One agent's turn inside a task — the unit that the runner writes. */

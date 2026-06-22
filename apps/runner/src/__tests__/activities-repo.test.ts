@@ -271,6 +271,34 @@ describe('listTasks', () => {
     const forA2 = await listTasks('active', { agentId: a2 });
     expect(forA2.tasks.map(t => t.id)).toEqual([t2]);
   });
+
+  it('returns distinct agentIds per task (avatar stack — no per-card trace fetch)', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'multi' });
+    // Two different agents take turns in the same thread (e.g. a delegation).
+    const act1 = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user' });
+    await finishActivity(act1, 'done');
+    const act2 = await beginActivity({ taskId: t, agentId: a2, platform: 'slack', initiatorKind: 'agent' });
+    await finishActivity(act2, 'done');
+
+    const [task] = (await listTasks('recent', {}, 50)).tasks.filter(x => x.id === t);
+    expect(task.agentIds?.slice().sort()).toEqual([a1, a2].sort());
+  });
+
+  it('agentIds respects the agent-scope filter (no out-of-scope agent leaks in)', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'scoped' });
+    const act1 = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user' });
+    await finishActivity(act1, 'done');
+    const act2 = await beginActivity({ taskId: t, agentId: a2, platform: 'slack', initiatorKind: 'agent' });
+    await finishActivity(act2, 'done');
+
+    // Scoped to a1 only → agentIds must not reveal a2.
+    const scoped = (await listTasks('recent', { accessibleAgentIds: [a1] }, 50)).tasks.filter(x => x.id === t);
+    expect(scoped[0].agentIds).toEqual([a1]);
+  });
 });
 
 describe('getTaskWithDetails', () => {
