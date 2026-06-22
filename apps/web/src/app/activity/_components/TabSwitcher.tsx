@@ -11,7 +11,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, BarChart3 } from 'lucide-react';
+import { Activity as ActivityIcon, LineChart } from 'lucide-react';
 import { useAuth, type Role } from '@/lib/auth-context';
 
 interface Tab {
@@ -23,8 +23,10 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { href: '/activity',       label: 'Tasks', icon: <ActivityIcon size={13} /> },
-  { href: '/activity/usage', label: 'Usage', icon: <BarChart3    size={13} />, roles: ['superadmin'] },
+  { href: '/activity',          label: 'Tasks',    icon: <ActivityIcon size={13} /> },
+  // Consolidated LLMOps view (Usage/Sensitive/Tools live here as tabs now). Open to
+  // editors+; billing sections inside gate to superadmin server-side.
+  { href: '/activity/insights', label: 'Insights', icon: <LineChart    size={13} /> },
 ];
 
 export function TabSwitcher(): React.JSX.Element | null {

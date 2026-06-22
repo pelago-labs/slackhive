@@ -368,10 +368,15 @@ function TaskCard(props: {
 }): React.JSX.Element {
   const { task, agentById, agentIds } = props;
   const initiatorLabel = task.initiatorHandle || task.initiatorUserId || 'unknown';
+  // Card opens the LLMOps insights page scoped to this thread (+ its primary agent);
+  // "Open full trace" there links on to the turn-by-turn view at /activity/[taskId].
+  const primaryAgent = agentIds[0] ?? task.initialAgentId;
+  const href = `/activity/insights?session=${encodeURIComponent(task.id)}`
+    + (primaryAgent ? `&agent=${encodeURIComponent(primaryAgent)}` : '');
 
   return (
     <Link
-      href={`/activity/${encodeURIComponent(task.id)}`}
+      href={href}
       style={{
         textDecoration: 'none', color: 'inherit',
         display: 'block', padding: '10px 12px',
