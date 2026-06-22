@@ -346,7 +346,7 @@ export default function TaskTracePage(): React.JSX.Element {
 
 function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="fade-up" style={{ padding: '36px 40px', maxWidth: 1040, margin: '0 auto' }}>
+    <div className="fade-up" style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }}>
       <Link href="/activity" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', textDecoration: 'none' }}>
         <ArrowLeft size={13} /> Back to Activity
       </Link>
