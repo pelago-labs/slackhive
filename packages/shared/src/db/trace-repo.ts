@@ -960,6 +960,9 @@ export async function pruneTraceData(retentionDays?: number): Promise<{ spans: n
 export interface ToolErrorGroup {
   message: string;
   count: number;
+  /** Distinct sessions this error occurred in (count >= sessions). */
+  sessions: number;
+  /** The MOST RECENT session where this error happened (for the drill-down link). */
   sampleSessionId: string | null;
 }
 export interface ToolStat {
@@ -997,9 +1000,14 @@ export async function getToolStats(filter: { agentId?: string; since?: string; u
     // Aggregate by a TRUNCATED error key (first 160 chars) so near-identical
     // failures collapse into one group instead of each full (and potentially
     // large/sensitive) result body becoming its own group of 1.
+    // `sid` = session_id of the MOST RECENT error in the group (arg-max on start_ms
+    // via a fixed-width zero-padded prefix), plus the count of DISTINCT sessions so
+    // the UI can say "in N sessions" rather than implying a single one.
     db.query(`SELECT tool_name,
                      substr(COALESCE(NULLIF(status_message, ''), NULLIF(output, ''), '(no message)'), 1, 160) msg,
-                     COUNT(*) c, MAX(session_id) sid
+                     COUNT(*) c,
+                     COUNT(DISTINCT session_id) sessions,
+                     substr(MAX(printf('%020d', start_ms) || session_id), 21) sid
                 FROM spans WHERE ${where} AND status='error'
                GROUP BY tool_name, msg ORDER BY c DESC`, params),
   ]);
@@ -1010,7 +1018,7 @@ export async function getToolStats(filter: { agentId?: string; since?: string; u
   }
   for (const r of groups.rows) {
     const t = byTool.get(r.tool_name as string);
-    if (t) t.errorGroups.push({ message: String(r.msg), count: n(r.c), sampleSessionId: s(r.sid) });
+    if (t) t.errorGroups.push({ message: String(r.msg), count: n(r.c), sessions: n(r.sessions), sampleSessionId: s(r.sid) });
   }
   return [...byTool.values()];
 }

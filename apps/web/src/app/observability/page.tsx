@@ -40,7 +40,7 @@ interface AgentTokens { agentId: string; inputTokens: number; outputTokens: numb
 interface PowerUser { userId: string; handle: string | null; taskCount: number; turnCount: number; totalTokens: number }
 interface SensEvent { spanId: string; sessionId: string; agentName: string | null; toolName: string | null; reason: string | null; severity: Severity | null; caughtByLlm?: boolean; startMs: number; sessionSummary: string | null }
 interface SensFlow { id: string; label: string; severity: Severity; sourceLabel: string; sinkLabel: string; sinkSpanId: string; sessionId: string | null; startMs: number }
-interface ToolErrorGroup { message: string; count: number; sampleSessionId: string | null }
+interface ToolErrorGroup { message: string; count: number; sessions: number; sampleSessionId: string | null }
 interface ToolStat { name: string; calls: number; errors: number; errorGroups?: ToolErrorGroup[] }
 interface SessionRow {
   sessionId: string; summary: string | null; initiatorHandle: string | null; agentIds: string[];
@@ -479,14 +479,17 @@ function Tools({ tools }: { tools: ToolStat[] }) {
                   <div style={{ padding: '2px 16px 12px 39px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {(t.errorGroups ?? []).map((g, gi) => (
                       <div key={gi} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                        <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: '#dc2626', background: 'rgba(220,38,38,0.1)', borderRadius: 6, padding: '2px 7px', fontVariantNumeric: 'tabular-nums' }}>{g.count}×</span>
+                        <span title={`${g.count} occurrences`} style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: '#dc2626', background: 'rgba(220,38,38,0.1)', borderRadius: 6, padding: '2px 7px', fontVariantNumeric: 'tabular-nums' }}>{g.count}×</span>
                         <span style={{ flex: 1, fontSize: 12, color: 'var(--text-2)', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 }}>{g.message}</span>
-                        {g.sampleSessionId && (
-                          <Link href={`/activity/${encodeURIComponent(g.sampleSessionId)}`} onClick={e => e.stopPropagation()}
-                            style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>
-                            View session <ArrowRight size={11} />
-                          </Link>
-                        )}
+                        <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          {g.sessions > 1 && <span style={{ fontSize: 11, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>{g.sessions} sessions</span>}
+                          {g.sampleSessionId && (
+                            <Link href={`/activity/${encodeURIComponent(g.sampleSessionId)}`} onClick={e => e.stopPropagation()}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                              {g.sessions > 1 ? 'Latest' : 'View session'} <ArrowRight size={11} />
+                            </Link>
+                          )}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -543,18 +546,24 @@ function Sessions({ sessions, agentName, isSuper }: { sessions: SessionRow[]; ag
   const [q, setQ] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'done' | 'error' | 'active'>('all');
   const [sensOnly, setSensOnly] = useState(false);
+  const [initiator, setInitiator] = useState('');
+  // Distinct initiators present in the loaded rows (for the dropdown).
+  const initiators = useMemo(() =>
+    [...new Set(sessions.map(s => s.initiatorHandle).filter((h): h is string => !!h))].sort((a, b) => a.localeCompare(b)),
+    [sessions]);
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return sessions.filter(s => {
       if (stateFilter !== 'all' && s.status !== stateFilter) return false;
       if (sensOnly && !s.sensitive) return false;
+      if (initiator && s.initiatorHandle !== initiator) return false;
       if (needle && !(
         (s.summary ?? '').toLowerCase().includes(needle) ||
         (s.initiatorHandle ?? '').toLowerCase().includes(needle) ||
         s.agentIds.some(id => (agentName.get(id) ?? '').toLowerCase().includes(needle)))) return false;
       return true;
     });
-  }, [sessions, q, stateFilter, sensOnly, agentName]);
+  }, [sessions, q, stateFilter, sensOnly, initiator, agentName]);
   const names = (ids: string[]) => ids.map(id => agentName.get(id) ?? id).join(', ');
   const errCount = sessions.filter(s => s.status === 'error').length;
   const sensCount = sessions.filter(s => s.sensitive).length;
@@ -569,6 +578,15 @@ function Sessions({ sessions, agentName, isSuper }: { sessions: SessionRow[]; ag
           ))}
           {sensCount > 0 && <FilterChip active={sensOnly} onClick={() => setSensOnly(v => !v)} color="#b45309">Sensitive {sensCount}</FilterChip>}
         </div>
+        {initiators.length > 0 && (
+          <select value={initiator} onChange={e => setInitiator(e.target.value)} title="Filter by who initiated" style={{
+            fontSize: 12.5, fontWeight: 500, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+          }}>
+            <option value="">All initiators</option>
+            {initiators.map(h => <option key={h} value={h}>@{h}</option>)}
+          </select>
+        )}
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search sessions…" style={{
           marginLeft: 'auto', width: 200, padding: '6px 10px', fontSize: 12.5, borderRadius: 8,
           border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)', fontFamily: 'var(--font-sans)',
@@ -580,10 +598,11 @@ function Sessions({ sessions, agentName, isSuper }: { sessions: SessionRow[]; ag
           { label: 'Request', render: s => (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {s.sensitive && <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
-              <span title={s.summary ?? ''}>{truncate(s.summary || '(no summary)', 60)}</span>
+              <span title={s.summary ?? ''}>{truncate(s.summary || '(no summary)', 56)}</span>
             </span>
           ) },
-          { label: 'Agent', render: s => <Subtle>{truncate(names(s.agentIds) || '—', 28)}</Subtle> },
+          { label: 'Initiated by', render: s => <Subtle>{s.initiatorHandle ? `@${s.initiatorHandle}` : '—'}</Subtle> },
+          { label: 'Agent', render: s => <Subtle>{truncate(names(s.agentIds) || '—', 24)}</Subtle> },
           { label: 'Turns', align: 'right', render: s => <Mono>{s.turns}</Mono> },
           ...(isSuper ? [{ label: 'Tokens', align: 'right' as const, render: (s: SessionRow) => <Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono> }] : []),
           { label: 'State', render: s => <StatePill status={s.status} /> },
