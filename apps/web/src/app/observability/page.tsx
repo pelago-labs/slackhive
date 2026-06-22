@@ -190,7 +190,6 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
 }
 
 function fmtMs(ms: number): string { return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`; }
-function fmtCost(n: number): string { return n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`; }
 
 function Bars({ rows, max }: { rows: { label: string; value: number; sub: string }[]; max: number }) {
   return (
@@ -296,7 +295,6 @@ function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse;
         <Kpi label="Sensitive" value={String(r.sensitiveEvents ?? 0)} sub="flagged events" />
         <Kpi label="Satisfaction" value={sat === null ? '—' : `${sat}%`} sub={`${up}↑ ${down}↓`} />
         {isSuper && <Kpi label="Tokens" value={formatTokens(r.totalTokens)} sub={`${formatTokens(r.inputTokens)} in · ${formatTokens(r.outputTokens)} out`} />}
-        {isSuper && <Kpi label="Cost" value={fmtCost(r.costUsd)} sub="traced turns" />}
       </div>
 
       {/* Tokens per day (superadmin) */}
