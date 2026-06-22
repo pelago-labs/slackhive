@@ -73,6 +73,28 @@ const SensCtx = React.createContext<SensScope | null>(null);
 // LLM-detector excerpts to also highlight inline (regex can't re-match these).
 const EMPTY_HITS: ExtraMark[] = [];
 const LlmHitsCtx = React.createContext<ExtraMark[]>(EMPTY_HITS);
+/** Prepare LLM excerpts for matching against MARKDOWN-rendered text. Markdown both
+ *  strips emphasis markers and breaks an emphasized run into its own DOM text node,
+ *  so a single excerpt may straddle node boundaries and never match as one string.
+ *  Emit the whole cleaned excerpt plus each emphasis-delimited run (`*x*`, `_x_`,
+ *  `~x~`, `` `x` ``) as separate hits so the value inside the emphasis still matches. */
+function expandMarkdownHits(hits: ExtraMark[]): ExtraMark[] {
+  const out: ExtraMark[] = [];
+  const seen = new Set<string>();
+  const add = (h: ExtraMark, raw: string): void => {
+    const text = raw.replace(/[*_~`]/g, '').trim();
+    if (!text) return;
+    const key = `${h.cat}|${h.label}|${text}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ ...h, text });
+  };
+  for (const h of hits) {
+    add(h, h.text);
+    for (const run of h.text.match(/\*([^*]+)\*|_([^_]+)_|~([^~]+)~|`([^`]+)`/g) ?? []) add(h, run);
+  }
+  return out;
+}
 function Hl({ children }: { children: React.ReactNode }): React.JSX.Element {
   const scope = React.useContext(SensCtx);
   const llmHits = React.useContext(LlmHitsCtx);
@@ -798,9 +820,11 @@ function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmH
         <div style={{ ...shell, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
           <SensCtx.Provider value={sensitive ? scope : null}>
             {/* Markdown rendering strips Slack emphasis (*bold*, _italic_, ~strike~,
-                `code`), so an LLM excerpt captured with that markup won't match the
-                on-screen text. Strip it from the excerpts before matching. */}
-            <LlmHitsCtx.Provider value={hits.map(h => ({ ...h, text: h.text.replace(/[*_~`]/g, '').trim() })).filter(h => h.text)}>
+                `code`) AND splits an emphasized run into its own DOM text node, so an
+                excerpt like `*SGD 123,298.28* GMV` never matches the on-screen text as
+                one string. Feed both the whole cleaned excerpt AND each emphasis-run
+                as separate hits, so the value inside the bold/code still highlights. */}
+            <LlmHitsCtx.Provider value={expandMarkdownHits(hits)}>
               <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{slackToMd(body)}</ReactMarkdown>
             </LlmHitsCtx.Provider>
           </SensCtx.Provider>
