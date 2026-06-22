@@ -890,42 +890,22 @@ function catLabel(tag: string): string {
   return h.label === h.category ? (CAT_LABEL[h.category] ?? h.label) : h.label;
 }
 
-/** One simple line under the node content naming WHAT was flagged sensitive —
- * and, when the detector captured the specific span(s), quoting them so the
- * viewer can find the value in the message above. */
+/** One simple line under the node content naming the TYPE(S) of data flagged.
+ * The actual values are already masked inline in the message above, so the note
+ * never repeats them — it just says what kind of sensitive data was found. */
 function SensitiveNote({ categories, hits, llm }: { categories: string[]; hits: ExtraMark[]; llm?: boolean }): React.JSX.Element {
   const suffix = llm ? ' (caught by the Smart detector)' : '';
   const cap = (s: string): string => s.replace(/^\w/, c => c.toUpperCase());
-  // Only PII/secrets are actual VALUES worth masking + revealing. data/tool hits
-  // ("financial", ".env") are category keywords, not values — they have nothing
-  // to reveal, so don't render them as clickable locks (matches SensitiveMark).
-  const valueHits = [...new Map(
-    hits.filter(h => (h.cat === 'pii' || h.cat === 'secret') && h.text?.trim()).map(h => [`${h.label}:${h.text}`, h]),
-  ).values()].slice(0, 4);
-  if (valueHits.length) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11.5, color: '#b45309' }}>
-        <ShieldAlert size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-          <span>Flagged{suffix}:</span>
-          {valueHits.map((h, i) => (
-            <SensitiveMark key={i} cat={(h.cat ?? 'pii') as SensCategory} label={h.label} llm>{h.text}</SensitiveMark>
-          ))}
-        </span>
-      </div>
-    );
-  }
-  // No revealable value — the detector classified the content (e.g. "Financial").
-  // Name the classification plainly instead of faking a maskable value.
-  const labels = [...new Set([
-    ...categories.map(catLabel),
-    ...hits.filter(h => h.cat !== 'pii' && h.cat !== 'secret').map(h => cap(catLabel(h.label))),
-  ].filter(Boolean))];
+  // Prefer the specific hit labels ("Financial", "Phone number"); fall back to the
+  // coarse categories ("Personal info") when no per-hit label is available.
+  const labels = [...new Set(
+    (hits.length ? hits.map(h => h.label) : categories).map(t => cap(catLabel(t))),
+  )].filter(Boolean);
   const what = labels.length ? labels.join(', ') : 'sensitive data';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#b45309' }}>
       <ShieldAlert size={12} style={{ flexShrink: 0 }} />
-      <span>Flagged as {what}{suffix}.</span>
+      <span>Flagged{suffix}: {what}</span>
     </div>
   );
 }
