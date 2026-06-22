@@ -190,6 +190,15 @@ describe('redactSensitive', () => {
     expect(out).not.toContain(token.slice(-200));          // the tail specifically
     expect(out).toContain('[redacted:High-entropy secret]');
   });
+  it('keeps a secret masked at level "secrets" even when straddling a >16KB window edge near a credential path', () => {
+    // A secret value placed right at the 16k window boundary, preceded by a
+    // tool:credentials path token that overlaps it — the window-merge must adopt the
+    // higher-priority secret label so level 'secrets' still masks the value.
+    const pad = 'x '.repeat(SCAN_CAP / 2 - 20);
+    const text = `${pad}.aws/credentials sk-ABCDEFGHIJKLMNOPQRSTUV tail`;
+    const out = redactSensitive(text, 'all', 'secrets');
+    expect(out).not.toContain('sk-ABCDEFGHIJKLMNOPQRSTUV'); // secret masked, not left as a weak 'tool' label
+  });
   it('does not auto-strip heuristic high-entropy tokens below the "all" level', () => {
     const blob = 'aA1' + 'bC2dE3fG4hI5jK6lM7nO8pQ9rS0'.repeat(2); // ~40+ char mixed token
     const text = `data uri ${blob} here`;

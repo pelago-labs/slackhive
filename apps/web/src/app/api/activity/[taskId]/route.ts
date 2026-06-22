@@ -7,10 +7,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTaskWithDetails, getSessionTrace, deepLinkForTask, redactSensitive, humanizeTag, type TraceTurn, type SessionRollup } from '@slackhive/shared';
+import { getTaskWithDetails, getSessionTrace, deepLinkForTask } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
+import { redactTurn, stripTurnBilling, stripRollupBilling } from '@/lib/activity-redact';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,51 +72,3 @@ export async function GET(
   }
 }
 
-/** Redact every flagged value in a turn's content for non-admin viewers — both the
- *  regex matches AND the excerpts the Smart (LLM) detector flagged (which regex
- *  can't re-match), so an obfuscated value never reaches a non-admin's browser. */
-function redactTurn(t: TraceTurn): TraceTurn {
-  // All LLM excerpts across the turn — redacted from every field (the offending
-  // value may also appear in the final answer / a sibling span).
-  const llmHits = t.spans.flatMap(sp => sp.sensitiveLlmHits ?? []);
-  const stripLlm = (s: string) => llmHits.reduce(
-    (acc, h) => (h.text ? acc.split(h.text).join(`[redacted:${humanizeTag(h.label).label}]`) : acc),
-    s,
-  );
-  // Strip the verbatim LLM excerpts FIRST, then run regex redaction. If regex ran
-  // first it could rewrite part of an excerpt to [redacted:…], so the excerpt would
-  // no longer match verbatim and its remainder would leak.
-  // Level 'pii' masks real values (secrets + PII) but leaves keyword/path LABELS
-  // (data: like "payment"/"cvv", tool: like ".env") visible — those aren't values.
-  const r = (s: string | null) => (s == null ? s : redactSensitive(stripLlm(s), 'all', 'pii'));
-  return {
-    ...t,
-    finalAnswer: r(t.finalAnswer),
-    spans: t.spans.map(sp => ({ ...sp, input: r(sp.input), output: r(sp.output), reasoning: r(sp.reasoning), sensitiveLlmHits: [] })),
-  };
-}
-
-/** Zero out billing-adjacent fields (tokens + cost) on a turn + its spans for
- *  non-superadmins. The UI hides token/cost chips when the value is 0/null. */
-function stripTurnBilling(t: TraceTurn): TraceTurn {
-  return {
-    ...t,
-    inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0,
-    spans: t.spans.map(sp => ({
-      ...sp,
-      inputTokens: null, outputTokens: null, reasoningTokens: null,
-      cacheReadTokens: null, cacheCreationTokens: null, costUsd: null,
-    })),
-  };
-}
-
-/** Same for the session rollup (drops per-model token counts too). */
-function stripRollupBilling(r: SessionRollup | null): SessionRollup | null {
-  if (!r) return r;
-  return {
-    ...r,
-    inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
-    totalTokens: 0, costUsd: 0,
-    models: r.models.map(m => ({ ...m, tokens: 0 })),
-  };
-}

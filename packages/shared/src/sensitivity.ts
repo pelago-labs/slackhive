@@ -384,8 +384,16 @@ function collectRangesFull(str: string, scope: SensScope): Range[] {
   const merged: Range[] = [];
   for (const r of all) {
     const last = merged[merged.length - 1];
-    if (last && r.start < last.end) { if (r.end > last.end) last.end = r.end; } // overlap → extend, don't drop the tail
-    else merged.push({ ...r });
+    if (last && r.start < last.end) {
+      // Overlap → extend to cover the full extent. Adopt the higher-priority
+      // category/label (secret > pii > tool > data) so a lower-priority range that
+      // happened to start first (or a fragment truncated at a window edge) can't
+      // mask-as-the-weaker-label and leave an overlapping secret unmasked at
+      // non-'all' redaction levels.
+      if (r.end > last.end) last.end = r.end;
+      if (PRIO[r.cat] > PRIO[last.cat]) { last.cat = r.cat; last.label = r.label; }
+      if (r.llm) last.llm = true;
+    } else merged.push({ ...r });
   }
   return merged;
 }
