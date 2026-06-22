@@ -20,6 +20,7 @@
 import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, MessagePayload,
 } from '@slackhive/shared';
+import { PAYLOAD_BREAK } from '@slackhive/shared';
 
 /** Events the panel understands. One SSE line per event. */
 export type TestEvent =
@@ -237,7 +238,12 @@ export class TestAdapter implements PlatformAdapter {
 
   getFormattingRules(): string { return ''; }
   formatMarkdown(md: string): string { return md; }
-  buildPayloads(text: string): MessagePayload[] { return [{ text }]; }
+  buildPayloads(text: string): MessagePayload[] {
+    // Honor the PAYLOAD_BREAK boundary and strip the marker so it never leaks.
+    if (!text.includes(PAYLOAD_BREAK)) return [{ text }];
+    const parts = text.split(PAYLOAD_BREAK).map(s => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts.map(t => ({ text: t })) : [{ text: '' }];
+  }
   formatMention(userId: string): string { return `<@${userId}>`; }
   stripMention(text: string): string {
     if (!this.botUserId) return text;

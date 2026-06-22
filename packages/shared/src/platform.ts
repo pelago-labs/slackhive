@@ -114,6 +114,14 @@ export interface PlatformAdapter {
    * Build platform-ready message payloads from formatted text.
    * Handles chunking, tables, rich blocks, etc.
    *
+   * Implementations MUST honor the {@link PAYLOAD_BREAK} marker: split the text
+   * into a new payload at each marker, and strip the marker so it never reaches
+   * the user. Adapters with a parent/thread (or message-split) concept thereby
+   * let an agent control the boundary explicitly — e.g. keep a leading summary
+   * as its own (channel-visible parent) payload while detail tables thread
+   * beneath it. Adapters without such a concept may collapse the segments, but
+   * must still remove the marker.
+   *
    * @param text - Already formatted via formatMarkdown()
    * @param isFinal - Whether this is the final message (vs streaming)
    * @returns Array of payloads (may be >1 if text needs splitting)
@@ -236,6 +244,17 @@ export interface FileAttachment {
   /** File content (populated after download). */
   content?: Buffer;
 }
+
+/**
+ * Author-controlled payload boundary. When an agent emits this marker on its own
+ * line, `buildPayloads` ends the current payload and starts a new one there —
+ * even where the table/length splitter wouldn't otherwise break. On threading
+ * platforms the first payload becomes the channel-visible parent and the rest
+ * thread beneath it, so a leading summary can stand alone above its detail
+ * tables. It is an HTML comment, so it stays invisible if an adapter ever fails
+ * to strip it; adapters MUST split on it and remove it (see {@link PlatformAdapter.buildPayloads}).
+ */
+export const PAYLOAD_BREAK = '<!--slackhive:break-->';
 
 /** Platform-ready message payload for posting. */
 export interface MessagePayload {
