@@ -13,7 +13,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsDown, Layers, Lock, ArrowRight, ExternalLink, ChevronRight, ChevronDown } from 'lucide-react';
+import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsDown, Layers, Lock, ArrowRight, ExternalLink, ChevronRight, ChevronDown, Brain } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../activity/_components/FilterRow';
 import { formatTokens } from '../activity/_components/formatTokens';
@@ -475,7 +475,7 @@ function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }
             { label: 'Type', render: e => <Mono>{e.reason ?? ''}</Mono> },
             { label: 'Where', render: e => <code style={{ fontSize: 12, fontWeight: 600 }}>{e.toolName ?? 'response'}</code> },
             { label: 'Source', render: e => e.caughtByLlm
-              ? <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>Caught by LLM</span>
+              ? <span title="Caught by the Smart (LLM) detector" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#b45309' }}><Brain size={13} /> LLM</span>
               : <Subtle>regex</Subtle> },
             { label: 'Agent', render: e => <Subtle>{e.agentName ?? ''}</Subtle> },
             { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(e.startMs)}</Subtle> },

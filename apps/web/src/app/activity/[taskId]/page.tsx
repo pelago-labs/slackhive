@@ -737,14 +737,7 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
         {/* leading kind icon */}
         <Icon size={13} style={{ flexShrink: 0, color: tagColor }} />
         <span style={{ fontSize: 12.5, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto', minWidth: 60, fontStyle: node.kind === 'generation' && node.title === 'Thinking' ? 'italic' : 'normal' }}>{node.title}</span>
-        {node.sensitive && <SensitiveBadge categories={node.sensitiveCategories ?? []} compact />}
-        {node.sensitiveLlm && (
-          <span title="Found by the Smart (LLM) detector — regex did not match this" style={{
-            flexShrink: 0, display: 'inline-flex', alignItems: 'center', fontSize: 9, fontWeight: 700,
-            letterSpacing: '0.03em', textTransform: 'uppercase', padding: '2px 5px', borderRadius: 5,
-            background: 'rgba(124,58,237,0.12)', color: '#7c3aed',
-          }}>LLM</span>
-        )}
+        {node.sensitive && <SensitiveBadge categories={node.sensitiveCategories ?? []} compact llm={node.sensitiveLlm} />}
         {/* spacer keeps the badge next to the title and the metrics right-aligned */}
         <div style={{ flex: 1, minWidth: 8 }} />
         {node.model && <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>{node.model}</span>}
@@ -835,14 +828,18 @@ function FbChip({ label, icon, active, color, onClick }: { label: string; icon?:
   );
 }
 
-function SensitiveBadge({ categories, compact }: { categories: string[]; compact?: boolean }): React.JSX.Element {
-  const title = categories.length ? `Sensitive: ${categories.join(', ')}` : 'Sensitive data touched';
+function SensitiveBadge({ categories, compact, llm }: { categories: string[]; compact?: boolean; llm?: boolean }): React.JSX.Element {
+  // When the Smart (LLM) detector caught it, the icon itself signals that (Brain)
+  // — same amber sensitive color, no separate "LLM" pill, no purple.
+  const cats = categories.length ? categories.join(', ') : 'data touched';
+  const title = llm ? `Sensitive (caught by the Smart LLM detector): ${cats}` : `Sensitive: ${cats}`;
+  const Icon = llm ? Brain : ShieldAlert;
   return (
     <span title={title} style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, padding: compact ? '1px 5px' : '2px 7px', borderRadius: 10,
       background: 'rgba(217,119,6,0.12)', color: '#b45309', fontSize: 10, fontWeight: 600, letterSpacing: '0.02em',
     }}>
-      <ShieldAlert size={compact ? 11 : 12} />{compact ? null : 'Sensitive'}
+      <Icon size={compact ? 11 : 12} />{compact ? null : 'Sensitive'}
     </span>
   );
 }
