@@ -7,7 +7,7 @@
  * composed /api/activity/insights endpoint. Token/cost/power-users are
  * superadmin-only (the server strips them; the client also hides the tab).
  *
- * @module web/app/activity/insights
+ * @module web/app/observability
  */
 
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
@@ -15,8 +15,8 @@ import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsDown, Layers, Lock, ArrowRight, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../_components/FilterRow';
-import { formatTokens } from '../_components/formatTokens';
+import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../activity/_components/FilterRow';
+import { formatTokens } from '../activity/_components/formatTokens';
 
 interface AgentLite { id: string; slug: string; name: string }
 type Severity = 'critical' | 'high' | 'medium' | 'low';

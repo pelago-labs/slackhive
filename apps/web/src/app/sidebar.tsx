@@ -13,7 +13,7 @@ import { useEffect, useState, createContext } from 'react';
 import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
-import { LayoutDashboard, Activity as ActivityIcon, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut } from 'lucide-react';
+import { LayoutDashboard, Activity as ActivityIcon, LineChart, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut } from 'lucide-react';
 import { WhatsNew } from './_components/WhatsNew';
 
 const STATUS_DOT: Record<string, string> = {
@@ -124,6 +124,10 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
 
           {role !== 'viewer' && (
             <NavItem href="/activity" active={pathname === '/activity' || pathname.startsWith('/activity/')} collapsed={collapsed} icon={<ActivityIcon size={16} strokeWidth={1.75} />} badge={activeTaskCount > 0 ? activeTaskCount : undefined}>Activity</NavItem>
+          )}
+
+          {role !== 'viewer' && (
+            <NavItem href="/observability" active={pathname.startsWith('/observability')} collapsed={collapsed} icon={<LineChart size={16} strokeWidth={1.75} />}>Observability</NavItem>
           )}
 
           {!collapsed && (

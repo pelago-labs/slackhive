@@ -11,7 +11,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, LineChart } from 'lucide-react';
+import { Activity as ActivityIcon } from 'lucide-react';
 import { useAuth, type Role } from '@/lib/auth-context';
 
 interface Tab {
@@ -22,11 +22,11 @@ interface Tab {
   roles?: Role[];
 }
 
+// The consolidated LLMOps view now lives at the top-level "Observability" nav item,
+// not as an Activity sub-tab. Only Tasks remains here (the switcher hides itself
+// when a single tab is left), but the component stays for future tabs.
 const TABS: Tab[] = [
-  { href: '/activity',          label: 'Tasks',    icon: <ActivityIcon size={13} /> },
-  // Consolidated LLMOps view (Usage/Sensitive/Tools live here as tabs now). Open to
-  // editors+; billing sections inside gate to superadmin server-side.
-  { href: '/activity/insights', label: 'Insights', icon: <LineChart    size={13} /> },
+  { href: '/activity', label: 'Tasks', icon: <ActivityIcon size={13} /> },
 ];
 
 export function TabSwitcher(): React.JSX.Element | null {
