@@ -720,7 +720,8 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
   const tagColor = isErr ? 'var(--red)' : node.kind === 'final' ? 'var(--green)' : 'var(--muted)';
   const barColor = isErr ? 'var(--red)' : 'var(--text-2)';
   const titleColor = node.kind === 'final' ? 'var(--green)' : isErr ? 'var(--red)' : 'var(--text)';
-  const accent = node.kind === 'final' ? 'var(--green)' : isErr ? 'var(--red)' : undefined;
+  // Only errors get a colored left rule; the final answer doesn't need a green tint.
+  const accent = isErr ? 'var(--red)' : undefined;
 
   const hasDur = node.durationMs != null;
   const pct = hasDur ? Math.max(2, Math.min(100, ((node.durationMs as number) / maxMs) * 100)) : 0;
