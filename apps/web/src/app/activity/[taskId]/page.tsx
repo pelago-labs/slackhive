@@ -26,6 +26,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
 import { markSensitiveWith, SENS_COLOR, CAT_LABEL, humanizeTag, type SensitiveCategory as SensCategory, type SensScope, type ExtraMark } from '@slackhive/shared';
+import { expandMarkdownHits } from '@/lib/markdown-hits';
 
 // A highlighted sensitive token: a colored-background tag. Click it to reveal what
 // kind of data it is. The popover is portaled to <body> with fixed positioning so
@@ -73,36 +74,6 @@ const SensCtx = React.createContext<SensScope | null>(null);
 // LLM-detector excerpts to also highlight inline (regex can't re-match these).
 const EMPTY_HITS: ExtraMark[] = [];
 const LlmHitsCtx = React.createContext<ExtraMark[]>(EMPTY_HITS);
-/** Prepare LLM excerpts for matching against MARKDOWN-rendered text. Markdown both
- *  strips emphasis markers and breaks an emphasized run into its own DOM text node,
- *  so a single excerpt may straddle node boundaries and never match as one string.
- *  Emit the whole cleaned excerpt plus each emphasis-delimited run (`*x*`, `_x_`,
- *  `~x~`, `` `x` ``) as separate hits so the value inside the emphasis still matches. */
-function expandMarkdownHits(hits: ExtraMark[]): ExtraMark[] {
-  const out: ExtraMark[] = [];
-  const seen = new Set<string>();
-  const add = (h: ExtraMark, raw: string): void => {
-    const text = raw.replace(/[*_~`]/g, '').trim();
-    if (!text) return;
-    const key = `${h.cat}|${h.label}|${text}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push({ ...h, text });
-  };
-  for (const h of hits) {
-    add(h, h.text);
-    for (const run of h.text.match(/\*([^*]+)\*|_([^_]+)_|~([^~]+)~|`([^`]+)`/g) ?? []) add(h, run);
-    // A table renders a flagged number in its own cell, away from the surrounding
-    // words of the excerpt ("SGD 123,298.28 GMV" -> cell "123,298.28"), so the full
-    // excerpt won't match there. Add each digit-bearing token (len >= 4) on its own;
-    // it only ever masks that exact value, never unrelated numbers.
-    for (const tok of h.text.replace(/[*_~`]/g, ' ').split(/\s+/)) {
-      const t = tok.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
-      if (t.length >= 4 && /\d/.test(t)) add(h, t);
-    }
-  }
-  return out;
-}
 function Hl({ children }: { children: React.ReactNode }): React.JSX.Element {
   const scope = React.useContext(SensCtx);
   const llmHits = React.useContext(LlmHitsCtx);

@@ -3,8 +3,9 @@
  * the rollup + by-agent + power-users + sensitive feed + tools + sessions for a scope
  * (all agents | one agent | one session), resolving auth/RBAC and the time window once.
  *
- * Billing-adjacent fields (tokens/cost/power-users) are stripped server-side for
- * non-superadmins so they never reach the client — matching /api/activity/usage.
+ * Token-visibility policy: tokens/cost are visible to editor+ (editors are always
+ * scoped to their own agents, so the figures are their own usage). Only the org-wide
+ * power-users leaderboard stays superadmin-only.
  *
  * @module web/api/activity/insights
  */
@@ -19,7 +20,6 @@ import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
 import { windowBounds } from '@/lib/activity-window';
-import { stripRollupBilling } from '@/lib/activity-redact';
 
 export const dynamic = 'force-dynamic';
 

@@ -1,7 +1,8 @@
 /**
  * @fileoverview Tests for the LLMOps insights API route — auth gate (editors+ allowed,
- * viewers blocked) and the superadmin-only billing strip (tokens/cost/power-users
- * never reach a non-superadmin's response).
+ * viewers blocked) and the token-visibility policy: tokens/cost are visible to editor+
+ * (editors are always scoped to their own agents), while the org-wide power-users
+ * leaderboard stays superadmin-only.
  *
  * @module web/lib/__tests__/insights-route
  */
@@ -52,7 +53,7 @@ beforeEach(() => {
   vi.mocked(getTopUsers).mockClear();
 });
 
-describe('GET /api/activity/insights — auth + billing gate', () => {
+describe('GET /api/activity/insights — auth + token-visibility policy', () => {
   it('401 without a session', async () => {
     const { GET } = await loadRoute();
     expect((await GET(requestAs(null) as any)).status).toBe(401);
@@ -63,27 +64,42 @@ describe('GET /api/activity/insights — auth + billing gate', () => {
     expect((await GET(requestAs('viewer') as any)).status).toBe(403);
   });
 
-  it('editor gets 200 but NO billing data (tokens/cost zeroed, powerUsers null)', async () => {
+  it('editor sees their agents\' tokens/cost but NOT the org-wide power-users leaderboard', async () => {
+    // Editors are always scoped to their own agents, so their tokens/cost are their
+    // own usage — returned in full. Only the org-wide power-users list is withheld.
+    vi.mocked(listAccessibleAgentIds).mockResolvedValue(['ag']);
     const { GET } = await loadRoute();
     const res = await GET(requestAs('editor') as any);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.billing).toBe(false);
+    // tokens/cost present (scoped to the editor's agents)
+    expect(body.rollup.totalTokens).toBe(700);
+    expect(body.rollup.costUsd).toBe(1.23);
+    expect(body.rollup.tokensByDay).toHaveLength(1);
+    expect(body.byAgent[0].inputTokens).toBe(500);
+    expect(body.sessions[0].inputTokens).toBe(500);
+    // power-users leaderboard withheld and never even queried
     expect(body.powerUsers).toBeNull();
-    expect(body.rollup.totalTokens).toBe(0);
-    expect(body.rollup.costUsd).toBe(0);
-    expect(body.rollup.tokensByDay).toEqual([]);
-    expect(body.byAgent[0].inputTokens).toBe(0);
-    expect(body.sessions[0].inputTokens).toBe(0); // session token cols stripped too
-    expect(getTopUsers).not.toHaveBeenCalled(); // power users not even queried
+    expect(getTopUsers).not.toHaveBeenCalled();
   });
 
-  it('superadmin gets full billing data', async () => {
+  it('admin sees tokens/cost but still NOT power-users (superadmin-only)', async () => {
+    vi.mocked(listAccessibleAgentIds).mockResolvedValue(null); // admin = all agents
+    const { GET } = await loadRoute();
+    const res = await GET(requestAs('admin') as any);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rollup.totalTokens).toBe(700);
+    expect(body.byAgent[0].inputTokens).toBe(500);
+    expect(body.powerUsers).toBeNull();
+    expect(getTopUsers).not.toHaveBeenCalled();
+  });
+
+  it('superadmin gets tokens/cost AND the power-users leaderboard', async () => {
     const { GET } = await loadRoute();
     const res = await GET(requestAs('superadmin') as any);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.billing).toBe(true);
     expect(body.rollup.totalTokens).toBe(700);
     expect(body.rollup.costUsd).toBe(1.23);
     expect(body.powerUsers).toHaveLength(1);
