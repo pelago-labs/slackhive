@@ -520,6 +520,145 @@ async function computeAgentRollup(opts: { agentId: string; since?: string; until
   };
 }
 
+// ── Insights rollup (LLMOps page) — scope = one agent | all | accessible set ──
+
+/** Same shape as a per-agent rollup, but aggregated over a SCOPE (one agent, all
+ *  agents, or a caller's accessible-agent set) for the consolidated LLMOps page. */
+export type InsightsRollup = AgentRollup;
+
+export interface InsightsFilter {
+  /** One-agent scope. Omit for all-agents (within `accessibleAgentIds`). */
+  agentId?: string;
+  since?: string;
+  until?: string;
+  /** RBAC: undefined = no restriction (admin); [] = no access (empty result);
+   *  non-empty = restrict to this set. */
+  accessibleAgentIds?: string[];
+}
+
+/** Build the `agent_id` scope predicate + its params. Returns null when the caller
+ *  has access to NO agents (so the query must yield an empty rollup, never all). */
+function insightsScope(filter: InsightsFilter, startIdx: number): { clause: string; params: unknown[] } | null {
+  if (filter.agentId) {
+    // Defense in depth: a restricted caller asking for an agent they can't see → empty.
+    if (filter.accessibleAgentIds && !filter.accessibleAgentIds.includes(filter.agentId)) return null;
+    return { clause: `agent_id = $${startIdx}`, params: [filter.agentId] };
+  }
+  if (filter.accessibleAgentIds === undefined) return { clause: '1=1', params: [] };
+  if (filter.accessibleAgentIds.length === 0) return null;
+  const ph = filter.accessibleAgentIds.map((_, i) => `$${startIdx + i}`).join(', ');
+  return { clause: `agent_id IN (${ph})`, params: [...filter.accessibleAgentIds] };
+}
+
+function emptyInsightsRollup(): InsightsRollup {
+  return {
+    sessions: 0, turns: 0, toolCalls: 0, generations: 0, errorTurns: 0,
+    inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0,
+    p50DurationMs: 0, p95DurationMs: 0, feedbackUp: 0, feedbackDown: 0, sensitiveEvents: 0,
+    tokensByDay: [], topTools: [], models: [],
+  };
+}
+
+/**
+ * Aggregate analytics across a SCOPE — one agent, all agents, or a caller's
+ * accessible-agent set — for the LLMOps insights page. Mirrors {@link getAgentRollup}
+ * but generalizes the agent-scope predicate. p50/p95 are POOLED across the agent set
+ * (the real cross-agent latency distribution), never an average of per-agent values.
+ */
+export async function getInsightsRollup(filter: InsightsFilter = {}): Promise<InsightsRollup> {
+  // Cache key MUST encode the full (sorted) RBAC scope, or a restricted caller could
+  // read a broader caller's cached aggregate.
+  const acc = filter.accessibleAgentIds === undefined ? '*' : [...filter.accessibleAgentIds].sort().join(',');
+  const key = `insights:${filter.agentId ?? ''}:${filter.since ?? ''}:${filter.until ?? ''}:${acc}`;
+  return cached(key, 2500, () => computeInsightsRollup(filter));
+}
+
+async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRollup> {
+  const db = getDb();
+  const sinceMs = sinceToMs(filter.since);
+  const untilMs = sinceToMs(filter.until);
+
+  // activities scope (started_at window) — its own param list.
+  const actScope = insightsScope(filter, 1);
+  if (!actScope) return emptyInsightsRollup();
+  const actParams: unknown[] = [...actScope.params];
+  const actW = [actScope.clause];
+  if (filter.since) { actW.push(`started_at >= $${actParams.length + 1}`); actParams.push(filter.since); }
+  if (filter.until) { actW.push(`started_at <= $${actParams.length + 1}`); actParams.push(filter.until); }
+  const actWhere = actW.join(' AND ');
+
+  // spans scope (start_ms window) — its own param list.
+  const spanScope = insightsScope(filter, 1);
+  const spanParams: unknown[] = [...spanScope!.params];
+  const spanW = [spanScope!.clause];
+  if (Number.isFinite(sinceMs)) { spanW.push(`start_ms >= $${spanParams.length + 1}`); spanParams.push(sinceMs); }
+  if (Number.isFinite(untilMs)) { spanW.push(`start_ms <= $${spanParams.length + 1}`); spanParams.push(untilMs); }
+  const spanWhere = spanW.join(' AND ');
+
+  // feedback: lifetime (not window-scoped), matching getAgentRollup.
+  const fbScope = insightsScope(filter, 1);
+  const fbWhere = fbScope!.clause;
+  const fbParams: unknown[] = [...fbScope!.params];
+
+  const [act, byDay, span, lat, tools, models, fb, sens] = await Promise.all([
+    db.query(`SELECT COUNT(DISTINCT task_id) sessions, COUNT(*) turns,
+                     SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) error_turns,
+                     COALESCE(SUM(input_tokens),0) input_tokens,
+                     COALESCE(SUM(output_tokens),0) output_tokens
+                FROM activities WHERE ${actWhere}`, actParams),
+    db.query(`SELECT date(started_at) d,
+                     COALESCE(SUM(input_tokens),0) input,
+                     COALESCE(SUM(output_tokens),0) output
+                FROM activities WHERE ${actWhere} GROUP BY d ORDER BY d`, actParams),
+    db.query(`SELECT COALESCE(SUM(cost_usd),0) cost,
+                     SUM(CASE WHEN kind='tool' THEN 1 ELSE 0 END) tool_calls,
+                     SUM(CASE WHEN kind='generation' THEN 1 ELSE 0 END) generations
+                FROM spans WHERE ${spanWhere}`, spanParams),
+    db.query(`SELECT (end_ms - start_ms) ms FROM spans
+               WHERE ${spanWhere} AND kind='agent' AND end_ms IS NOT NULL`, spanParams),
+    db.query(`SELECT tool_name name, COUNT(*) c,
+                     SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) e
+                FROM spans
+               WHERE ${spanWhere} AND kind='tool' AND tool_name IS NOT NULL
+               GROUP BY tool_name ORDER BY c DESC LIMIT 8`, spanParams),
+    db.query(`SELECT model, COUNT(DISTINCT activity_id) turns,
+                     COALESCE(SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)),0) tokens
+                FROM spans WHERE ${spanWhere} AND model IS NOT NULL
+               GROUP BY model ORDER BY tokens DESC LIMIT 6`, spanParams),
+    db.query(`SELECT SUM(CASE WHEN sentiment='up' THEN 1 ELSE 0 END) up,
+                     SUM(CASE WHEN sentiment='down' THEN 1 ELSE 0 END) down
+                FROM message_feedback WHERE ${fbWhere}`, fbParams),
+    db.query(`SELECT COUNT(*) c FROM spans WHERE ${spanWhere} AND sensitive = 1 AND kind IN ('tool', 'generation')`, spanParams),
+  ]);
+
+  const a0 = act.rows[0] ?? {};
+  const s0 = span.rows[0] ?? {};
+  const f0 = fb.rows[0] ?? {};
+  const durations = lat.rows.map(r => Number(r.ms)).filter(m => Number.isFinite(m) && m >= 0).sort((x, y) => x - y);
+  const inputTokens = n(a0.input_tokens);
+  const outputTokens = n(a0.output_tokens);
+
+  return {
+    sessions: n(a0.sessions),
+    turns: n(a0.turns),
+    toolCalls: n(s0.tool_calls),
+    generations: n(s0.generations),
+    errorTurns: n(a0.error_turns),
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    costUsd: n(s0.cost),
+    p50DurationMs: percentile(durations, 50),
+    p95DurationMs: percentile(durations, 95),
+    feedbackUp: n(f0.up),
+    feedbackDown: n(f0.down),
+    sensitiveEvents: n((sens.rows[0] ?? {}).c),
+    tokensByDay: byDay.rows.map(r => ({ date: String(r.d), input: n(r.input), output: n(r.output) })),
+    topTools: tools.rows.map(r => ({ name: String(r.name), count: n(r.c), errors: n(r.e) })),
+    models: models.rows.map(r => ({ model: String(r.model), turns: n(r.turns), tokens: n(r.tokens) })),
+  };
+}
+
 // ── Sensitive-access audit feed ──────────────────────────────────────────────
 
 export interface SensitiveEvent {

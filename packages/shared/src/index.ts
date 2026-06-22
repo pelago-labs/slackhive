@@ -27,9 +27,10 @@ export type {
 export { initDb, getDb, closeDb, setDb } from './db/adapter';
 export type { DbAdapter, DbResult, DbRow } from './db/adapter';
 export { createSqliteAdapter } from './db/sqlite-adapter';
-export { getSessionTrace, getAgentRollup, getSensitiveEvents, getSensitiveFlows, getFeedbackCountsForTasks, getToolStats, pruneTraceData } from './db/trace-repo';
+export { getSessionTrace, getAgentRollup, getInsightsRollup, getSensitiveEvents, getSensitiveFlows, getFeedbackCountsForTasks, getToolStats, pruneTraceData } from './db/trace-repo';
 export type {
   SessionTrace, SessionRollup, TraceTurn, TraceSpan, SpanKind, ModelUsage, TurnFeedback, AgentRollup,
+  InsightsRollup, InsightsFilter,
   SensitiveEvent, SensitiveFeedFilter, SensitiveFlow, ToolStat, ToolErrorGroup,
 } from './db/trace-repo';
 export { encrypt, decrypt } from './db/crypto';
