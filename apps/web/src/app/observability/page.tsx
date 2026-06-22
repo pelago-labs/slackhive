@@ -13,7 +13,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsDown, Layers, Lock, ArrowRight, ExternalLink } from 'lucide-react';
+import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsDown, Layers, Lock, ArrowRight, ExternalLink, ChevronRight, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../activity/_components/FilterRow';
 import { formatTokens } from '../activity/_components/formatTokens';
@@ -40,7 +40,8 @@ interface AgentTokens { agentId: string; inputTokens: number; outputTokens: numb
 interface PowerUser { userId: string; handle: string | null; taskCount: number; turnCount: number; totalTokens: number }
 interface SensEvent { spanId: string; sessionId: string; agentName: string | null; toolName: string | null; reason: string | null; severity: Severity | null; caughtByLlm?: boolean; startMs: number; sessionSummary: string | null }
 interface SensFlow { id: string; label: string; severity: Severity; sourceLabel: string; sinkLabel: string; sinkSpanId: string; sessionId: string | null; startMs: number }
-interface ToolStat { name: string; calls: number; errors: number }
+interface ToolErrorGroup { message: string; count: number; sampleSessionId: string | null }
+interface ToolStat { name: string; calls: number; errors: number; errorGroups?: ToolErrorGroup[] }
 interface SessionRow {
   sessionId: string; summary: string | null; initiatorHandle: string | null; agentIds: string[];
   turns: number; inputTokens: number; outputTokens: number;
@@ -449,17 +450,65 @@ function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }
 }
 
 function Tools({ tools }: { tools: ToolStat[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const sorted = [...tools].sort((a, b) => b.calls - a.calls);
   return (
     <div style={card}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tools</div>
-      <Table<ToolStat> rows={[...tools].sort((a, b) => b.calls - a.calls)} empty="No tool calls in this window."
-        cols={[
-          { label: 'Tool', render: t => <code style={{ fontSize: 12, fontWeight: 600 }}>{t.name}</code> },
-          { label: 'Calls', align: 'right', render: t => <Mono>{t.calls}</Mono> },
-          { label: 'Errors', align: 'right', render: t => <span style={{ fontFamily: 'var(--font-mono)', color: t.errors ? '#dc2626' : 'var(--subtle)' }}>{t.errors}</span> },
-          { label: 'Error rate', align: 'right', render: t => <Mono>{t.calls ? `${Math.round((t.errors / t.calls) * 100)}%` : '0%'}</Mono> },
-        ]} />
+      {sorted.length === 0 ? <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center' }}>No tool calls in this window.</div> : (
+        <div style={{ margin: '0 -16px -14px', borderTop: '1px solid var(--border)' }}>
+          {sorted.map((t, i) => {
+            const hasErr = t.errors > 0 && (t.errorGroups?.length ?? 0) > 0;
+            const expanded = open === t.name;
+            const last = i === sorted.length - 1;
+            return (
+              <div key={t.name} style={{ borderBottom: last && !expanded ? 'none' : '1px solid var(--border)' }}>
+                <div
+                  onClick={hasErr ? () => setOpen(expanded ? null : t.name) : undefined}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', cursor: hasErr ? 'pointer' : 'default' }}>
+                  {hasErr
+                    ? (expanded ? <ChevronDown size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} />)
+                    : <span style={{ width: 13, flexShrink: 0 }} />}
+                  <code style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</code>
+                  <span style={{ fontSize: 12.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', width: 70, textAlign: 'right' }}>{t.calls} calls</span>
+                  <span style={{ fontSize: 12.5, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', width: 90, textAlign: 'right', color: t.errors ? '#dc2626' : 'var(--subtle)' }}>
+                    {t.errors ? `${t.errors} err · ${Math.round((t.errors / t.calls) * 100)}%` : 'no errors'}
+                  </span>
+                </div>
+                {expanded && (
+                  <div style={{ padding: '2px 16px 12px 39px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {(t.errorGroups ?? []).map((g, gi) => (
+                      <div key={gi} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                        <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: '#dc2626', background: 'rgba(220,38,38,0.1)', borderRadius: 6, padding: '2px 7px', fontVariantNumeric: 'tabular-nums' }}>{g.count}×</span>
+                        <span style={{ flex: 1, fontSize: 12, color: 'var(--text-2)', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 }}>{g.message}</span>
+                        {g.sampleSessionId && (
+                          <Link href={`/activity/${encodeURIComponent(g.sampleSessionId)}`} onClick={e => e.stopPropagation()}
+                            style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none' }}>
+                            View session <ArrowRight size={11} />
+                          </Link>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
+  );
+}
+
+function FilterChip({ active, onClick, color, children }: { active: boolean; onClick: () => void; color?: string; children: React.ReactNode }): React.JSX.Element {
+  const c = color ?? 'var(--accent)';
+  return (
+    <button onClick={onClick} style={{
+      fontSize: 11.5, fontWeight: 500, padding: '4px 10px', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+      border: `1px solid ${active ? c : 'var(--border)'}`,
+      background: active ? `${color ? `${color}14` : 'var(--surface-2)'}` : 'var(--surface)',
+      color: active ? (color ?? 'var(--text)') : 'var(--muted)',
+    }}>{children}</button>
   );
 }
 
@@ -492,21 +541,36 @@ function Feedback({ r, scope }: { r: Rollup | null; scope: string }) {
 
 function Sessions({ sessions, agentName, isSuper }: { sessions: SessionRow[]; agentName: Map<string, string>; isSuper: boolean }) {
   const [q, setQ] = useState('');
+  const [stateFilter, setStateFilter] = useState<'all' | 'done' | 'error' | 'active'>('all');
+  const [sensOnly, setSensOnly] = useState(false);
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return sessions;
-    return sessions.filter(s =>
-      (s.summary ?? '').toLowerCase().includes(needle) ||
-      (s.initiatorHandle ?? '').toLowerCase().includes(needle) ||
-      s.agentIds.some(id => (agentName.get(id) ?? '').toLowerCase().includes(needle)));
-  }, [sessions, q, agentName]);
+    return sessions.filter(s => {
+      if (stateFilter !== 'all' && s.status !== stateFilter) return false;
+      if (sensOnly && !s.sensitive) return false;
+      if (needle && !(
+        (s.summary ?? '').toLowerCase().includes(needle) ||
+        (s.initiatorHandle ?? '').toLowerCase().includes(needle) ||
+        s.agentIds.some(id => (agentName.get(id) ?? '').toLowerCase().includes(needle)))) return false;
+      return true;
+    });
+  }, [sessions, q, stateFilter, sensOnly, agentName]);
   const names = (ids: string[]) => ids.map(id => agentName.get(id) ?? id).join(', ');
+  const errCount = sessions.filter(s => s.status === 'error').length;
+  const sensCount = sessions.filter(s => s.sensitive).length;
   return (
     <div style={card}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 13, fontWeight: 600 }}>Sessions</div>
+        {/* Filter chips — client-side over the loaded rows. */}
+        <div style={{ display: 'inline-flex', gap: 4, marginLeft: 6 }}>
+          {([['all', 'All'], ['done', 'OK'], ['error', `Errors${errCount ? ` ${errCount}` : ''}`], ['active', 'Running']] as const).map(([key, label]) => (
+            <FilterChip key={key} active={stateFilter === key} onClick={() => setStateFilter(key)}>{label}</FilterChip>
+          ))}
+          {sensCount > 0 && <FilterChip active={sensOnly} onClick={() => setSensOnly(v => !v)} color="#b45309">Sensitive {sensCount}</FilterChip>}
+        </div>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search sessions…" style={{
-          marginLeft: 'auto', width: 220, padding: '6px 10px', fontSize: 12.5, borderRadius: 8,
+          marginLeft: 'auto', width: 200, padding: '6px 10px', fontSize: 12.5, borderRadius: 8,
           border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)', fontFamily: 'var(--font-sans)',
         }} />
         <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{filtered.length}</span>
