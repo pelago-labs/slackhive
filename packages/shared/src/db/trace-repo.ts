@@ -713,9 +713,18 @@ export async function getSessionSummaries(filter: InsightsFilter = {}, limit = 1
               SUM(CASE WHEN mf.sentiment='up' THEN 1 ELSE 0 END) up,
               SUM(CASE WHEN mf.sentiment='down' THEN 1 ELSE 0 END) down
        FROM message_feedback mf JOIN activities a ON a.id = mf.activity_id
+       WHERE a.task_id IN (SELECT task_id FROM agg)
        GROUP BY a.task_id
      ),
-     sens AS ( SELECT DISTINCT session_id FROM spans WHERE sensitive = 1 )
+     -- Bounded to this page's scoped+windowed task set and scoped to the caller's
+     -- accessible agents (spans.agent_id), so the flag never reflects a sensitive
+     -- span the caller can't see and the scan isn't over all sensitive history.
+     sens AS (
+       SELECT DISTINCT session_id FROM spans
+        WHERE sensitive = 1
+          AND session_id IN (SELECT task_id FROM agg)
+          AND ${scope.clause}
+     )
      SELECT t.id, t.summary, t.initiator_handle, t.started_at, t.last_activity_at,
             agg.turns, agg.in_tok, agg.out_tok, agg.has_active, agg.has_error, agg.agent_ids,
             (sx.session_id IS NOT NULL) sensitive,

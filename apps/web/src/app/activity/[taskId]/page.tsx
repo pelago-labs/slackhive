@@ -48,7 +48,7 @@ function SensitiveMark({ cat, label, llm, children }: { cat: SensCategory; label
   const human = humanizeTag(label);
   const shown = revealed && canReveal;
   const onClick = (e: React.MouseEvent) => { e.stopPropagation(); if (canReveal) setRevealed(r => !r); };
-  const kindNote = llm ? `${CAT_LABEL[cat] ?? cat} · caught by LLM` : (CAT_LABEL[cat] ?? cat);
+  const kindNote = llm ? `${catLabel(cat)} · caught by LLM` : catLabel(cat);
   return (
     <mark
       onClick={onClick}
@@ -270,7 +270,17 @@ export default function TaskTracePage(): React.JSX.Element {
     ? indexedTurns
     : indexedTurns.filter(({ t }) => t.feedback.some(f => f.sentiment === fbFilter));
 
-  const agents = [...new Set(turns.map(t => ({ name: t.agentName, slug: t.agentSlug })).filter(a => a.name).map(a => JSON.stringify(a)))].map(s => JSON.parse(s) as { name: string; slug: string | null });
+  // Distinct (name, slug) agents for the Properties rail — memoized so the polling
+  // re-render doesn't redo the dedupe/allocation every cycle (was a JSON round-trip).
+  const agentsKey = turns.map(t => `${t.agentName}|${t.agentSlug}`).join(';');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- agentsKey is the value-stable proxy for `turns`
+  const agents = useMemo(() => {
+    const m = new Map<string, { name: string; slug: string | null }>();
+    for (const t of turns) {
+      if (t.agentName) m.set(`${t.agentName}|${t.agentSlug}`, { name: t.agentName, slug: t.agentSlug });
+    }
+    return [...m.values()];
+  }, [agentsKey]);
 
   return (
     <RevealCtx.Provider value={canReveal}>
@@ -778,6 +788,10 @@ function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmH
   const hitsKey = hits.map(h => `${h.text}${h.cat}${h.label}`).join('');
   // eslint-disable-next-line react-hooks/exhaustive-deps -- hitsKey is the value-stable proxy for `hits`
   const segments = useMemo(() => (sensitive && !markdown ? markSensitiveWith(text, scope, hits) : null), [sensitive, markdown, text, scope, hitsKey]);
+  // Memoize the markdown hit-expansion too: it does per-hit regex/token work AND feeds
+  // a context value, so a fresh array each render would re-render every Hl consumer.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hitsKey is the value-stable proxy for `hits`
+  const mdHits = useMemo(() => expandMarkdownHits(hits), [hitsKey]);
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard?.writeText(body).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {});
@@ -803,7 +817,7 @@ function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmH
                 excerpt like `*SGD 123,298.28* GMV` never matches the on-screen text as
                 one string. Feed both the whole cleaned excerpt AND each emphasis-run
                 as separate hits, so the value inside the bold/code still highlights. */}
-            <LlmHitsCtx.Provider value={expandMarkdownHits(hits)}>
+            <LlmHitsCtx.Provider value={mdHits}>
               <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{slackToMd(body)}</ReactMarkdown>
             </LlmHitsCtx.Provider>
           </SensCtx.Provider>

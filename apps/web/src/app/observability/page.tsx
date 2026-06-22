@@ -119,15 +119,16 @@ function Body(): React.JSX.Element {
     if (norm(next) !== norm(current)) router.replace(`/observability?${next}`, { scroll: false });
   }, [agentFilter, tab, windowKey, from, to, router, sp]);
 
-  const tabs: { key: TabKey; label: string; Icon: typeof ActivityIcon; superOnly?: boolean }[] = [
+  // All tabs are visible to anyone who can reach this page (editor+); token data is
+  // gated inside the Tokens tab via canTokens, and power-users via isSuper.
+  const tabs: { key: TabKey; label: string; Icon: typeof ActivityIcon }[] = [
     { key: 'overview', label: 'Overview', Icon: ActivityIcon },
     { key: 'tokens', label: 'Tokens & Cost', Icon: Coins },
     { key: 'sensitive', label: 'Sensitive', Icon: ShieldAlert },
     { key: 'tools', label: 'Tools', Icon: Wrench },
     { key: 'sessions', label: 'Sessions', Icon: Layers },
   ];
-  const visibleTabs = tabs.filter(t => !t.superOnly || isSuper);
-  const activeTab = visibleTabs.some(t => t.key === tab) ? tab : 'overview';
+  const activeTab = tabs.some(t => t.key === tab) ? tab : 'overview';
 
   return (
     <div style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }} className="fade-up">
@@ -151,7 +152,7 @@ function Body(): React.JSX.Element {
           </div>
           {/* Tabs */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
-            {visibleTabs.map(t => {
+            {tabs.map(t => {
               const on = t.key === activeTab;
               return (
                 <button key={t.key} onClick={() => setTab(t.key)} style={{
@@ -279,7 +280,7 @@ function relativeTime(when: string | number): string {
 
 interface Col<T> { label: string; align?: 'left' | 'right' | 'center'; width?: string; render: (row: T) => React.ReactNode }
 
-function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; rowHref?: (r: T) => string; empty: string }) {
+function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; rowHref?: (r: T) => string | undefined; empty: string }) {
   const router = useRouter();
   const [hover, setHover] = useState<number | null>(null);
   if (rows.length === 0) return <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center' }}>{empty}</div>;
@@ -464,7 +465,7 @@ function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }
       {flows.length > 0 && (
         <div style={card}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Exfiltration flows</div>
-          <Table<SensFlow> rows={flows} empty="" rowHref={f => `/activity/${encodeURIComponent(f.sessionId ?? '')}?span=${encodeURIComponent(f.sinkSpanId)}`}
+          <Table<SensFlow> rows={flows} empty="" rowHref={f => f.sessionId ? `/activity/${encodeURIComponent(f.sessionId)}?span=${encodeURIComponent(f.sinkSpanId)}` : undefined}
             cols={[
               { label: 'Severity', render: f => <SevBadge s={f.severity} /> },
               { label: 'Kind', render: f => <span style={{ fontWeight: 500 }}>{f.label}</span> },

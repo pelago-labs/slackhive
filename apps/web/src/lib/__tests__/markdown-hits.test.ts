@@ -62,11 +62,17 @@ describe('expandMarkdownHits', () => {
     expect(texts(out)).not.toContain('12');
   });
 
-  it('DOCUMENTED CAVEAT: an incidental >=4-digit token is registered and will match its every occurrence', () => {
-    // This is the over-masking trade-off (review finding): a year/id inside an excerpt
-    // becomes a standalone hit, so unrelated copies of that number also get masked.
-    const out = expandMarkdownHits([hit('Order 2024 placed in 2024')]);
-    expect(texts(out)).toContain('2024');
+  it('does NOT register an incidental bare year as a standalone hit (no over-masking)', () => {
+    // "2024" is 4 digits, no separator -> not value-like -> must not become a broad
+    // hit that would highlight every other "2024" on the page.
+    const out = expandMarkdownHits([hit('Order placed in 2024')]);
+    expect(texts(out)).not.toContain('2024');
+  });
+
+  it('registers value-like numbers: separators or length >= 6', () => {
+    expect(texts(expandMarkdownHits([hit('paid 1234.50 today')]))).toContain('1234.50'); // separator
+    expect(texts(expandMarkdownHits([hit('acct 12345678 closed')]))).toContain('12345678'); // long
+    expect(texts(expandMarkdownHits([hit('code 12345 sent')]))).not.toContain('12345'); // 5 digits, no sep -> excluded
   });
 
   it('returns [] for no hits', () => {

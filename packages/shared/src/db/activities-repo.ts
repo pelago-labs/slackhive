@@ -352,11 +352,14 @@ export async function listTasks(
     cteParams.push(filter.agentId);
   }
 
+  // Captured so the sensitive-span CTE below can reuse the SAME $N placeholders
+  // (translateParams maps each $N -> params[N-1] independently, so reuse is safe).
+  let accessAgentPlaceholders = '';
   if (filter.accessibleAgentIds !== undefined) {
-    const placeholders = filter.accessibleAgentIds
+    accessAgentPlaceholders = filter.accessibleAgentIds
       .map((_, i) => `$${cteParams.length + 1 + i}`)
       .join(', ');
-    cteWheres.push(`agent_id IN (${placeholders})`);
+    cteWheres.push(`agent_id IN (${accessAgentPlaceholders})`);
     cteParams.push(...filter.accessibleAgentIds);
   }
 
@@ -431,9 +434,16 @@ export async function listTasks(
        ${cteWhereSql}
        GROUP BY task_id
      ),
-     -- Sensitive sessions computed ONCE (not a correlated per-row EXISTS scan).
+     -- Sensitive sessions computed ONCE (not a correlated per-row EXISTS scan),
+     -- BOUNDED to this page's scoped+windowed task set (session_id IN agg) so it
+     -- never scans all sensitive spans in history, and SCOPED to the caller's
+     -- accessible agents so a sensitive span from an agent the caller can't see
+     -- (and won't be shown in the trace) doesn't light up the badge.
      sensitive_sessions AS (
-       SELECT DISTINCT session_id FROM spans WHERE sensitive = 1
+       SELECT DISTINCT session_id FROM spans
+        WHERE sensitive = 1
+          AND session_id IN (SELECT task_id FROM agg)
+          ${accessAgentPlaceholders ? `AND agent_id IN (${accessAgentPlaceholders})` : ''}
      )
      SELECT t.*,
             aa.agent_ids AS agent_ids,

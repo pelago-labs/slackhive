@@ -29,6 +29,7 @@ import {
   recordActivityUsage,
   getTokensByAgent,
   getTopUsers,
+  getSessionSummaries,
 } from '@slackhive/shared';
 
 let dbPath: string;
@@ -41,6 +42,15 @@ async function seedAgent(id = randomUUID()): Promise<string> {
     [id, `slug-${id.slice(0, 8)}`, 'Test Agent', null, null, 'claude-opus-4-7'],
   );
   return id;
+}
+
+/** Insert a flagged-sensitive span on a session, attributed to a given agent. */
+async function seedSensitiveSpan(sessionId: string, agentId: string | null): Promise<void> {
+  await getDb().query(
+    `INSERT INTO spans (span_id, trace_id, session_id, kind, name, agent_id, start_ms, sensitive)
+     VALUES ($1, $2, $3, 'tool', 'tool-call', $4, $5, 1)`,
+    [randomUUID(), randomUUID(), sessionId, agentId, 1000],
+  );
 }
 
 beforeEach(async () => {
@@ -298,6 +308,48 @@ describe('listTasks', () => {
     // Scoped to a1 only → agentIds must not reveal a2.
     const scoped = (await listTasks('recent', { accessibleAgentIds: [a1] }, 50)).tasks.filter(x => x.id === t);
     expect(scoped[0].agentIds).toEqual([a1]);
+  });
+
+  it('sensitive flag is scoped to the caller\'s accessible agents', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'sens-scope' });
+    // a1 (accessible) has the activity that puts the task on the page; the sensitive
+    // span belongs to a2 (out of an a1-only caller's scope) — and won't be shown in
+    // the trace either, so it must NOT light up the badge for that caller.
+    const act = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user' });
+    await finishActivity(act, 'done');
+    await seedSensitiveSpan(t, a2);
+
+    // Admin (no scope) sees the badge.
+    const admin = (await listTasks('recent', {}, 50)).tasks.find(x => x.id === t);
+    expect(admin?.sensitive).toBe(true);
+
+    // Editor scoped to a1: the only sensitive span is a2's → no badge.
+    const scopedA1 = (await listTasks('recent', { accessibleAgentIds: [a1] }, 50)).tasks.find(x => x.id === t);
+    expect(scopedA1?.sensitive).toBeFalsy();
+
+    // Once a1 itself produces a sensitive span, the a1-scoped caller sees the badge.
+    await seedSensitiveSpan(t, a1);
+    const scopedA1b = (await listTasks('recent', { accessibleAgentIds: [a1] }, 50)).tasks.find(x => x.id === t);
+    expect(scopedA1b?.sensitive).toBe(true);
+  });
+});
+
+describe('getSessionSummaries', () => {
+  it('sensitive flag is scoped to the caller\'s accessible agents', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'sum-sens', initiatorUserId: 'U1' });
+    const act = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+    await finishActivity(act, 'done');
+    await seedSensitiveSpan(t, a2); // out-of-scope agent's sensitive span
+
+    const admin = (await getSessionSummaries({})).find(s => s.sessionId === t);
+    expect(admin?.sensitive).toBe(true);
+
+    const scopedA1 = (await getSessionSummaries({ accessibleAgentIds: [a1] })).find(s => s.sessionId === t);
+    expect(scopedA1?.sensitive).toBe(false);
   });
 });
 
