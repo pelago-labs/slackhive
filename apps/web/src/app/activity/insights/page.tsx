@@ -118,7 +118,7 @@ function Body(): React.JSX.Element {
   const activeTab = visibleTabs.some(t => t.key === tab) ? tab : 'overview';
 
   return (
-    <div style={{ padding: '36px 40px', maxWidth: 1100, margin: '0 auto' }} className="fade-up">
+    <div style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }} className="fade-up">
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)' }}>
           {scope === 'session' ? 'Session insights' : scope === 'agent' ? `${agentName.get(agentFilter) ?? 'Agent'} insights` : 'LLMOps insights'}
