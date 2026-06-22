@@ -835,11 +835,11 @@ function SensitiveBadge({ categories, compact, llm }: { categories: string[]; co
   const title = llm ? `Sensitive (caught by the Smart LLM detector): ${cats}` : `Sensitive: ${cats}`;
   return (
     <span title={title} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4, padding: compact ? '1px 5px' : '2px 7px', borderRadius: 10,
-      background: 'rgba(217,119,6,0.12)', color: '#b45309', fontSize: 10, fontWeight: 600, letterSpacing: '0.02em',
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      color: '#b45309', fontSize: 10, fontWeight: 600, letterSpacing: '0.02em',
     }}>
       <span style={{ display: 'inline-flex', alignItems: 'flex-start' }}>
-        <ShieldAlert size={compact ? 11 : 12} />
+        <ShieldAlert size={compact ? 12 : 13} />
         {llm && <sup style={{ fontSize: 7, fontWeight: 700, lineHeight: 1, marginLeft: 0.5 }}>AI</sup>}
       </span>
       {compact ? null : 'Sensitive'}
