@@ -330,7 +330,6 @@ function TaskCard(props: {
   agentIds: string[];
 }): React.JSX.Element {
   const { task, agentById, agentIds } = props;
-  const initiatorLabel = task.initiatorHandle || task.initiatorUserId || 'unknown';
   // Card opens the Observability page scoped to this thread (+ its primary agent);
   // "Open full trace" there links on to the turn-by-turn view at /activity/[taskId].
   const primaryAgent = agentIds[0] ?? task.initialAgentId;
@@ -351,11 +350,9 @@ function TaskCard(props: {
       onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-hover)'; el.style.borderColor = 'var(--border-2)'; }}
       onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-sm)'; el.style.borderColor = 'var(--border)'; }}
     >
-      {/* Top row: handling agent + flags + time */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        {primaryAgentName && (
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{primaryAgentName}</span>
-        )}
+      {/* Top row: ref code + sensitive flag + time */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+        <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--subtle)', fontFamily: 'var(--font-mono, monospace)', letterSpacing: '0.02em' }}>{shortRef(task.id)}</span>
         {task.sensitive && (
           <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
         )}
@@ -364,23 +361,43 @@ function TaskCard(props: {
 
       {/* Title — up to two lines, like a Linear issue */}
       <div style={{
-        fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.35,
+        fontSize: 13.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, letterSpacing: '-0.005em',
         display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
       }}>
         {task.summary || '(empty message)'}
       </div>
 
-      {/* Bottom row: avatars + initiator + turns/feedback */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+      {/* Footer: avatars (assignee) + meta chips */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 11 }}>
         {agentIds.length > 0 && <AvatarStack agentIds={agentIds} agentById={agentById} />}
-        <span style={{ fontSize: 11, color: 'var(--subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{initiatorLabel}</span>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {!!task.feedbackUp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#16a34a' }}><ThumbsUp size={11} />{task.feedbackUp}</span>}
-          {!!task.feedbackDown && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#dc2626' }}><ThumbsDown size={11} />{task.feedbackDown}</span>}
-          <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</span>
+        {primaryAgentName && (
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{primaryAgentName}</span>
+        )}
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
+          {!!task.feedbackDown && <Chip color="#dc2626"><ThumbsDown size={10} />{task.feedbackDown}</Chip>}
+          <Chip>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</Chip>
         </span>
       </div>
     </Link>
+  );
+}
+
+/** Linear-style short, stable, human-readable ref from the (ugly) task id. Cosmetic. */
+function shortRef(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
+  return 'T-' + h.toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
+}
+
+/** Small rounded meta chip (Linear-style badge). */
+function Chip({ children, color }: { children: React.ReactNode; color?: string }): React.JSX.Element {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 500,
+      color: color ?? 'var(--muted)', background: color ? `${color}14` : 'var(--surface-2)',
+      border: `1px solid ${color ? `${color}33` : 'var(--border)'}`, borderRadius: 6, padding: '1px 7px',
+    }}>{children}</span>
   );
 }
 
