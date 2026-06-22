@@ -829,17 +829,20 @@ function FbChip({ label, icon, active, color, onClick }: { label: string; icon?:
 }
 
 function SensitiveBadge({ categories, compact, llm }: { categories: string[]; compact?: boolean; llm?: boolean }): React.JSX.Element {
-  // When the Smart (LLM) detector caught it, the icon itself signals that (Brain)
-  // — same amber sensitive color, no separate "LLM" pill, no purple.
+  // Keep the shield as the sensitive icon; when the Smart (LLM) detector caught it,
+  // mark it with a small "AI" superscript (same amber color — no purple, no pill).
   const cats = categories.length ? categories.join(', ') : 'data touched';
   const title = llm ? `Sensitive (caught by the Smart LLM detector): ${cats}` : `Sensitive: ${cats}`;
-  const Icon = llm ? Brain : ShieldAlert;
   return (
     <span title={title} style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, padding: compact ? '1px 5px' : '2px 7px', borderRadius: 10,
       background: 'rgba(217,119,6,0.12)', color: '#b45309', fontSize: 10, fontWeight: 600, letterSpacing: '0.02em',
     }}>
-      <Icon size={compact ? 11 : 12} />{compact ? null : 'Sensitive'}
+      <span style={{ display: 'inline-flex', alignItems: 'flex-start' }}>
+        <ShieldAlert size={compact ? 11 : 12} />
+        {llm && <sup style={{ fontSize: 7, fontWeight: 700, lineHeight: 1, marginLeft: 0.5 }}>AI</sup>}
+      </span>
+      {compact ? null : 'Sensitive'}
     </span>
   );
 }

@@ -12,7 +12,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ShieldAlert, Database, KeyRound, UserRound, FileWarning, ExternalLink, ArrowLeft, ArrowRight, Brain } from 'lucide-react';
+import { ShieldAlert, Database, KeyRound, UserRound, FileWarning, ExternalLink, ArrowLeft, ArrowRight } from 'lucide-react';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../_components/FilterRow';
 import { humanizeTag } from '@slackhive/shared';
 
@@ -47,7 +47,7 @@ function SeverityBadge({ severity }: { severity: Severity }): React.JSX.Element 
 /** Marks a finding the Smart (LLM) detector caught, not regex — a Brain icon in the
  *  sensitive amber color (no purple, no extra text pill). */
 function CaughtByLlmBadge(): React.JSX.Element {
-  return <span title="Caught by the Smart (LLM) detector — regex did not match this" style={{ display: 'inline-flex', flexShrink: 0, color: '#b45309' }}><Brain size={13} /></span>;
+  return <span title="Caught by the Smart (LLM) detector — regex did not match this" style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', color: '#b45309' }}>AI</span>;
 }
 
 /** Parse the reason string into specific chips; fall back to the broad categories. */
