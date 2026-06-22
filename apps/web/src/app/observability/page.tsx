@@ -122,7 +122,6 @@ function Body(): React.JSX.Element {
     { key: 'tokens', label: 'Tokens & Cost', Icon: Coins, superOnly: true },
     { key: 'sensitive', label: 'Sensitive', Icon: ShieldAlert },
     { key: 'tools', label: 'Tools', Icon: Wrench },
-    { key: 'feedback', label: 'Feedback', Icon: ThumbsUp },
     { key: 'sessions', label: 'Sessions', Icon: Layers },
   ];
   const visibleTabs = tabs.filter(t => !t.superOnly || isSuper);
@@ -168,7 +167,6 @@ function Body(): React.JSX.Element {
             : activeTab === 'tokens' ? <Tokens data={data} agentName={agentName} isSuper={isSuper} />
             : activeTab === 'sensitive' ? <Sensitive events={data.events ?? []} flows={data.flows ?? []} />
             : activeTab === 'tools' ? <Tools tools={data.tools ?? []} />
-            : activeTab === 'feedback' ? <Feedback r={data.rollup} scope={scope} />
             : <Sessions sessions={data.sessions ?? []} agentName={agentName} isSuper={isSuper} />}
         </>
       )}
@@ -204,6 +202,60 @@ function Bars({ rows, max }: { rows: { label: string; value: number; sub: string
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{r.sub}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Stacked tokens-per-day bar chart (input lighter, output darker) with a hover
+ *  tooltip showing the date + in/out counts, and first/last date labels on the axis. */
+function TokensChart({ data }: { data: { date: string; input: number; output: number }[] }): React.JSX.Element {
+  const [hover, setHover] = useState<number | null>(null);
+  const max = Math.max(1, ...data.map(d => d.input + d.output));
+  const h = hover != null ? data[hover] : null;
+  const fmtDay = (iso: string) => {
+    const [, m, day] = iso.split('-');
+    return m && day ? `${['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m)]} ${Number(day)}` : iso;
+  };
+  return (
+    <div>
+      {/* Tooltip line — reserves height so the chart doesn't jump on hover. */}
+      <div style={{ height: 18, marginBottom: 6, fontSize: 12, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        {h ? (
+          <>
+            <span style={{ fontWeight: 600 }}>{fmtDay(h.date)}</span>
+            <span style={{ color: 'var(--muted)' }}>{formatTokens(h.input + h.output)} total</span>
+            <span style={{ color: 'var(--subtle)' }}>· {formatTokens(h.input)} in · {formatTokens(h.output)} out</span>
+          </>
+        ) : <span style={{ color: 'var(--subtle)', fontSize: 11.5 }}>Hover a day for details</span>}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 80 }} onMouseLeave={() => setHover(null)}>
+        {data.map((d, i) => {
+          const total = d.input + d.output;
+          const on = hover === i;
+          return (
+            <div key={d.date} onMouseEnter={() => setHover(i)}
+              style={{ flex: 1, minWidth: 3, height: '100%', display: 'flex', alignItems: 'flex-end', cursor: 'default' }}>
+              <div style={{
+                width: '100%', height: `${Math.max(2, (total / max) * 100)}%`,
+                display: 'flex', flexDirection: 'column', borderRadius: 3, overflow: 'hidden',
+                opacity: hover === null || on ? 1 : 0.45, transition: 'opacity 0.1s',
+              }}>
+                <div style={{ height: `${total ? (d.output / total) * 100 : 0}%`, background: 'var(--accent-2, #404040)' }} />
+                <div style={{ height: `${total ? (d.input / total) * 100 : 0}%`, background: 'var(--muted)' }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Axis: first → last date + legend. */}
+      <div style={{ display: 'flex', alignItems: 'center', marginTop: 6, fontSize: 10.5, color: 'var(--subtle)' }}>
+        <span>{fmtDay(data[0].date)}</span>
+        <span style={{ marginLeft: 'auto', marginRight: 'auto', display: 'inline-flex', gap: 12 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--muted)' }} /> in</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--accent-2, #404040)' }} /> out</span>
+        </span>
+        <span>{fmtDay(data[data.length - 1].date)}</span>
+      </div>
     </div>
   );
 }
@@ -286,11 +338,8 @@ function truncate(str: string, n: number): string { return str.length > n ? str.
 function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse; agentName: Map<string, string>; isSuper: boolean; onTab: (t: TabKey) => void }) {
   const r = data.rollup;
   if (!r) return <Muted>No activity in this window.</Muted>;
-  const up = r.feedbackUp ?? 0, down = r.feedbackDown ?? 0;
-  const sat = up + down > 0 ? Math.round((up / (up + down)) * 100) : null;
   const topTools = r.topTools ?? [];
   const tokDays = r.tokensByDay ?? [];
-  const maxDay = Math.max(1, ...tokDays.map(d => d.input + d.output));
   const sessions = (data.sessions ?? []).slice(0, 6);
   const events = [...(data.events ?? [])].sort((a, b) => b.startMs - a.startMs).slice(0, 6);
   const sectionTitle = (label: string, t?: TabKey): React.ReactNode => (
@@ -308,7 +357,6 @@ function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse;
         <Kpi label="Latency p50/p95" value={fmtMs(r.p50DurationMs)} sub={`p95 ${fmtMs(r.p95DurationMs)}`} />
         <Kpi label="Tool calls" value={String(r.toolCalls)} />
         <Kpi label="Sensitive" value={String(r.sensitiveEvents ?? 0)} sub="flagged events" />
-        <Kpi label="Satisfaction" value={sat === null ? '—' : `${sat}%`} sub={`${up}↑ ${down}↓`} />
         {isSuper && <Kpi label="Tokens" value={formatTokens(r.totalTokens)} sub={`${formatTokens(r.inputTokens)} in · ${formatTokens(r.outputTokens)} out`} />}
       </div>
 
@@ -316,24 +364,11 @@ function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse;
       {isSuper && tokDays.length > 1 && (
         <div style={card}>
           {sectionTitle('Tokens per day')}
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 64 }}>
-            {tokDays.map(d => {
-              const total = d.input + d.output;
-              return (
-                <div key={d.date} title={`${d.date}: ${formatTokens(d.input)} in · ${formatTokens(d.output)} out`}
-                  style={{ flex: 1, minWidth: 4, height: '100%', display: 'flex', alignItems: 'flex-end' }}>
-                  <div style={{ width: '100%', height: `${Math.max(3, (total / maxDay) * 100)}%`, display: 'flex', flexDirection: 'column', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ height: `${total ? (d.output / total) * 100 : 0}%`, background: 'var(--text-2)' }} />
-                    <div style={{ height: `${total ? (d.input / total) * 100 : 0}%`, background: 'var(--muted)' }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <TokensChart data={tokDays} />
         </div>
       )}
 
-      {/* Two-up: models + top tools */}
+      {/* Models + top tools + satisfaction */}
       <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
         {r.models.length > 0 && (
           <div style={card}>
@@ -349,6 +384,7 @@ function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse;
               rows={topTools.slice(0, 6).map(t => ({ label: t.name, value: t.count, sub: `${t.count}${t.errors ? ` · ${t.errors} err` : ''}` }))} />
           </div>
         )}
+        <FeedbackCard r={r} scope={data.scope} />
       </div>
 
       {/* Recent sessions */}
@@ -518,25 +554,34 @@ function FilterChip({ active, onClick, color, children }: { active: boolean; onC
 function Mono({ children }: { children: React.ReactNode }) { return <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{children}</span>; }
 function Subtle({ children }: { children: React.ReactNode }) { return <span style={{ color: 'var(--subtle)' }}>{children}</span>; }
 
-function Feedback({ r, scope }: { r: Rollup | null; scope: string }) {
-  if (!r) return <Muted>No feedback in this window.</Muted>;
-  const up = r.feedbackUp ?? 0, down = r.feedbackDown ?? 0;
+/** Satisfaction card (rendered on the Overview): big %, a green/red split bar,
+ *  up/down counts, and a contextual note. Returns null when there are no ratings. */
+function FeedbackCard({ r, scope }: { r: Rollup | null; scope: string }): React.JSX.Element | null {
+  const up = r?.feedbackUp ?? 0, down = r?.feedbackDown ?? 0;
   const total = up + down;
-  const pct = total ? Math.round((up / total) * 100) : null;
+  if (total === 0) return null;
+  const pct = Math.round((up / total) * 100);
+  const tone = pct >= 80 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+  const label = pct >= 80 ? 'Great' : pct >= 50 ? 'Mixed' : 'Poor';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={card}>
-        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)' }}>Satisfaction</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
-          <span style={{ fontSize: 32, fontWeight: 700, color: 'var(--text)' }}>{pct === null ? '—' : `${pct}%`}</span>
-          <span style={{ display: 'inline-flex', gap: 14, fontSize: 13, color: 'var(--muted)' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsUp size={14} style={{ color: '#16a34a' }} /> {up}</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsDown size={14} style={{ color: '#dc2626' }} /> {down}</span>
-          </span>
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 8 }}>
-          {scope === 'all' ? 'Select a single agent to see individual ratings.' : 'Lifetime ratings for this agent.'}
-        </div>
+    <div style={card}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Satisfaction</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--subtle)' }}>{total} rating{total === 1 ? '' : 's'}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', color: tone, lineHeight: 1 }}>{pct}%</span>
+        <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{label}</span>
+      </div>
+      {/* green / red split bar */}
+      <div style={{ display: 'flex', height: 6, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', marginTop: 12 }}>
+        <div style={{ width: `${pct}%`, background: '#16a34a' }} />
+        <div style={{ width: `${100 - pct}%`, background: '#dc2626', opacity: 0.55 }} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsUp size={13} style={{ color: '#16a34a' }} /> {up}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsDown size={13} style={{ color: '#dc2626' }} /> {down}</span>
+        {scope === 'all' && <span style={{ marginLeft: 'auto', color: 'var(--subtle)', fontSize: 11.5 }}>Pick an agent for individual ratings</span>}
       </div>
     </div>
   );
