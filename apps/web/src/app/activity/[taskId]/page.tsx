@@ -92,6 +92,14 @@ function expandMarkdownHits(hits: ExtraMark[]): ExtraMark[] {
   for (const h of hits) {
     add(h, h.text);
     for (const run of h.text.match(/\*([^*]+)\*|_([^_]+)_|~([^~]+)~|`([^`]+)`/g) ?? []) add(h, run);
+    // A table renders a flagged number in its own cell, away from the surrounding
+    // words of the excerpt ("SGD 123,298.28 GMV" -> cell "123,298.28"), so the full
+    // excerpt won't match there. Add each digit-bearing token (len >= 4) on its own;
+    // it only ever masks that exact value, never unrelated numbers.
+    for (const tok of h.text.replace(/[*_~`]/g, ' ').split(/\s+/)) {
+      const t = tok.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
+      if (t.length >= 4 && /\d/.test(t)) add(h, t);
+    }
   }
   return out;
 }
