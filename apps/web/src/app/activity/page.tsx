@@ -330,12 +330,10 @@ function TaskCard(props: {
   agentIds: string[];
 }): React.JSX.Element {
   const { task, agentById, agentIds } = props;
-  // Card opens the Observability page scoped to this thread (+ its primary agent);
-  // "Open full trace" there links on to the turn-by-turn view at /activity/[taskId].
+  // Card opens the full turn-by-turn trace for this thread.
   const primaryAgent = agentIds[0] ?? task.initialAgentId;
   const primaryAgentName = primaryAgent ? agentById.get(primaryAgent)?.name : undefined;
-  const href = `/observability?session=${encodeURIComponent(task.id)}`
-    + (primaryAgent ? `&agent=${encodeURIComponent(primaryAgent)}` : '');
+  const href = `/activity/${encodeURIComponent(task.id)}`;
 
   return (
     <Link

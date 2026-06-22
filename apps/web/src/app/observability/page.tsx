@@ -21,13 +21,20 @@ import { formatTokens } from '../activity/_components/formatTokens';
 interface AgentLite { id: string; slug: string; name: string }
 type Severity = 'critical' | 'high' | 'medium' | 'low';
 
+// Superset of the all-agents InsightsRollup AND the single-session SessionRollup.
+// Session scope omits sessions/errorTurns/feedback/sensitiveEvents/tokensByDay/topTools
+// and instead carries errorCount — hence the optional fields.
 interface Rollup {
-  sessions: number; turns: number; toolCalls: number; generations: number; errorTurns: number;
+  turns: number; toolCalls: number; generations: number;
   inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number;
-  p50DurationMs: number; p95DurationMs: number; feedbackUp: number; feedbackDown: number; sensitiveEvents: number;
-  tokensByDay: { date: string; input: number; output: number }[];
-  topTools: { name: string; count: number; errors: number }[];
+  p50DurationMs: number; p95DurationMs: number;
   models: { model: string; turns: number; tokens: number }[];
+  // all-agents (InsightsRollup) only:
+  sessions?: number; errorTurns?: number; feedbackUp?: number; feedbackDown?: number; sensitiveEvents?: number;
+  tokensByDay?: { date: string; input: number; output: number }[];
+  topTools?: { name: string; count: number; errors: number }[];
+  // single-session (SessionRollup) only:
+  errorCount?: number;
 }
 interface AgentTokens { agentId: string; inputTokens: number; outputTokens: number; turnCount: number }
 interface PowerUser { userId: string; handle: string | null; taskCount: number; turnCount: number; totalTokens: number }
@@ -65,7 +72,6 @@ function Body(): React.JSX.Element {
   const { role } = useAuth();
   const isSuper = role === 'superadmin';
 
-  const sessionId = sp?.get('session') ?? '';
   const [agents, setAgents] = useState<AgentLite[]>([]);
   const [agentFilter, setAgentFilter] = useState(sp?.get('agent') ?? '');
   const [from, setFrom] = useState(sp?.get('from') ?? '');
@@ -79,20 +85,19 @@ function Body(): React.JSX.Element {
   useEffect(() => { fetch('/api/agents').then(r => r.json()).then(setAgents).catch(() => {}); }, []);
   const agentName = useMemo(() => new Map(agents.map(a => [a.id, a.name])), [agents]);
 
-  const scope: 'all' | 'agent' | 'session' = sessionId ? 'session' : agentFilter ? 'agent' : 'all';
+  const scope: 'all' | 'agent' = agentFilter ? 'agent' : 'all';
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const qs = new URLSearchParams({ scope, ...timeParams(windowKey, from, to) });
-      if (sessionId) qs.set('session', sessionId);
-      else if (agentFilter) qs.set('agent', agentFilter);
+      if (agentFilter) qs.set('agent', agentFilter);
       const r = await fetch(`/api/activity/insights?${qs}`);
       if (r.status === 403) { setError('You do not have access to this view.'); setData(null); return; }
       if (!r.ok) { setError('Failed to load insights.'); setData(null); return; }
       setData(await r.json()); setError(null);
     } catch { setError('Failed to load insights.'); } finally { setLoading(false); }
-  }, [scope, sessionId, agentFilter, windowKey, from, to]);
+  }, [scope, agentFilter, windowKey, from, to]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -101,8 +106,7 @@ function Body(): React.JSX.Element {
   // /activity/insights would hit its redirect stub and loop forever.
   useEffect(() => {
     const qs = new URLSearchParams();
-    if (sessionId) qs.set('session', sessionId);
-    else if (agentFilter) qs.set('agent', agentFilter);
+    if (agentFilter) qs.set('agent', agentFilter);
     qs.set('tab', tab);
     if (windowKey !== 'custom') qs.set('window', windowKey); else { if (from) qs.set('from', from); if (to) qs.set('to', to); }
     const next = qs.toString();
@@ -110,7 +114,7 @@ function Body(): React.JSX.Element {
     // Compare as sorted sets so param order alone never triggers a navigation.
     const norm = (s: string) => s.split('&').sort().join('&');
     if (norm(next) !== norm(current)) router.replace(`/observability?${next}`, { scroll: false });
-  }, [sessionId, agentFilter, tab, windowKey, from, to, router, sp]);
+  }, [agentFilter, tab, windowKey, from, to, router, sp]);
 
   const tabs: { key: TabKey; label: string; Icon: typeof ActivityIcon; superOnly?: boolean }[] = [
     { key: 'overview', label: 'Overview', Icon: ActivityIcon },
@@ -120,24 +124,21 @@ function Body(): React.JSX.Element {
     { key: 'feedback', label: 'Feedback', Icon: ThumbsUp },
     { key: 'sessions', label: 'Sessions', Icon: Layers },
   ];
-  const visibleTabs = tabs.filter(t => !t.superOnly || isSuper).filter(t => scope !== 'session' || t.key === 'overview');
+  const visibleTabs = tabs.filter(t => !t.superOnly || isSuper);
   const activeTab = visibleTabs.some(t => t.key === tab) ? tab : 'overview';
 
   return (
     <div style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }} className="fade-up">
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+      <div style={{ marginBottom: 4 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)' }}>
-          {scope === 'session' ? 'Session insights' : scope === 'agent' ? `${agentName.get(agentFilter) ?? 'Agent'} insights` : 'LLMOps insights'}
+          {scope === 'agent' ? `Observability · ${agentName.get(agentFilter) ?? 'Agent'}` : 'Observability'}
         </h1>
-        <Link href="/activity" style={{ fontSize: 12.5, color: 'var(--muted)', textDecoration: 'none' }}>← Activity</Link>
       </div>
       <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-        {scope === 'session' ? 'Analytics for one thread.' : 'Tokens, cost, sensitive data, tools, feedback and sessions across your agents.'}
+        Tokens, cost, sensitive data, tools, feedback and sessions across your agents.
       </div>
 
-      {scope === 'session' ? (
-        <SessionView data={data} loading={loading} error={error} sessionId={sessionId} isSuper={isSuper} />
-      ) : (
+      {(
         <>
           <FilterRow
             agents={agents} agentFilter={agentFilter} windowKey={windowKey}
@@ -162,7 +163,7 @@ function Body(): React.JSX.Element {
           {loading && !data ? <Muted>Loading…</Muted>
             : error ? <Muted>{error}</Muted>
             : !data ? <Muted>No data.</Muted>
-            : activeTab === 'overview' ? <Overview r={data.rollup} isSuper={isSuper} />
+            : activeTab === 'overview' ? <Overview data={data} agentName={agentName} isSuper={isSuper} onTab={setTab} />
             : activeTab === 'tokens' ? <Tokens data={data} agentName={agentName} isSuper={isSuper} />
             : activeTab === 'sensitive' ? <Sensitive events={data.events ?? []} flows={data.flows ?? []} />
             : activeTab === 'tools' ? <Tools tools={data.tools ?? []} />
@@ -268,26 +269,101 @@ function SevBadge({ s }: { s: Severity }) {
 
 function truncate(str: string, n: number): string { return str.length > n ? str.slice(0, n - 1) + '…' : str; }
 
-function Overview({ r, isSuper }: { r: Rollup | null; isSuper: boolean }) {
+function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse; agentName: Map<string, string>; isSuper: boolean; onTab: (t: TabKey) => void }) {
+  const r = data.rollup;
   if (!r) return <Muted>No activity in this window.</Muted>;
-  const sat = r.feedbackUp + r.feedbackDown > 0 ? Math.round((r.feedbackUp / (r.feedbackUp + r.feedbackDown)) * 100) : null;
+  const up = r.feedbackUp ?? 0, down = r.feedbackDown ?? 0;
+  const sat = up + down > 0 ? Math.round((up / (up + down)) * 100) : null;
+  const topTools = r.topTools ?? [];
+  const tokDays = r.tokensByDay ?? [];
+  const maxDay = Math.max(1, ...tokDays.map(d => d.input + d.output));
+  const sessions = (data.sessions ?? []).slice(0, 6);
+  const events = [...(data.events ?? [])].sort((a, b) => b.startMs - a.startMs).slice(0, 6);
+  const sectionTitle = (label: string, t?: TabKey): React.ReactNode => (
+    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+      <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
+      {t && <button onClick={() => onTab(t)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11.5, fontFamily: 'var(--font-sans)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>View all <ArrowRight size={11} /></button>}
+    </div>
+  );
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <Kpi label="Sessions" value={String(r.sessions)} sub={`${r.turns} turns`} />
-        <Kpi label="Errors" value={String(r.errorTurns)} sub={r.turns ? `${Math.round((r.errorTurns / r.turns) * 100)}% of turns` : '—'} />
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+        <Kpi label="Sessions" value={String(r.sessions ?? 0)} sub={`${r.turns} turns`} />
+        <Kpi label="Errors" value={String(r.errorTurns ?? 0)} sub={r.turns ? `${Math.round(((r.errorTurns ?? 0) / r.turns) * 100)}% of turns` : '—'} />
         <Kpi label="Latency p50/p95" value={fmtMs(r.p50DurationMs)} sub={`p95 ${fmtMs(r.p95DurationMs)}`} />
         <Kpi label="Tool calls" value={String(r.toolCalls)} />
-        <Kpi label="Sensitive" value={String(r.sensitiveEvents)} sub="flagged events" />
-        <Kpi label="Satisfaction" value={sat === null ? '—' : `${sat}%`} sub={`${r.feedbackUp}↑ ${r.feedbackDown}↓`} />
+        <Kpi label="Sensitive" value={String(r.sensitiveEvents ?? 0)} sub="flagged events" />
+        <Kpi label="Satisfaction" value={sat === null ? '—' : `${sat}%`} sub={`${up}↑ ${down}↓`} />
         {isSuper && <Kpi label="Tokens" value={formatTokens(r.totalTokens)} sub={`${formatTokens(r.inputTokens)} in · ${formatTokens(r.outputTokens)} out`} />}
         {isSuper && <Kpi label="Cost" value={fmtCost(r.costUsd)} sub="traced turns" />}
       </div>
-      {r.models.length > 0 && (
+
+      {/* Tokens per day (superadmin) */}
+      {isSuper && tokDays.length > 1 && (
         <div style={card}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>By model</div>
-          <Bars max={Math.max(...r.models.map(m => isSuper ? m.tokens : m.turns))}
-            rows={r.models.map(m => ({ label: m.model, value: isSuper ? m.tokens : m.turns, sub: isSuper ? `${formatTokens(m.tokens)} tok · ${m.turns} turns` : `${m.turns} turns` }))} />
+          {sectionTitle('Tokens per day')}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 64 }}>
+            {tokDays.map(d => {
+              const total = d.input + d.output;
+              return (
+                <div key={d.date} title={`${d.date}: ${formatTokens(d.input)} in · ${formatTokens(d.output)} out`}
+                  style={{ flex: 1, minWidth: 4, height: '100%', display: 'flex', alignItems: 'flex-end' }}>
+                  <div style={{ width: '100%', height: `${Math.max(3, (total / maxDay) * 100)}%`, display: 'flex', flexDirection: 'column', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: `${total ? (d.output / total) * 100 : 0}%`, background: 'var(--text-2)' }} />
+                    <div style={{ height: `${total ? (d.input / total) * 100 : 0}%`, background: 'var(--muted)' }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Two-up: models + top tools */}
+      <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+        {r.models.length > 0 && (
+          <div style={card}>
+            {sectionTitle('By model')}
+            <Bars max={Math.max(1, ...r.models.map(m => isSuper ? m.tokens : m.turns))}
+              rows={r.models.map(m => ({ label: m.model, value: isSuper ? m.tokens : m.turns, sub: isSuper ? `${formatTokens(m.tokens)} tok` : `${m.turns} turns` }))} />
+          </div>
+        )}
+        {topTools.length > 0 && (
+          <div style={card}>
+            {sectionTitle('Top tools', 'tools')}
+            <Bars max={Math.max(1, ...topTools.map(t => t.count))}
+              rows={topTools.slice(0, 6).map(t => ({ label: t.name, value: t.count, sub: `${t.count}${t.errors ? ` · ${t.errors} err` : ''}` }))} />
+          </div>
+        )}
+      </div>
+
+      {/* Recent sessions */}
+      {sessions.length > 0 && (
+        <div style={card}>
+          {sectionTitle('Recent sessions', 'sessions')}
+          <Table<SessionRow> rows={sessions} empty="" rowHref={s => `/activity/${encodeURIComponent(s.sessionId)}`}
+            cols={[
+              { label: 'Request', render: s => <span title={s.summary ?? ''}>{truncate(s.summary || '(no summary)', 64)}</span> },
+              { label: 'Agent', render: s => <Subtle>{truncate(s.agentIds.map(id => agentName.get(id) ?? id).join(', ') || '—', 24)}</Subtle> },
+              { label: 'Turns', align: 'right', render: s => <Mono>{s.turns}</Mono> },
+              { label: 'State', render: s => <StatePill status={s.status} /> },
+              { label: 'Updated', align: 'right', render: s => <Subtle>{relativeTime(s.lastActivityAt)}</Subtle> },
+            ]} />
+        </div>
+      )}
+
+      {/* Recent sensitive activity */}
+      {events.length > 0 && (
+        <div style={card}>
+          {sectionTitle('Recent sensitive activity', 'sensitive')}
+          <Table<SensEvent> rows={events} empty="" rowHref={e => `/activity/${encodeURIComponent(e.sessionId)}?span=${encodeURIComponent(e.spanId)}`}
+            cols={[
+              { label: 'Severity', render: e => e.severity ? <SevBadge s={e.severity} /> : <Subtle>—</Subtle> },
+              { label: 'Type', render: e => <Mono>{e.reason ?? ''}</Mono> },
+              { label: 'Where', render: e => <code style={{ fontSize: 12, fontWeight: 600 }}>{e.toolName ?? 'response'}</code> },
+              { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(new Date(e.startMs).toISOString())}</Subtle> },
+            ]} />
         </div>
       )}
     </div>
@@ -380,8 +456,9 @@ function Subtle({ children }: { children: React.ReactNode }) { return <span styl
 
 function Feedback({ r, scope }: { r: Rollup | null; scope: string }) {
   if (!r) return <Muted>No feedback in this window.</Muted>;
-  const total = r.feedbackUp + r.feedbackDown;
-  const pct = total ? Math.round((r.feedbackUp / total) * 100) : null;
+  const up = r.feedbackUp ?? 0, down = r.feedbackDown ?? 0;
+  const total = up + down;
+  const pct = total ? Math.round((up / total) * 100) : null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={card}>
@@ -389,8 +466,8 @@ function Feedback({ r, scope }: { r: Rollup | null; scope: string }) {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
           <span style={{ fontSize: 32, fontWeight: 700, color: 'var(--text)' }}>{pct === null ? '—' : `${pct}%`}</span>
           <span style={{ display: 'inline-flex', gap: 14, fontSize: 13, color: 'var(--muted)' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsUp size={14} style={{ color: '#16a34a' }} /> {r.feedbackUp}</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsDown size={14} style={{ color: '#dc2626' }} /> {r.feedbackDown}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsUp size={14} style={{ color: '#16a34a' }} /> {up}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsDown size={14} style={{ color: '#dc2626' }} /> {down}</span>
           </span>
         </div>
         <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 8 }}>
@@ -437,24 +514,6 @@ function Sessions({ sessions, agentName, isSuper }: { sessions: SessionRow[]; ag
           { label: 'Feedback', render: s => <FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /> },
           { label: 'Updated', align: 'right', render: s => <Subtle>{relativeTime(s.lastActivityAt)}</Subtle> },
         ]} />
-    </div>
-  );
-}
-
-function SessionView({ data, loading, error, sessionId, isSuper }: { data: InsightsResponse | null; loading: boolean; error: string | null; sessionId: string; isSuper: boolean }) {
-  if (loading && !data) return <Muted>Loading…</Muted>;
-  if (error) return <Muted>{error}</Muted>;
-  if (!data?.rollup) return <Muted>No data for this session.</Muted>;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <Overview r={data.rollup} isSuper={isSuper} />
-      {(data.flows?.length ?? 0) > 0 && <Sensitive events={[]} flows={data.flows ?? []} />}
-      <div>
-        <Link href={`/activity/${encodeURIComponent(sessionId)}`} style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8,
-          background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 600, textDecoration: 'none',
-        }}>Open full trace <ArrowRight size={14} /></Link>
-      </div>
     </div>
   );
 }
