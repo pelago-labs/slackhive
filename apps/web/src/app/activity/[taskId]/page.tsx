@@ -796,7 +796,10 @@ function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmH
       {markdown ? (
         <div style={{ ...shell, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
           <SensCtx.Provider value={sensitive ? scope : null}>
-            <LlmHitsCtx.Provider value={hits}>
+            {/* Markdown rendering strips Slack emphasis (*bold*, _italic_, ~strike~,
+                `code`), so an LLM excerpt captured with that markup won't match the
+                on-screen text. Strip it from the excerpts before matching. */}
+            <LlmHitsCtx.Provider value={hits.map(h => ({ ...h, text: h.text.replace(/[*_~`]/g, '').trim() })).filter(h => h.text)}>
               <ReactMarkdown components={MD} remarkPlugins={[remarkGfm]}>{slackToMd(body)}</ReactMarkdown>
             </LlmHitsCtx.Provider>
           </SensCtx.Provider>
