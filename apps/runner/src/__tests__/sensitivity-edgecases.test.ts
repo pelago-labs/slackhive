@@ -74,12 +74,15 @@ describe('gcp service account', () => {
   });
 });
 
-describe('high-entropy secret — entropy + charset guards', () => {
-  it('flags a long mixed token, rejects hashes / single-char runs / short tokens', () => {
-    expect(detectInText('Xb7Kp9Lm2Qw8Rt4Yu1Zs6Vd3Nf0Hg5Jc8Ke2Pa7Mq')?.reason).toContain('secret:high_entropy');
-    expect(detectInText('0123456789abcdef0123456789abcdef01234567')).toBeNull(); // 40-char hex hash (single-case)
-    expect(detectInText('a'.repeat(40))).toBeNull();           // zero entropy
-    expect(detectInText('Xb7Kp9Lm2Qw8Rt4Yu1Zs')).toBeNull();   // < 40 chars
+describe('no generic high-entropy heuristic (removed)', () => {
+  it('leaves random long tokens and IDs clean — only named secret patterns flag', () => {
+    // Removed because entropy can't distinguish a secret from a high-entropy ID
+    // (session/wiki/ULID/nanoid). These must NOT be flagged.
+    expect(detectInText('Xb7Kp9Lm2Qw8Rt4Yu1Zs6Vd3Nf0Hg5Jc8Ke2Pa7Mq')).toBeNull();
+    expect(detectInText('wiki_01J8X2K4ABCDEFGHJKMNPQRSTV0123456789')).toBeNull();
+    expect(detectInText('0123456789abcdef0123456789abcdef01234567')).toBeNull(); // hex hash
+    // A NAMED secret still flags (sanity: removal didn't break the real detectors).
+    expect(detectInText('key sk-ABCDEFGHIJKLMNOPQRSTUV')?.reason).toContain('secret:openai_key');
   });
 });
 
@@ -178,17 +181,14 @@ describe('redactSensitive', () => {
     expect(out).not.toContain('4111 1111 1111 1111');
     expect(out).toContain('[redacted:Card number]');
   });
-  it('masks a long match straddling a SCAN_CAP window boundary (no leaked tail)', () => {
-    // A high-entropy token far longer than the window overlap, positioned to cross
-    // the 16k boundary: one window sees it truncated, the next whole — the union of
-    // ranges must cover the FULL token so its tail isn't emitted unmasked.
-    const b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-    const token = b64.repeat(24).slice(0, 1500);          // ~1500 chars, high entropy
-    const text = 'x '.repeat(SCAN_CAP / 2) + token + ' end'; // token starts at offset SCAN_CAP
-    const out = redactSensitive(text, 'text', 'all');
-    expect(out).not.toContain(token);
-    expect(out).not.toContain(token.slice(-200));          // the tail specifically
-    expect(out).toContain('[redacted:High-entropy secret]');
+  it('masks a named secret straddling a SCAN_CAP window boundary (no leaked tail)', () => {
+    // Position an OpenAI key to cross the 16k window cut; the windowed scan + union
+    // merge must still catch it whole.
+    const key = 'sk-' + 'ABCDEFGHIJKLMNOPQRSTUVWX';
+    const text = 'x '.repeat(SCAN_CAP / 2) + key + ' end';
+    const out = redactSensitive(text, 'text', 'secrets');
+    expect(out).not.toContain(key);
+    expect(out).toContain('[redacted:OpenAI key]');
   });
   it('keeps a secret masked at level "secrets" even when straddling a >16KB window edge near a credential path', () => {
     // A secret value placed right at the 16k window boundary, preceded by a
@@ -198,15 +198,6 @@ describe('redactSensitive', () => {
     const text = `${pad}.aws/credentials sk-ABCDEFGHIJKLMNOPQRSTUV tail`;
     const out = redactSensitive(text, 'all', 'secrets');
     expect(out).not.toContain('sk-ABCDEFGHIJKLMNOPQRSTUV'); // secret masked, not left as a weak 'tool' label
-  });
-  it('does not auto-strip heuristic high-entropy tokens below the "all" level', () => {
-    const blob = 'aA1' + 'bC2dE3fG4hI5jK6lM7nO8pQ9rS0'.repeat(2); // ~40+ char mixed token
-    const text = `data uri ${blob} here`;
-    // secrets / pii levels keep it (avoid corrupting benign long tokens)...
-    expect(redactSensitive(text, 'text', 'secrets')).toBe(text);
-    expect(redactSensitive(text, 'text', 'pii')).toBe(text);
-    // ...but the explicit "all" level still masks everything flagged.
-    expect(redactSensitive(text, 'text', 'all')).toContain('[redacted:High-entropy secret]');
   });
 });
 

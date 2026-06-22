@@ -104,30 +104,10 @@ const SECRET_PATTERNS: { tag: string; re: RegExp }[] = [
   { tag: 'password', re: /(?<![a-z0-9])(?:pgpassword|(?:[a-z0-9]+[_-])?(?:pass(?:word|wd)?|pwd|secret|api[-_]?key))["']?\s*[=:]\s*['"]?\S{4,}/i },
 ];
 
-// Generic high-entropy token (random API tokens). Candidate then entropy-validated
-// so it doesn't fire on prose, hex hashes, or single-case strings.
-const HIGH_ENTROPY = /[A-Za-z0-9+/_=-]{40,}/;
-function shannon(s: string): number {
-  const freq: Record<string, number> = {};
-  for (const ch of s) freq[ch] = (freq[ch] ?? 0) + 1;
-  let e = 0;
-  for (const k in freq) { const p = freq[k] / s.length; e -= p * Math.log2(p); }
-  return e;
-}
-function looksHighEntropy(tok: string): boolean {
-  if (tok.length < 40) return false;
-  const hasLower = /[a-z]/.test(tok), hasUpper = /[A-Z]/.test(tok), hasDigit = /[0-9]/.test(tok), hasB64 = /[+/_=-]/.test(tok);
-  // Skip low-variety tokens (pure-hex hashes, single-case ids): require base64
-  // special chars OR a mixed-case-with-digit token.
-  if (!(hasB64 || (hasLower && hasUpper && hasDigit))) return false;
-  return shannon(tok) >= 4.2;
-}
-function hasHighEntropyToken(hay: string): boolean {
-  const re = /[A-Za-z0-9+/_=-]{40,}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(hay)) !== null) { if (looksHighEntropy(m[0])) return true; }
-  return false;
-}
+// NOTE: a generic high-entropy heuristic was removed deliberately — entropy can't
+// tell a random secret from a random IDENTIFIER (session/wiki/ULID/nanoid IDs are
+// high-entropy by design), so it flagged internal IDs as critical secrets. The
+// named-pattern detectors above cover the real, high-confidence secrets.
 
 const DEFAULT_DATA_KEYWORDS = [
   'email', 'phone', 'ssn', 'social_security', 'password', 'passwd', 'salary',
@@ -168,7 +148,6 @@ function detectPii(haystack: string): string[] {
 function detectSecrets(haystack: string): string[] {
   const hits: string[] = [];
   for (const { tag, re } of SECRET_PATTERNS) if (re.test(haystack)) hits.push(tag);
-  if (hasHighEntropyToken(haystack)) hits.push('high_entropy');
   return hits;
 }
 
@@ -338,7 +317,6 @@ export function markSensitiveWith(str: string, scope: SensScope, extras: ExtraMa
 function scanRanges(text: string, scope: SensScope, extras: ExtraMark[]): Range[] {
   const ranges: Range[] = [];
   for (const { tag, re } of SECRET_PATTERNS) collect(re, 'secret', `secret:${tag}`, text, ranges);
-  collect(HIGH_ENTROPY, 'secret', 'secret:high_entropy', text, ranges, looksHighEntropy);
   collect(EMAIL, 'pii', 'pii:email', text, ranges);
   collect(PHONE, 'pii', 'pii:phone', text, ranges);
   collect(CARD, 'pii', 'pii:card', text, ranges, luhnValid);
@@ -419,14 +397,10 @@ export function redactSensitive(text: string, scope: SensScope = 'text', level: 
   for (const r of ranges) {
     if (r.start > cursor) out += text.slice(cursor, r.start);
     const sev = severityForTag(r.label);
-    // high_entropy is a heuristic guess, not a confirmed secret — auto-stripping it
-    // from replies corrupts benign long tokens (data URIs, hashes), so only mask it
-    // at the explicit `all` level.
-    const heuristic = r.label === 'secret:high_entropy';
     const masked =
       level === 'all' ? true :
-      level === 'pii' ? (!heuristic && (r.cat === 'secret' || r.cat === 'pii' || sev === 'critical' || sev === 'high')) :
-      /* secrets */     (!heuristic && (r.cat === 'secret' || sev === 'critical' || sev === 'high'));
+      level === 'pii' ? (r.cat === 'secret' || r.cat === 'pii' || sev === 'critical' || sev === 'high') :
+      /* secrets */     (r.cat === 'secret' || sev === 'critical' || sev === 'high');
     out += masked ? `[redacted:${humanizeTag(r.label).label}]` : text.slice(r.start, r.end);
     cursor = r.end;
   }
@@ -469,7 +443,6 @@ const DETAIL_LABELS: Record<string, string> = {
   'secret:bearer':      'Bearer token',
   'secret:password':    'Password / secret',
   'secret:connection_string': 'Credentials in URL',
-  'secret:high_entropy': 'High-entropy secret',
 };
 const DATA_ACRONYMS = new Set(['ssn', 'dob', 'cvv', 'iban', 'tax_id']);
 

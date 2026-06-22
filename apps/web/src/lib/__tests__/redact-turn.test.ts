@@ -1,9 +1,8 @@
 /**
  * @fileoverview Tests for redactTurn (the non-admin server-side trace redaction).
- * Locks in two code-review fixes:
- *  - #1: redaction runs at level 'all', so heuristic high-entropy VALUES are masked
- *        (level 'pii' excluded them, leaking opaque tokens to non-admins).
- *  - #2: statusMessage (tool error text) is redacted too, not just input/output/reasoning.
+ * Locks in code-review fixes:
+ *  - redaction runs at level 'all' (masks every flagged range — values + labels).
+ *  - statusMessage (tool error text) is redacted too, not just input/output/reasoning.
  *
  * @module web/lib/__tests__/redact-turn
  */
@@ -35,10 +34,10 @@ function turn(spans: TraceSpan[], finalAnswer: string | null = null): TraceTurn 
 }
 
 describe('redactTurn — non-admin server redaction', () => {
-  it('#1 masks heuristic high-entropy values (level "all"), not leaks them', () => {
-    const tok = 'aA1' + 'bC2dE3fG4hI5jK6lM7nO8pQ9rS0'.repeat(2); // 40+ char high-entropy
-    const out = redactTurn(turn([span({ output: `token ${tok} end` })]));
-    expect(out.spans[0].output).not.toContain(tok);
+  it('masks secret + PII values in span output for non-admins', () => {
+    const out = redactTurn(turn([span({ output: 'key sk-ABCDEFGHIJKLMNOPQRSTUV for bob@acme.com' })]));
+    expect(out.spans[0].output).not.toContain('sk-ABCDEFGHIJKLMNOPQRSTUV');
+    expect(out.spans[0].output).not.toContain('bob@acme.com');
     expect(out.spans[0].output).toContain('[redacted:');
   });
 

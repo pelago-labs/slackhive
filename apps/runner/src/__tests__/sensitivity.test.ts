@@ -215,10 +215,15 @@ describe('extended secret + PII detectors', () => {
     expect(detectInText('key AIza' + 'a'.repeat(35))?.reason).toContain('secret:google_api_key');
   });
 
-  it('flags a high-entropy token but not prose / hex hashes / single-case ids', () => {
-    expect(detectInText('token=Xb7Kp9Lm2Qw8Rt4Yu1Zs6Vd3Nf0Hg5Jc8Ke2Pa7Mq')?.reason).toContain('secret:high_entropy');
+  it('does NOT flag random high-entropy tokens / IDs (no generic entropy heuristic)', () => {
+    // The high-entropy heuristic was removed — it can't tell a secret from an ID
+    // (session/wiki/ULID/nanoid IDs are high-entropy by design). Only NAMED secret
+    // patterns flag; opaque random tokens and IDs are left clean.
+    expect(detectInText('token=Xb7Kp9Lm2Qw8Rt4Yu1Zs6Vd3Nf0Hg5Jc8Ke2Pa7Mq')).toBeNull();
+    expect(detectInText('wiki_01J8X2K4ABCDEFGHJKMNPQRSTV0123456789')).toBeNull(); // ULID-style id
+    expect(detectInText('sess_abcDEF123ghiJKL456mnoPQR789stuVWX012')).toBeNull();  // prefixed id
     expect(detectInText('the quick brown fox jumps over the lazy dog repeatedly today')).toBeNull();
-    expect(detectInText('commit 0a1b2c3d4e5f60718293a4b5c6d7e8f901234567')).toBeNull(); // 40-char hex hash
+    expect(detectInText('commit 0a1b2c3d4e5f60718293a4b5c6d7e8f901234567')).toBeNull(); // hex hash
   });
 });
 
