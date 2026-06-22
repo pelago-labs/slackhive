@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { deepLinkLabelForPlatform } from '@slackhive/shared';
 import {
@@ -345,11 +345,21 @@ export default function TaskTracePage(): React.JSX.Element {
 }
 
 function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const router = useRouter();
+  // Go to the actual previous page (Activity, Observability, …) rather than a fixed
+  // route; fall back to /activity on a direct/deep load with no in-app history.
+  const back = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+    else router.push('/activity');
+  };
   return (
     <div className="fade-up" style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }}>
-      <Link href="/activity" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', textDecoration: 'none' }}>
-        <ArrowLeft size={13} /> Back to Activity
-      </Link>
+      <button onClick={back} style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)',
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-sans)',
+      }}>
+        <ArrowLeft size={13} /> Back
+      </button>
       {children}
     </div>
   );
