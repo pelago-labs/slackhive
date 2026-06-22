@@ -352,7 +352,7 @@ function TaskCard(props: {
     >
       {/* Top row: ref code + sensitive flag + time */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
-        <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--subtle)', fontFamily: 'var(--font-mono, monospace)', letterSpacing: '0.02em' }}>{shortRef(task.id)}</span>
+        <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--subtle)', letterSpacing: '0.01em' }}>{shortRef(task.id)}</span>
         {task.sensitive && (
           <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
         )}
