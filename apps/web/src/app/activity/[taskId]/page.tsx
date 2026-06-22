@@ -252,6 +252,21 @@ export default function TaskTracePage(): React.JSX.Element {
     return () => clearInterval(id);
   }, [inflight, load]);
 
+  // Distinct (name, slug) agents for the Properties rail — memoized so the polling
+  // re-render doesn't redo the dedupe/allocation each cycle (was a JSON round-trip).
+  // MUST be computed before the early returns below, or the hook count changes
+  // between the loading and loaded renders (rules of hooks → client crash).
+  const agentTurns = detail?.turns ?? [];
+  const agentsKey = agentTurns.map(t => `${t.agentName}|${t.agentSlug}`).join(';');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- agentsKey is the value-stable proxy for the turns
+  const agents = useMemo(() => {
+    const m = new Map<string, { name: string; slug: string | null }>();
+    for (const t of agentTurns) {
+      if (t.agentName) m.set(`${t.agentName}|${t.agentSlug}`, { name: t.agentName, slug: t.agentSlug });
+    }
+    return [...m.values()];
+  }, [agentsKey]);
+
   if (error) return <Shell><Empty>{error}</Empty></Shell>;
   if (!detail) return <Shell><div style={{ marginTop: 20, padding: 24, color: 'var(--muted)', fontSize: 13 }}>Loading…</div></Shell>;
 
@@ -269,18 +284,6 @@ export default function TaskTracePage(): React.JSX.Element {
   const visibleTurns = fbFilter === 'all'
     ? indexedTurns
     : indexedTurns.filter(({ t }) => t.feedback.some(f => f.sentiment === fbFilter));
-
-  // Distinct (name, slug) agents for the Properties rail — memoized so the polling
-  // re-render doesn't redo the dedupe/allocation every cycle (was a JSON round-trip).
-  const agentsKey = turns.map(t => `${t.agentName}|${t.agentSlug}`).join(';');
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- agentsKey is the value-stable proxy for `turns`
-  const agents = useMemo(() => {
-    const m = new Map<string, { name: string; slug: string | null }>();
-    for (const t of turns) {
-      if (t.agentName) m.set(`${t.agentName}|${t.agentSlug}`, { name: t.agentName, slug: t.agentSlug });
-    }
-    return [...m.values()];
-  }, [agentsKey]);
 
   return (
     <RevealCtx.Provider value={canReveal}>
