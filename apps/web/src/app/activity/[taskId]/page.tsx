@@ -834,7 +834,12 @@ function FbChip({ label, icon, active, color, onClick }: { label: string; icon?:
 function SensitiveBadge({ categories, compact, llm }: { categories: string[]; compact?: boolean; llm?: boolean }): React.JSX.Element {
   // Keep the shield as the sensitive icon; when the Smart (LLM) detector caught it,
   // mark it with a small "AI" superscript (same amber color — no purple, no pill).
-  const cats = categories.length ? categories.join(', ') : 'data touched';
+  // Don't just say "Sensitive" — name WHAT is sensitive (humanized category labels)
+  // inline, capped with +N overflow; the full list stays in the hover tooltip.
+  const labels = [...new Set(categories.map(c => humanizeTag(c).label).filter(Boolean))];
+  const shown = labels.slice(0, 2).join(', ') + (labels.length > 2 ? ` +${labels.length - 2}` : '');
+  const text = labels.length ? shown : 'Sensitive';
+  const cats = labels.length ? labels.join(', ') : 'data touched';
   const title = llm ? `Sensitive (caught by the Smart LLM detector): ${cats}` : `Sensitive: ${cats}`;
   return (
     <span title={title} style={{
@@ -845,7 +850,7 @@ function SensitiveBadge({ categories, compact, llm }: { categories: string[]; co
         <ShieldAlert size={compact ? 12 : 13} />
         {llm && <sup style={{ fontSize: 7, fontWeight: 700, lineHeight: 1, marginLeft: 0.5 }}>AI</sup>}
       </span>
-      {compact ? null : 'Sensitive'}
+      {text}
     </span>
   );
 }

@@ -51,7 +51,7 @@ interface SessionRow {
 
 interface InsightsResponse {
   scope: 'all' | 'agent' | 'session';
-  agent?: string | null; session?: string; billing: boolean;
+  agent?: string | null; session?: string;
   rollup: Rollup | null;
   byAgent?: AgentTokens[]; powerUsers?: PowerUser[] | null;
   events?: SensEvent[]; flows?: SensFlow[]; tools?: ToolStat[]; sessions?: SessionRow[];
@@ -72,6 +72,8 @@ function Body(): React.JSX.Element {
   const router = useRouter();
   const { role } = useAuth();
   const isSuper = role === 'superadmin';
+  // Tokens/cost: visible to editor+ (their own agents). Power-users: superadmin only.
+  const canTokens = role === 'editor' || role === 'admin' || role === 'superadmin';
 
   const [agents, setAgents] = useState<AgentLite[]>([]);
   const [agentFilter, setAgentFilter] = useState(sp?.get('agent') ?? '');
@@ -119,7 +121,7 @@ function Body(): React.JSX.Element {
 
   const tabs: { key: TabKey; label: string; Icon: typeof ActivityIcon; superOnly?: boolean }[] = [
     { key: 'overview', label: 'Overview', Icon: ActivityIcon },
-    { key: 'tokens', label: 'Tokens & Cost', Icon: Coins, superOnly: true },
+    { key: 'tokens', label: 'Tokens & Cost', Icon: Coins },
     { key: 'sensitive', label: 'Sensitive', Icon: ShieldAlert },
     { key: 'tools', label: 'Tools', Icon: Wrench },
     { key: 'sessions', label: 'Sessions', Icon: Layers },
@@ -129,22 +131,24 @@ function Body(): React.JSX.Element {
 
   return (
     <div style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }} className="fade-up">
-      <div style={{ marginBottom: 4 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)' }}>
-          {scope === 'agent' ? `Observability · ${agentName.get(agentFilter) ?? 'Agent'}` : 'Observability'}
-        </h1>
-      </div>
-      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-        Tokens, cost, sensitive data, tools, feedback and sessions across your agents.
-      </div>
-
       {(
         <>
-          <FilterRow
-            agents={agents} agentFilter={agentFilter} windowKey={windowKey}
-            onAgentChange={setAgentFilter} onWindowChange={setWindowKey}
-            from={from} to={to} onRangeChange={(f, t) => { setFrom(f); setTo(t); }}
-          />
+          {/* Header: title/subtitle left, filters right — fills the otherwise-empty right side. */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div>
+              <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)' }}>
+                {scope === 'agent' ? `Observability · ${agentName.get(agentFilter) ?? 'Agent'}` : 'Observability'}
+              </h1>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+                Tokens, cost, sensitive data, tools, feedback and sessions across your agents.
+              </div>
+            </div>
+            <FilterRow
+              agents={agents} agentFilter={agentFilter} windowKey={windowKey}
+              onAgentChange={setAgentFilter} onWindowChange={setWindowKey}
+              from={from} to={to} onRangeChange={(f, t) => { setFrom(f); setTo(t); }}
+            />
+          </div>
           {/* Tabs */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
             {visibleTabs.map(t => {
@@ -163,11 +167,11 @@ function Body(): React.JSX.Element {
           {loading && !data ? <Muted>Loading…</Muted>
             : error ? <Muted>{error}</Muted>
             : !data ? <Muted>No data.</Muted>
-            : activeTab === 'overview' ? <Overview data={data} agentName={agentName} isSuper={isSuper} onTab={setTab} />
-            : activeTab === 'tokens' ? <Tokens data={data} agentName={agentName} isSuper={isSuper} />
+            : activeTab === 'overview' ? <Overview data={data} agentName={agentName} canTokens={canTokens} onTab={setTab} />
+            : activeTab === 'tokens' ? <Tokens data={data} agentName={agentName} canTokens={canTokens} isSuper={isSuper} />
             : activeTab === 'sensitive' ? <Sensitive events={data.events ?? []} flows={data.flows ?? []} />
             : activeTab === 'tools' ? <Tools tools={data.tools ?? []} />
-            : <Sessions sessions={data.sessions ?? []} agentName={agentName} isSuper={isSuper} />}
+            : <Sessions sessions={data.sessions ?? []} agentName={agentName} canTokens={canTokens} />}
         </>
       )}
     </div>
@@ -335,7 +339,7 @@ function SevBadge({ s }: { s: Severity }) {
 
 function truncate(str: string, n: number): string { return str.length > n ? str.slice(0, n - 1) + '…' : str; }
 
-function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse; agentName: Map<string, string>; isSuper: boolean; onTab: (t: TabKey) => void }) {
+function Overview({ data, agentName, canTokens, onTab }: { data: InsightsResponse; agentName: Map<string, string>; canTokens: boolean; onTab: (t: TabKey) => void }) {
   const r = data.rollup;
   if (!r) return <Muted>No activity in this window.</Muted>;
   const topTools = r.topTools ?? [];
@@ -357,11 +361,11 @@ function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse;
         <Kpi label="Latency p50/p95" value={fmtMs(r.p50DurationMs)} sub={`p95 ${fmtMs(r.p95DurationMs)}`} />
         <Kpi label="Tool calls" value={String(r.toolCalls)} />
         <Kpi label="Sensitive" value={String(r.sensitiveEvents ?? 0)} sub="flagged events" />
-        {isSuper && <Kpi label="Tokens" value={formatTokens(r.totalTokens)} sub={`${formatTokens(r.inputTokens)} in · ${formatTokens(r.outputTokens)} out`} />}
+        {canTokens && <Kpi label="Tokens" value={formatTokens(r.totalTokens)} sub={`${formatTokens(r.inputTokens)} in · ${formatTokens(r.outputTokens)} out`} />}
       </div>
 
       {/* Tokens per day (superadmin) */}
-      {isSuper && tokDays.length > 1 && (
+      {canTokens && tokDays.length > 1 && (
         <div style={card}>
           {sectionTitle('Tokens per day')}
           <TokensChart data={tokDays} />
@@ -373,8 +377,8 @@ function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse;
         {r.models.length > 0 && (
           <div style={card}>
             {sectionTitle('By model')}
-            <Bars max={Math.max(1, ...r.models.map(m => isSuper ? m.tokens : m.turns))}
-              rows={r.models.map(m => ({ label: m.model, value: isSuper ? m.tokens : m.turns, sub: isSuper ? `${formatTokens(m.tokens)} tok` : `${m.turns} turns` }))} />
+            <Bars max={Math.max(1, ...r.models.map(m => canTokens ? m.tokens : m.turns))}
+              rows={r.models.map(m => ({ label: m.model, value: canTokens ? m.tokens : m.turns, sub: canTokens ? `${formatTokens(m.tokens)} tok` : `${m.turns} turns` }))} />
           </div>
         )}
         {topTools.length > 0 && (
@@ -419,8 +423,8 @@ function Overview({ data, agentName, isSuper, onTab }: { data: InsightsResponse;
   );
 }
 
-function Tokens({ data, agentName, isSuper }: { data: InsightsResponse; agentName: Map<string, string>; isSuper: boolean }) {
-  if (!isSuper) return <DeniedCard />;
+function Tokens({ data, agentName, canTokens, isSuper }: { data: InsightsResponse; agentName: Map<string, string>; canTokens: boolean; isSuper: boolean }) {
+  if (!canTokens) return <DeniedCard />;
   const byAgent = (data.byAgent ?? []).slice().sort((a, b) => (b.inputTokens + b.outputTokens) - (a.inputTokens + a.outputTokens));
   const power = data.powerUsers ?? [];
   return (
@@ -436,17 +440,20 @@ function Tokens({ data, agentName, isSuper }: { data: InsightsResponse; agentNam
             { label: 'Turns', align: 'right', render: a => <Mono>{a.turnCount}</Mono> },
           ]} />
       </div>
-      <div style={card}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Power users</div>
-        <Table<PowerUser> rows={power} empty="No users in this window."
-          cols={[
-            { label: '#', width: '32px', render: (_u: PowerUser) => <span /> },
-            { label: 'User', render: u => <span>@{u.handle ?? 'unknown'}</span> },
-            { label: 'Tasks', align: 'right', render: u => <Mono>{u.taskCount}</Mono> },
-            { label: 'Turns', align: 'right', render: u => <Mono>{u.turnCount}</Mono> },
-            { label: 'Tokens', align: 'right', render: u => <Mono>{formatTokens(u.totalTokens)}</Mono> },
-          ]} />
-      </div>
+      {/* Org-wide power-users leaderboard is superadmin-only (the route returns null otherwise). */}
+      {isSuper && (
+        <div style={card}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Power users</div>
+          <Table<PowerUser> rows={power} empty="No users in this window."
+            cols={[
+              { label: '#', width: '32px', render: (_u: PowerUser) => <span /> },
+              { label: 'User', render: u => <span>@{u.handle ?? 'unknown'}</span> },
+              { label: 'Tasks', align: 'right', render: u => <Mono>{u.taskCount}</Mono> },
+              { label: 'Turns', align: 'right', render: u => <Mono>{u.turnCount}</Mono> },
+              { label: 'Tokens', align: 'right', render: u => <Mono>{formatTokens(u.totalTokens)}</Mono> },
+            ]} />
+        </div>
+      )}
     </div>
   );
 }
@@ -587,7 +594,7 @@ function FeedbackCard({ r, scope }: { r: Rollup | null; scope: string }): React.
   );
 }
 
-function Sessions({ sessions, agentName, isSuper }: { sessions: SessionRow[]; agentName: Map<string, string>; isSuper: boolean }) {
+function Sessions({ sessions, agentName, canTokens }: { sessions: SessionRow[]; agentName: Map<string, string>; canTokens: boolean }) {
   const [q, setQ] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'done' | 'error' | 'active'>('all');
   const [sensOnly, setSensOnly] = useState(false);
@@ -649,7 +656,7 @@ function Sessions({ sessions, agentName, isSuper }: { sessions: SessionRow[]; ag
           { label: 'Initiated by', render: s => <Subtle>{s.initiatorHandle ? `@${s.initiatorHandle}` : '—'}</Subtle> },
           { label: 'Agent', render: s => <Subtle>{truncate(names(s.agentIds) || '—', 24)}</Subtle> },
           { label: 'Turns', align: 'right', render: s => <Mono>{s.turns}</Mono> },
-          ...(isSuper ? [{ label: 'Tokens', align: 'right' as const, render: (s: SessionRow) => <Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono> }] : []),
+          ...(canTokens ? [{ label: 'Tokens', align: 'right' as const, render: (s: SessionRow) => <Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono> }] : []),
           { label: 'State', render: s => <StatePill status={s.status} /> },
           { label: 'Feedback', render: s => <FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /> },
           { label: 'Updated', align: 'right', render: s => <Subtle>{relativeTime(s.lastActivityAt)}</Subtle> },

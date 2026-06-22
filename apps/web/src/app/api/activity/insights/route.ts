@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getInsightsRollup, getSessionTrace, getSessionSummaries, getSensitiveEvents, getSensitiveFlows, getToolStats,
   getTokensByAgent, getTopUsers,
-  type InsightsRollup, type AgentTokenUsage, type UserActivitySummary, type SessionSummary,
+  type UserActivitySummary,
 } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
@@ -37,7 +37,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (session.role === 'viewer') return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
 
     const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
-    const billing = session.role === 'superadmin';
+    // Tokens/cost are visible to anyone who reaches here (editor+): editors are
+    // always scoped to their OWN agents, admins are trusted. Only the org-wide
+    // power-users leaderboard stays superadmin-only.
+    const showPowerUsers = session.role === 'superadmin';
     const { searchParams } = new URL(req.url);
     const { since, until } = windowBounds(searchParams.get('window'), searchParams.get('from'), searchParams.get('to'));
     const agentId = searchParams.get('agent') ?? undefined;
@@ -56,12 +59,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       if (!trace || trace.turns.length === 0) {
         return NextResponse.json({ error: 'Session not found' }, { status: 404 });
       }
-      const rollup = billing ? trace.rollup : stripRollupBilling(trace.rollup);
       return NextResponse.json({
-        scope, session: sessionId, billing,
-        rollup,
+        scope, session: sessionId,
+        rollup: trace.rollup,
         flows: trace.flows,
-        models: rollup?.models ?? [],
+        models: trace.rollup?.models ?? [],
         agentIds: [...new Set(trace.turns.map(t => t.agentId))],
       });
     }
@@ -77,45 +79,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const [rollup, byAgent, powerUsers, events, flows, tools, sessionsRaw] = await Promise.all([
       getInsightsRollup(filter),
       getTokensByAgent(filter),
-      billing ? getTopUsers(filter, 10) : Promise.resolve([] as UserActivitySummary[]),
+      showPowerUsers ? getTopUsers(filter, 10) : Promise.resolve([] as UserActivitySummary[]),
       getSensitiveEvents({ ...filter, limit: 200 }),
       getSensitiveFlows({ ...filter, limit: 100 }),
       getToolStats(filter),
       getSessionSummaries(filter, 100),
     ]);
 
-    const payload = {
-      scope, agent: agentId ?? null, billing,
-      rollup: billing ? rollup : stripInsightsBilling(rollup),
-      byAgent: billing ? byAgent : byAgent.map(stripAgentTokens),
-      powerUsers: billing ? powerUsers : null,
-      events, flows,
-      tools,
-      // Sessions table — token columns stripped for non-superadmins.
-      sessions: billing ? sessionsRaw : sessionsRaw.map(stripSessionTokens),
-    };
-    return NextResponse.json(payload);
+    return NextResponse.json({
+      scope, agent: agentId ?? null,
+      rollup, byAgent,
+      // Org-wide power-users leaderboard is superadmin-only.
+      powerUsers: showPowerUsers ? powerUsers : null,
+      events, flows, tools, sessions: sessionsRaw,
+    });
   } catch (err) {
     return apiError('activity-insights', err);
   }
-}
-
-/** Drop token/cost fields from the insights rollup for non-superadmins. */
-function stripInsightsBilling(r: InsightsRollup): InsightsRollup {
-  return {
-    ...r,
-    inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0,
-    tokensByDay: [],
-    models: r.models.map(m => ({ ...m, tokens: 0 })),
-  };
-}
-
-/** Zero token columns on a per-agent usage row for non-superadmins. */
-function stripAgentTokens(a: AgentTokenUsage): AgentTokenUsage {
-  return { ...a, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
-}
-
-/** Zero token columns on a session-summary row for non-superadmins. */
-function stripSessionTokens(s: SessionSummary): SessionSummary {
-  return { ...s, inputTokens: 0, outputTokens: 0 };
 }
