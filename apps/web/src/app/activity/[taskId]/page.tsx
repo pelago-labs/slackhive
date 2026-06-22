@@ -274,13 +274,8 @@ export default function TaskTracePage(): React.JSX.Element {
   return (
     <RevealCtx.Provider value={canReveal}>
     <Shell>
-      {/* Breadcrumb + title + description (Linear issue-detail style) */}
-      <div style={{ marginTop: 14 }}>
-        <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Link href="/activity" style={{ color: 'var(--muted)', textDecoration: 'none' }}>Activity</Link>
-          <span>›</span>
-          <span style={{ color: 'var(--muted)' }}>{sessionRef(task.id)}</span>
-        </div>
+      {/* Title + description (the Back button above handles navigation) */}
+      <div style={{ marginTop: 16 }}>
         <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1.35 }}>
           {task.summary || '(empty opening message)'}
         </h1>
@@ -386,13 +381,6 @@ function Empty({ children }: { children: React.ReactNode }): React.JSX.Element {
 function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '0 4px 8px' }}>{children}</div>;
 }
-/** Stable short session ref (T-XXXX) from the task id — matches the Activity cards. */
-function sessionRef(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
-  return 'T-' + h.toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
-}
-
 /** A label/value row in the session Properties rail. */
 function PropRow({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
