@@ -19,7 +19,7 @@ import { useAuth } from '@/lib/auth-context';
 import { deepLinkLabelForPlatform } from '@slackhive/shared';
 import {
   ArrowLeft, ExternalLink, ChevronRight, ChevronDown,
-  Wrench, CheckCircle2, AlertTriangle, Loader2,
+  Wrench, CheckCircle2, AlertTriangle, Loader2, Brain,
   ThumbsUp, ThumbsDown, Coins, GitBranch, Copy, Check, Layers, Clock, ShieldAlert, ArrowRight, Lock,
 } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
@@ -279,7 +279,7 @@ export default function TaskTracePage(): React.JSX.Element {
         <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Link href="/activity" style={{ color: 'var(--muted)', textDecoration: 'none' }}>Activity</Link>
           <span>›</span>
-          <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>{task.platform}</span>
+          <span style={{ color: 'var(--muted)' }}>{sessionRef(task.id)}</span>
         </div>
         <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1.35 }}>
           {task.summary || '(empty opening message)'}
@@ -386,6 +386,13 @@ function Empty({ children }: { children: React.ReactNode }): React.JSX.Element {
 function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '0 4px 8px' }}>{children}</div>;
 }
+/** Stable short session ref (T-XXXX) from the task id — matches the Activity cards. */
+function sessionRef(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
+  return 'T-' + h.toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
+}
+
 /** A label/value row in the session Properties rail. */
 function PropRow({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
@@ -552,8 +559,13 @@ function TurnCard({ turn, index, isLast, highlightSpanId }: { turn: TraceTurn; i
     ? (turn.delegatedByAgentName ? `via @${turn.delegatedByAgentName}` : 'from agent')
     : `from @${turn.initiatorHandle || 'user'}`;
 
+  const running = turn.status === 'in_progress';
   return (
-    <div id={`turn-${index}`} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', scrollMarginTop: 16 }}>
+    <div id={`turn-${index}`} style={{
+      background: running ? 'color-mix(in srgb, #2563eb 4%, var(--surface))' : 'var(--surface)',
+      border: `1px solid ${running ? 'rgba(37,99,235,0.35)' : 'var(--border)'}`,
+      borderRadius: 12, overflow: 'hidden', scrollMarginTop: 16, boxShadow: 'var(--shadow-sm)',
+    }}>
       <div onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer' }}>
         <div style={{ position: 'relative', flexShrink: 0 }}>
           <div style={{ width: 30, height: 30, borderRadius: '50%', background: color, color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{initials(label)}</div>
@@ -568,6 +580,7 @@ function TurnCard({ turn, index, isLast, highlightSpanId }: { turn: TraceTurn; i
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--subtle)' }}>
               {turn.initiatorKind === 'agent' && <GitBranch size={11} />}{author}
             </span>
+            {running && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#2563eb' }}><Loader2 size={11} style={{ animation: 'spin 1.2s linear infinite' }} /> Working</span>}
             {sentiment && (sentiment === 'up' ? <ThumbsUp size={13} style={{ color: '#16a34a' }} /> : <ThumbsDown size={13} style={{ color: '#dc2626' }} />)}
             {turn.sensitive && <SensitiveBadge categories={turn.sensitiveCategories} />}
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginLeft: 'auto', fontSize: 11, color: 'var(--subtle)' }}>
@@ -611,15 +624,8 @@ function TurnCard({ turn, index, isLast, highlightSpanId }: { turn: TraceTurn; i
 type NodeKind = 'generation' | 'tool' | 'event' | 'final' | 'error';
 // Minimal palette: neutral grays everywhere; color reserved for the two signals
 // that matter — errors (red) and the final answer (green).
-// Per-kind tag label only; the tag/bar COLORS are derived inline in NodeRow from
-// node.kind / error state (see tagColor/barColor there).
-const KIND: Record<NodeKind, { tag: string }> = {
-  generation: { tag: 'LLM' },
-  tool:       { tag: 'TOOL' },
-  event:      { tag: 'EVENT' },
-  final:      { tag: 'ANSWER' },
-  error:      { tag: 'ERROR' },
-};
+// NodeRow renders a leading kind ICON (not a tag pill) + colors derived inline from
+// node.kind / error state (see Icon/tagColor/barColor there).
 
 interface NodeSection { label: string; body: string; markdown?: boolean }
 interface NodeData {
@@ -720,8 +726,9 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
     const t = setTimeout(() => setFlash(false), 2600);
     return () => clearTimeout(t);
   }, [highlight]);
-  const k = KIND[node.kind];
   const isErr = node.kind === 'error' || node.error;
+  // Leading icon per step kind — cleaner than a boxy LLM/TOOL tag pill.
+  const Icon = isErr ? AlertTriangle : node.kind === 'final' ? CheckCircle2 : node.kind === 'tool' ? Wrench : node.kind === 'event' ? Clock : Brain;
   const tagColor = isErr ? 'var(--red)' : node.kind === 'final' ? 'var(--green)' : 'var(--muted)';
   const barColor = isErr ? 'var(--red)' : 'var(--text-2)';
   const titleColor = node.kind === 'final' ? 'var(--green)' : isErr ? 'var(--red)' : 'var(--text)';
@@ -738,9 +745,9 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
         {has
           ? (open ? <ChevronDown size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} />)
           : <span style={{ width: 13, flexShrink: 0 }} />}
-        {/* type tag — fixed width so names align into a column */}
-        <span style={{ flexShrink: 0, width: 50, textAlign: 'center', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', padding: '3px 0', borderRadius: 4, background: isErr ? 'rgba(220,38,38,0.1)' : node.kind === 'final' ? 'rgba(5,150,105,0.1)' : 'var(--surface-2)', color: tagColor }}>{k.tag}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto', minWidth: 60 }}>{node.title}</span>
+        {/* leading kind icon */}
+        <Icon size={13} style={{ flexShrink: 0, color: tagColor }} />
+        <span style={{ fontSize: 12.5, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto', minWidth: 60, fontStyle: node.kind === 'generation' && node.title === 'Thinking' ? 'italic' : 'normal' }}>{node.title}</span>
         {node.sensitive && <SensitiveBadge categories={node.sensitiveCategories ?? []} compact />}
         {node.sensitiveLlm && (
           <span title="Found by the Smart (LLM) detector — regex did not match this" style={{
@@ -754,7 +761,7 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
         {node.model && <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>{node.model}</span>}
         {node.tokens > 0 && <span style={META}>{formatTokens(node.tokens)}</span>}
         {/* comparative duration bar (left-aligned column) */}
-        <div style={{ flexShrink: 0, width: 200 }}>
+        <div style={{ flexShrink: 0, width: 140 }}>
           {hasDur && (
             <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 3, overflow: 'hidden' }}>
               <div title={durText} style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 3, opacity: 0.55 }} />
