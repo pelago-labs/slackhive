@@ -269,75 +269,91 @@ export default function TaskTracePage(): React.JSX.Element {
     ? indexedTurns
     : indexedTurns.filter(({ t }) => t.feedback.some(f => f.sentiment === fbFilter));
 
+  const agents = [...new Set(turns.map(t => ({ name: t.agentName, slug: t.agentSlug })).filter(a => a.name).map(a => JSON.stringify(a)))].map(s => JSON.parse(s) as { name: string; slug: string | null });
+
   return (
     <RevealCtx.Provider value={canReveal}>
     <Shell>
-      {/* Session header */}
-      <div style={{ marginTop: 16, padding: '18px 22px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase' }}>{task.platform} session</span>
-              <StatusPill status={sessionStatus} />
-              {turns.some(t => t.sensitive) && <SensitiveBadge categories={[...new Set(turns.flatMap(t => t.sensitiveCategories))]} />}
+      {/* Breadcrumb + title + description (Linear issue-detail style) */}
+      <div style={{ marginTop: 14 }}>
+        <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Link href="/activity" style={{ color: 'var(--muted)', textDecoration: 'none' }}>Activity</Link>
+          <span>›</span>
+          <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>{task.platform}</span>
+        </div>
+        <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1.35 }}>
+          {task.summary || '(empty opening message)'}
+        </h1>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+          Started by <strong style={{ color: 'var(--text)', fontWeight: 500 }}>@{initiator}</strong> · {relativeTime(task.startedAt)}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', marginTop: 18, flexWrap: 'wrap' }}>
+        {/* ── Main column: analytics + flows + activity timeline ── */}
+        <div style={{ flex: '1 1 600px', minWidth: 0 }}>
+          {rollup && <Analytics rollup={rollup} turns={turns} />}
+
+          {flows.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <SectionLabel>Sensitive data flows</SectionLabel>
+              <div style={{ marginTop: 8, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                {flows.map((f, i) => (
+                  <a key={f.id} href={`#span-${f.sinkSpanId}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', textDecoration: 'none', color: 'inherit', borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
+                    <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: `${SEV_COLOR[f.severity]}1a`, color: SEV_COLOR[f.severity] }}>{f.severity}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>{f.label}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)', minWidth: 0 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.sourceLabel}</span>
+                      <ArrowRight size={12} style={{ color: 'var(--red)', flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.sinkLabel}</span>
+                    </span>
+                  </a>
+                ))}
+              </div>
             </div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em', lineHeight: 1.4 }}>
-              {task.summary || '(empty opening message)'}
-            </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
-              <span>Started by <strong style={{ color: 'var(--text)', fontWeight: 500 }}>@{initiator}</strong></span>
-              <span>·</span><span>{relativeTime(task.startedAt)}</span>
+          )}
+
+          <div style={{ marginTop: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px 8px' }}>
+              <SectionLabel>Activity</SectionLabel>
+              {(upTurns > 0 || downTurns > 0) && (
+                <div style={{ display: 'inline-flex', gap: 4 }}>
+                  <FbChip label="All" active={fbFilter === 'all'} onClick={() => setFbFilter('all')} />
+                  <FbChip icon={<ThumbsUp size={11} />} label={String(upTurns)} active={fbFilter === 'up'} color="#16a34a" onClick={() => setFbFilter(fbFilter === 'up' ? 'all' : 'up')} />
+                  <FbChip icon={<ThumbsDown size={11} />} label={String(downTurns)} active={fbFilter === 'down'} color="#dc2626" onClick={() => setFbFilter(fbFilter === 'down' ? 'all' : 'down')} />
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {turns.length === 0 && <Empty>No activity recorded yet.</Empty>}
+              {turns.length > 0 && visibleTurns.length === 0 && <Empty>No turns match this filter.</Empty>}
+              {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} highlightSpanId={highlightSpanId} />)}
             </div>
           </div>
+        </div>
+
+        {/* ── Properties rail ── */}
+        <aside style={{ flex: '0 0 240px', maxWidth: '100%', position: 'sticky', top: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: 12 }}>Properties</div>
+          <PropRow label="Status"><StatusPill status={sessionStatus} /></PropRow>
+          <PropRow label="Assignee">
+            <span style={{ fontSize: 12.5, color: 'var(--text)' }}>{agents.length ? agents.map(a => a.name).join(', ') : '—'}</span>
+          </PropRow>
+          <PropRow label="Initiator"><span style={{ fontSize: 12.5, color: 'var(--text)' }}>@{initiator}</span></PropRow>
+          <PropRow label="Started"><span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{relativeTime(task.startedAt)}</span></PropRow>
+          {turns.some(t => t.sensitive) && (
+            <PropRow label="Sensitive"><SensitiveBadge categories={[...new Set(turns.flatMap(t => t.sensitiveCategories))]} /></PropRow>
+          )}
           {deepLink && (
             <a href={deepLink} target="_blank" rel="noopener noreferrer" style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 12, fontWeight: 500,
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, textDecoration: 'none', flexShrink: 0,
+              display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 14, padding: '8px 14px', fontSize: 12.5, fontWeight: 500,
+              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, textDecoration: 'none',
             }}>
               {deepLinkLabelForPlatform(task.platform as 'slack' | 'discord' | 'telegram' | 'whatsapp' | 'teams')} <ExternalLink size={12} />
             </a>
           )}
-        </div>
-        {rollup && <Analytics rollup={rollup} turns={turns} />}
-      </div>
-
-      {flows.length > 0 && (
-        <div style={{ marginTop: 18 }}>
-          <SectionLabel>Sensitive data flows</SectionLabel>
-          <div style={{ marginTop: 8, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-            {flows.map((f, i) => (
-              <a key={f.id} href={`#span-${f.sinkSpanId}`}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', textDecoration: 'none', color: 'inherit', borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
-                <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: `${SEV_COLOR[f.severity]}1a`, color: SEV_COLOR[f.severity] }}>{f.severity}</span>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>{f.label}</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)', minWidth: 0 }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.sourceLabel}</span>
-                  <ArrowRight size={12} style={{ color: 'var(--red)', flexShrink: 0 }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.sinkLabel}</span>
-                </span>
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Timeline */}
-      <div style={{ marginTop: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px 8px' }}>
-          <SectionLabel>Timeline</SectionLabel>
-          {(upTurns > 0 || downTurns > 0) && (
-            <div style={{ display: 'inline-flex', gap: 4 }}>
-              <FbChip label="All" active={fbFilter === 'all'} onClick={() => setFbFilter('all')} />
-              <FbChip icon={<ThumbsUp size={11} />} label={String(upTurns)} active={fbFilter === 'up'} color="#16a34a" onClick={() => setFbFilter(fbFilter === 'up' ? 'all' : 'up')} />
-              <FbChip icon={<ThumbsDown size={11} />} label={String(downTurns)} active={fbFilter === 'down'} color="#dc2626" onClick={() => setFbFilter(fbFilter === 'down' ? 'all' : 'down')} />
-            </div>
-          )}
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {turns.length === 0 && <Empty>No activity recorded yet.</Empty>}
-          {turns.length > 0 && visibleTurns.length === 0 && <Empty>No turns match this filter.</Empty>}
-          {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} highlightSpanId={highlightSpanId} />)}
-        </div>
+        </aside>
       </div>
     </Shell>
     </RevealCtx.Provider>
@@ -369,6 +385,15 @@ function Empty({ children }: { children: React.ReactNode }): React.JSX.Element {
 }
 function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '0 4px 8px' }}>{children}</div>;
+}
+/** A label/value row in the session Properties rail. */
+function PropRow({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 30 }}>
+      <span style={{ flexShrink: 0, width: 72, fontSize: 12, color: 'var(--muted)' }}>{label}</span>
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{children}</span>
+    </div>
+  );
 }
 
 // ── Analytics card (boxed KPIs + charts) ─────────────────────────────────────
