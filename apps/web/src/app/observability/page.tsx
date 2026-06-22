@@ -96,15 +96,21 @@ function Body(): React.JSX.Element {
 
   useEffect(() => { load(); }, [load]);
 
-  // Reflect filters in the URL (shareable / bookmarkable).
+  // Reflect filters in the URL (shareable / bookmarkable). Only replace when the
+  // query actually changed — and target THIS route (/observability); replacing to
+  // /activity/insights would hit its redirect stub and loop forever.
   useEffect(() => {
     const qs = new URLSearchParams();
     if (sessionId) qs.set('session', sessionId);
     else if (agentFilter) qs.set('agent', agentFilter);
     qs.set('tab', tab);
     if (windowKey !== 'custom') qs.set('window', windowKey); else { if (from) qs.set('from', from); if (to) qs.set('to', to); }
-    router.replace(`/activity/insights?${qs}`, { scroll: false });
-  }, [sessionId, agentFilter, tab, windowKey, from, to, router]);
+    const next = qs.toString();
+    const current = sp?.toString() ?? '';
+    // Compare as sorted sets so param order alone never triggers a navigation.
+    const norm = (s: string) => s.split('&').sort().join('&');
+    if (norm(next) !== norm(current)) router.replace(`/observability?${next}`, { scroll: false });
+  }, [sessionId, agentFilter, tab, windowKey, from, to, router, sp]);
 
   const tabs: { key: TabKey; label: string; Icon: typeof ActivityIcon; superOnly?: boolean }[] = [
     { key: 'overview', label: 'Overview', Icon: ActivityIcon },
