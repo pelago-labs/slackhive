@@ -13,7 +13,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert } from 'lucide-react';
+import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert } from 'lucide-react';
 import type { AgentRollup } from '@slackhive/shared';
 import { TabSwitcher } from './_components/TabSwitcher';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
@@ -276,22 +276,19 @@ function ColumnView(props: {
 
   return (
     <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 12, overflow: 'hidden',
+      background: `color-mix(in srgb, ${column.accent} 4%, var(--surface))`,
+      border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden',
       display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '12px 14px', borderBottom: '1px solid var(--border)',
-        color: column.accent, fontWeight: 600, fontSize: 13,
-      }}>
-        {column.icon}
-        <span style={{ color: 'var(--text)' }}>{column.label}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>
-          {tasks.length}{hasMore ? '+' : ''}
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px' }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: column.accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{column.label}</span>
+        <span style={{
+          fontSize: 11.5, fontWeight: 600, color: 'var(--muted)',
+          background: 'var(--surface-2)', borderRadius: 99, padding: '1px 8px',
+        }}>{tasks.length}{hasMore ? '+' : ''}</span>
       </div>
-      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 120 }}>
+      <div style={{ padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 120 }}>
         {!loaded && <div style={{ padding: 20, color: 'var(--muted)', fontSize: 12, textAlign: 'center' }}>Loading…</div>}
         {loaded && tasks.length === 0 && (
           <div style={{
@@ -337,6 +334,7 @@ function TaskCard(props: {
   // Card opens the Observability page scoped to this thread (+ its primary agent);
   // "Open full trace" there links on to the turn-by-turn view at /activity/[taskId].
   const primaryAgent = agentIds[0] ?? task.initialAgentId;
+  const primaryAgentName = primaryAgent ? agentById.get(primaryAgent)?.name : undefined;
   const href = `/observability?session=${encodeURIComponent(task.id)}`
     + (primaryAgent ? `&agent=${encodeURIComponent(primaryAgent)}` : '');
 
@@ -345,49 +343,43 @@ function TaskCard(props: {
       href={href}
       style={{
         textDecoration: 'none', color: 'inherit',
-        display: 'block', padding: '10px 12px',
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        borderRadius: 8, boxShadow: 'var(--shadow-sm)',
-        transition: 'box-shadow 0.12s, transform 0.12s',
+        display: 'block', padding: '11px 13px',
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, boxShadow: 'var(--shadow-sm)',
+        transition: 'box-shadow 0.12s, border-color 0.12s',
       }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; }}
+      onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-hover)'; el.style.borderColor = 'var(--border-2)'; }}
+      onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-sm)'; el.style.borderColor = 'var(--border)'; }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {task.sensitive && (
-          <ShieldAlert size={13} style={{ color: '#b45309', flexShrink: 0 }} aria-label="Contains sensitive data">
-            <title>Contains sensitive data</title>
-          </ShieldAlert>
+      {/* Top row: handling agent + flags + time */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        {primaryAgentName && (
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{primaryAgentName}</span>
         )}
-        <span style={{
-          fontSize: 13, fontWeight: 500, color: 'var(--text)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {task.summary || '(empty message)'}
+        {task.sensitive && (
+          <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--subtle)', flexShrink: 0 }}>{relativeTime(task.lastActivityAt)}</span>
+      </div>
+
+      {/* Title — up to two lines, like a Linear issue */}
+      <div style={{
+        fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.35,
+        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+      }}>
+        {task.summary || '(empty message)'}
+      </div>
+
+      {/* Bottom row: avatars + initiator + turns/feedback */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+        {agentIds.length > 0 && <AvatarStack agentIds={agentIds} agentById={agentById} />}
+        <span style={{ fontSize: 11, color: 'var(--subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{initiatorLabel}</span>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {!!task.feedbackUp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#16a34a' }}><ThumbsUp size={11} />{task.feedbackUp}</span>}
+          {!!task.feedbackDown && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#dc2626' }}><ThumbsDown size={11} />{task.feedbackDown}</span>}
+          <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</span>
         </span>
       </div>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, marginTop: 6,
-        fontSize: 11, color: 'var(--muted)',
-      }}>
-        <span style={{ fontWeight: 500 }}>@{initiatorLabel}</span>
-        <span>·</span>
-        <span>{relativeTime(task.lastActivityAt)}</span>
-        <span>·</span>
-        <span style={{ color: 'var(--subtle)' }}>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</span>
-        {!!(task.feedbackUp || task.feedbackDown) && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-            {!!task.feedbackUp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#16a34a' }}><ThumbsUp size={11} />{task.feedbackUp}</span>}
-            {!!task.feedbackDown && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#dc2626' }}><ThumbsDown size={11} />{task.feedbackDown}</span>}
-          </span>
-        )}
-      </div>
-      {agentIds.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
-          <AvatarStack agentIds={agentIds} agentById={agentById} />
-          <Users size={11} style={{ color: 'var(--subtle)', marginLeft: 4 }} />
-        </div>
-      )}
     </Link>
   );
 }
