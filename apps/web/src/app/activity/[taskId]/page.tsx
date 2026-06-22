@@ -755,7 +755,7 @@ function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; hi
       {open && has && (
         <div style={{ paddingLeft: 24, paddingRight: 4, paddingBottom: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} scope={node.kind === 'tool' ? 'all' : 'text'} llmHits={node.sensitiveLlmHits} />)}
-          {node.sensitive && <SensitiveNote categories={node.sensitiveCategories ?? []} llm={node.sensitiveLlm} />}
+          {node.sensitive && <SensitiveNote categories={node.sensitiveCategories ?? []} hits={node.sensitiveLlmHits ?? []} llm={node.sensitiveLlm} />}
         </div>
       )}
     </div>
@@ -851,14 +851,41 @@ function SensitiveBadge({ categories, compact, llm }: { categories: string[]; co
   );
 }
 
-/** One simple line under the node content naming WHAT was flagged sensitive. */
-function SensitiveNote({ categories, llm }: { categories: string[]; llm?: boolean }): React.JSX.Element {
-  const labels = [...new Set(categories.map(c => humanizeTag(c).label).filter(Boolean))];
+/** Humanize a `category:detail` tag, falling back to the category label for a
+ * bare category (e.g. "pii" -> "Personal info" rather than "pii"). */
+function catLabel(tag: string): string {
+  const h = humanizeTag(tag);
+  return h.label === h.category ? (CAT_LABEL[h.category] ?? h.label) : h.label;
+}
+
+/** One simple line under the node content naming WHAT was flagged sensitive —
+ * and, when the detector captured the specific span(s), quoting them so the
+ * viewer can find the value in the message above. */
+function SensitiveNote({ categories, hits, llm }: { categories: string[]; hits: ExtraMark[]; llm?: boolean }): React.JSX.Element {
+  const suffix = llm ? ' (caught by the Smart detector)' : '';
+  // Prefer the captured excerpts — they say both what and where. Non-admins get
+  // these already redacted server-side, so quoting them never leaks a raw value.
+  const quoted = [...new Map(hits.filter(h => h.text?.trim()).map(h => [`${h.label}:${h.text}`, h])).values()].slice(0, 4);
+  if (quoted.length) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11.5, color: '#b45309' }}>
+        <ShieldAlert size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>
+          Flagged{suffix}: {quoted.map((h, i) => (
+            <span key={i}>{i > 0 ? ', ' : ''}{catLabel(h.cat ?? h.label)} <code style={{ background: 'rgba(180,83,9,0.12)', borderRadius: 4, padding: '0 4px' }}>{h.text}</code></span>
+          ))}
+        </span>
+      </div>
+    );
+  }
+  // No captured span — the detector flagged the content as a whole. Say so plainly
+  // rather than implying a highlight the viewer won't find.
+  const labels = [...new Set(categories.map(catLabel).filter(Boolean))];
   const what = labels.length ? labels.join(', ') : 'sensitive data';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#b45309' }}>
       <ShieldAlert size={12} style={{ flexShrink: 0 }} />
-      <span>Contains {what}{llm ? ' (caught by the Smart detector)' : ''}.</span>
+      <span>Flagged as {what}{suffix} — no specific span identified.</span>
     </div>
   );
 }
