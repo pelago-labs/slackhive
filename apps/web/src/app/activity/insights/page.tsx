@@ -34,7 +34,12 @@ interface PowerUser { userId: string; handle: string | null; taskCount: number; 
 interface SensEvent { spanId: string; sessionId: string; agentName: string | null; toolName: string | null; reason: string | null; severity: Severity | null; caughtByLlm?: boolean; startMs: number; sessionSummary: string | null }
 interface SensFlow { id: string; label: string; severity: Severity; sourceLabel: string; sinkLabel: string; sinkSpanId: string; sessionId: string | null; startMs: number }
 interface ToolStat { name: string; calls: number; errors: number }
-interface SessionRow { id: string; summary?: string; initiatorHandle?: string; lastActivityAt: string; activityCount: number; sensitive?: boolean }
+interface SessionRow {
+  sessionId: string; summary: string | null; initiatorHandle: string | null; agentIds: string[];
+  turns: number; inputTokens: number; outputTokens: number;
+  status: 'active' | 'done' | 'error'; sensitive: boolean;
+  feedbackUp: number; feedbackDown: number; startedAt: string; lastActivityAt: string;
+}
 
 interface InsightsResponse {
   scope: 'all' | 'agent' | 'session';
@@ -156,7 +161,7 @@ function Body(): React.JSX.Element {
             : activeTab === 'sensitive' ? <Sensitive events={data.events ?? []} flows={data.flows ?? []} />
             : activeTab === 'tools' ? <Tools tools={data.tools ?? []} />
             : activeTab === 'feedback' ? <Feedback r={data.rollup} scope={scope} />
-            : <Sessions sessions={data.sessions ?? []} agentFilter={agentFilter} />}
+            : <Sessions sessions={data.sessions ?? []} agentName={agentName} isSuper={isSuper} />}
         </>
       )}
     </div>
@@ -196,6 +201,67 @@ function Bars({ rows, max }: { rows: { label: string; value: number; sub: string
   );
 }
 
+// ── Table primitive + cell helpers ───────────────────────────────────────────
+
+function relativeTime(isoLike: string): string {
+  const ts = Date.parse(isoLike.replace(' ', 'T') + 'Z');
+  if (Number.isNaN(ts)) return '';
+  const s = Math.floor(Math.max(0, Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+interface Col<T> { label: string; align?: 'left' | 'right' | 'center'; width?: string; render: (row: T) => React.ReactNode }
+
+function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; rowHref?: (r: T) => string; empty: string }) {
+  const router = useRouter();
+  if (rows.length === 0) return <div style={{ padding: '14px 4px', color: 'var(--muted)', fontSize: 12.5 }}>{empty}</div>;
+  const th: React.CSSProperties = { textAlign: 'left', fontSize: 10.5, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '6px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' };
+  const td: React.CSSProperties = { fontSize: 12.5, color: 'var(--text)', padding: '8px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' };
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans)' }}>
+        <thead><tr>{cols.map((c, i) => <th key={i} style={{ ...th, textAlign: c.align ?? 'left', width: c.width }}>{c.label}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((row, ri) => {
+            const href = rowHref?.(row);
+            return (
+              <tr key={ri} className={href ? 'trace-node' : undefined}
+                onClick={href ? () => router.push(href) : undefined}
+                style={{ cursor: href ? 'pointer' : 'default' }}>
+                {cols.map((c, ci) => <td key={ci} style={{ ...td, textAlign: c.align ?? 'left' }}>{c.render(row)}</td>)}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StatePill({ status }: { status: 'active' | 'done' | 'error' }) {
+  const c = status === 'error' ? '#dc2626' : status === 'active' ? '#2563eb' : '#16a34a';
+  const label = status === 'active' ? 'Running' : status === 'error' ? 'Error' : 'OK';
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: c }}>
+    <span style={{ width: 6, height: 6, borderRadius: '50%', background: c }} />{label}</span>;
+}
+
+function FeedbackCell({ up, down }: { up: number; down: number }) {
+  if (up + down === 0) return <span style={{ color: 'var(--subtle)' }}>—</span>;
+  return <span style={{ display: 'inline-flex', gap: 10, fontSize: 12 }}>
+    {up > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#16a34a' }}><ThumbsUp size={12} />{up}</span>}
+    {down > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#dc2626' }}><ThumbsDown size={12} />{down}</span>}
+  </span>;
+}
+
+function SevBadge({ s }: { s: Severity }) {
+  return <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: `${SEV_COLOR[s]}1a`, color: SEV_COLOR[s] }}>{s}</span>;
+}
+
+function truncate(str: string, n: number): string { return str.length > n ? str.slice(0, n - 1) + '…' : str; }
+
 function Overview({ r, isSuper }: { r: Rollup | null; isSuper: boolean }) {
   if (!r) return <Muted>No activity in this window.</Muted>;
   const sat = r.feedbackUp + r.feedbackDown > 0 ? Math.round((r.feedbackUp / (r.feedbackUp + r.feedbackDown)) * 100) : null;
@@ -225,90 +291,86 @@ function Overview({ r, isSuper }: { r: Rollup | null; isSuper: boolean }) {
 function Tokens({ data, agentName, isSuper }: { data: InsightsResponse; agentName: Map<string, string>; isSuper: boolean }) {
   if (!isSuper) return <DeniedCard />;
   const byAgent = (data.byAgent ?? []).slice().sort((a, b) => (b.inputTokens + b.outputTokens) - (a.inputTokens + a.outputTokens));
-  const maxTok = Math.max(1, ...byAgent.map(a => a.inputTokens + a.outputTokens));
   const power = data.powerUsers ?? [];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={card}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Tokens by agent</div>
-        {byAgent.length === 0 ? <Muted>No token usage in this window.</Muted> : (
-          <Bars max={maxTok} rows={byAgent.map(a => ({
-            label: agentName.get(a.agentId) ?? a.agentId,
-            value: a.inputTokens + a.outputTokens,
-            sub: `${formatTokens(a.inputTokens)} in · ${formatTokens(a.outputTokens)} out · ${a.turnCount} turns`,
-          }))} />
-        )}
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tokens by agent</div>
+        <Table<AgentTokens> rows={byAgent} empty="No token usage in this window."
+          cols={[
+            { label: 'Agent', render: a => <span style={{ fontWeight: 500 }}>{agentName.get(a.agentId) ?? a.agentId}</span> },
+            { label: 'Input', align: 'right', render: a => <Mono>{formatTokens(a.inputTokens)}</Mono> },
+            { label: 'Output', align: 'right', render: a => <Mono>{formatTokens(a.outputTokens)}</Mono> },
+            { label: 'Total', align: 'right', render: a => <Mono>{formatTokens(a.inputTokens + a.outputTokens)}</Mono> },
+            { label: 'Turns', align: 'right', render: a => <Mono>{a.turnCount}</Mono> },
+          ]} />
       </div>
       <div style={card}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Power users</div>
-        {power.length === 0 ? <Muted>No users in this window.</Muted> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {power.map((u, i) => (
-              <div key={u.userId} style={{ display: 'grid', gridTemplateColumns: '24px 1fr auto', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
-                <span style={{ fontWeight: 700, color: 'var(--subtle)' }}>{i + 1}</span>
-                <span style={{ color: 'var(--text)' }}>@{u.handle ?? 'unknown'}</span>
-                <span style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{u.taskCount} tasks · {formatTokens(u.totalTokens)} tok</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Power users</div>
+        <Table<PowerUser> rows={power} empty="No users in this window."
+          cols={[
+            { label: '#', width: '32px', render: (_u: PowerUser) => <span /> },
+            { label: 'User', render: u => <span>@{u.handle ?? 'unknown'}</span> },
+            { label: 'Tasks', align: 'right', render: u => <Mono>{u.taskCount}</Mono> },
+            { label: 'Turns', align: 'right', render: u => <Mono>{u.turnCount}</Mono> },
+            { label: 'Tokens', align: 'right', render: u => <Mono>{formatTokens(u.totalTokens)}</Mono> },
+          ]} />
       </div>
     </div>
   );
 }
 
 function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }) {
-  const SevBadge = ({ s }: { s: Severity }) => (
-    <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: `${SEV_COLOR[s]}1a`, color: SEV_COLOR[s] }}>{s}</span>
-  );
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {flows.length > 0 && (
         <div style={card}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Exfiltration flows</div>
-          {flows.map(f => (
-            <Link key={f.id} href={`/activity/${encodeURIComponent(f.sessionId ?? '')}?span=${encodeURIComponent(f.sinkSpanId)}`}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', textDecoration: 'none' }}>
-              <SevBadge s={f.severity} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{f.label}</span>
-              <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{f.sourceLabel}</span>
-              <ArrowRight size={12} style={{ color: '#dc2626' }} />
-              <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{f.sinkLabel}</span>
-            </Link>
-          ))}
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Exfiltration flows</div>
+          <Table<SensFlow> rows={flows} empty="" rowHref={f => `/activity/${encodeURIComponent(f.sessionId ?? '')}?span=${encodeURIComponent(f.sinkSpanId)}`}
+            cols={[
+              { label: 'Severity', render: f => <SevBadge s={f.severity} /> },
+              { label: 'Kind', render: f => <span style={{ fontWeight: 500 }}>{f.label}</span> },
+              { label: 'Source → Sink', render: f => <Mono>{f.sourceLabel} → {f.sinkLabel}</Mono> },
+              { label: 'When', align: 'right', render: f => <Subtle>{relativeTime(new Date(f.startMs).toISOString())}</Subtle> },
+            ]} />
         </div>
       )}
       <div style={card}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Sensitive access</div>
-        {events.length === 0 ? <Muted>Nothing flagged in this window.</Muted> : (
-          [...events].sort((a, b) => b.startMs - a.startMs).map((e, i) => (
-            <Link key={e.spanId} href={`/activity/${encodeURIComponent(e.sessionId)}?span=${encodeURIComponent(e.spanId)}`}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderTop: i === 0 ? 'none' : '1px solid var(--border)', textDecoration: 'none' }}>
-              <ShieldAlert size={15} style={{ color: '#b45309', flexShrink: 0 }} />
-              {e.severity && <SevBadge s={e.severity} />}
-              {e.caughtByLlm && <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>Caught by LLM</span>}
-              <code style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{e.toolName ?? 'response'}</code>
-              <span style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.reason ?? ''}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--subtle)', flexShrink: 0 }}>{e.agentName ?? ''}</span>
-              <ExternalLink size={12} style={{ color: 'var(--subtle)', flexShrink: 0 }} />
-            </Link>
-          ))
-        )}
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Sensitive access</div>
+        <Table<SensEvent> rows={[...events].sort((a, b) => b.startMs - a.startMs)} empty="Nothing flagged in this window."
+          rowHref={e => `/activity/${encodeURIComponent(e.sessionId)}?span=${encodeURIComponent(e.spanId)}`}
+          cols={[
+            { label: 'Severity', render: e => e.severity ? <SevBadge s={e.severity} /> : <Subtle>—</Subtle> },
+            { label: 'Type', render: e => <Mono>{e.reason ?? ''}</Mono> },
+            { label: 'Where', render: e => <code style={{ fontSize: 12, fontWeight: 600 }}>{e.toolName ?? 'response'}</code> },
+            { label: 'Source', render: e => e.caughtByLlm
+              ? <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>Caught by LLM</span>
+              : <Subtle>regex</Subtle> },
+            { label: 'Agent', render: e => <Subtle>{e.agentName ?? ''}</Subtle> },
+            { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(new Date(e.startMs).toISOString())}</Subtle> },
+          ]} />
       </div>
     </div>
   );
 }
 
 function Tools({ tools }: { tools: ToolStat[] }) {
-  if (tools.length === 0) return <Muted>No tool calls in this window.</Muted>;
-  const max = Math.max(1, ...tools.map(t => t.calls));
   return (
     <div style={card}>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Tools</div>
-      <Bars max={max} rows={tools.map(t => ({ label: t.name, value: t.calls, sub: `${t.calls} calls${t.errors ? ` · ${t.errors} err` : ''}` }))} />
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tools</div>
+      <Table<ToolStat> rows={[...tools].sort((a, b) => b.calls - a.calls)} empty="No tool calls in this window."
+        cols={[
+          { label: 'Tool', render: t => <code style={{ fontSize: 12, fontWeight: 600 }}>{t.name}</code> },
+          { label: 'Calls', align: 'right', render: t => <Mono>{t.calls}</Mono> },
+          { label: 'Errors', align: 'right', render: t => <span style={{ fontFamily: 'var(--font-mono)', color: t.errors ? '#dc2626' : 'var(--subtle)' }}>{t.errors}</span> },
+          { label: 'Error rate', align: 'right', render: t => <Mono>{t.calls ? `${Math.round((t.errors / t.calls) * 100)}%` : '0%'}</Mono> },
+        ]} />
     </div>
   );
 }
+
+function Mono({ children }: { children: React.ReactNode }) { return <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{children}</span>; }
+function Subtle({ children }: { children: React.ReactNode }) { return <span style={{ color: 'var(--subtle)' }}>{children}</span>; }
 
 function Feedback({ r, scope }: { r: Rollup | null; scope: string }) {
   if (!r) return <Muted>No feedback in this window.</Muted>;
@@ -333,20 +395,42 @@ function Feedback({ r, scope }: { r: Rollup | null; scope: string }) {
   );
 }
 
-function Sessions({ sessions, agentFilter }: { sessions: SessionRow[]; agentFilter: string }) {
-  if (sessions.length === 0) return <Muted>No sessions in this window.</Muted>;
+function Sessions({ sessions, agentName, isSuper }: { sessions: SessionRow[]; agentName: Map<string, string>; isSuper: boolean }) {
+  const [q, setQ] = useState('');
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return sessions;
+    return sessions.filter(s =>
+      (s.summary ?? '').toLowerCase().includes(needle) ||
+      (s.initiatorHandle ?? '').toLowerCase().includes(needle) ||
+      s.agentIds.some(id => (agentName.get(id) ?? '').toLowerCase().includes(needle)));
+  }, [sessions, q, agentName]);
+  const names = (ids: string[]) => ids.map(id => agentName.get(id) ?? id).join(', ');
   return (
     <div style={card}>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Sessions</div>
-      {sessions.map((s, i) => (
-        <Link key={s.id} href={`/activity/${encodeURIComponent(s.id)}`}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderTop: i === 0 ? 'none' : '1px solid var(--border)', textDecoration: 'none' }}>
-          {s.sensitive && <ShieldAlert size={13} style={{ color: '#b45309', flexShrink: 0 }} />}
-          <span style={{ fontSize: 12.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{s.summary || '(no summary)'}</span>
-          <span style={{ fontSize: 11.5, color: 'var(--subtle)', flexShrink: 0 }}>{s.initiatorHandle ? `@${s.initiatorHandle}` : ''} · {s.activityCount} turns</span>
-          <ArrowRight size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} />
-        </Link>
-      ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Sessions</div>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search sessions…" style={{
+          marginLeft: 'auto', width: 220, padding: '6px 10px', fontSize: 12.5, borderRadius: 8,
+          border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)', fontFamily: 'var(--font-sans)',
+        }} />
+        <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{filtered.length}</span>
+      </div>
+      <Table<SessionRow> rows={filtered} empty="No sessions in this window." rowHref={s => `/activity/${encodeURIComponent(s.sessionId)}`}
+        cols={[
+          { label: 'Request', render: s => (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {s.sensitive && <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
+              <span title={s.summary ?? ''}>{truncate(s.summary || '(no summary)', 60)}</span>
+            </span>
+          ) },
+          { label: 'Agent', render: s => <Subtle>{truncate(names(s.agentIds) || '—', 28)}</Subtle> },
+          { label: 'Turns', align: 'right', render: s => <Mono>{s.turns}</Mono> },
+          ...(isSuper ? [{ label: 'Tokens', align: 'right' as const, render: (s: SessionRow) => <Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono> }] : []),
+          { label: 'State', render: s => <StatePill status={s.status} /> },
+          { label: 'Feedback', render: s => <FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /> },
+          { label: 'Updated', align: 'right', render: s => <Subtle>{relativeTime(s.lastActivityAt)}</Subtle> },
+        ]} />
     </div>
   );
 }

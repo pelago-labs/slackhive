@@ -659,6 +659,93 @@ async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRo
   };
 }
 
+// ── Per-session summaries (LLMOps "Sessions" table) ──────────────────────────
+
+/** One row in the sessions table — a thread with its rolled-up metrics. */
+export interface SessionSummary {
+  sessionId: string;
+  summary: string | null;
+  initiatorHandle: string | null;
+  agentIds: string[];
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  status: 'active' | 'done' | 'error';
+  sensitive: boolean;
+  feedbackUp: number;
+  feedbackDown: number;
+  startedAt: string;
+  lastActivityAt: string;
+}
+
+/**
+ * Per-session rollup rows for the LLMOps Sessions table: turns, tokens, state,
+ * feedback and sensitivity for each thread in scope+window, newest first. One
+ * grouped pass over activities + cheap joins (no per-session trace fetch).
+ */
+export async function getSessionSummaries(filter: InsightsFilter = {}, limit = 100): Promise<SessionSummary[]> {
+  const db = getDb();
+  const scope = insightsScope(filter, 1);
+  if (!scope) return [];
+  const params: unknown[] = [...scope.params];
+  const w = [scope.clause];
+  if (filter.since) { w.push(`started_at >= $${params.length + 1}`); params.push(filter.since); }
+  if (filter.until) { w.push(`started_at <= $${params.length + 1}`); params.push(filter.until); }
+  const lim = Math.min(500, Math.max(1, limit));
+  params.push(lim);
+
+  const { rows } = await db.query(
+    `WITH scoped AS (
+       SELECT * FROM activities a WHERE ${w.join(' AND ')}
+     ),
+     agg AS (
+       SELECT task_id,
+              COUNT(*) turns,
+              COALESCE(SUM(input_tokens),0) in_tok,
+              COALESCE(SUM(output_tokens),0) out_tok,
+              MAX(CASE WHEN status='in_progress' THEN 1 ELSE 0 END) has_active,
+              MAX(CASE WHEN status='error' THEN 1 ELSE 0 END) has_error,
+              GROUP_CONCAT(DISTINCT agent_id) agent_ids
+       FROM scoped GROUP BY task_id
+     ),
+     fb AS (
+       SELECT a.task_id,
+              SUM(CASE WHEN mf.sentiment='up' THEN 1 ELSE 0 END) up,
+              SUM(CASE WHEN mf.sentiment='down' THEN 1 ELSE 0 END) down
+       FROM message_feedback mf JOIN activities a ON a.id = mf.activity_id
+       GROUP BY a.task_id
+     ),
+     sens AS ( SELECT DISTINCT session_id FROM spans WHERE sensitive = 1 )
+     SELECT t.id, t.summary, t.initiator_handle, t.started_at, t.last_activity_at,
+            agg.turns, agg.in_tok, agg.out_tok, agg.has_active, agg.has_error, agg.agent_ids,
+            (sx.session_id IS NOT NULL) sensitive,
+            COALESCE(fb.up,0) fb_up, COALESCE(fb.down,0) fb_down
+       FROM agg
+       JOIN tasks t ON t.id = agg.task_id
+       LEFT JOIN fb   ON fb.task_id = t.id
+       LEFT JOIN sens sx ON sx.session_id = t.id
+      ORDER BY t.last_activity_at DESC, t.id DESC
+      LIMIT $${params.length}`,
+    params,
+  );
+
+  return rows.map(r => ({
+    sessionId: r.id as string,
+    summary: s(r.summary),
+    initiatorHandle: s(r.initiator_handle),
+    agentIds: typeof r.agent_ids === 'string' && r.agent_ids ? (r.agent_ids as string).split(',').filter(Boolean) : [],
+    turns: n(r.turns),
+    inputTokens: n(r.in_tok),
+    outputTokens: n(r.out_tok),
+    status: Number(r.has_active) ? 'active' : Number(r.has_error) ? 'error' : 'done',
+    sensitive: !!Number(r.sensitive),
+    feedbackUp: n(r.fb_up),
+    feedbackDown: n(r.fb_down),
+    startedAt: String(r.started_at),
+    lastActivityAt: String(r.last_activity_at),
+  }));
+}
+
 // ── Sensitive-access audit feed ──────────────────────────────────────────────
 
 export interface SensitiveEvent {

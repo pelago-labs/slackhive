@@ -11,9 +11,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  getInsightsRollup, getSessionTrace, getSensitiveEvents, getSensitiveFlows, getToolStats,
-  getTokensByAgent, getTopUsers, listTasks,
-  type InsightsRollup, type AgentTokenUsage, type UserActivitySummary,
+  getInsightsRollup, getSessionTrace, getSessionSummaries, getSensitiveEvents, getSensitiveFlows, getToolStats,
+  getTokensByAgent, getTopUsers,
+  type InsightsRollup, type AgentTokenUsage, type UserActivitySummary, type SessionSummary,
 } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
@@ -74,21 +74,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const acc = accessibleAgentIds ?? undefined;
     const filter = { agentId: scope === 'agent' ? agentId : undefined, since, until, accessibleAgentIds: acc };
 
-    const [rollup, byAgent, powerUsers, events, flows, tools, active, recent, errored] = await Promise.all([
+    const [rollup, byAgent, powerUsers, events, flows, tools, sessionsRaw] = await Promise.all([
       getInsightsRollup(filter),
       getTokensByAgent(filter),
       billing ? getTopUsers(filter, 10) : Promise.resolve([] as UserActivitySummary[]),
       getSensitiveEvents({ ...filter, limit: 200 }),
       getSensitiveFlows({ ...filter, limit: 100 }),
       getToolStats(filter),
-      listTasks('active', filter, 50, null),
-      listTasks('recent', filter, 50, null),
-      listTasks('errored', filter, 50, null),
+      getSessionSummaries(filter, 100),
     ]);
-
-    // Sessions: merge the three columns, newest first (one flat list for the tab).
-    const sessions = [...active.tasks, ...recent.tasks, ...errored.tasks]
-      .sort((a, b) => (a.lastActivityAt < b.lastActivityAt ? 1 : -1));
 
     const payload = {
       scope, agent: agentId ?? null, billing,
@@ -97,7 +91,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       powerUsers: billing ? powerUsers : null,
       events, flows,
       tools,
-      sessions,
+      // Sessions table — token columns stripped for non-superadmins.
+      sessions: billing ? sessionsRaw : sessionsRaw.map(stripSessionTokens),
     };
     return NextResponse.json(payload);
   } catch (err) {
@@ -118,4 +113,9 @@ function stripInsightsBilling(r: InsightsRollup): InsightsRollup {
 /** Zero token columns on a per-agent usage row for non-superadmins. */
 function stripAgentTokens(a: AgentTokenUsage): AgentTokenUsage {
   return { ...a, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
+}
+
+/** Zero token columns on a session-summary row for non-superadmins. */
+function stripSessionTokens(s: SessionSummary): SessionSummary {
+  return { ...s, inputTokens: 0, outputTokens: 0 };
 }

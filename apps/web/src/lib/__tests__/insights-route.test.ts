@@ -27,7 +27,9 @@ vi.mock('@slackhive/shared', async () => {
     getSensitiveEvents: vi.fn().mockResolvedValue([]),
     getSensitiveFlows: vi.fn().mockResolvedValue([]),
     getToolStats: vi.fn().mockResolvedValue([]),
-    listTasks: vi.fn().mockResolvedValue({ tasks: [], nextCursor: null }),
+    getSessionSummaries: vi.fn().mockResolvedValue([
+      { sessionId: 's1', summary: 'hi', initiatorHandle: 'u', agentIds: ['ag'], turns: 2, inputTokens: 500, outputTokens: 200, status: 'done', sensitive: false, feedbackUp: 1, feedbackDown: 0, startedAt: '2026-01-01 00:00:00', lastActivityAt: '2026-01-01 00:01:00' },
+    ]),
   };
 });
 
@@ -72,6 +74,7 @@ describe('GET /api/activity/insights — auth + billing gate', () => {
     expect(body.rollup.costUsd).toBe(0);
     expect(body.rollup.tokensByDay).toEqual([]);
     expect(body.byAgent[0].inputTokens).toBe(0);
+    expect(body.sessions[0].inputTokens).toBe(0); // session token cols stripped too
     expect(getTopUsers).not.toHaveBeenCalled(); // power users not even queried
   });
 
