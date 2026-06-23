@@ -27,6 +27,8 @@ import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
 import { markSensitiveWith, SENS_COLOR, CAT_LABEL, humanizeTag, type SensitiveCategory as SensCategory, type SensScope, type ExtraMark } from '@slackhive/shared';
 import { expandMarkdownHits } from '@/lib/markdown-hits';
+import { relativeTime } from '@/lib/time';
+import { SEV_COLOR } from '../_components/SevBadge';
 
 // A highlighted sensitive token: a colored-background tag. Click it to reveal what
 // kind of data it is. The popover is portaled to <body> with fixed positioning so
@@ -172,22 +174,6 @@ interface TraceFlow {
   sourceLabel: string; sinkLabel: string; sourceSpanId: string; sinkSpanId: string;
 }
 interface TraceDetail { task: Task; turns: TraceTurn[]; rollup: SessionRollup | null; deepLink: string | null; flows?: TraceFlow[] }
-const SEV_COLOR: Record<Severity, string> = { critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#0891b2' };
-
-function parseIso(s?: string): number | null {
-  if (!s) return null;
-  const ts = Date.parse(s.replace(' ', 'T') + 'Z');
-  return Number.isNaN(ts) ? null : ts;
-}
-function relativeTime(isoLike?: string): string {
-  const ts = parseIso(isoLike);
-  if (ts == null) return '';
-  const s = Math.floor(Math.max(0, Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
 function formatMs(ms: number | null | undefined): string {
   if (ms == null) return '—';
   const v = Math.max(0, ms);

@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Bot, LayoutGrid, GitBranch, Search, ArrowUpDown } from 'lucide-react';
 import { IconTile } from '@/components/ui';
+import { relativeTime } from '@/lib/time';
 
 type SortKey = 'boss-first' | 'name' | 'recent' | 'status';
 const SORT_LABELS: Record<SortKey, string> = {
@@ -42,24 +43,6 @@ function avatarPalette(name: string): { bg: string; fg: string } {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
   return AVATAR_PALETTES[Math.abs(h) % AVATAR_PALETTES.length];
-}
-
-function relativeTime(iso?: string | null): string | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (!t) return null;
-  const sec = Math.max(1, Math.floor((Date.now() - t) / 1000));
-  if (sec < 30) return 'just now';
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  const mo = Math.floor(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(mo / 12)}y ago`;
 }
 
 const InProgressContext = createContext<Record<string, number>>({});

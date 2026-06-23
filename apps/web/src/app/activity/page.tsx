@@ -17,6 +17,7 @@ import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, Th
 import type { AgentRollup } from '@slackhive/shared';
 import { TabSwitcher } from './_components/TabSwitcher';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
+import { relativeTime } from '@/lib/time';
 
 interface Task {
   id: string;
@@ -54,21 +55,6 @@ const COLUMNS: { key: Column; label: string; icon: React.ReactNode; accent: stri
   { key: 'recent',  label: 'Recent',  icon: <CheckCircle2 size={13} />,   accent: '#059669' },
   { key: 'errored', label: 'Errors',  icon: <AlertTriangle size={13} />,  accent: '#dc2626' },
 ];
-
-/** Relative time string ("4m", "2h", "3d") for dense card UIs. */
-function relativeTime(isoLike: string): string {
-  const ts = Date.parse(isoLike.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(ts)) return '';
-  const delta = Math.max(0, Date.now() - ts);
-  const s = Math.floor(delta / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  return `${d}d`;
-}
 
 /** Initials from an agent/user name, max 2 chars. */
 function initials(name: string): string {

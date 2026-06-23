@@ -17,6 +17,8 @@ import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsD
 import { useAuth } from '@/lib/auth-context';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../activity/_components/FilterRow';
 import { formatTokens } from '../activity/_components/formatTokens';
+import { SevBadge } from '../activity/_components/SevBadge';
+import { relativeTime } from '@/lib/time';
 
 interface AgentLite { id: string; slug: string; name: string }
 type Severity = 'critical' | 'high' | 'medium' | 'low';
@@ -59,7 +61,6 @@ interface InsightsResponse {
 }
 
 type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sessions';
-const SEV_COLOR: Record<Severity, string> = { critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#0891b2' };
 
 const card: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' };
 
@@ -268,16 +269,6 @@ function TokensChart({ data }: { data: { date: string; input: number; output: nu
 // ── Table primitive + cell helpers ───────────────────────────────────────────
 
 /** Accepts a ms epoch (span timestamps) OR a SQLite 'YYYY-MM-DD HH:MM:SS' string. */
-function relativeTime(when: string | number): string {
-  const ts = typeof when === 'number' ? when : Date.parse(when.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(ts)) return '';
-  const s = Math.floor(Math.max(0, Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
 interface Col<T> { label: string; align?: 'left' | 'right' | 'center'; width?: string; render: (row: T) => React.ReactNode }
 
 function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; rowHref?: (r: T) => string | undefined; empty: string }) {
@@ -332,10 +323,6 @@ function FeedbackCell({ up, down }: { up: number; down: number }) {
     {up > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#16a34a' }}><ThumbsUp size={12} />{up}</span>}
     {down > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#dc2626' }}><ThumbsDown size={12} />{down}</span>}
   </span>;
-}
-
-function SevBadge({ s }: { s: Severity }) {
-  return <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: `${SEV_COLOR[s]}1a`, color: SEV_COLOR[s] }}>{s}</span>;
 }
 
 function truncate(str: string, n: number): string { return str.length > n ? str.slice(0, n - 1) + '…' : str; }
