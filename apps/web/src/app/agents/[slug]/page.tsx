@@ -566,7 +566,10 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
   const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
   // Socket Mode (how the runner connects) needs the bot token AND the app-level
   // token; the signing secret is only for the HTTP Events API and is unused here.
-  const slackConfigured = !!(agent.slackBotToken && agent.slackAppToken);
+  // Non-writers (e.g. viewers) get the agent via toAgentPublic, which STRIPS the raw
+  // tokens and sets `hasSlackCreds` — so prefer that flag and fall back to the raw
+  // tokens (present only for editors/admins who receive the un-stripped agent).
+  const slackConfigured = agent.hasSlackCreds ?? !!(agent.slackBotToken && agent.slackAppToken);
 
   useEffect(() => {
     fetch('/api/system/models').then(r => r.ok ? r.json() : null)
