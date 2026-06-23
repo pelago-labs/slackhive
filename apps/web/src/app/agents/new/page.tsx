@@ -17,7 +17,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Check, ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Agent, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
-import { PERSONA_CATALOG, searchPersonas, DEFAULT_AGENT_MODEL } from '@slackhive/shared';
+import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared/dist/personas';
+import { DEFAULT_AGENT_MODEL } from '@slackhive/shared/dist/models';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 

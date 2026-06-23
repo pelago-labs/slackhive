@@ -17,11 +17,13 @@ import {
 } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+// Values come from the pure sensitivity subpath, not the '@slackhive/shared' barrel,
+// which would drag server/DB code + the persona catalog into this client bundle.
 import {
   markSensitiveWith, SENS_COLOR, CAT_LABEL, humanizeTag,
   type SensitiveCategory as SensCategory, type SensScope, type ExtraMark,
-  type TraceTurn, type TraceSpan,
-} from '@slackhive/shared';
+} from '@slackhive/shared/dist/sensitivity';
+import type { TraceTurn, TraceSpan } from '@slackhive/shared';
 import { formatTokens } from './formatTokens';
 import { expandMarkdownHits } from '@/lib/markdown-hits';
 
