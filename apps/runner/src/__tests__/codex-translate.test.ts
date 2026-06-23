@@ -7,9 +7,10 @@ import { translateEvent, mapUsage, toCodexInput } from '../backends/codex-transl
 
 // Stub poppler's `pdftoppm`: instead of rasterizing, fabricate <prefix>-N.png pages
 // so the PDF→images path is testable deterministically without the binary.
-const pdf = vi.hoisted(() => ({ pages: 3 }));
+const pdf = vi.hoisted(() => ({ pages: 3, fail: false }));
 vi.mock('child_process', () => ({
   execFile: (_file: string, args: string[], _opts: unknown, cb: (e: unknown, r: unknown) => void) => {
+    if (pdf.fail) { cb(new Error('pdftoppm: not found'), null); return; } // simulate poppler missing / render failure
     const realFs = require('fs');
     const prefix = args[args.length - 1]; // pdftoppm's output prefix is the last arg
     for (let i = 1; i <= pdf.pages; i++) realFs.writeFileSync(`${prefix}-${i}.png`, 'x');
@@ -42,7 +43,7 @@ describe('codex-translate / toCodexInput', () => {
 describe('codex-translate / toCodexInput — PDF rendered to page images', () => {
   const pdfBlock = { type: 'document', source: { media_type: 'application/pdf', data: Buffer.from('%PDF-1.4 fake').toString('base64') } };
   let dir: string;
-  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-pdf-')); });
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-pdf-')); pdf.fail = false; });
 
   it('renders a PDF to ordered page images preceded by a guidance note', async () => {
     pdf.pages = 3;
@@ -51,7 +52,7 @@ describe('codex-translate / toCodexInput — PDF rendered to page images', () =>
     expect(out[1].type).toBe('text');
     expect(out[1].text).toContain('3 page images');
     const imgs = out.filter(o => o.type === 'local_image').map(o => path.basename(o.path as string));
-    expect(imgs).toEqual(['input-pdf-0-page-1.png', 'input-pdf-0-page-2.png', 'input-pdf-0-page-3.png']);
+    expect(imgs).toEqual(['page-1.png', 'page-2.png', 'page-3.png']);
   });
 
   it('flags truncation when the PDF exceeds the 20-page cap', async () => {
@@ -60,6 +61,24 @@ describe('codex-translate / toCodexInput — PDF rendered to page images', () =>
     const note = out.find(o => o.type === 'text') as { text: string };
     expect(note.text).toContain('only the first 20 pages');
     expect(out.filter(o => o.type === 'local_image')).toHaveLength(20);
+  });
+
+  it('does NOT mix pages from an earlier PDF rendered into the same (persistent) session dir', async () => {
+    // Regression: the session work dir is reused across turns. A 20-page PDF in turn 1
+    // must not leak its stale pages into a 3-page PDF in turn 2 (same dir).
+    pdf.pages = 20;
+    await toCodexInput([pdfBlock], dir); // turn 1
+    pdf.pages = 3;
+    const out = await toCodexInput([pdfBlock], dir) as Array<Record<string, unknown>>; // turn 2, same dir
+    expect(out.filter(o => o.type === 'local_image')).toHaveLength(3); // only turn 2's pages, not 23
+  });
+
+  it('surfaces a note (not silence) when PDF rendering fails', async () => {
+    pdf.fail = true; // poppler missing / pdftoppm error
+    const out = await toCodexInput([{ type: 'text', text: 'q' }, pdfBlock], dir) as Array<Record<string, unknown>>;
+    const texts = out.filter(o => o.type === 'text').map(o => o.text as string);
+    expect(texts.some(t => /could not be read/i.test(t))).toBe(true);
+    expect(out.filter(o => o.type === 'local_image')).toHaveLength(0);
   });
 });
 

@@ -69,9 +69,9 @@ describe('MessageHandler — large attachments staged to disk', () => {
     await handler.handleMessage(makeMsg([{ url: 'http://x/big.csv', name: 'big.csv', mimeType: 'text/csv' }]));
 
     const prompt = String(captured.prompt);
-    expect(prompt).toContain('saved to ./attachments/big.csv');
+    expect(prompt).toContain('saved to ./attachments/0-big.csv'); // index-prefixed to avoid name collisions
     expect(prompt).not.toContain('AAAA'); // content NOT inlined
-    const staged = path.join(workDir, 'attachments', 'big.csv');
+    const staged = path.join(workDir, 'attachments', '0-big.csv');
     expect(fs.existsSync(staged)).toBe(true);
     expect(fs.readFileSync(staged).byteLength).toBe(40 * 1024); // full file, not truncated
   });
@@ -98,6 +98,17 @@ describe('MessageHandler — large attachments staged to disk', () => {
     const att = path.join(workDir, 'attachments');
     const names = fs.existsSync(att) ? fs.readdirSync(att) : [];
     expect(names).toHaveLength(1);
-    expect(names[0]).toBe('.._etc_we_ird_.log');
+    expect(names[0]).toBe('0-.._etc_we_ird_.log'); // index prefix + sanitized
+  });
+
+  it('keeps two identically-named large attachments distinct (no overwrite)', async () => {
+    const big = Buffer.from('A'.repeat(40 * 1024));
+    const handler = new MessageHandler(makeAdapter(big), makeBackend() as never, makeAgent(), null);
+    await handler.handleMessage(makeMsg([
+      { url: 'http://x/1', name: 'report.csv', mimeType: 'text/csv' },
+      { url: 'http://x/2', name: 'report.csv', mimeType: 'text/csv' },
+    ]));
+    const names = fs.readdirSync(path.join(workDir, 'attachments')).sort();
+    expect(names).toEqual(['0-report.csv', '1-report.csv']); // both staged, neither lost
   });
 });

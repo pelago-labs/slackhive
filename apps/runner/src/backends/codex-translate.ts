@@ -24,18 +24,24 @@ const MAX_PDF_PAGES = 20;
  * passed natively. Rasterize each page to a PNG with poppler's `pdftoppm` and feed
  * them as `local_image` entries — Codex reads them via its vision tool, preserving
  * layout/tables/scans. Returns the page-image paths in order (empty on failure).
+ *
+ * Renders into a FRESH per-call subdir of `outDir` (the persistent session dir):
+ * collecting pages by directory glob would otherwise pick up stale pages left by an
+ * earlier PDF in the same thread (pdftoppm zero-pads filenames by page count, so a
+ * later/shorter PDF doesn't even overwrite them) and feed a different document's
+ * pages to the model. The fresh dir holds only this PDF's pages.
  */
-async function renderPdfToImages(pdfBuffer: Buffer, outDir: string, idx: number): Promise<string[]> {
-  const pdfPath = path.join(outDir, `input-pdf-${idx}.pdf`);
+async function renderPdfToImages(pdfBuffer: Buffer, outDir: string): Promise<string[]> {
+  const dir = fs.mkdtempSync(path.join(outDir, 'pdf-'));
+  const pdfPath = path.join(dir, 'in.pdf');
   fs.writeFileSync(pdfPath, pdfBuffer);
-  const prefix = path.join(outDir, `input-pdf-${idx}-page`);
+  const prefix = path.join(dir, 'page');
   // -scale-to 2048 caps the long edge (legible text, bounded upload); -l limits pages.
   await execFileAsync('pdftoppm', ['-png', '-scale-to', '2048', '-l', String(MAX_PDF_PAGES), pdfPath, prefix], { timeout: 120_000 });
-  const base = path.basename(prefix);
-  return fs.readdirSync(outDir)
-    .filter((f) => f.startsWith(base) && f.endsWith('.png'))
+  return fs.readdirSync(dir)
+    .filter((f) => f.startsWith('page') && f.endsWith('.png'))
     .sort((a, b) => (parseInt(a.match(/-(\d+)\.png$/)?.[1] ?? '0', 10)) - (parseInt(b.match(/-(\d+)\.png$/)?.[1] ?? '0', 10)))
-    .map((f) => path.join(outDir, f));
+    .map((f) => path.join(dir, f));
 }
 
 function assistant(content: Array<Record<string, unknown>>): BackendMessage {
@@ -161,7 +167,6 @@ export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise
   if (typeof prompt === 'string') return prompt;
   const out: UserInput[] = [];
   let imgIdx = 0;
-  let pdfIdx = 0;
   for (const block of prompt as Array<Record<string, unknown>>) {
     if (block?.type === 'text' && typeof block.text === 'string') {
       out.push({ type: 'text', text: block.text });
@@ -181,13 +186,21 @@ export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise
       const source = block.source as { data?: string; media_type?: string } | undefined;
       if (source?.data && source.media_type === 'application/pdf') {
         try {
-          const pages = await renderPdfToImages(Buffer.from(source.data, 'base64'), tmpDir, pdfIdx++);
+          const pages = await renderPdfToImages(Buffer.from(source.data, 'base64'), tmpDir);
           if (pages.length > 0) {
             const truncated = pages.length >= MAX_PDF_PAGES;
             out.push({ type: 'text', text: `[Attached PDF rendered as ${pages.length} page image${pages.length > 1 ? 's' : ''} below${truncated ? ` — only the first ${MAX_PDF_PAGES} pages` : ''}. Read them as the document's pages, in order.]` });
             for (const p of pages) out.push({ type: 'local_image', path: p });
+          } else {
+            // Rendered to zero pages — empty or unreadable PDF. Tell the model rather
+            // than silently dropping it (it would otherwise answer as if nothing was sent).
+            out.push({ type: 'text', text: '[A PDF was attached but produced no readable pages — it may be empty or corrupt. Ask the user to resend or paste the relevant text.]' });
           }
-        } catch { /* skip unreadable / unrenderable pdf */ }
+        } catch {
+          // Render failed (e.g. poppler/pdftoppm missing, timeout, malformed PDF). Surface
+          // it to the model instead of swallowing — silent drop is undiagnosable.
+          out.push({ type: 'text', text: '[A PDF was attached but could not be read (PDF-to-image rendering failed on the server). Ask the user to paste the relevant text.]' });
+        }
       }
     }
   }

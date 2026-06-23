@@ -738,7 +738,7 @@ export class MessageHandler {
     const binaryBlocks: ContentBlockParam[] = [];
 
     if (allFiles.length > 0) {
-      for (const file of allFiles) {
+      for (const [fileIdx, file] of allFiles.entries()) {
         if (!file.url) continue;
         const kind = this.getFileKind(file);
         if (kind === 'unsupported') continue;
@@ -753,16 +753,27 @@ export class MessageHandler {
             // on demand with its own tools (head/grep/sed/Read) — like Claude Code.
             const isLarge = buffer.byteLength > INLINE_TEXT_FILE_BYTES;
             const workDir = (isLarge && sessionKey) ? this.tryGetSessionWorkDir(sessionKey) : undefined;
+            let staged = false;
             if (isLarge && workDir) {
-              const safe = (label || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
-              const attDir = path.join(workDir, 'attachments');
-              fs.mkdirSync(attDir, { recursive: true });
-              fs.writeFileSync(path.join(attDir, safe), Buffer.from(buffer));
-              const kb = Math.round(buffer.byteLength / 1024);
-              textChunks.push(`[Attached file "${label}" (${kb} KB) is too large to inline — saved to ./attachments/${safe}. Read it from there with your tools (e.g. head/grep/sed/Read) to access any part.]`);
-            } else {
+              // Index-prefix the name so two attachments whose names sanitize to the
+              // same string don't overwrite each other (and lose one silently).
+              const safe = `${fileIdx}-${(label || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+              try {
+                const attDir = path.join(workDir, 'attachments');
+                fs.mkdirSync(attDir, { recursive: true });
+                fs.writeFileSync(path.join(attDir, safe), Buffer.from(buffer));
+                const kb = Math.round(buffer.byteLength / 1024);
+                textChunks.push(`[Attached file "${label}" (${kb} KB) is too large to inline — saved to ./attachments/${safe}. Read it from there with your tools (e.g. head/grep/sed/Read) to access any part.]`);
+                staged = true;
+              } catch (err) {
+                // Disk full / permission error: fall back to inlining rather than crash
+                // the whole turn (the staging path must never break an otherwise-fine turn).
+                this.log.warn('Failed to stage large attachment to disk; inlining instead', { name: label, error: (err as Error).message });
+              }
+            }
+            if (!staged) {
               let text = new TextDecoder().decode(buffer.slice(0, MAX_TEXT_FILE_BYTES));
-              if (buffer.byteLength > MAX_TEXT_FILE_BYTES) text += '\n[... truncated at 512 KB; could not save to disk ...]';
+              if (buffer.byteLength > MAX_TEXT_FILE_BYTES) text += '\n[... truncated at 512 KB ...]';
               textChunks.push(`[File: ${label}]\n${text}`);
             }
           } else if (kind === 'image') {
