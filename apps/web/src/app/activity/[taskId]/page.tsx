@@ -14,8 +14,9 @@ import { useParams } from 'next/navigation';
 import { deepLinkLabelForPlatform } from '@slackhive/shared';
 import {
   ArrowLeft, ExternalLink, ChevronRight, ChevronDown,
-  Wrench, CheckCircle2, AlertTriangle, Loader2, RotateCcw,
+  Wrench, CheckCircle2, AlertTriangle, Loader2,
 } from 'lucide-react';
+import { ReplayButton } from '../_components/ReplayButton';
 
 interface Task {
   id: string;
@@ -286,23 +287,6 @@ function ActivityCard(props: {
 }): React.JSX.Element {
   const { activity, agent, taskId } = props;
   const [open, setOpen] = useState(activity.status === 'in_progress' || activity.status === 'error');
-  const [replaying, setReplaying] = useState(false);
-  const [replayDone, setReplayDone] = useState(false);
-
-  async function handleReplay(e: React.MouseEvent) {
-    e.stopPropagation();
-    setReplaying(true);
-    try {
-      const res = await fetch(`/api/activity/${encodeURIComponent(taskId)}/replay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activityId: activity.id }),
-      });
-      if (res.ok) setReplayDone(true);
-    } finally {
-      setReplaying(false);
-    }
-  }
   const label = agent?.name ?? activity.agentId.slice(0, 8);
   const color = agentColor(activity.agentId);
   const statusColor = STATUS_COLOR[activity.status] ?? 'var(--muted)';
@@ -378,26 +362,7 @@ function ActivityCard(props: {
           )}
           {activity.status === 'error' && (
             <div style={{ marginTop: 10 }}>
-              <button
-                onClick={handleReplay}
-                disabled={replaying || replayDone}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '5px 12px', borderRadius: 6, border: 'none',
-                  background: replayDone ? 'rgba(5,150,105,0.1)' : 'rgba(220,38,38,0.08)',
-                  color: replayDone ? '#047857' : '#b91c1c',
-                  fontSize: 12, fontWeight: 600, cursor: replaying || replayDone ? 'default' : 'pointer',
-                  opacity: replaying ? 0.7 : 1,
-                }}
-              >
-                {replaying
-                  ? <Loader2 size={12} style={{ animation: 'spin 1.2s linear infinite' }} />
-                  : replayDone
-                    ? <CheckCircle2 size={12} />
-                    : <RotateCcw size={12} />
-                }
-                {replayDone ? 'Replaying…' : replaying ? 'Starting…' : 'Replay'}
-              </button>
+              <ReplayButton taskId={taskId} activityId={activity.id} variant="labeled" />
             </div>
           )}
           {hasToolCalls && (

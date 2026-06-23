@@ -80,4 +80,16 @@ describe('MessageHandler — duplicate-delivery dedup', () => {
     await handler.handleMessage({ ...base, userId: 'Uother' } as IncomingMessage); // different sender → different session
     expect((backend.streamQuery as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
   });
+
+  it('does NOT dedup a replay even when it reuses the original message id', async () => {
+    // replayActivity re-feeds the original message id with raw.replay=true. Without the
+    // exemption, a replay of a just-failed turn collides with the original's still-live
+    // dedup entry and is silently dropped while the route reports success.
+    const backend = makeBackend();
+    const handler = new MessageHandler(makeAdapter(), backend as never, makeAgent(), null);
+    await handler.handleMessage(makeMsg('analyse this', 'm1')); // original delivery
+    const replay = { ...makeMsg('analyse this', 'm1'), raw: { replay: true } } as unknown as IncomingMessage;
+    await handler.handleMessage(replay); // same id, within window — must still run
+    expect((backend.streamQuery as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
+  });
 });

@@ -80,6 +80,10 @@ const MAX_THREAD_CONTEXT_CHARS = 8_000;
  *  otherwise pre-empt the reportee's own in-flight turn (a spurious "Operation
  *  aborted"). 15s comfortably covers the observed ~1s gap with minimal false drops. */
 const DUPLICATE_MESSAGE_WINDOW_MS = 15_000;
+/** Soft cap on the dedup map before we prune expired entries. Lets the common path
+ *  stay O(1) (a single Map.get) and only pay the O(n) sweep when the map actually
+ *  grows — so a busy agent can't accumulate stale keys without bound. */
+const DUPLICATE_CACHE_MAX = 1_000;
 
 /** Text files at or below this are inlined into the prompt (small, convenient,
  *  ~8K tokens). Larger ones are written to the agent's cwd to read on demand —
@@ -191,16 +195,28 @@ export class MessageHandler {
     // duplicate hits the same sessionKey and would abort the turn started by the first
     // (surfacing as "Operation aborted"). Dedup on (session + messageId); text is a
     // fallback for platforms that don't supply a stable message id.
-    const dedupKey = `${sessionKey}:${messageId || text || ''}`;
-    const nowMs = Date.now();
-    for (const [k, seenAt] of this.recentMessages) {
-      if (nowMs - seenAt > DUPLICATE_MESSAGE_WINDOW_MS) this.recentMessages.delete(k);
+    //
+    // Replays are EXEMPT: replayActivity re-feeds the original message's id, so a
+    // replay of a just-failed turn would otherwise collide with that turn's still-live
+    // dedup entry and be silently dropped while the route reports success. A replay is
+    // an explicit re-run request, not an at-least-once redelivery, so let it through.
+    const isReplay = (msg.raw as { replay?: boolean } | undefined)?.replay === true;
+    if (!isReplay) {
+      const dedupKey = `${sessionKey}:${messageId || text || ''}`;
+      const nowMs = Date.now();
+      const seenAt = this.recentMessages.get(dedupKey);
+      if (seenAt !== undefined && nowMs - seenAt <= DUPLICATE_MESSAGE_WINDOW_MS) {
+        this.log.info('Dropping duplicate message (already handled within window)', { sessionKey, messageId });
+        return;
+      }
+      this.recentMessages.set(dedupKey, nowMs);
+      // Only sweep when the map has actually grown — keeps the hot path O(1).
+      if (this.recentMessages.size > DUPLICATE_CACHE_MAX) {
+        for (const [k, ts] of this.recentMessages) {
+          if (nowMs - ts > DUPLICATE_MESSAGE_WINDOW_MS) this.recentMessages.delete(k);
+        }
+      }
     }
-    if (this.recentMessages.has(dedupKey)) {
-      this.log.info('Dropping duplicate message (already handled within window)', { sessionKey, messageId });
-      return;
-    }
-    this.recentMessages.set(dedupKey, nowMs);
 
     this.log.info('Processing message', {
       userId, channelId, threadId, sessionKey,
@@ -794,8 +810,10 @@ export class MessageHandler {
               const safe = `${fileIdx}-${(label || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
               try {
                 const attDir = path.join(workDir, 'attachments');
-                fs.mkdirSync(attDir, { recursive: true });
-                fs.writeFileSync(path.join(attDir, safe), Buffer.from(buffer));
+                // Async fs so a large attachment write doesn't block the runner's
+                // event loop (and stall other concurrent agents) during the write.
+                await fs.promises.mkdir(attDir, { recursive: true });
+                await fs.promises.writeFile(path.join(attDir, safe), Buffer.from(buffer));
                 const kb = Math.round(buffer.byteLength / 1024);
                 textChunks.push(`[Attached file "${label}" (${kb} KB) is too large to inline — saved to ./attachments/${safe}. Read it from there with your tools (e.g. head/grep/sed/Read) to access any part.]`);
                 staged = true;

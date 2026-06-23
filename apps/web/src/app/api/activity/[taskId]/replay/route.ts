@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
+import { runnerBase } from '@/lib/runner';
 import { getTaskWithDetails } from '@slackhive/shared';
 
 export const dynamic = 'force-dynamic';
@@ -43,8 +44,7 @@ export async function POST(
     activityId = errored.id;
   }
 
-  const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
-  const upstream = await fetch(`http://127.0.0.1:${port}/replay-activity`, {
+  const upstream = await fetch(`${runnerBase()}/replay-activity`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ activityId }),
