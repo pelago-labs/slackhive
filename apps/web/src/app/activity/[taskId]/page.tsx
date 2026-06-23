@@ -19,13 +19,11 @@ import { useAuth } from '@/lib/auth-context';
 import { deepLinkLabelForPlatform } from '@slackhive/shared';
 import {
   ArrowLeft, ExternalLink, ChevronRight, ChevronDown,
-  Wrench, CheckCircle2, AlertTriangle, Loader2, Brain,
-  ThumbsUp, ThumbsDown, Coins, GitBranch, Copy, Check, Layers, Clock, ShieldAlert, ArrowRight, Lock,
+  Wrench, CheckCircle2, AlertTriangle, Loader2,
+  ThumbsUp, ThumbsDown, Coins, GitBranch, Layers, Clock, ArrowRight,
 } from 'lucide-react';
-import ReactMarkdown, { type Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { formatTokens } from '../_components/formatTokens';
-import { type TraceTurn, type TraceSpan, type TurnFeedback } from '@slackhive/shared';
+import { type TraceTurn } from '@slackhive/shared';
 import { relativeTime } from '@/lib/time';
 import { SEV_COLOR } from '../_components/SevBadge';
 import { RevealCtx, SensitiveBadge, buildNodes, NodeRow, formatMs } from '../_components/trace-nodes';

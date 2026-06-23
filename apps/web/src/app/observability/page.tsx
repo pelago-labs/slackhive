@@ -10,7 +10,7 @@
  * @module web/app/observability
  */
 
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsDown, Layers, Lock, ArrowRight, ExternalLink, ChevronRight, ChevronDown, Brain, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
@@ -18,7 +18,7 @@ import { useAuth } from '@/lib/auth-context';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../activity/_components/FilterRow';
 import { formatTokens } from '../activity/_components/formatTokens';
 import { SevBadge } from '../activity/_components/SevBadge';
-import { RevealCtx, buildNodes, NodeRow, SensitiveBadge } from '../activity/_components/trace-nodes';
+import { RevealCtx, buildNodes, NodeRow, SensitiveBadge, type NodeData } from '../activity/_components/trace-nodes';
 import { relativeTime } from '@/lib/time';
 import type { TraceTurn } from '@slackhive/shared';
 
@@ -609,9 +609,9 @@ function whoLabel(t: TraceTurn): string {
   return t.initiatorHandle ? `@${t.initiatorHandle}` : '—';
 }
 
-/** Compact icon chips summarizing the turn's reasoning→tools→answer step sequence. */
-function StepChips({ turn }: { turn: TraceTurn }): React.JSX.Element {
-  const nodes = useMemo(() => buildNodes(turn), [turn]);
+/** Compact icon chips summarizing the turn's reasoning→tools→answer step sequence.
+ *  Takes pre-built nodes (TurnRows already computes them) to avoid re-running buildNodes. */
+function StepChips({ nodes }: { nodes: NodeData[] }): React.JSX.Element {
   const shown = nodes.slice(0, 6);
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
@@ -665,7 +665,7 @@ function TurnRows({ turn, request, sessionId, cols, expanded, onToggle, canToken
         </td>
         <td style={td}><Subtle>{whoLabel(turn)}</Subtle></td>
         <td style={td}><AgentCell names={turn.agentName ? [turn.agentName] : []} /></td>
-        <td style={td}><StepChips turn={turn} /></td>
+        <td style={td}><StepChips nodes={nodes} /></td>
         {canTokens && <td style={{ ...td, textAlign: 'right' }}><Mono>{formatTokens(turn.inputTokens + turn.outputTokens)}</Mono></td>}
         <td style={td}><TurnStatus status={turn.status} /></td>
         <td style={td}><FeedbackCell up={up} down={down} /></td>
@@ -705,9 +705,14 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
   const [openTurns, setOpenTurns] = useState<Set<string>>(new Set());
   const [turnsBySession, setTurnsBySession] = useState<Record<string, TraceTurn[]>>({});
   const [loadingSession, setLoadingSession] = useState<Set<string>>(new Set());
+  const [errorSession, setErrorSession] = useState<Set<string>>(new Set());
+  // Synchronous in-flight guard (state updates are async) so a fast double-click
+  // can't fire two fetches for the same session.
+  const inFlight = useRef<Set<string>>(new Set());
   useEffect(() => {
     setRows(sessions); setNextCursor(cursor);
-    setOpenSessions(new Set()); setOpenTurns(new Set()); setTurnsBySession({});
+    setOpenSessions(new Set()); setOpenTurns(new Set()); setTurnsBySession({}); setErrorSession(new Set());
+    inFlight.current = new Set();
   }, [sessions, cursor]);
 
   const loadMore = useCallback(async () => {
@@ -723,21 +728,32 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
     } catch { /* leave the cursor so the user can retry */ } finally { setLoadingMore(false); }
   }, [nextCursor, loadingMore, fetchMore]);
 
-  // Expand a session → lazily fetch its turns (the trace endpoint redacts sensitive
-  // values server-side for non-admins, same as the trace page).
-  const toggleSession = useCallback(async (id: string) => {
+  // Lazily fetch a session's turns (the trace endpoint redacts sensitive values
+  // server-side for non-admins, same as the trace page). On failure we record an
+  // error (NOT an empty list) so the row can offer a retry instead of looking empty.
+  const loadSessionTurns = useCallback(async (id: string) => {
+    if (turnsBySession[id] !== undefined || inFlight.current.has(id)) return;
+    inFlight.current.add(id);
+    setLoadingSession(s => new Set(s).add(id));
+    setErrorSession(s => { const n = new Set(s); n.delete(id); return n; });
+    try {
+      const r = await fetch(`/api/activity/${encodeURIComponent(id)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      setTurnsBySession(prev => ({ ...prev, [id]: (j.turns ?? []) as TraceTurn[] }));
+    } catch {
+      setErrorSession(s => new Set(s).add(id)); // leave turnsBySession undefined → retryable
+    } finally {
+      inFlight.current.delete(id);
+      setLoadingSession(s => { const n = new Set(s); n.delete(id); return n; });
+    }
+  }, [turnsBySession]);
+
+  const toggleSession = useCallback((id: string) => {
     const isOpen = openSessions.has(id);
     setOpenSessions(s => { const n = new Set(s); if (isOpen) n.delete(id); else n.add(id); return n; });
-    if (!isOpen && turnsBySession[id] === undefined) {
-      setLoadingSession(s => new Set(s).add(id));
-      try {
-        const r = await fetch(`/api/activity/${encodeURIComponent(id)}`);
-        const j = r.ok ? await r.json() : { turns: [] };
-        setTurnsBySession(prev => ({ ...prev, [id]: (j.turns ?? []) as TraceTurn[] }));
-      } catch { setTurnsBySession(prev => ({ ...prev, [id]: [] })); }
-      finally { setLoadingSession(s => { const n = new Set(s); n.delete(id); return n; }); }
-    }
-  }, [openSessions, turnsBySession]);
+    if (!isOpen) loadSessionTurns(id);
+  }, [openSessions, loadSessionTurns]);
   const toggleTurn = (aid: string) => setOpenTurns(s => { const n = new Set(s); if (n.has(aid)) n.delete(aid); else n.add(aid); return n; });
 
   const initiators = useMemo(() =>
@@ -817,6 +833,8 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: open ? 600 : 500 }}>
                             {s.sensitive && <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
                             <span title={s.summary ?? ''}>{truncate(s.summary || '(no summary)', 56)}</span>
+                            <a href={`/activity/${encodeURIComponent(s.sessionId)}`} onClick={e => e.stopPropagation()} title="Open full session"
+                              style={{ display: 'inline-flex', color: 'var(--subtle)', flexShrink: 0 }}><ExternalLink size={12} /></a>
                           </span>
                         </td>
                         <td style={rowTd}><Subtle>{s.initiatorHandle ? `@${s.initiatorHandle}` : '—'}</Subtle></td>
@@ -827,10 +845,20 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
                         <td style={rowTd}><FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /></td>
                         <td style={{ ...rowTd, paddingRight: 16, textAlign: 'right' }} title={s.startedAt}><Subtle>{relativeTime(s.startedAt)}</Subtle></td>
                       </tr>
-                      {open && (loadingSession.has(s.sessionId) || turns === undefined ? (
+                      {open && (errorSession.has(s.sessionId) ? (
+                        <tr><td colSpan={cols} style={nestNote}>
+                          Couldn’t load turns.{' '}
+                          <button onClick={() => loadSessionTurns(s.sessionId)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }}>Retry</button>
+                          {' · '}
+                          <a href={`/activity/${encodeURIComponent(s.sessionId)}`} style={{ color: 'var(--accent)' }}>Open full session</a>
+                        </td></tr>
+                      ) : loadingSession.has(s.sessionId) || turns === undefined ? (
                         <tr><td colSpan={cols} style={nestNote}>Loading turns…</td></tr>
                       ) : turns.length === 0 ? (
-                        <tr><td colSpan={cols} style={nestNote}>No turns.</td></tr>
+                        <tr><td colSpan={cols} style={nestNote}>
+                          No turns.{' '}
+                          <a href={`/activity/${encodeURIComponent(s.sessionId)}`} style={{ color: 'var(--accent)' }}>Open full session</a>
+                        </td></tr>
                       ) : turns.map(t => (
                         <TurnRows key={t.activityId} turn={t} request={t.messagePreview || '(turn)'} sessionId={s.sessionId}
                           cols={cols} canTokens={canTokens} indent expanded={openTurns.has(t.activityId)} onToggle={() => toggleTurn(t.activityId)} />
