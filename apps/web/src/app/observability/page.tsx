@@ -684,28 +684,33 @@ function TurnStatus({ status }: { status: 'in_progress' | 'done' | 'error' }): R
   return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 10, background: map.bg, color: map.fg, fontSize: 10, fontWeight: 600 }}>{map.icon}{map.label}</span>;
 }
 
-/** One turn: a summary row (full turn-level columns) + an inline-expanded detail row
- * showing the full reasoning→tools→answer chain (admin-revealable, else redacted). */
-function TurnRows({ turn, cols, expanded, onToggle }: { turn: TurnFeedRow; cols: number; expanded: boolean; onToggle: () => void }): React.JSX.Element {
+/** One turn rendered to mirror the Session table's row (Request · Initiated by ·
+ * Agent · Steps · [Tokens] · State · Feedback · Updated), plus an inline-expanded
+ * detail row with the full reasoning→tools→answer chain (admin-revealable). */
+function TurnRows({ turn, cols, expanded, onToggle, canTokens }: { turn: TurnFeedRow; cols: number; expanded: boolean; onToggle: () => void; canTokens: boolean }): React.JSX.Element {
   const nodes = useMemo(() => buildNodes(turn), [turn]);
   const maxMs = Math.max(1, ...nodes.map(n => n.durationMs ?? 0));
-  const td: React.CSSProperties = { fontSize: 12.5, color: 'var(--text)', padding: '9px 10px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', whiteSpace: 'nowrap' };
+  const td: React.CSSProperties = { fontSize: 13, color: 'var(--text)', padding: '10px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', whiteSpace: 'nowrap' };
   const firstSpan = nodes[0]?.key && !nodes[0].key.startsWith('__') ? nodes[0].key : '';
+  const up = turn.feedback.filter(f => f.sentiment === 'up').length;
+  const down = turn.feedback.filter(f => f.sentiment === 'down').length;
   return (
     <>
       <tr onClick={onToggle} style={{ cursor: 'pointer' }} className="trace-node">
         <td style={{ ...td, paddingLeft: 16, width: 22 }}>{expanded ? <ChevronDown size={13} style={{ color: 'var(--subtle)' }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)' }} />}</td>
-        <td style={td}><Subtle>{relativeTime(turn.startedAt)}</Subtle></td>
-        <td style={td}><Subtle>{whoLabel(turn)}</Subtle></td>
-        <td style={td}>{turn.agentName ?? '—'}</td>
-        <td style={{ ...td, whiteSpace: 'normal', maxWidth: 240 }} title={turn.sessionSummary ?? turn.messagePreview ?? ''}>{truncate(turn.sessionSummary || turn.messagePreview || '(no summary)', 64)}</td>
-        <td style={td}><StepChips turn={turn} /></td>
-        <td style={{ ...td, whiteSpace: 'normal', maxWidth: 280 }}>
-          {turn.sensitive
-            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><SensitiveBadge categories={turn.sensitiveCategories} compact /><Subtle>expand to view</Subtle></span>
-            : turn.finalAnswer ? <span title={turn.finalAnswer}>{truncate(turn.finalAnswer.replace(/\s+/g, ' '), 64)}</span> : <Subtle>—</Subtle>}
+        <td style={{ ...td, whiteSpace: 'normal' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {turn.sensitive && <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
+            <span title={turn.sessionSummary ?? turn.messagePreview ?? ''}>{truncate(turn.sessionSummary || turn.messagePreview || '(no summary)', 56)}</span>
+          </span>
         </td>
-        <td style={{ ...td, paddingRight: 16 }}><TurnStatus status={turn.status} /></td>
+        <td style={td}><Subtle>{whoLabel(turn)}</Subtle></td>
+        <td style={td}><Subtle>{truncate(turn.agentName || '—', 24)}</Subtle></td>
+        <td style={td}><StepChips turn={turn} /></td>
+        {canTokens && <td style={{ ...td, textAlign: 'right' }}><Mono>{formatTokens(turn.inputTokens + turn.outputTokens)}</Mono></td>}
+        <td style={td}><TurnStatus status={turn.status} /></td>
+        <td style={td}><FeedbackCell up={up} down={down} /></td>
+        <td style={{ ...td, paddingRight: 16, textAlign: 'right' }}><Subtle>{relativeTime(turn.startedAt)}</Subtle></td>
       </tr>
       {expanded && (
         <tr>
@@ -726,7 +731,7 @@ function TurnRows({ turn, cols, expanded, onToggle }: { turn: TurnFeedRow; cols:
 }
 
 function Turns({ fetchTurns, canReveal, agentName, canTokens }: { fetchTurns: (cursor?: string) => Promise<TurnsPage>; canReveal: boolean; agentName: Map<string, string>; canTokens: boolean }): React.JSX.Element {
-  void agentName; void canTokens;
+  void agentName; // agent name is shown per-row from the turn itself
   const [rows, setRows] = useState<TurnFeedRow[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -775,8 +780,8 @@ function Turns({ fetchTurns, canReveal, agentName, canTokens }: { fetchTurns: (c
 
   const errCount = rows.filter(t => t.status === 'error').length;
   const sensCount = rows.filter(t => t.sensitive).length;
-  const cols = 8;
-  const th: React.CSSProperties = { fontSize: 11, fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '8px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textAlign: 'left' };
+  const cols = canTokens ? 9 : 8;
+  const th: React.CSSProperties = { fontSize: 11, fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '8px 12px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textAlign: 'left' };
 
   return (
     <RevealCtx.Provider value={canReveal}>
@@ -804,13 +809,15 @@ function Turns({ fetchTurns, canReveal, agentName, canTokens }: { fetchTurns: (c
             <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans)' }}>
               <thead><tr>
                 <th style={{ ...th, paddingLeft: 16, width: 22 }} />
-                <th style={th}>When</th><th style={th}>Who asked</th><th style={th}>Agent</th>
-                <th style={th}>Request</th><th style={th}>Steps</th><th style={th}>Result</th>
-                <th style={{ ...th, paddingRight: 16 }}>Status</th>
+                <th style={th}>Request</th><th style={th}>Initiated by</th><th style={th}>Agent</th>
+                <th style={th}>Steps</th>
+                {canTokens && <th style={{ ...th, textAlign: 'right' }}>Tokens</th>}
+                <th style={th}>State</th><th style={th}>Feedback</th>
+                <th style={{ ...th, paddingRight: 16, textAlign: 'right' }}>Updated</th>
               </tr></thead>
               <tbody>
                 {filtered.map(t => (
-                  <TurnRows key={t.activityId} turn={t} cols={cols} expanded={expanded.has(t.activityId)} onToggle={() => toggle(t.activityId)} />
+                  <TurnRows key={t.activityId} turn={t} cols={cols} canTokens={canTokens} expanded={expanded.has(t.activityId)} onToggle={() => toggle(t.activityId)} />
                 ))}
               </tbody>
             </table>
