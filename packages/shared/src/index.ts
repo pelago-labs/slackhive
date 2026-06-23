@@ -10,6 +10,7 @@ export type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment,
   MessagePayload, PlatformCredentials, SlackCredentials,
 } from './platform';
+export { PAYLOAD_BREAK } from './platform';
 export type {
   AgentBackend, BackendMessage, BackendUsage, AssistantBlock, UserBlock, AgentPrompt,
 } from './agent-backend';

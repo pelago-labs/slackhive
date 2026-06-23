@@ -21,7 +21,7 @@ import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment, MessagePayload,
   SlackCredentials,
 } from '@slackhive/shared';
-import { recordMessageFeedback, linkActivityReply, findActivityIdByReply } from '@slackhive/shared';
+import { recordMessageFeedback, linkActivityReply, findActivityIdByReply, PAYLOAD_BREAK } from '@slackhive/shared';
 import { agentLogger } from '../logger';
 import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
@@ -388,6 +388,26 @@ export class SlackAdapter implements PlatformAdapter {
     await this.app.client.chat.update({ channel: channelId, ts: messageId, text });
   }
 
+  async updatePayload(channelId: string, messageId: string, payload: MessagePayload): Promise<void> {
+    const opts: any = {
+      channel: channelId,
+      ts: messageId,
+      text: payload.text,
+      ...(payload.blocks && { blocks: payload.blocks }),
+    };
+    try {
+      await this.app.client.chat.update(opts);
+    } catch (err: any) {
+      // Same fallback as postPayload: if Slack rejects the blocks, update with
+      // plain text so the anchor still carries the content.
+      if (err?.data?.error === 'invalid_blocks' && payload.blocks) {
+        await this.app.client.chat.update({ channel: channelId, ts: messageId, text: payload.text });
+      } else {
+        throw err;
+      }
+    }
+  }
+
   async postReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
     try {
       await this.app.client.reactions.add({ channel: channelId, timestamp: messageId, name: emoji });
@@ -580,36 +600,47 @@ export class SlackAdapter implements PlatformAdapter {
 
   buildPayloads(text: string, isFinal?: boolean): MessagePayload[] {
     const payloads: MessagePayload[] = [];
-    let remaining = text;
 
-    while (remaining.trim()) {
-      const extracted = extractFirstMarkdownTable(remaining);
+    // An explicit PAYLOAD_BREAK forces a payload boundary even where the table
+    // splitter wouldn't create one — e.g. between a leading text summary and the
+    // first table, so the summary stands alone as the channel-visible parent
+    // while the tables thread beneath it. Each segment is split independently;
+    // the marker is consumed here so it never reaches Slack.
+    for (const segment of text.split(PAYLOAD_BREAK)) {
+      let remaining = segment;
 
-      if (!extracted) {
-        payloads.push({ text: this.formatMarkdown(remaining) });
-        break;
+      while (remaining.trim()) {
+        const extracted = extractFirstMarkdownTable(remaining);
+
+        if (!extracted) {
+          payloads.push({ text: this.formatMarkdown(remaining) });
+          break;
+        }
+
+        const parsed = parseMarkdownTable(extracted.tableLines);
+        if (parsed.headers.length === 0) {
+          payloads.push({ text: this.formatMarkdown(remaining) });
+          break;
+        }
+
+        const blocks: any[] = [];
+        const beforeText = this.formatMarkdown(extracted.before.trim());
+        if (beforeText) blocks.push(...sectionBlocksFromText(beforeText));
+        blocks.push(buildSlackTableBlock(parsed));
+
+        const fallback = this.formatMarkdown(
+          extracted.before.trim() + '\n' + extracted.tableLines.join('\n'),
+        );
+        payloads.push({ text: fallback, blocks });
+
+        remaining = extracted.after;
       }
-
-      const parsed = parseMarkdownTable(extracted.tableLines);
-      if (parsed.headers.length === 0) {
-        payloads.push({ text: this.formatMarkdown(remaining) });
-        break;
-      }
-
-      const blocks: any[] = [];
-      const beforeText = this.formatMarkdown(extracted.before.trim());
-      if (beforeText) blocks.push(...sectionBlocksFromText(beforeText));
-      blocks.push(buildSlackTableBlock(parsed));
-
-      const fallback = this.formatMarkdown(
-        extracted.before.trim() + '\n' + extracted.tableLines.join('\n'),
-      );
-      payloads.push({ text: fallback, blocks });
-
-      remaining = extracted.after;
     }
 
-    return payloads.length > 0 ? payloads : [{ text: this.formatMarkdown(text) }];
+    // Fallback strips the marker so it never leaks even on the empty-result path.
+    return payloads.length > 0
+      ? payloads
+      : [{ text: this.formatMarkdown(text.split(PAYLOAD_BREAK).join('')) }];
   }
 
   // ─── Platform-specific ─────────────────────────────────────────────

@@ -209,6 +209,21 @@ When to use:
 
 For simple one-line alerts, plain text is still best. Reserve rich formatting for reports with structure.
 
+### Control the parent/thread split
+
+A long report is posted as several messages: the first becomes the channel-visible **parent**, the rest **thread** beneath it. By default SlackHive breaks the message at each table, and any text *before* a table rides along with it — so a leading summary and the first table land in the parent together.
+
+To put the summary alone in the parent (and thread every table beneath it), emit a break marker on its own line where you want the split:
+
+```
+{your headline summary}
+<!--slackhive:break-->
+*Table 1*
+| ... |
+```
+
+SlackHive starts a new message at the marker and removes it from the output. Use as many as you need. Without the marker, the default table-based splitting applies — nothing changes for existing jobs.
+
 ---
 
 ## Monitoring job runs

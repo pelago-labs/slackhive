@@ -62,6 +62,7 @@ const CHECKS_META: Array<{ code: string; name: string; help: string }> = [
   { code: 'QA002', name: 'Cross-refs',        help: 'Flags markdown links to skills or wiki entities that don\'t exist.' },
   { code: 'QA004', name: 'Skill overlap',     help: 'Flags skill pairs with ≥70% description overlap (Jaccard similarity).' },
   { code: 'QA005', name: 'Persona hygiene',   help: 'Flags banned patterns: force-push, rm -rf, prompt-injection markers, always-agree.' },
+  { code: 'QA006', name: 'PII & secrets',     help: 'Flags possible leaked secrets (API keys, tokens), financial IDs (credit card, SSN), and contact PII (email, phone) in CLAUDE.md and skills.' },
 ];
 
 const spinStyle: React.CSSProperties = {
@@ -1431,12 +1432,12 @@ function StatusIcon({
 function describeSummary(data: HealthcheckResult | null): string {
   if (!data) return 'Loading…';
   const { summary } = data;
-  if (summary.total === 0) return 'All 6 checks passed';
+  if (summary.total === 0) return `All ${CHECKS_META.length} checks passed`;
   const parts: string[] = [];
   if (summary.errors > 0)
     parts.push(`${summary.errors} error${summary.errors === 1 ? '' : 's'}`);
   if (summary.warnings > 0)
     parts.push(`${summary.warnings} warning${summary.warnings === 1 ? '' : 's'}`);
-  return `${parts.join(', ')} across 6 checks`;
+  return `${parts.join(', ')} across ${CHECKS_META.length} checks`;
 }
 

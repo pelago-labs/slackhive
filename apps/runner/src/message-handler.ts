@@ -188,8 +188,12 @@ export class MessageHandler {
 
     let statusMsgId: string | undefined;
 
-    // Build prompt with sender header + thread context + files
-    const prompt = await this.buildPrompt(userId, channelId, threadId, text, files);
+    // Build prompt with sender header + thread context + files. `verbose` is the
+    // per-message resolved verbose state (agent default, overridden by the
+    // sender's highest-priority audience group) — used for BOTH the narration
+    // directive (inside buildPrompt) and the streaming/posting gates below, so
+    // an audience verbose override actually takes effect on what gets posted.
+    const { prompt, verbose: resolvedVerbose } = await this.buildPrompt(userId, channelId, threadId, text, files);
 
     // Activity dashboard recorder — no-ops when ACTIVITY_DASHBOARD is off.
     // A Slack thread == one task; each agent's reply in the thread is a new
@@ -314,7 +318,7 @@ export class MessageHandler {
             // Verbose mode: post reasoning (thinking) and any text that arrived
             // alongside the tool_use blocks. Italicize thinking so it reads as
             // "model's reasoning" vs the model's actual output.
-            if (this.agent.verbose) {
+            if (resolvedVerbose) {
               const isAuth = (s: string) => s.includes('authentication_error') || s.includes('Failed to authenticate');
               const safeText = textContent && !isAuth(textContent) ? textContent : '';
               const verbosePost = [
@@ -330,7 +334,7 @@ export class MessageHandler {
             }
           } else if (textContent || thinkingContent) {
             if (textContent && (textContent.includes('authentication_error') || textContent.includes('Failed to authenticate'))) continue;
-            if (this.agent.verbose) {
+            if (resolvedVerbose) {
               const verbosePost = [
                 thinkingContent.trim() ? `_${thinkingContent.trim()}_` : '',
                 textContent,
@@ -411,7 +415,7 @@ export class MessageHandler {
             // the entire turn. Skip it when we've already streamed text; still
             // post when nothing was streamed (non-verbose, or a verbose turn that
             // only produced the answer via the result).
-            const alreadyStreamed = this.agent.verbose && sentMessages.length > 0;
+            const alreadyStreamed = resolvedVerbose && sentMessages.length > 0;
             if (finalResult && !alreadyStreamed && !sentMessages.includes(finalResult)) {
               sentMessages.push(finalResult);
               lastReply = await this.postFormattedMessage(channelId, threadId, finalResult);
@@ -718,7 +722,7 @@ export class MessageHandler {
     threadId: string | undefined,
     userText: string,
     files?: FileAttachment[],
-  ): Promise<string | ContentBlockParam[]> {
+  ): Promise<{ prompt: string | ContentBlockParam[]; verbose: boolean }> {
     // Resolve sender display name for the header. Failure is non-fatal — the
     // userId alone is still enough for user-keyed memory rules to match.
     let senderName = userId;
@@ -893,10 +897,10 @@ export class MessageHandler {
       const blocks: ContentBlockParam[] = [];
       if (textPrompt) blocks.push({ type: 'text', text: textPrompt });
       blocks.push(...binaryBlocks);
-      return blocks;
+      return { prompt: blocks, verbose: resolvedVerbose };
     }
 
-    return textPrompt;
+    return { prompt: textPrompt, verbose: resolvedVerbose };
   }
 
   /** Classify file type. */
