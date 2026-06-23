@@ -13,11 +13,11 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDashed, Layers, Wrench, Coins, Clock, ThumbsUp, ThumbsDown, ShieldAlert, ArrowRight } from 'lucide-react';
+import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert } from 'lucide-react';
 import type { AgentRollup } from '@slackhive/shared';
 import { TabSwitcher } from './_components/TabSwitcher';
-import { formatTokens } from './_components/formatTokens';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
+import { relativeTime } from '@/lib/time';
 
 interface Task {
   id: string;
@@ -34,6 +34,7 @@ interface Task {
   feedbackUp?: number;
   feedbackDown?: number;
   sensitive?: boolean;
+  agentIds?: string[];
 }
 
 interface TaskListResult {
@@ -54,21 +55,6 @@ const COLUMNS: { key: Column; label: string; icon: React.ReactNode; accent: stri
   { key: 'recent',  label: 'Recent',  icon: <CheckCircle2 size={13} />,   accent: '#059669' },
   { key: 'errored', label: 'Errors',  icon: <AlertTriangle size={13} />,  accent: '#dc2626' },
 ];
-
-/** Relative time string ("4m", "2h", "3d") for dense card UIs. */
-function relativeTime(isoLike: string): string {
-  const ts = Date.parse(isoLike.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(ts)) return '';
-  const delta = Math.max(0, Date.now() - ts);
-  const s = Math.floor(delta / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  return `${d}d`;
-}
 
 /** Initials from an agent/user name, max 2 chars. */
 function initials(name: string): string {
@@ -119,15 +105,8 @@ function ActivityPageBody(): React.JSX.Element {
     parseWindowKey(searchParams?.get('window') ?? (searchParams?.get('from') && searchParams?.get('to') ? 'custom' : null)),
   );
   const timeQs = () => timeParams(windowKey, from, to);
-  // Per-activity agent participation map, populated lazily from task detail.
-  const [agentsByTask, setAgentsByTask] = useState<Record<string, string[]>>({});
-  // Ref mirror of `agentsByTask` so `load` can read the latest value without
-  // taking it as a dependency — otherwise every hydrated task rebuilds `load`,
-  // re-fires the mount effect, tears down & recreates the 4s polling interval,
-  // and kicks off an extra fetch. Keep the state for rendering, the ref for
-  // checks inside `load`.
-  const agentsByTaskRef = useRef(agentsByTask);
-  useEffect(() => { agentsByTaskRef.current = agentsByTask; }, [agentsByTask]);
+  // Agent participation per task now comes straight from the list response
+  // (Task.agentIds) — no per-card trace fetch needed.
   // Mirror how many rows each column currently shows, so the 4s poll can re-fetch
   // the SAME expanded count (one page) instead of clobbering "Load more" back to
   // the first page. Ref (not dep) so it doesn't rebuild `load`/restart the poll.
@@ -183,25 +162,6 @@ function ActivityPageBody(): React.JSX.Element {
     setLists({ active, recent, errored });
     setStats(s);
     setLoaded(true);
-
-    // Hydrate per-task agent lists for avatar stacks — only for visible tasks.
-    const visible = [...active.tasks, ...recent.tasks, ...errored.tasks];
-    const cache = agentsByTaskRef.current;
-    const needDetail = visible.filter(t => !cache[t.id] && t.activityCount > 1).slice(0, 12);
-    if (needDetail.length > 0) {
-      const detailed = await Promise.all(needDetail.map(async t => {
-        const r = await fetch(`/api/activity/${encodeURIComponent(t.id)}`);
-        if (!r.ok) return [t.id, [] as string[]] as const;
-        const body = await r.json();
-        const ids = Array.from(new Set((body.turns ?? []).map((t: { agentId: string }) => t.agentId))) as string[];
-        return [t.id, ids] as const;
-      }));
-      setAgentsByTask(prev => {
-        const next = { ...prev };
-        for (const [id, ids] of detailed) next[id] = ids;
-        return next;
-      });
-    }
   }, [fetchColumn, fetchStats]);
 
   useEffect(() => {
@@ -266,14 +226,8 @@ function ActivityPageBody(): React.JSX.Element {
         onRangeChange={(f, t) => { setFrom(f); setTo(t); }}
       />
 
-      {agentFilter && stats?.agentRollup && (
-        <AgentPanel
-          name={agentById.get(agentFilter)?.name ?? 'Agent'}
-          rollup={stats.agentRollup}
-          agentId={agentFilter}
-          windowKey={windowKey}
-        />
-      )}
+      {/* Per-agent analytics (KPIs / tokens / tools / models) moved to the
+          Observability page — Activity stays the task kanban. */}
 
       <div style={{
         display: 'grid',
@@ -288,7 +242,6 @@ function ActivityPageBody(): React.JSX.Element {
             hasMore={!!lists[col.key].nextCursor}
             loaded={loaded}
             agentById={agentById}
-            agentsByTask={agentsByTask}
             onLoadMore={() => loadMore(col.key)}
           />
         ))}
@@ -303,29 +256,25 @@ function ColumnView(props: {
   hasMore: boolean;
   loaded: boolean;
   agentById: Map<string, AgentLite>;
-  agentsByTask: Record<string, string[]>;
   onLoadMore: () => void;
 }): React.JSX.Element {
-  const { column, tasks, hasMore, loaded, agentById, agentsByTask, onLoadMore } = props;
+  const { column, tasks, hasMore, loaded, agentById, onLoadMore } = props;
 
   return (
     <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 12, overflow: 'hidden',
+      background: `color-mix(in srgb, ${column.accent} 4%, var(--surface))`,
+      border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden',
       display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '12px 14px', borderBottom: '1px solid var(--border)',
-        color: column.accent, fontWeight: 600, fontSize: 13,
-      }}>
-        {column.icon}
-        <span style={{ color: 'var(--text)' }}>{column.label}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>
-          {tasks.length}{hasMore ? '+' : ''}
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px' }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: column.accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{column.label}</span>
+        <span style={{
+          fontSize: 11.5, fontWeight: 600, color: 'var(--muted)',
+          background: 'var(--surface-2)', borderRadius: 99, padding: '1px 8px',
+        }}>{tasks.length}{hasMore ? '+' : ''}</span>
       </div>
-      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 120 }}>
+      <div style={{ padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 120 }}>
         {!loaded && <div style={{ padding: 20, color: 'var(--muted)', fontSize: 12, textAlign: 'center' }}>Loading…</div>}
         {loaded && tasks.length === 0 && (
           <div style={{
@@ -340,7 +289,7 @@ function ColumnView(props: {
             key={t.id}
             task={t}
             agentById={agentById}
-            agentIds={agentsByTask[t.id] ?? (t.initialAgentId ? [t.initialAgentId] : [])}
+            agentIds={t.agentIds ?? (t.initialAgentId ? [t.initialAgentId] : [])}
           />
         ))}
         {hasMore && (
@@ -367,57 +316,72 @@ function TaskCard(props: {
   agentIds: string[];
 }): React.JSX.Element {
   const { task, agentById, agentIds } = props;
-  const initiatorLabel = task.initiatorHandle || task.initiatorUserId || 'unknown';
+  // Card opens the full turn-by-turn trace for this thread.
+  const primaryAgent = agentIds[0] ?? task.initialAgentId;
+  const primaryAgentName = primaryAgent ? agentById.get(primaryAgent)?.name : undefined;
+  const href = `/activity/${encodeURIComponent(task.id)}`;
 
   return (
     <Link
-      href={`/activity/${encodeURIComponent(task.id)}`}
+      href={href}
       style={{
         textDecoration: 'none', color: 'inherit',
-        display: 'block', padding: '10px 12px',
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        borderRadius: 8, boxShadow: 'var(--shadow-sm)',
-        transition: 'box-shadow 0.12s, transform 0.12s',
+        display: 'block', padding: '11px 13px',
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, boxShadow: 'var(--shadow-sm)',
+        transition: 'box-shadow 0.12s, border-color 0.12s',
       }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; }}
+      onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-hover)'; el.style.borderColor = 'var(--border-2)'; }}
+      onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-sm)'; el.style.borderColor = 'var(--border)'; }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      {/* Top row: ref code + sensitive flag + time */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--subtle)', letterSpacing: '0.01em' }}>{shortRef(task.id)}</span>
         {task.sensitive && (
-          <ShieldAlert size={13} style={{ color: '#b45309', flexShrink: 0 }} aria-label="Contains sensitive data">
-            <title>Contains sensitive data</title>
-          </ShieldAlert>
+          <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
         )}
-        <span style={{
-          fontSize: 13, fontWeight: 500, color: 'var(--text)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {task.summary || '(empty message)'}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--subtle)', flexShrink: 0 }}>{relativeTime(task.lastActivityAt)}</span>
+      </div>
+
+      {/* Title — up to two lines, like a Linear issue */}
+      <div style={{
+        fontSize: 13.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, letterSpacing: '-0.005em',
+        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+      }}>
+        {task.summary || '(empty message)'}
+      </div>
+
+      {/* Footer: avatars (assignee) + meta chips */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 11 }}>
+        {agentIds.length > 0 && <AvatarStack agentIds={agentIds} agentById={agentById} />}
+        {primaryAgentName && (
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{primaryAgentName}</span>
+        )}
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
+          {!!task.feedbackDown && <Chip color="#dc2626"><ThumbsDown size={10} />{task.feedbackDown}</Chip>}
+          <Chip>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</Chip>
         </span>
       </div>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, marginTop: 6,
-        fontSize: 11, color: 'var(--muted)',
-      }}>
-        <span style={{ fontWeight: 500 }}>@{initiatorLabel}</span>
-        <span>·</span>
-        <span>{relativeTime(task.lastActivityAt)}</span>
-        <span>·</span>
-        <span style={{ color: 'var(--subtle)' }}>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</span>
-        {!!(task.feedbackUp || task.feedbackDown) && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-            {!!task.feedbackUp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#16a34a' }}><ThumbsUp size={11} />{task.feedbackUp}</span>}
-            {!!task.feedbackDown && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#dc2626' }}><ThumbsDown size={11} />{task.feedbackDown}</span>}
-          </span>
-        )}
-      </div>
-      {agentIds.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
-          <AvatarStack agentIds={agentIds} agentById={agentById} />
-          <Users size={11} style={{ color: 'var(--subtle)', marginLeft: 4 }} />
-        </div>
-      )}
     </Link>
+  );
+}
+
+/** Linear-style short, stable, human-readable ref from the (ugly) task id. Cosmetic. */
+function shortRef(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
+  return 'T-' + h.toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
+}
+
+/** Small rounded meta chip (Linear-style badge). */
+function Chip({ children, color }: { children: React.ReactNode; color?: string }): React.JSX.Element {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 500,
+      color: color ?? 'var(--muted)', background: color ? `${color}14` : 'var(--surface-2)',
+      border: `1px solid ${color ? `${color}33` : 'var(--border)'}`, borderRadius: 6, padding: '1px 7px',
+    }}>{children}</span>
   );
 }
 
@@ -497,144 +461,3 @@ function StatCard(props: { label: string; value: number; color?: string; sub?: s
   );
 }
 
-// ── Per-agent analytics panel (shown when one agent is selected) ─────────────
-function fmtMs(ms: number): string {
-  if (!ms) return '—';
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
-  const m = Math.floor(s / 60); const r = Math.round(s - m * 60);
-  return r > 0 ? `${m}m ${r}s` : `${m}m`;
-}
-function fmtCost(n: number): string { return !n ? '—' : n < 1 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`; }
-
-function AgentPanel(props: { name: string; rollup: AgentRollup; agentId: string; windowKey: WindowKey }): React.JSX.Element {
-  const r = props.rollup;
-  const sensitiveHref = `/activity/sensitive?agent=${encodeURIComponent(props.agentId)}&window=${props.windowKey}`;
-  const fb = r.feedbackUp + r.feedbackDown;
-  const score = fb > 0 ? Math.round((r.feedbackUp / fb) * 100) : null;
-  const errRate = r.turns > 0 ? Math.round((r.errorTurns / r.turns) * 100) : 0;
-  return (
-    <div style={{ marginBottom: 14, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 7 }}>
-        <ActivityIcon size={14} /> {props.name} — all sessions
-      </div>
-      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-        <PanelKpi icon={<Layers size={13} />} label="Sessions" value={String(r.sessions)} sub={`${r.turns} turn${r.turns === 1 ? '' : 's'}`} />
-        <PanelKpi icon={<Wrench size={13} />} label="Tool calls" value={String(r.toolCalls)} />
-        <PanelKpi icon={<Coins size={13} />} label="Tokens" value={r.totalTokens > 0 ? formatTokens(r.totalTokens) : '—'} sub={r.totalTokens > 0 ? `${formatTokens(r.inputTokens)} in · ${formatTokens(r.outputTokens)} out` : undefined} />
-        <PanelKpi icon={<Clock size={13} />} label="Latency" value={fmtMs(r.p50DurationMs)} sub={`p95 ${fmtMs(r.p95DurationMs)}`} />
-        <PanelKpi icon={<AlertTriangle size={13} />} label="Error rate" value={`${errRate}%`} tone={errRate > 0 ? 'red' : undefined} />
-        <PanelKpi icon={<ThumbsUp size={13} />} label="Satisfaction" value={score == null ? '—' : `${score}%`} tone={score == null ? undefined : score < 50 ? 'red' : 'green'} />
-        <PanelKpi icon={<ShieldAlert size={13} />} label="Sensitive" value={String(r.sensitiveEvents ?? 0)} tone={(r.sensitiveEvents ?? 0) > 0 ? 'red' : undefined} href={sensitiveHref} />
-      </div>
-      <div style={{ marginTop: 12, display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-        {r.tokensByDay.length >= 2 && (
-          <PanelCard title="Tokens per day">
-            <DayBars data={r.tokensByDay} />
-          </PanelCard>
-        )}
-        {r.topTools.length > 0 && (
-          <PanelCard title="Top tools" titleHref={`/activity/tools?agent=${encodeURIComponent(props.agentId)}&window=${props.windowKey}`}>
-            <BarList items={r.topTools.map(t => ({ label: t.name, value: t.count, errors: t.errors }))} fmt={String} hrefFor={() => `/activity/tools?agent=${encodeURIComponent(props.agentId)}&window=${props.windowKey}`} />
-          </PanelCard>
-        )}
-        {r.models.length > 0 && (
-          <PanelCard title="Models">
-            <BarList items={r.models.map(m => ({ label: m.model, value: m.tokens }))} fmt={formatTokens} />
-          </PanelCard>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PanelKpi(props: { icon: React.ReactNode; label: string; value: string; sub?: string; tone?: 'green' | 'red'; href?: string }): React.JSX.Element {
-  const color = props.tone === 'green' ? '#047857' : props.tone === 'red' ? '#b91c1c' : 'var(--text)';
-  const inner = (
-    <>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'var(--subtle)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{props.icon}{props.label}</div>
-      <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{props.value}</div>
-      {props.sub && <div style={{ marginTop: 2, fontSize: 11, color: 'var(--subtle)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{props.sub}</div>}
-    </>
-  );
-  const style: React.CSSProperties = { display: 'block', padding: '10px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, textDecoration: 'none' };
-  return props.href
-    ? <Link href={props.href} className="metric-clickable" style={style} title="View sensitive access">{inner}</Link>
-    : <div style={style}>{inner}</div>;
-}
-function PanelCard(props: { title: string; titleHref?: string; children: React.ReactNode }): React.JSX.Element {
-  const titleStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' };
-  return (
-    <div style={{ padding: '12px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-      {props.titleHref
-        ? <Link href={props.titleHref} style={titleStyle}>{props.title} <ArrowRight size={11} /></Link>
-        : <div style={titleStyle}>{props.title}</div>}
-      {props.children}
-    </div>
-  );
-}
-/** Interactive stacked in/out token chart (input = lighter, output = darker). */
-function DayBars(props: { data: { date: string; input: number; output: number }[] }): React.JSX.Element {
-  const [hover, setHover] = useState<number | null>(null);
-  const max = Math.max(1, ...props.data.map(d => d.input + d.output));
-  const h = hover != null ? props.data[hover] : null;
-  return (
-    <div>
-      <div style={{ minHeight: 14, marginBottom: 6, textAlign: 'right', fontSize: 11, fontFamily: 'var(--font-mono, monospace)', color: 'var(--text)' }}>
-        {h ? <><span style={{ color: 'var(--subtle)' }}>{h.date}</span> {formatTokens(h.input)} in · {formatTokens(h.output)} out</> : ''}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 48 }} onMouseLeave={() => setHover(null)}>
-        {props.data.map((d, i) => {
-          const total = d.input + d.output;
-          return (
-            <div key={d.date} onMouseEnter={() => setHover(i)} style={{ flex: 1, maxWidth: 28, minWidth: 4, height: '100%', display: 'flex', alignItems: 'flex-end' }}>
-              <div style={{ width: '100%', height: `${Math.max(3, (total / max) * 100)}%`, display: 'flex', flexDirection: 'column', borderRadius: 2, overflow: 'hidden', opacity: hover === i ? 1 : 0.7, transition: 'opacity 0.1s' }}>
-                <div style={{ height: `${total ? (d.output / total) * 100 : 0}%`, background: 'var(--text-2)' }} />
-                <div style={{ height: `${total ? (d.input / total) * 100 : 0}%`, background: 'var(--muted)' }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <TokenLegend />
-    </div>
-  );
-}
-
-/** Two-swatch legend for stacked in/out token charts. */
-function TokenLegend(): React.JSX.Element {
-  const sw = (c: string) => <span style={{ width: 8, height: 8, borderRadius: 2, background: c, display: 'inline-block', marginRight: 4 }} />;
-  return (
-    <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 10, color: 'var(--subtle)' }}>
-      <span>{sw('var(--muted)')}in</span>
-      <span>{sw('var(--text-2)')}out</span>
-    </div>
-  );
-}
-function BarList(props: { items: { label: string; value: number; errors?: number }[]; fmt: (n: number) => string; hrefFor?: (label: string) => string }): React.JSX.Element {
-  const [hover, setHover] = useState<string | null>(null);
-  const max = Math.max(1, ...props.items.map(i => i.value));
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }} onMouseLeave={() => setHover(null)}>
-      {props.items.map(it => {
-        const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, textDecoration: 'none', color: 'inherit', cursor: props.hrefFor ? 'pointer' : 'default' };
-        const inner = (
-          <>
-            <code title={it.label} style={{ flexShrink: 0, width: 150, color: hover === it.label ? 'var(--text)' : 'var(--text-2)', fontFamily: 'var(--font-mono, monospace)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.label}</code>
-            <div style={{ flex: 1, height: 8, background: 'var(--surface-3, var(--border))', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ width: `${Math.max(3, (it.value / max) * 100)}%`, height: '100%', background: 'var(--accent-2)', borderRadius: 4, opacity: hover === it.label ? 1 : 0.8, transition: 'opacity 0.1s' }} />
-            </div>
-            <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono, monospace)', fontSize: 11, minWidth: 52, textAlign: 'right' }}>
-              <span style={{ color: 'var(--text-2)' }}>{props.fmt(it.value)}</span>
-              {it.errors ? <span title={`${it.errors} failed`} style={{ color: 'var(--red)', marginLeft: 6 }}>{it.errors} err</span> : null}
-            </span>
-          </>
-        );
-        return props.hrefFor
-          ? <Link key={it.label} href={props.hrefFor(it.label)} onMouseEnter={() => setHover(it.label)} style={rowStyle}>{inner}</Link>
-          : <div key={it.label} onMouseEnter={() => setHover(it.label)} style={rowStyle}>{inner}</div>;
-      })}
-    </div>
-  );
-}

@@ -62,6 +62,11 @@ function rowToTask(row: Record<string, unknown>): Task {
     lastActivityAt: row.last_activity_at as string,
     activityCount: Number(row.activity_count ?? 0),
     sensitive: row.sensitive ? true : undefined,
+    // agent_ids is a GROUP_CONCAT(DISTINCT …) string when listTasks supplied it;
+    // absent (undefined) on the plain `SELECT * FROM tasks` paths.
+    agentIds: typeof row.agent_ids === 'string' && row.agent_ids
+      ? (row.agent_ids as string).split(',').filter(Boolean)
+      : undefined,
   };
 }
 
@@ -347,11 +352,14 @@ export async function listTasks(
     cteParams.push(filter.agentId);
   }
 
+  // Captured so the sensitive-span CTE below can reuse the SAME $N placeholders
+  // (translateParams maps each $N -> params[N-1] independently, so reuse is safe).
+  let accessAgentPlaceholders = '';
   if (filter.accessibleAgentIds !== undefined) {
-    const placeholders = filter.accessibleAgentIds
+    accessAgentPlaceholders = filter.accessibleAgentIds
       .map((_, i) => `$${cteParams.length + 1 + i}`)
       .join(', ');
-    cteWheres.push(`agent_id IN (${placeholders})`);
+    cteWheres.push(`agent_id IN (${accessAgentPlaceholders})`);
     cteParams.push(...filter.accessibleAgentIds);
   }
 
@@ -417,11 +425,33 @@ export async function listTasks(
      agg AS (
        SELECT task_id, has_active, status AS latest_status
        FROM ranked WHERE rn = 1
+     ),
+     -- Distinct agents per task (scope-respecting) for the avatar stack — so the
+     -- dashboard no longer fetches a full trace per card just to read agent ids.
+     agents_agg AS (
+       SELECT task_id, GROUP_CONCAT(DISTINCT agent_id) agent_ids
+       FROM activities a
+       ${cteWhereSql}
+       GROUP BY task_id
+     ),
+     -- Sensitive sessions computed ONCE (not a correlated per-row EXISTS scan),
+     -- BOUNDED to this page's scoped+windowed task set (session_id IN agg) so it
+     -- never scans all sensitive spans in history, and SCOPED to the caller's
+     -- accessible agents so a sensitive span from an agent the caller can't see
+     -- (and won't be shown in the trace) doesn't light up the badge.
+     sensitive_sessions AS (
+       SELECT DISTINCT session_id FROM spans
+        WHERE sensitive = 1
+          AND session_id IN (SELECT task_id FROM agg)
+          ${accessAgentPlaceholders ? `AND agent_id IN (${accessAgentPlaceholders})` : ''}
      )
      SELECT t.*,
-            EXISTS(SELECT 1 FROM spans s WHERE s.session_id = t.id AND s.sensitive = 1) AS sensitive
+            aa.agent_ids AS agent_ids,
+            (ss.session_id IS NOT NULL) AS sensitive
        FROM tasks t
        JOIN agg ON agg.task_id = t.id
+       LEFT JOIN agents_agg aa ON aa.task_id = t.id
+       LEFT JOIN sensitive_sessions ss ON ss.session_id = t.id
       WHERE 1=1 ${taskWhereSql}
       ORDER BY t.last_activity_at DESC, t.id DESC
       LIMIT $${limitIdx}`,

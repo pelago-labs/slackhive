@@ -61,10 +61,10 @@ const todayStr = () => localDate(Date.now());
 const daysAgoStr = (n: number) => localDate(Date.now() - n * 86_400_000);
 
 const selectStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 500, color: 'var(--text)',
-  background: 'var(--surface-2)', border: '1px solid var(--border)',
-  borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
-  fontFamily: 'var(--font-sans)',
+  fontSize: 13, fontWeight: 500, color: 'var(--text)',
+  background: 'var(--surface)', border: '1px solid var(--border)',
+  borderRadius: 8, padding: '6px 12px', cursor: 'pointer',
+  fontFamily: 'var(--font-sans)', boxShadow: 'var(--shadow-sm)',
 };
 
 export function FilterRow(props: {
@@ -81,11 +81,11 @@ export function FilterRow(props: {
   const { agents, agentFilter, windowKey, onAgentChange, onWindowChange, from, to, onRangeChange } = props;
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap',
-      padding: '10px 14px', background: 'var(--surface)',
-      border: '1px solid var(--border)', borderRadius: 10,
+      display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, flexWrap: 'wrap',
     }}>
-      <FilterIcon size={14} style={{ color: 'var(--muted)' }} />
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: 'var(--muted)', padding: '6px 10px 6px 0' }}>
+        <FilterIcon size={14} /> Filter
+      </span>
       <select
         value={agentFilter}
         onChange={e => onAgentChange(e.target.value)}

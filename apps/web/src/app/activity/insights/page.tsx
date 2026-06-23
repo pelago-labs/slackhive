@@ -1,16 +1,16 @@
 /**
- * @fileoverview Redirect stub — the tools analytics view was consolidated into the
- * top-level /observability page (Tools tab). Forwards old /activity/tools links
- * there, preserving query params (agent/window/from/to) and selecting the tab.
+ * @fileoverview Redirect stub — the LLMOps view moved to the top-level
+ * /observability route. Forwards old /activity/insights links (bookmarks, the
+ * former tab) there, preserving query params (tab/agent/session/window/…).
  *
- * @module web/app/activity/tools
+ * @module web/app/activity/insights
  */
 
 import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ToolsRedirect(
+export default async function InsightsRedirect(
   { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
 ): Promise<never> {
   const sp = await searchParams;
@@ -19,6 +19,6 @@ export default async function ToolsRedirect(
     if (typeof v === 'string') qs.set(k, v);
     else if (Array.isArray(v) && v[0] != null) qs.set(k, v[0]);
   }
-  qs.set('tab', 'tools');
-  redirect(`/observability?${qs.toString()}`);
+  const s = qs.toString();
+  redirect(`/observability${s ? `?${s}` : ''}`);
 }

@@ -1,5 +1,11 @@
 [
   {
+    "id": "observability-and-audit",
+    "date": "2026-06-23",
+    "title": "Observability & Session Audit",
+    "summary": "One Observability page brings tokens & cost, sensitive data, tools, feedback, and sessions together across your agents (scoped to what you can access). The new Sessions audit drills in: expand a session to see every turn in the same columns, then expand a turn for its full reasoning, tool calls, result, and sensitivity — masked by default, admin-only reveal."
+  },
+  {
     "id": "llm-activity-tracing",
     "date": "2026-06-11",
     "title": "LLM Activity Tracing",

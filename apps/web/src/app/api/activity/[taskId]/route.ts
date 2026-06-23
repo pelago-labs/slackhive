@@ -11,7 +11,7 @@ import { getTaskWithDetails, getSessionTrace, deepLinkForTask } from '@slackhive
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
-import { redactTurn, stripTurnBilling, stripRollupBilling } from '@/lib/activity-redact';
+import { redactTurn } from '@/lib/activity-redact';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,13 +57,12 @@ export async function GET(
     const canSeeRaw = session.role === 'admin' || session.role === 'superadmin';
     const turns = (trace?.turns ?? []).map(t => canSeeRaw ? t : redactTurn(t));
 
-    // Token/cost are billing-adjacent — superadmin only (matches /api/activity/usage).
-    const billing = session.role === 'superadmin';
-
+    // Tokens/cost are shown to anyone who can open the trace (editor+): they only
+    // reach a session that touched an agent they can access.
     return NextResponse.json({
       task: details.task,
-      turns: billing ? turns : turns.map(stripTurnBilling),
-      rollup: billing ? (trace?.rollup ?? null) : stripRollupBilling(trace?.rollup ?? null),
+      turns,
+      rollup: trace?.rollup ?? null,
       flows: trace?.flows ?? [],
       deepLink: deepLinkForTask(details.task),
     });

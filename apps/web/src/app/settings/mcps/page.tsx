@@ -10,7 +10,10 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import type { McpServer, McpServerType } from '@slackhive/shared';
-import { MCP_TEMPLATES } from '@slackhive/shared';
+// Import from the subpath, NOT the '@slackhive/shared' barrel: the barrel re-exports
+// server/DB code AND the ~430KB persona catalog, none of which the CJS build tree-shakes
+// out of the client bundle. Deep-importing the pure templates module keeps this page light.
+import { MCP_TEMPLATES } from '@slackhive/shared/dist/mcp-templates';
 import { useAuth } from '@/lib/auth-context';
 import { Plug, Library, Search, X, Check, Loader2, Plus, ListFilter, MoreHorizontal, Terminal, Globe, Radio, Power, Trash2, ExternalLink, Info } from 'lucide-react';
 import { Portal } from '@/lib/portal';

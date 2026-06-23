@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { listTasks, countInProgressByAgent, getAgentRollup, type ActivityFilter, type AgentRollup } from '@slackhive/shared';
+import { listTasks, countInProgressByAgent, getAgentRollup, type ActivityFilter } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
@@ -58,9 +58,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       canSeeAgent ? getAgentRollup({ agentId: agentId!, since: filter.since, until: filter.until }) : Promise.resolve(null),
     ]);
 
-    // Token/cost are billing-adjacent — superadmin only (matches /api/activity/usage).
-    const billing = session.role === 'superadmin';
-
     return NextResponse.json({
       counts: {
         active: active.tasks.length,
@@ -68,21 +65,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         errored: errored.tasks.length,
       },
       inProgressByAgent,
-      agentRollup: billing ? agentRollup : stripRollupBilling(agentRollup),
+      // Editors are scoped to their own agents (canSeeAgent), so tokens/cost here
+      // are their agents' usage; no billing strip.
+      agentRollup,
     });
   } catch (err) {
     return apiError('activity-stats', err);
   }
-}
-
-/** Drop token/cost fields from the per-agent rollup for non-superadmins; keep the
- *  operational metrics (sessions, turns, tools, latency, feedback, sensitive). */
-function stripRollupBilling(r: AgentRollup | null): AgentRollup | null {
-  if (!r) return r;
-  return {
-    ...r,
-    inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0,
-    tokensByDay: [],
-    models: r.models.map(m => ({ ...m, tokens: 0 })),
-  };
 }

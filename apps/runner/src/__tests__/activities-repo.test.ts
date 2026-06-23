@@ -29,6 +29,7 @@ import {
   recordActivityUsage,
   getTokensByAgent,
   getTopUsers,
+  getSessionSummaries,
 } from '@slackhive/shared';
 
 let dbPath: string;
@@ -41,6 +42,16 @@ async function seedAgent(id = randomUUID()): Promise<string> {
     [id, `slug-${id.slice(0, 8)}`, 'Test Agent', null, null, 'claude-opus-4-7'],
   );
   return id;
+}
+
+/** Insert a flagged-sensitive span on a session, attributed to a given agent
+ *  (optionally tied to a specific activity/turn). */
+async function seedSensitiveSpan(sessionId: string, agentId: string | null, activityId: string | null = null): Promise<void> {
+  await getDb().query(
+    `INSERT INTO spans (span_id, trace_id, session_id, activity_id, kind, name, agent_id, start_ms, sensitive, sensitive_categories)
+     VALUES ($1, $2, $3, $4, 'tool', 'tool-call', $5, $6, 1, 'pii:email')`,
+    [randomUUID(), randomUUID(), sessionId, activityId, agentId, 1000],
+  );
 }
 
 beforeEach(async () => {
@@ -270,6 +281,98 @@ describe('listTasks', () => {
 
     const forA2 = await listTasks('active', { agentId: a2 });
     expect(forA2.tasks.map(t => t.id)).toEqual([t2]);
+  });
+
+  it('returns distinct agentIds per task (avatar stack — no per-card trace fetch)', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'multi' });
+    // Two different agents take turns in the same thread (e.g. a delegation).
+    const act1 = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user' });
+    await finishActivity(act1, 'done');
+    const act2 = await beginActivity({ taskId: t, agentId: a2, platform: 'slack', initiatorKind: 'agent' });
+    await finishActivity(act2, 'done');
+
+    const [task] = (await listTasks('recent', {}, 50)).tasks.filter(x => x.id === t);
+    expect(task.agentIds?.slice().sort()).toEqual([a1, a2].sort());
+  });
+
+  it('agentIds respects the agent-scope filter (no out-of-scope agent leaks in)', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'scoped' });
+    const act1 = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user' });
+    await finishActivity(act1, 'done');
+    const act2 = await beginActivity({ taskId: t, agentId: a2, platform: 'slack', initiatorKind: 'agent' });
+    await finishActivity(act2, 'done');
+
+    // Scoped to a1 only → agentIds must not reveal a2.
+    const scoped = (await listTasks('recent', { accessibleAgentIds: [a1] }, 50)).tasks.filter(x => x.id === t);
+    expect(scoped[0].agentIds).toEqual([a1]);
+  });
+
+  it('sensitive flag is scoped to the caller\'s accessible agents', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'sens-scope' });
+    // a1 (accessible) has the activity that puts the task on the page; the sensitive
+    // span belongs to a2 (out of an a1-only caller's scope) — and won't be shown in
+    // the trace either, so it must NOT light up the badge for that caller.
+    const act = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user' });
+    await finishActivity(act, 'done');
+    await seedSensitiveSpan(t, a2);
+
+    // Admin (no scope) sees the badge.
+    const admin = (await listTasks('recent', {}, 50)).tasks.find(x => x.id === t);
+    expect(admin?.sensitive).toBe(true);
+
+    // Editor scoped to a1: the only sensitive span is a2's → no badge.
+    const scopedA1 = (await listTasks('recent', { accessibleAgentIds: [a1] }, 50)).tasks.find(x => x.id === t);
+    expect(scopedA1?.sensitive).toBeFalsy();
+
+    // Once a1 itself produces a sensitive span, the a1-scoped caller sees the badge.
+    await seedSensitiveSpan(t, a1);
+    const scopedA1b = (await listTasks('recent', { accessibleAgentIds: [a1] }, 50)).tasks.find(x => x.id === t);
+    expect(scopedA1b?.sensitive).toBe(true);
+  });
+});
+
+describe('getSessionSummaries', () => {
+  it('sensitive flag is scoped to the caller\'s accessible agents', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'sum-sens', initiatorUserId: 'U1' });
+    const act = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+    await finishActivity(act, 'done');
+    await seedSensitiveSpan(t, a2); // out-of-scope agent's sensitive span
+
+    const admin = (await getSessionSummaries({})).sessions.find(s => s.sessionId === t);
+    expect(admin?.sensitive).toBe(true);
+
+    const scopedA1 = (await getSessionSummaries({ accessibleAgentIds: [a1] })).sessions.find(s => s.sessionId === t);
+    expect(scopedA1?.sensitive).toBe(false);
+  });
+
+  it('paginates via keyset cursor (newest-first, no gaps or duplicates)', async () => {
+    const agentId = await seedAgent();
+    for (let i = 0; i < 5; i++) {
+      const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: `pg${i}`, initiatorUserId: 'U1' });
+      const act = await beginActivity({ taskId: t, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+      await finishActivity(act, 'done');
+    }
+
+    const p1 = await getSessionSummaries({}, 2);
+    expect(p1.sessions).toHaveLength(2);
+    expect(p1.nextCursor).not.toBeNull();
+    const p2 = await getSessionSummaries({}, 2, p1.nextCursor);
+    expect(p2.sessions).toHaveLength(2);
+    expect(p2.nextCursor).not.toBeNull();
+    const p3 = await getSessionSummaries({}, 2, p2.nextCursor);
+    expect(p3.sessions).toHaveLength(1);
+    expect(p3.nextCursor).toBeNull();
+
+    const all = [...p1.sessions, ...p2.sessions, ...p3.sessions].map(s => s.sessionId);
+    expect(new Set(all).size).toBe(5); // no dupes, no missed rows across pages
   });
 });
 

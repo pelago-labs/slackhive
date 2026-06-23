@@ -365,46 +365,54 @@ export async function getSessionTrace(taskId: string, accessibleAgentIds?: strin
     feedbackByActivity.set(aid, bucket);
   }
 
-  const turns: TraceTurn[] = actRes.rows.map(a => {
-    const all = spansByActivity.get(a.id as string) ?? [];
-    const agentSpan = all.find(sp => sp.kind === 'agent') ?? null;
-    const steps = all.filter(sp => sp.kind !== 'agent');
-
-    // Turn metrics: prefer the agent span (exact), fall back to the activity row.
-    const inputTokens = agentSpan?.inputTokens ?? n(a.input_tokens);
-    const outputTokens = agentSpan?.outputTokens ?? n(a.output_tokens);
-    const sensitiveCats = new Set<string>();
-    for (const sp of all) if (sp.sensitive) sp.sensitiveCategories.forEach(c => sensitiveCats.add(c));
-    return {
-      activityId: a.id as string,
-      agentId: a.agent_id as string,
-      agentName: s(a.agent_name),
-      agentSlug: s(a.agent_slug),
-      status: a.status as 'in_progress' | 'done' | 'error',
-      startedAt: a.started_at as string,
-      finishedAt: s(a.finished_at),
-      messagePreview: s(a.message_preview),
-      error: s(a.error),
-      initiatorKind: (a.initiator_kind as 'user' | 'agent') ?? 'user',
-      initiatorHandle: s(a.initiator_handle ?? null),
-      delegatedByAgentName: s(a.deleg_name),
-      delegatedByAgentSlug: s(a.deleg_slug),
-      durationMs: agentSpan?.durationMs ?? null,
-      inputTokens,
-      outputTokens,
-      reasoningTokens: agentSpan?.reasoningTokens ?? 0,
-      cacheReadTokens: agentSpan?.cacheReadTokens ?? n(a.cache_read_tokens),
-      cacheCreationTokens: agentSpan?.cacheCreationTokens ?? n(a.cache_creation_tokens),
-      costUsd: agentSpan?.costUsd ?? 0,
-      finalAnswer: agentSpan?.output ?? null,
-      sensitive: sensitiveCats.size > 0,
-      sensitiveCategories: [...sensitiveCats],
-      feedback: feedbackByActivity.get(a.id as string) ?? [],
-      spans: steps,
-    };
-  });
+  const turns: TraceTurn[] = actRes.rows.map(a =>
+    assembleTurn(a, spansByActivity.get(a.id as string) ?? [], feedbackByActivity.get(a.id as string) ?? []),
+  );
 
   return { turns, rollup: rollupFromTurns(turns), flows };
+}
+
+/**
+ * Build one {@link TraceTurn} from an activity row, its spans, and its feedback —
+ * the single source of truth for the turn shape used by {@link getSessionTrace}.
+ * The activity row must carry the joined `agent_name`/`agent_slug`/`deleg_name`/`deleg_slug`.
+ */
+function assembleTurn(a: Record<string, unknown>, all: TraceSpan[], feedback: TurnFeedback[]): TraceTurn {
+  const agentSpan = all.find(sp => sp.kind === 'agent') ?? null;
+  const steps = all.filter(sp => sp.kind !== 'agent');
+
+  // Turn metrics: prefer the agent span (exact), fall back to the activity row.
+  const inputTokens = agentSpan?.inputTokens ?? n(a.input_tokens);
+  const outputTokens = agentSpan?.outputTokens ?? n(a.output_tokens);
+  const sensitiveCats = new Set<string>();
+  for (const sp of all) if (sp.sensitive) sp.sensitiveCategories.forEach(c => sensitiveCats.add(c));
+  return {
+    activityId: a.id as string,
+    agentId: a.agent_id as string,
+    agentName: s(a.agent_name),
+    agentSlug: s(a.agent_slug),
+    status: a.status as 'in_progress' | 'done' | 'error',
+    startedAt: a.started_at as string,
+    finishedAt: s(a.finished_at),
+    messagePreview: s(a.message_preview),
+    error: s(a.error),
+    initiatorKind: (a.initiator_kind as 'user' | 'agent') ?? 'user',
+    initiatorHandle: s(a.initiator_handle ?? null),
+    delegatedByAgentName: s(a.deleg_name),
+    delegatedByAgentSlug: s(a.deleg_slug),
+    durationMs: agentSpan?.durationMs ?? null,
+    inputTokens,
+    outputTokens,
+    reasoningTokens: agentSpan?.reasoningTokens ?? 0,
+    cacheReadTokens: agentSpan?.cacheReadTokens ?? n(a.cache_read_tokens),
+    cacheCreationTokens: agentSpan?.cacheCreationTokens ?? n(a.cache_creation_tokens),
+    costUsd: agentSpan?.costUsd ?? 0,
+    finalAnswer: agentSpan?.output ?? null,
+    sensitive: sensitiveCats.size > 0,
+    sensitiveCategories: [...sensitiveCats],
+    feedback,
+    spans: steps,
+  };
 }
 
 // ── Per-agent aggregate (all sessions of one agent) ──────────────────────────
@@ -518,6 +526,262 @@ async function computeAgentRollup(opts: { agentId: string; since?: string; until
     topTools: tools.rows.map(r => ({ name: String(r.name), count: n(r.c), errors: n(r.e) })),
     models: models.rows.map(r => ({ model: String(r.model), turns: n(r.turns), tokens: n(r.tokens) })),
   };
+}
+
+// ── Insights rollup (LLMOps page) — scope = one agent | all | accessible set ──
+
+/** Same shape as a per-agent rollup, but aggregated over a SCOPE (one agent, all
+ *  agents, or a caller's accessible-agent set) for the consolidated LLMOps page. */
+export type InsightsRollup = AgentRollup;
+
+export interface InsightsFilter {
+  /** One-agent scope. Omit for all-agents (within `accessibleAgentIds`). */
+  agentId?: string;
+  since?: string;
+  until?: string;
+  /** RBAC: undefined = no restriction (admin); [] = no access (empty result);
+   *  non-empty = restrict to this set. */
+  accessibleAgentIds?: string[];
+}
+
+/** Build the `agent_id` scope predicate + its params. Returns null when the caller
+ *  has access to NO agents (so the query must yield an empty rollup, never all). */
+function insightsScope(filter: InsightsFilter, startIdx: number): { clause: string; params: unknown[] } | null {
+  if (filter.agentId) {
+    // Defense in depth: a restricted caller asking for an agent they can't see → empty.
+    if (filter.accessibleAgentIds && !filter.accessibleAgentIds.includes(filter.agentId)) return null;
+    return { clause: `agent_id = $${startIdx}`, params: [filter.agentId] };
+  }
+  if (filter.accessibleAgentIds === undefined) return { clause: '1=1', params: [] };
+  if (filter.accessibleAgentIds.length === 0) return null;
+  const ph = filter.accessibleAgentIds.map((_, i) => `$${startIdx + i}`).join(', ');
+  return { clause: `agent_id IN (${ph})`, params: [...filter.accessibleAgentIds] };
+}
+
+function emptyInsightsRollup(): InsightsRollup {
+  return {
+    sessions: 0, turns: 0, toolCalls: 0, generations: 0, errorTurns: 0,
+    inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0,
+    p50DurationMs: 0, p95DurationMs: 0, feedbackUp: 0, feedbackDown: 0, sensitiveEvents: 0,
+    tokensByDay: [], topTools: [], models: [],
+  };
+}
+
+/**
+ * Aggregate analytics across a SCOPE — one agent, all agents, or a caller's
+ * accessible-agent set — for the LLMOps insights page. Mirrors {@link getAgentRollup}
+ * but generalizes the agent-scope predicate. p50/p95 are POOLED across the agent set
+ * (the real cross-agent latency distribution), never an average of per-agent values.
+ */
+export async function getInsightsRollup(filter: InsightsFilter = {}): Promise<InsightsRollup> {
+  // Cache key MUST encode the full (sorted) RBAC scope, or a restricted caller could
+  // read a broader caller's cached aggregate.
+  const acc = filter.accessibleAgentIds === undefined ? '*' : [...filter.accessibleAgentIds].sort().join(',');
+  const key = `insights:${filter.agentId ?? ''}:${filter.since ?? ''}:${filter.until ?? ''}:${acc}`;
+  return cached(key, 2500, () => computeInsightsRollup(filter));
+}
+
+async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRollup> {
+  const db = getDb();
+  const sinceMs = sinceToMs(filter.since);
+  const untilMs = sinceToMs(filter.until);
+
+  // activities scope (started_at window) — its own param list.
+  const actScope = insightsScope(filter, 1);
+  if (!actScope) return emptyInsightsRollup();
+  const actParams: unknown[] = [...actScope.params];
+  const actW = [actScope.clause];
+  if (filter.since) { actW.push(`started_at >= $${actParams.length + 1}`); actParams.push(filter.since); }
+  if (filter.until) { actW.push(`started_at <= $${actParams.length + 1}`); actParams.push(filter.until); }
+  const actWhere = actW.join(' AND ');
+
+  // spans scope (start_ms window) — its own param list.
+  const spanScope = insightsScope(filter, 1);
+  const spanParams: unknown[] = [...spanScope!.params];
+  const spanW = [spanScope!.clause];
+  if (Number.isFinite(sinceMs)) { spanW.push(`start_ms >= $${spanParams.length + 1}`); spanParams.push(sinceMs); }
+  if (Number.isFinite(untilMs)) { spanW.push(`start_ms <= $${spanParams.length + 1}`); spanParams.push(untilMs); }
+  const spanWhere = spanW.join(' AND ');
+
+  // feedback: lifetime (not window-scoped), matching getAgentRollup.
+  const fbScope = insightsScope(filter, 1);
+  const fbWhere = fbScope!.clause;
+  const fbParams: unknown[] = [...fbScope!.params];
+
+  const [act, byDay, span, lat, tools, models, fb, sens] = await Promise.all([
+    db.query(`SELECT COUNT(DISTINCT task_id) sessions, COUNT(*) turns,
+                     SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) error_turns,
+                     COALESCE(SUM(input_tokens),0) input_tokens,
+                     COALESCE(SUM(output_tokens),0) output_tokens
+                FROM activities WHERE ${actWhere}`, actParams),
+    db.query(`SELECT date(started_at) d,
+                     COALESCE(SUM(input_tokens),0) input,
+                     COALESCE(SUM(output_tokens),0) output
+                FROM activities WHERE ${actWhere} GROUP BY d ORDER BY d`, actParams),
+    db.query(`SELECT COALESCE(SUM(cost_usd),0) cost,
+                     SUM(CASE WHEN kind='tool' THEN 1 ELSE 0 END) tool_calls,
+                     SUM(CASE WHEN kind='generation' THEN 1 ELSE 0 END) generations
+                FROM spans WHERE ${spanWhere}`, spanParams),
+    db.query(`SELECT (end_ms - start_ms) ms FROM spans
+               WHERE ${spanWhere} AND kind='agent' AND end_ms IS NOT NULL`, spanParams),
+    db.query(`SELECT tool_name name, COUNT(*) c,
+                     SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) e
+                FROM spans
+               WHERE ${spanWhere} AND kind='tool' AND tool_name IS NOT NULL
+               GROUP BY tool_name ORDER BY c DESC LIMIT 8`, spanParams),
+    db.query(`SELECT model, COUNT(DISTINCT activity_id) turns,
+                     COALESCE(SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)),0) tokens
+                FROM spans WHERE ${spanWhere} AND model IS NOT NULL
+               GROUP BY model ORDER BY tokens DESC LIMIT 6`, spanParams),
+    db.query(`SELECT SUM(CASE WHEN sentiment='up' THEN 1 ELSE 0 END) up,
+                     SUM(CASE WHEN sentiment='down' THEN 1 ELSE 0 END) down
+                FROM message_feedback WHERE ${fbWhere}`, fbParams),
+    db.query(`SELECT COUNT(*) c FROM spans WHERE ${spanWhere} AND sensitive = 1 AND kind IN ('tool', 'generation')`, spanParams),
+  ]);
+
+  const a0 = act.rows[0] ?? {};
+  const s0 = span.rows[0] ?? {};
+  const f0 = fb.rows[0] ?? {};
+  const durations = lat.rows.map(r => Number(r.ms)).filter(m => Number.isFinite(m) && m >= 0).sort((x, y) => x - y);
+  const inputTokens = n(a0.input_tokens);
+  const outputTokens = n(a0.output_tokens);
+
+  return {
+    sessions: n(a0.sessions),
+    turns: n(a0.turns),
+    toolCalls: n(s0.tool_calls),
+    generations: n(s0.generations),
+    errorTurns: n(a0.error_turns),
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    costUsd: n(s0.cost),
+    p50DurationMs: percentile(durations, 50),
+    p95DurationMs: percentile(durations, 95),
+    feedbackUp: n(f0.up),
+    feedbackDown: n(f0.down),
+    sensitiveEvents: n((sens.rows[0] ?? {}).c),
+    tokensByDay: byDay.rows.map(r => ({ date: String(r.d), input: n(r.input), output: n(r.output) })),
+    topTools: tools.rows.map(r => ({ name: String(r.name), count: n(r.c), errors: n(r.e) })),
+    models: models.rows.map(r => ({ model: String(r.model), turns: n(r.turns), tokens: n(r.tokens) })),
+  };
+}
+
+// ── Per-session summaries (LLMOps "Sessions" table) ──────────────────────────
+
+/** One row in the sessions table — a thread with its rolled-up metrics. */
+export interface SessionSummary {
+  sessionId: string;
+  summary: string | null;
+  initiatorHandle: string | null;
+  agentIds: string[];
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  status: 'active' | 'done' | 'error';
+  sensitive: boolean;
+  feedbackUp: number;
+  feedbackDown: number;
+  startedAt: string;
+  lastActivityAt: string;
+}
+
+/**
+ * Per-session rollup rows for the LLMOps Sessions table: turns, tokens, state,
+ * feedback and sensitivity for each thread in scope+window, newest first. One
+ * grouped pass over activities + cheap joins (no per-session trace fetch).
+ */
+export async function getSessionSummaries(
+  filter: InsightsFilter = {}, limit = 50, cursor?: string | null,
+): Promise<{ sessions: SessionSummary[]; nextCursor: string | null }> {
+  const db = getDb();
+  const scope = insightsScope(filter, 1);
+  if (!scope) return { sessions: [], nextCursor: null };
+  const params: unknown[] = [...scope.params];
+  const w = [scope.clause];
+  if (filter.since) { w.push(`started_at >= $${params.length + 1}`); params.push(filter.since); }
+  if (filter.until) { w.push(`started_at <= $${params.length + 1}`); params.push(filter.until); }
+
+  // Keyset pagination on the SAME (last_activity_at DESC, id DESC) order the query
+  // returns, so "load more" can't skip or duplicate rows as new activity arrives.
+  let cursorSql = '';
+  if (cursor) {
+    const [cTs, cId] = cursor.split('|', 2);
+    if (cTs && cId) {
+      const p = params.length;
+      cursorSql = `WHERE (t.last_activity_at < $${p + 1} OR (t.last_activity_at = $${p + 1} AND t.id < $${p + 2}))`;
+      params.push(cTs, cId);
+    }
+  }
+  const lim = Math.min(500, Math.max(1, limit));
+  params.push(lim + 1); // fetch one extra to detect whether another page exists
+
+  const { rows } = await db.query(
+    `WITH scoped AS (
+       SELECT * FROM activities a WHERE ${w.join(' AND ')}
+     ),
+     agg AS (
+       SELECT task_id,
+              COUNT(*) turns,
+              COALESCE(SUM(input_tokens),0) in_tok,
+              COALESCE(SUM(output_tokens),0) out_tok,
+              MAX(CASE WHEN status='in_progress' THEN 1 ELSE 0 END) has_active,
+              MAX(CASE WHEN status='error' THEN 1 ELSE 0 END) has_error,
+              GROUP_CONCAT(DISTINCT agent_id) agent_ids
+       FROM scoped GROUP BY task_id
+     ),
+     fb AS (
+       SELECT a.task_id,
+              SUM(CASE WHEN mf.sentiment='up' THEN 1 ELSE 0 END) up,
+              SUM(CASE WHEN mf.sentiment='down' THEN 1 ELSE 0 END) down
+       FROM message_feedback mf JOIN activities a ON a.id = mf.activity_id
+       WHERE a.task_id IN (SELECT task_id FROM agg)
+       GROUP BY a.task_id
+     ),
+     -- Bounded to this page's scoped+windowed task set and scoped to the caller's
+     -- accessible agents (spans.agent_id), so the flag never reflects a sensitive
+     -- span the caller can't see and the scan isn't over all sensitive history.
+     sens AS (
+       SELECT DISTINCT session_id FROM spans
+        WHERE sensitive = 1
+          AND session_id IN (SELECT task_id FROM agg)
+          AND ${scope.clause}
+     )
+     SELECT t.id, t.summary, t.initiator_handle, t.started_at, t.last_activity_at,
+            agg.turns, agg.in_tok, agg.out_tok, agg.has_active, agg.has_error, agg.agent_ids,
+            (sx.session_id IS NOT NULL) sensitive,
+            COALESCE(fb.up,0) fb_up, COALESCE(fb.down,0) fb_down
+       FROM agg
+       JOIN tasks t ON t.id = agg.task_id
+       LEFT JOIN fb   ON fb.task_id = t.id
+       LEFT JOIN sens sx ON sx.session_id = t.id
+      ${cursorSql}
+      ORDER BY t.last_activity_at DESC, t.id DESC
+      LIMIT $${params.length}`,
+    params,
+  );
+
+  const mapped: SessionSummary[] = rows.map(r => ({
+    sessionId: r.id as string,
+    summary: s(r.summary),
+    initiatorHandle: s(r.initiator_handle),
+    agentIds: typeof r.agent_ids === 'string' && r.agent_ids ? (r.agent_ids as string).split(',').filter(Boolean) : [],
+    turns: n(r.turns),
+    inputTokens: n(r.in_tok),
+    outputTokens: n(r.out_tok),
+    status: Number(r.has_active) ? 'active' : Number(r.has_error) ? 'error' : 'done',
+    sensitive: !!Number(r.sensitive),
+    feedbackUp: n(r.fb_up),
+    feedbackDown: n(r.fb_down),
+    startedAt: String(r.started_at),
+    lastActivityAt: String(r.last_activity_at),
+  }));
+
+  const hasMore = mapped.length > lim;
+  const sessions = hasMore ? mapped.slice(0, lim) : mapped;
+  const last = sessions[sessions.length - 1];
+  const nextCursor = hasMore && last ? `${last.lastActivityAt}|${last.sessionId}` : null;
+  return { sessions, nextCursor };
 }
 
 // ── Sensitive-access audit feed ──────────────────────────────────────────────
@@ -734,6 +998,9 @@ export async function pruneTraceData(retentionDays?: number): Promise<{ spans: n
 export interface ToolErrorGroup {
   message: string;
   count: number;
+  /** Distinct sessions this error occurred in (count >= sessions). */
+  sessions: number;
+  /** The MOST RECENT session where this error happened (for the drill-down link). */
   sampleSessionId: string | null;
 }
 export interface ToolStat {
@@ -771,9 +1038,14 @@ export async function getToolStats(filter: { agentId?: string; since?: string; u
     // Aggregate by a TRUNCATED error key (first 160 chars) so near-identical
     // failures collapse into one group instead of each full (and potentially
     // large/sensitive) result body becoming its own group of 1.
+    // `sid` = session_id of the MOST RECENT error in the group (arg-max on start_ms
+    // via a fixed-width zero-padded prefix), plus the count of DISTINCT sessions so
+    // the UI can say "in N sessions" rather than implying a single one.
     db.query(`SELECT tool_name,
                      substr(COALESCE(NULLIF(status_message, ''), NULLIF(output, ''), '(no message)'), 1, 160) msg,
-                     COUNT(*) c, MAX(session_id) sid
+                     COUNT(*) c,
+                     COUNT(DISTINCT session_id) sessions,
+                     substr(MAX(printf('%020d', start_ms) || session_id), 21) sid
                 FROM spans WHERE ${where} AND status='error'
                GROUP BY tool_name, msg ORDER BY c DESC`, params),
   ]);
@@ -784,7 +1056,7 @@ export async function getToolStats(filter: { agentId?: string; since?: string; u
   }
   for (const r of groups.rows) {
     const t = byTool.get(r.tool_name as string);
-    if (t) t.errorGroups.push({ message: String(r.msg), count: n(r.c), sampleSessionId: s(r.sid) });
+    if (t) t.errorGroups.push({ message: String(r.msg), count: n(r.c), sessions: n(r.sessions), sampleSessionId: s(r.sid) });
   }
   return [...byTool.values()];
 }
