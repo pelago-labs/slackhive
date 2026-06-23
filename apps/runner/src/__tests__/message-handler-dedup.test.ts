@@ -67,8 +67,8 @@ describe('MessageHandler — duplicate-delivery dedup', () => {
   it('still processes two genuinely different messages', async () => {
     const backend = makeBackend();
     const handler = new MessageHandler(makeAdapter(), backend as never, makeAgent(), null);
-    await handler.handleMessage(makeMsg('first question'));
-    await handler.handleMessage(makeMsg('second question'));
+    await handler.handleMessage(makeMsg('first question', 'm1'));
+    await handler.handleMessage(makeMsg('second question', 'm2')); // distinct Slack ts
     expect((backend.streamQuery as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
   });
 

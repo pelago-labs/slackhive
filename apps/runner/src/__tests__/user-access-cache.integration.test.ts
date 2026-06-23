@@ -100,15 +100,17 @@ function makeAgent(): Agent {
   } as Agent;
 }
 
+let msgSeq = 0;
 function makeMsg(userId: string): IncomingMessage {
+  const id = `msg-${++msgSeq}`;
   return {
-    id: 'msg-1',
+    id,
     platform: 'slack',
     userId,
     channelId: 'C_chan',
     text: 'hello',
     isDM: false,
-    raw: { client: {}, messageTs: 'msg-1' },
+    raw: { client: {}, messageTs: id },
   } as unknown as IncomingMessage;
 }
 
@@ -139,6 +141,7 @@ async function grantAccess(agentId: string, userId: string, level = 'edit'): Pro
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
 beforeEach(async () => {
+  msgSeq = 0;
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'user-access-cache-'));
   dbPath = path.join(tmpDir, 'data.db');
   countingAdapter = wrapWithCounter(createSqliteAdapter(dbPath));

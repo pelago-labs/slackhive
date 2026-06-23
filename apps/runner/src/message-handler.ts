@@ -189,9 +189,9 @@ export class MessageHandler {
     // delivers events at-least-once, and a boss agent re-mentioning a reportee in a
     // multi-part reply arrives as a second identical event ~1s later; either way the
     // duplicate hits the same sessionKey and would abort the turn started by the first
-    // (surfacing as "Operation aborted"). Dedup on (session + content); file-only
-    // messages fall back to the message id (unique per Slack message).
-    const dedupKey = `${sessionKey}:${text || messageId || ''}`;
+    // (surfacing as "Operation aborted"). Dedup on (session + messageId); text is a
+    // fallback for platforms that don't supply a stable message id.
+    const dedupKey = `${sessionKey}:${messageId || text || ''}`;
     const nowMs = Date.now();
     for (const [k, seenAt] of this.recentMessages) {
       if (nowMs - seenAt > DUPLICATE_MESSAGE_WINDOW_MS) this.recentMessages.delete(k);
