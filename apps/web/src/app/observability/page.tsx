@@ -88,8 +88,8 @@ function Body(): React.JSX.Element {
   const [to, setTo] = useState(sp?.get('to') ?? '');
   const [windowKey, setWindowKey] = useState<WindowKey>(parseWindowKey(sp?.get('window') ?? (sp?.get('from') && sp?.get('to') ? 'custom' : '24h')));
   const [tab, setTab] = useState<TabKey>((sp?.get('tab') as TabKey) || 'overview');
-  // Audit tab sub-view: today's per-session table vs the cross-session turn feed.
-  const [view, setView] = useState<'session' | 'turn'>(sp?.get('view') === 'turn' ? 'turn' : 'session');
+  // Audit tab sub-view: the cross-session turn feed (default) vs today's per-session table.
+  const [view, setView] = useState<'session' | 'turn'>(sp?.get('view') === 'session' ? 'session' : 'turn');
   const [data, setData] = useState<InsightsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +141,7 @@ function Body(): React.JSX.Element {
     const qs = new URLSearchParams();
     if (agentFilter) qs.set('agent', agentFilter);
     qs.set('tab', tab);
-    if (tab === 'sessions' && view === 'turn') qs.set('view', 'turn');
+    if (tab === 'sessions' && view === 'session') qs.set('view', 'session');
     if (windowKey !== 'custom') qs.set('window', windowKey); else { if (from) qs.set('from', from); if (to) qs.set('to', to); }
     const next = qs.toString();
     const current = sp?.toString() ?? '';
