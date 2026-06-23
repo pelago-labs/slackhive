@@ -30,6 +30,7 @@ import {
   getTokensByAgent,
   getTopUsers,
   getSessionSummaries,
+  getTurnFeed,
 } from '@slackhive/shared';
 
 let dbPath: string;
@@ -44,12 +45,13 @@ async function seedAgent(id = randomUUID()): Promise<string> {
   return id;
 }
 
-/** Insert a flagged-sensitive span on a session, attributed to a given agent. */
-async function seedSensitiveSpan(sessionId: string, agentId: string | null): Promise<void> {
+/** Insert a flagged-sensitive span on a session, attributed to a given agent
+ *  (optionally tied to a specific activity/turn). */
+async function seedSensitiveSpan(sessionId: string, agentId: string | null, activityId: string | null = null): Promise<void> {
   await getDb().query(
-    `INSERT INTO spans (span_id, trace_id, session_id, kind, name, agent_id, start_ms, sensitive)
-     VALUES ($1, $2, $3, 'tool', 'tool-call', $4, $5, 1)`,
-    [randomUUID(), randomUUID(), sessionId, agentId, 1000],
+    `INSERT INTO spans (span_id, trace_id, session_id, activity_id, kind, name, agent_id, start_ms, sensitive, sensitive_categories)
+     VALUES ($1, $2, $3, $4, 'tool', 'tool-call', $5, $6, 1, 'pii:email')`,
+    [randomUUID(), randomUUID(), sessionId, activityId, agentId, 1000],
   );
 }
 
@@ -372,6 +374,62 @@ describe('getSessionSummaries', () => {
 
     const all = [...p1.sessions, ...p2.sessions, ...p3.sessions].map(s => s.sessionId);
     expect(new Set(all).size).toBe(5); // no dupes, no missed rows across pages
+  });
+});
+
+describe('getTurnFeed', () => {
+  it('paginates across sessions, newest-first, with no gaps or duplicates', async () => {
+    const agentId = await seedAgent();
+    for (let i = 0; i < 5; i++) {
+      const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: `tf${i}`, initiatorUserId: 'U1' });
+      const a = await beginActivity({ taskId: t, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+      await finishActivity(a, 'done');
+    }
+    const p1 = await getTurnFeed({}, 2);
+    expect(p1.turns).toHaveLength(2);
+    expect(p1.nextCursor).not.toBeNull();
+    const p2 = await getTurnFeed({}, 2, p1.nextCursor);
+    expect(p2.turns).toHaveLength(2);
+    const p3 = await getTurnFeed({}, 2, p2.nextCursor);
+    expect(p3.turns).toHaveLength(1);
+    expect(p3.nextCursor).toBeNull();
+    const ids = [...p1.turns, ...p2.turns, ...p3.turns].map(t => t.activityId);
+    expect(new Set(ids).size).toBe(5);
+  });
+
+  it('scopes to accessible agents and never flags an out-of-scope sensitive span', async () => {
+    const a1 = await seedAgent();
+    const a2 = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'tf-scope', initiatorUserId: 'U1' });
+    const act = await beginActivity({ taskId: t, agentId: a1, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+    await finishActivity(act, 'done');
+    await seedSensitiveSpan(t, a2, act); // sensitive span on this turn, by an out-of-scope agent
+
+    const admin = (await getTurnFeed({})).turns.find(x => x.activityId === act);
+    expect(admin?.sensitive).toBe(true);
+
+    const editor = (await getTurnFeed({ accessibleAgentIds: [a1] })).turns.find(x => x.activityId === act);
+    expect(editor?.sensitive).toBe(false); // a2's span is out of scope → not flagged
+
+    // Scoped to a2 only → the turn (a1's) is not visible at all.
+    const onlyA2 = await getTurnFeed({ accessibleAgentIds: [a2] });
+    expect(onlyA2.turns.find(x => x.activityId === act)).toBeUndefined();
+
+    // Empty access set → empty.
+    expect((await getTurnFeed({ accessibleAgentIds: [] })).turns).toHaveLength(0);
+  });
+
+  it('errorsOnly returns only errored turns', async () => {
+    const agentId = await seedAgent();
+    const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: 'tf-err', initiatorUserId: 'U1' });
+    const ok = await beginActivity({ taskId: t, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+    await finishActivity(ok, 'done');
+    const bad = await beginActivity({ taskId: t, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+    await finishActivity(bad, 'error', 'boom');
+
+    const ids = (await getTurnFeed({ errorsOnly: true })).turns.map(x => x.activityId);
+    expect(ids).toContain(bad);
+    expect(ids).not.toContain(ok);
   });
 });
 

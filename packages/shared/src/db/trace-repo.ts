@@ -365,46 +365,55 @@ export async function getSessionTrace(taskId: string, accessibleAgentIds?: strin
     feedbackByActivity.set(aid, bucket);
   }
 
-  const turns: TraceTurn[] = actRes.rows.map(a => {
-    const all = spansByActivity.get(a.id as string) ?? [];
-    const agentSpan = all.find(sp => sp.kind === 'agent') ?? null;
-    const steps = all.filter(sp => sp.kind !== 'agent');
-
-    // Turn metrics: prefer the agent span (exact), fall back to the activity row.
-    const inputTokens = agentSpan?.inputTokens ?? n(a.input_tokens);
-    const outputTokens = agentSpan?.outputTokens ?? n(a.output_tokens);
-    const sensitiveCats = new Set<string>();
-    for (const sp of all) if (sp.sensitive) sp.sensitiveCategories.forEach(c => sensitiveCats.add(c));
-    return {
-      activityId: a.id as string,
-      agentId: a.agent_id as string,
-      agentName: s(a.agent_name),
-      agentSlug: s(a.agent_slug),
-      status: a.status as 'in_progress' | 'done' | 'error',
-      startedAt: a.started_at as string,
-      finishedAt: s(a.finished_at),
-      messagePreview: s(a.message_preview),
-      error: s(a.error),
-      initiatorKind: (a.initiator_kind as 'user' | 'agent') ?? 'user',
-      initiatorHandle: s(a.initiator_handle ?? null),
-      delegatedByAgentName: s(a.deleg_name),
-      delegatedByAgentSlug: s(a.deleg_slug),
-      durationMs: agentSpan?.durationMs ?? null,
-      inputTokens,
-      outputTokens,
-      reasoningTokens: agentSpan?.reasoningTokens ?? 0,
-      cacheReadTokens: agentSpan?.cacheReadTokens ?? n(a.cache_read_tokens),
-      cacheCreationTokens: agentSpan?.cacheCreationTokens ?? n(a.cache_creation_tokens),
-      costUsd: agentSpan?.costUsd ?? 0,
-      finalAnswer: agentSpan?.output ?? null,
-      sensitive: sensitiveCats.size > 0,
-      sensitiveCategories: [...sensitiveCats],
-      feedback: feedbackByActivity.get(a.id as string) ?? [],
-      spans: steps,
-    };
-  });
+  const turns: TraceTurn[] = actRes.rows.map(a =>
+    assembleTurn(a, spansByActivity.get(a.id as string) ?? [], feedbackByActivity.get(a.id as string) ?? []),
+  );
 
   return { turns, rollup: rollupFromTurns(turns), flows };
+}
+
+/**
+ * Build one {@link TraceTurn} from an activity row, its spans, and its feedback.
+ * Shared by {@link getSessionTrace} (per-session) and {@link getTurnFeed}
+ * (cross-session) so the turn shape has a single source of truth. The activity
+ * row must carry the joined `agent_name`/`agent_slug`/`deleg_name`/`deleg_slug`.
+ */
+function assembleTurn(a: Record<string, unknown>, all: TraceSpan[], feedback: TurnFeedback[]): TraceTurn {
+  const agentSpan = all.find(sp => sp.kind === 'agent') ?? null;
+  const steps = all.filter(sp => sp.kind !== 'agent');
+
+  // Turn metrics: prefer the agent span (exact), fall back to the activity row.
+  const inputTokens = agentSpan?.inputTokens ?? n(a.input_tokens);
+  const outputTokens = agentSpan?.outputTokens ?? n(a.output_tokens);
+  const sensitiveCats = new Set<string>();
+  for (const sp of all) if (sp.sensitive) sp.sensitiveCategories.forEach(c => sensitiveCats.add(c));
+  return {
+    activityId: a.id as string,
+    agentId: a.agent_id as string,
+    agentName: s(a.agent_name),
+    agentSlug: s(a.agent_slug),
+    status: a.status as 'in_progress' | 'done' | 'error',
+    startedAt: a.started_at as string,
+    finishedAt: s(a.finished_at),
+    messagePreview: s(a.message_preview),
+    error: s(a.error),
+    initiatorKind: (a.initiator_kind as 'user' | 'agent') ?? 'user',
+    initiatorHandle: s(a.initiator_handle ?? null),
+    delegatedByAgentName: s(a.deleg_name),
+    delegatedByAgentSlug: s(a.deleg_slug),
+    durationMs: agentSpan?.durationMs ?? null,
+    inputTokens,
+    outputTokens,
+    reasoningTokens: agentSpan?.reasoningTokens ?? 0,
+    cacheReadTokens: agentSpan?.cacheReadTokens ?? n(a.cache_read_tokens),
+    cacheCreationTokens: agentSpan?.cacheCreationTokens ?? n(a.cache_creation_tokens),
+    costUsd: agentSpan?.costUsd ?? 0,
+    finalAnswer: agentSpan?.output ?? null,
+    sensitive: sensitiveCats.size > 0,
+    sensitiveCategories: [...sensitiveCats],
+    feedback,
+    spans: steps,
+  };
 }
 
 // ── Per-agent aggregate (all sessions of one agent) ──────────────────────────
@@ -774,6 +783,136 @@ export async function getSessionSummaries(
   const last = sessions[sessions.length - 1];
   const nextCursor = hasMore && last ? `${last.lastActivityAt}|${last.sessionId}` : null;
   return { sessions, nextCursor };
+}
+
+// ── Cross-session turn feed (LLMOps "Audit" → Turn view) ─────────────────────
+
+/** One row of the turn feed: a full turn plus its owning session id/summary. */
+export interface TurnFeedRow extends TraceTurn {
+  sessionId: string;
+  sessionSummary: string | null;
+}
+
+/** Filter for {@link getTurnFeed}: agent/window/RBAC scope plus turn-level filters. */
+export type TurnFeedFilter = InsightsFilter & {
+  initiator?: string;
+  sensitiveOnly?: boolean;
+  errorsOnly?: boolean;
+};
+
+/**
+ * Flat, cross-session turn feed for the Audit "Turn view": every turn in
+ * scope+window (newest-first), each with its full span tree, authorship, result
+ * and sensitivity — assembled exactly like {@link getSessionTrace} but bounded to
+ * one keyset page. Same RBAC scoping as the other insights readers
+ * (accessibleAgentIds: undefined/null = all, [] = none, non-empty = restrict).
+ */
+export async function getTurnFeed(
+  filter: TurnFeedFilter = {}, limit = 50, cursor?: string | null,
+): Promise<{ turns: TurnFeedRow[]; nextCursor: string | null }> {
+  const db = getDb();
+  const acc = filter.accessibleAgentIds;
+  if (Array.isArray(acc) && acc.length === 0) return { turns: [], nextCursor: null };
+  // A restricted caller asking for an agent they can't access → empty.
+  if (filter.agentId && Array.isArray(acc) && !acc.includes(filter.agentId)) {
+    return { turns: [], nextCursor: null };
+  }
+
+  const params: unknown[] = [];
+  const wheres: string[] = [];
+  // Agent scope on the activity (qualified `a.agent_id` — pi.agent_id is also in scope).
+  if (filter.agentId) {
+    wheres.push(`a.agent_id = $${params.length + 1}`); params.push(filter.agentId);
+  } else if (Array.isArray(acc)) {
+    wheres.push(`a.agent_id IN (${acc.map((_, i) => `$${params.length + 1 + i}`).join(', ')})`);
+    params.push(...acc);
+  }
+  if (filter.since) { wheres.push(`a.started_at >= $${params.length + 1}`); params.push(filter.since); }
+  if (filter.until) { wheres.push(`a.started_at <= $${params.length + 1}`); params.push(filter.until); }
+  if (filter.initiator) { wheres.push(`a.initiator_handle = $${params.length + 1}`); params.push(filter.initiator); }
+  if (filter.errorsOnly) wheres.push(`a.status = 'error'`);
+  if (filter.sensitiveOnly) {
+    // Only flag-by spans the caller can see (same agent scope as the row).
+    let inner = `sp.activity_id = a.id AND sp.sensitive = 1`;
+    if (filter.agentId) { inner += ` AND sp.agent_id = $${params.length + 1}`; params.push(filter.agentId); }
+    else if (Array.isArray(acc)) { inner += ` AND sp.agent_id IN (${acc.map((_, i) => `$${params.length + 1 + i}`).join(', ')})`; params.push(...acc); }
+    wheres.push(`EXISTS (SELECT 1 FROM spans sp WHERE ${inner})`);
+  }
+  // Keyset cursor on the SAME (started_at DESC, id DESC) total order the query returns.
+  if (cursor) {
+    const [cTs, cId] = cursor.split('|', 2);
+    if (cTs && cId) {
+      const p = params.length;
+      wheres.push(`(a.started_at < $${p + 1} OR (a.started_at = $${p + 1} AND a.id < $${p + 2}))`);
+      params.push(cTs, cId);
+    }
+  }
+  const lim = Math.min(200, Math.max(1, limit));
+  params.push(lim + 1); // fetch one extra to detect another page
+  const limIdx = params.length;
+
+  const actRes = await db.query(
+    `SELECT a.*,
+            ag.name  AS agent_name,
+            ag.slug  AS agent_slug,
+            dag.name AS deleg_name,
+            dag.slug AS deleg_slug,
+            t.summary AS session_summary
+       FROM activities a
+       LEFT JOIN agents ag ON ag.id = a.agent_id
+       LEFT JOIN platform_integrations pi
+              ON pi.bot_user_id = a.initiator_user_id
+             AND pi.platform = a.platform
+             AND a.initiator_kind = 'agent'
+       LEFT JOIN agents dag ON dag.id = pi.agent_id
+       LEFT JOIN tasks  t   ON t.id = a.task_id
+      ${wheres.length ? `WHERE ${wheres.join(' AND ')}` : ''}
+      ORDER BY a.started_at DESC, a.id DESC
+      LIMIT $${limIdx}`,
+    params,
+  );
+  const hasMore = actRes.rows.length > lim;
+  const pageRows = hasMore ? actRes.rows.slice(0, lim) : actRes.rows;
+  if (pageRows.length === 0) return { turns: [], nextCursor: null };
+
+  const activityIds = pageRows.map(r => r.id as string);
+  const inPh = activityIds.map((_, i) => `$${i + 1}`).join(', ');
+
+  // Spans for the page, agent-scoped to match row visibility.
+  const spanParams: unknown[] = [...activityIds];
+  let spanScope = '';
+  if (filter.agentId) { spanScope = ` AND agent_id = $${spanParams.length + 1}`; spanParams.push(filter.agentId); }
+  else if (Array.isArray(acc)) { spanScope = ` AND agent_id IN (${acc.map((_, i) => `$${spanParams.length + 1 + i}`).join(', ')})`; spanParams.push(...acc); }
+  const spanRes = await db.query(
+    `SELECT * FROM spans WHERE activity_id IN (${inPh})${spanScope} ORDER BY start_ms ASC, rowid ASC`,
+    spanParams,
+  );
+  const spansByActivity = new Map<string, TraceSpan[]>();
+  for (const row of spanRes.rows) {
+    const aid = (row.activity_id as string | null) ?? '';
+    const b = spansByActivity.get(aid) ?? []; b.push(rowToSpan(row)); spansByActivity.set(aid, b);
+  }
+
+  const fbRes = await db.query(
+    `SELECT activity_id, sentiment, note, rater_handle FROM message_feedback WHERE activity_id IN (${inPh}) ORDER BY created_at ASC`,
+    activityIds,
+  );
+  const fbByActivity = new Map<string, TurnFeedback[]>();
+  for (const row of fbRes.rows) {
+    const aid = row.activity_id as string;
+    const b = fbByActivity.get(aid) ?? [];
+    b.push({ sentiment: row.sentiment as 'up' | 'down', note: s(row.note), raterHandle: s(row.rater_handle) });
+    fbByActivity.set(aid, b);
+  }
+
+  const turns: TurnFeedRow[] = pageRows.map(a => ({
+    ...assembleTurn(a, spansByActivity.get(a.id as string) ?? [], fbByActivity.get(a.id as string) ?? []),
+    sessionId: a.task_id as string,
+    sessionSummary: s(a.session_summary),
+  }));
+  const last = pageRows[pageRows.length - 1];
+  const nextCursor = hasMore && last ? `${last.started_at as string}|${last.id as string}` : null;
+  return { turns, nextCursor };
 }
 
 // ── Sensitive-access audit feed ──────────────────────────────────────────────

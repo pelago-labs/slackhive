@@ -13,12 +13,14 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsDown, Layers, Lock, ArrowRight, ExternalLink, ChevronRight, ChevronDown } from 'lucide-react';
+import { Activity as ActivityIcon, Coins, ShieldAlert, Wrench, ThumbsUp, ThumbsDown, Layers, Lock, ArrowRight, ExternalLink, ChevronRight, ChevronDown, ScrollText, Brain, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../activity/_components/FilterRow';
 import { formatTokens } from '../activity/_components/formatTokens';
 import { SevBadge } from '../activity/_components/SevBadge';
+import { RevealCtx, buildNodes, NodeRow, SensitiveBadge } from '../activity/_components/trace-nodes';
 import { relativeTime } from '@/lib/time';
+import type { TurnFeedRow } from '@slackhive/shared';
 
 interface AgentLite { id: string; slug: string; name: string }
 type Severity = 'critical' | 'high' | 'medium' | 'low';
@@ -62,6 +64,7 @@ interface InsightsResponse {
 }
 
 interface SessionsPage { sessions: SessionRow[]; nextCursor: string | null }
+interface TurnsPage { turns: TurnFeedRow[]; nextCursor: string | null }
 
 type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sessions';
 
@@ -85,9 +88,13 @@ function Body(): React.JSX.Element {
   const [to, setTo] = useState(sp?.get('to') ?? '');
   const [windowKey, setWindowKey] = useState<WindowKey>(parseWindowKey(sp?.get('window') ?? (sp?.get('from') && sp?.get('to') ? 'custom' : '24h')));
   const [tab, setTab] = useState<TabKey>((sp?.get('tab') as TabKey) || 'overview');
+  // Audit tab sub-view: today's per-session table vs the cross-session turn feed.
+  const [view, setView] = useState<'session' | 'turn'>(sp?.get('view') === 'turn' ? 'turn' : 'session');
   const [data, setData] = useState<InsightsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Raw sensitive values are admin-only; everyone else already got redacted content.
+  const canReveal = role === 'admin' || role === 'superadmin';
 
   useEffect(() => { fetch('/api/agents').then(r => r.json()).then(setAgents).catch(() => {}); }, []);
   const agentName = useMemo(() => new Map(agents.map(a => [a.id, a.name])), [agents]);
@@ -115,6 +122,16 @@ function Body(): React.JSX.Element {
     return await r.json() as SessionsPage;
   }, [agentFilter, windowKey, from, to]);
 
+  // Fetch a page of turns (cross-session, keyset cursor) for the Audit Turn view.
+  const fetchTurns = useCallback(async (cursor?: string): Promise<TurnsPage> => {
+    const qs = new URLSearchParams({ ...timeParams(windowKey, from, to) });
+    if (agentFilter) qs.set('agent', agentFilter);
+    if (cursor) qs.set('cursor', cursor);
+    const r = await fetch(`/api/activity/turns?${qs}`);
+    if (!r.ok) throw new Error('Failed to load turns');
+    return await r.json() as TurnsPage;
+  }, [agentFilter, windowKey, from, to]);
+
   useEffect(() => { load(); }, [load]);
 
   // Reflect filters in the URL (shareable / bookmarkable). Only replace when the
@@ -124,13 +141,14 @@ function Body(): React.JSX.Element {
     const qs = new URLSearchParams();
     if (agentFilter) qs.set('agent', agentFilter);
     qs.set('tab', tab);
+    if (tab === 'sessions' && view === 'turn') qs.set('view', 'turn');
     if (windowKey !== 'custom') qs.set('window', windowKey); else { if (from) qs.set('from', from); if (to) qs.set('to', to); }
     const next = qs.toString();
     const current = sp?.toString() ?? '';
     // Compare as sorted sets so param order alone never triggers a navigation.
     const norm = (s: string) => s.split('&').sort().join('&');
     if (norm(next) !== norm(current)) router.replace(`/observability?${next}`, { scroll: false });
-  }, [agentFilter, tab, windowKey, from, to, router, sp]);
+  }, [agentFilter, tab, view, windowKey, from, to, router, sp]);
 
   // All tabs are visible to anyone who can reach this page (editor+); token data is
   // gated inside the Tokens tab via canTokens, and power-users via isSuper.
@@ -139,7 +157,7 @@ function Body(): React.JSX.Element {
     { key: 'tokens', label: 'Tokens & Cost', Icon: Coins },
     { key: 'sensitive', label: 'Sensitive', Icon: ShieldAlert },
     { key: 'tools', label: 'Tools', Icon: Wrench },
-    { key: 'sessions', label: 'Sessions', Icon: Layers },
+    { key: 'sessions', label: 'Audit', Icon: ScrollText },
   ];
   const activeTab = tabs.some(t => t.key === tab) ? tab : 'overview';
 
@@ -185,7 +203,11 @@ function Body(): React.JSX.Element {
             : activeTab === 'tokens' ? <Tokens data={data} agentName={agentName} canTokens={canTokens} isSuper={isSuper} />
             : activeTab === 'sensitive' ? <Sensitive events={data.events ?? []} flows={data.flows ?? []} />
             : activeTab === 'tools' ? <Tools tools={data.tools ?? []} />
-            : <Sessions sessions={data.sessions ?? []} cursor={data.sessionsCursor ?? null} fetchMore={loadMoreSessions} agentName={agentName} canTokens={canTokens} />}
+            : <Audit
+                view={view} onView={setView}
+                sessions={data.sessions ?? []} sessionsCursor={data.sessionsCursor ?? null} fetchMoreSessions={loadMoreSessions}
+                fetchTurns={fetchTurns} canReveal={canReveal}
+                agentName={agentName} canTokens={canTokens} />}
         </>
       )}
     </div>
@@ -591,6 +613,220 @@ function FeedbackCard({ r, scope }: { r: Rollup | null; scope: string }): React.
         {scope === 'all' && <span style={{ marginLeft: 'auto', color: 'var(--subtle)', fontSize: 11.5 }}>Pick an agent for individual ratings</span>}
       </div>
     </div>
+  );
+}
+
+// ── Audit tab: Session view ↔ Turn view ─────────────────────────────────────
+
+function SegBtn({ active, onClick, icon, children }: { active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <button onClick={onClick} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
+      border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`, cursor: 'pointer',
+      background: active ? 'var(--surface-2)' : 'var(--surface)', color: active ? 'var(--text)' : 'var(--muted)',
+      fontSize: 12.5, fontWeight: active ? 600 : 500, fontFamily: 'var(--font-sans)',
+    }}>{icon}{children}</button>
+  );
+}
+
+function Audit({ view, onView, sessions, sessionsCursor, fetchMoreSessions, fetchTurns, canReveal, agentName, canTokens }: {
+  view: 'session' | 'turn'; onView: (v: 'session' | 'turn') => void;
+  sessions: SessionRow[]; sessionsCursor: string | null; fetchMoreSessions: (cursor: string) => Promise<SessionsPage>;
+  fetchTurns: (cursor?: string) => Promise<TurnsPage>; canReveal: boolean;
+  agentName: Map<string, string>; canTokens: boolean;
+}): React.JSX.Element {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'inline-flex', gap: 4 }}>
+        <SegBtn active={view === 'session'} onClick={() => onView('session')} icon={<Layers size={13} />}>Session view</SegBtn>
+        <SegBtn active={view === 'turn'} onClick={() => onView('turn')} icon={<ScrollText size={13} />}>Turn view</SegBtn>
+      </div>
+      {view === 'session'
+        ? <Sessions sessions={sessions} cursor={sessionsCursor} fetchMore={fetchMoreSessions} agentName={agentName} canTokens={canTokens} />
+        : <Turns fetchTurns={fetchTurns} canReveal={canReveal} agentName={agentName} canTokens={canTokens} />}
+    </div>
+  );
+}
+
+/** Who initiated the turn — a user handle, or "via @delegating-agent" for a delegated turn. */
+function whoLabel(t: TurnFeedRow): string {
+  if (t.initiatorKind === 'agent' && t.delegatedByAgentName) return `via @${t.delegatedByAgentName}`;
+  return t.initiatorHandle ? `@${t.initiatorHandle}` : '—';
+}
+
+/** Compact icon chips summarizing the turn's reasoning→tools→answer step sequence. */
+function StepChips({ turn }: { turn: TurnFeedRow }): React.JSX.Element {
+  const nodes = useMemo(() => buildNodes(turn), [turn]);
+  const shown = nodes.slice(0, 6);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      {shown.map((n, i) => {
+        const Icon = n.kind === 'error' ? AlertTriangle : n.kind === 'final' ? CheckCircle2 : n.kind === 'tool' ? Wrench : Brain;
+        const color = n.kind === 'error' ? '#dc2626' : n.kind === 'final' ? '#047857' : 'var(--muted)';
+        return (
+          <span key={i} title={n.title} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color, background: 'var(--surface-2)', borderRadius: 6, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+            <Icon size={11} />{n.kind === 'tool' ? truncate(n.title, 14) : null}
+          </span>
+        );
+      })}
+      {nodes.length > 6 && <span style={{ fontSize: 11, color: 'var(--subtle)' }}>+{nodes.length - 6}</span>}
+      {nodes.length === 0 && <Subtle>—</Subtle>}
+    </span>
+  );
+}
+
+function TurnStatus({ status }: { status: 'in_progress' | 'done' | 'error' }): React.JSX.Element {
+  const map = {
+    in_progress: { label: 'Running', bg: 'rgba(37,99,235,0.1)', fg: '#1d4ed8', icon: <Loader2 size={10} style={{ animation: 'spin 1.2s linear infinite' }} /> },
+    done: { label: 'Done', bg: 'rgba(5,150,105,0.1)', fg: '#047857', icon: <CheckCircle2 size={10} /> },
+    error: { label: 'Error', bg: 'rgba(220,38,38,0.1)', fg: '#b91c1c', icon: <AlertTriangle size={10} /> },
+  }[status];
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 10, background: map.bg, color: map.fg, fontSize: 10, fontWeight: 600 }}>{map.icon}{map.label}</span>;
+}
+
+/** One turn: a summary row (full turn-level columns) + an inline-expanded detail row
+ * showing the full reasoning→tools→answer chain (admin-revealable, else redacted). */
+function TurnRows({ turn, cols, expanded, onToggle }: { turn: TurnFeedRow; cols: number; expanded: boolean; onToggle: () => void }): React.JSX.Element {
+  const nodes = useMemo(() => buildNodes(turn), [turn]);
+  const maxMs = Math.max(1, ...nodes.map(n => n.durationMs ?? 0));
+  const td: React.CSSProperties = { fontSize: 12.5, color: 'var(--text)', padding: '9px 10px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', whiteSpace: 'nowrap' };
+  const firstSpan = nodes[0]?.key && !nodes[0].key.startsWith('__') ? nodes[0].key : '';
+  return (
+    <>
+      <tr onClick={onToggle} style={{ cursor: 'pointer' }} className="trace-node">
+        <td style={{ ...td, paddingLeft: 16, width: 22 }}>{expanded ? <ChevronDown size={13} style={{ color: 'var(--subtle)' }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)' }} />}</td>
+        <td style={td}><Subtle>{relativeTime(turn.startedAt)}</Subtle></td>
+        <td style={td}><Subtle>{whoLabel(turn)}</Subtle></td>
+        <td style={td}>{turn.agentName ?? '—'}</td>
+        <td style={{ ...td, whiteSpace: 'normal', maxWidth: 240 }} title={turn.sessionSummary ?? turn.messagePreview ?? ''}>{truncate(turn.sessionSummary || turn.messagePreview || '(no summary)', 64)}</td>
+        <td style={td}><StepChips turn={turn} /></td>
+        <td style={{ ...td, whiteSpace: 'normal', maxWidth: 280 }}>
+          {turn.sensitive
+            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><SensitiveBadge categories={turn.sensitiveCategories} compact /><Subtle>expand to view</Subtle></span>
+            : turn.finalAnswer ? <span title={turn.finalAnswer}>{truncate(turn.finalAnswer.replace(/\s+/g, ' '), 64)}</span> : <Subtle>—</Subtle>}
+        </td>
+        <td style={{ ...td, paddingRight: 16 }}><TurnStatus status={turn.status} /></td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={cols} style={{ padding: 0, background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ padding: '6px 16px 12px 30px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* RevealCtx is provided by the enclosing Turns component (admin → revealable). */}
+              {nodes.map(n => <NodeRow key={n.key} node={n} maxMs={maxMs} />)}
+              <a href={`/activity/${encodeURIComponent(turn.sessionId)}${firstSpan ? `?span=${encodeURIComponent(firstSpan)}` : ''}`}
+                style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
+                Open full session <ArrowRight size={12} />
+              </a>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function Turns({ fetchTurns, canReveal, agentName, canTokens }: { fetchTurns: (cursor?: string) => Promise<TurnsPage>; canReveal: boolean; agentName: Map<string, string>; canTokens: boolean }): React.JSX.Element {
+  void agentName; void canTokens;
+  const [rows, setRows] = useState<TurnFeedRow[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [q, setQ] = useState('');
+  const [stateFilter, setStateFilter] = useState<'all' | 'done' | 'error' | 'in_progress'>('all');
+  const [sensOnly, setSensOnly] = useState(false);
+
+  // First page; reloads whenever the filter/window closure (fetchTurns) changes.
+  useEffect(() => {
+    let alive = true;
+    setLoading(true); setExpanded(new Set());
+    fetchTurns()
+      .then(p => { if (alive) { setRows(p.turns); setCursor(p.nextCursor); } })
+      .catch(() => { if (alive) { setRows([]); setCursor(null); } })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [fetchTurns]);
+
+  const loadMore = useCallback(async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const p = await fetchTurns(cursor);
+      setRows(prev => { const seen = new Set(prev.map(t => t.activityId)); return [...prev, ...p.turns.filter(t => !seen.has(t.activityId))]; });
+      setCursor(p.nextCursor);
+    } catch { /* keep cursor for retry */ } finally { setLoadingMore(false); }
+  }, [cursor, loadingMore, fetchTurns]);
+
+  const toggle = (id: string) => setExpanded(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return rows.filter(t => {
+      if (stateFilter !== 'all' && t.status !== stateFilter) return false;
+      if (sensOnly && !t.sensitive) return false;
+      if (needle && !(
+        (t.sessionSummary ?? t.messagePreview ?? '').toLowerCase().includes(needle) ||
+        (t.initiatorHandle ?? '').toLowerCase().includes(needle) ||
+        (t.agentName ?? '').toLowerCase().includes(needle) ||
+        (t.finalAnswer ?? '').toLowerCase().includes(needle))) return false;
+      return true;
+    });
+  }, [rows, q, stateFilter, sensOnly]);
+
+  const errCount = rows.filter(t => t.status === 'error').length;
+  const sensCount = rows.filter(t => t.sensitive).length;
+  const cols = 8;
+  const th: React.CSSProperties = { fontSize: 11, fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '8px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textAlign: 'left' };
+
+  return (
+    <RevealCtx.Provider value={canReveal}>
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Turns</div>
+          <div style={{ display: 'inline-flex', gap: 4, marginLeft: 6 }}>
+            {([['all', 'All'], ['done', 'OK'], ['error', `Errors${errCount ? ` ${errCount}` : ''}`], ['in_progress', 'Running']] as const).map(([key, label]) => (
+              <FilterChip key={key} active={stateFilter === key} onClick={() => setStateFilter(key)}>{label}</FilterChip>
+            ))}
+            {sensCount > 0 && <FilterChip active={sensOnly} onClick={() => setSensOnly(v => !v)} color="#b45309">Sensitive {sensCount}</FilterChip>}
+          </div>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search turns…" style={{
+            marginLeft: 'auto', width: 200, padding: '6px 10px', fontSize: 12.5, borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)', fontFamily: 'var(--font-sans)',
+          }} />
+          <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{filtered.length}</span>
+        </div>
+        {loading ? (
+          <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center' }}>Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center' }}>No turns in this window.</div>
+        ) : (
+          <div style={{ overflowX: 'auto', margin: '0 -16px -14px', borderTop: '1px solid var(--border)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans)' }}>
+              <thead><tr>
+                <th style={{ ...th, paddingLeft: 16, width: 22 }} />
+                <th style={th}>When</th><th style={th}>Who asked</th><th style={th}>Agent</th>
+                <th style={th}>Request</th><th style={th}>Steps</th><th style={th}>Result</th>
+                <th style={{ ...th, paddingRight: 16 }}>Status</th>
+              </tr></thead>
+              <tbody>
+                {filtered.map(t => (
+                  <TurnRows key={t.activityId} turn={t} cols={cols} expanded={expanded.has(t.activityId)} onToggle={() => toggle(t.activityId)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {cursor && (
+          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12 }}>
+            <button onClick={loadMore} disabled={loadingMore} style={{
+              fontSize: 12.5, fontWeight: 500, fontFamily: 'var(--font-sans)', color: 'var(--text)',
+              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '7px 16px', cursor: loadingMore ? 'default' : 'pointer', opacity: loadingMore ? 0.6 : 1,
+            }}>{loadingMore ? 'Loading…' : 'Load more'}</button>
+          </div>
+        )}
+      </div>
+    </RevealCtx.Provider>
   );
 }
 
