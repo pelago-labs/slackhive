@@ -1,6 +1,21 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { ThreadEvent } from '@openai/codex-sdk';
 import { translateEvent, mapUsage, toCodexInput } from '../backends/codex-translate';
+
+// Stub poppler's `pdftoppm`: instead of rasterizing, fabricate <prefix>-N.png pages
+// so the PDF→images path is testable deterministically without the binary.
+const pdf = vi.hoisted(() => ({ pages: 3 }));
+vi.mock('child_process', () => ({
+  execFile: (_file: string, args: string[], _opts: unknown, cb: (e: unknown, r: unknown) => void) => {
+    const realFs = require('fs');
+    const prefix = args[args.length - 1]; // pdftoppm's output prefix is the last arg
+    for (let i = 1; i <= pdf.pages; i++) realFs.writeFileSync(`${prefix}-${i}.png`, 'x');
+    cb(null, { stdout: '', stderr: '' });
+  },
+}));
 
 describe('codex-translate / mapUsage', () => {
   it('maps Codex usage onto the ActivityUsageInput shape', () => {
@@ -13,11 +28,38 @@ describe('codex-translate / mapUsage', () => {
 });
 
 describe('codex-translate / toCodexInput', () => {
-  it('passes through plain strings', () => {
-    expect(toCodexInput('hello', '/tmp')).toBe('hello');
+  it('passes through plain strings', async () => {
+    expect(await toCodexInput('hello', '/tmp')).toBe('hello');
   });
-  it('collapses a single text block to a string', () => {
-    expect(toCodexInput([{ type: 'text', text: 'hi' }], '/tmp')).toBe('hi');
+  it('collapses a single text block to a string', async () => {
+    expect(await toCodexInput([{ type: 'text', text: 'hi' }], '/tmp')).toBe('hi');
+  });
+  it('drops unsupported blocks (e.g. a non-pdf document) rather than crashing', async () => {
+    expect(await toCodexInput([{ type: 'document', source: { media_type: 'text/csv', data: 'x' } }], '/tmp')).toBe('');
+  });
+});
+
+describe('codex-translate / toCodexInput — PDF rendered to page images', () => {
+  const pdfBlock = { type: 'document', source: { media_type: 'application/pdf', data: Buffer.from('%PDF-1.4 fake').toString('base64') } };
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-pdf-')); });
+
+  it('renders a PDF to ordered page images preceded by a guidance note', async () => {
+    pdf.pages = 3;
+    const out = await toCodexInput([{ type: 'text', text: 'summarize' }, pdfBlock], dir) as Array<Record<string, unknown>>;
+    expect(out[0]).toEqual({ type: 'text', text: 'summarize' });
+    expect(out[1].type).toBe('text');
+    expect(out[1].text).toContain('3 page images');
+    const imgs = out.filter(o => o.type === 'local_image').map(o => path.basename(o.path as string));
+    expect(imgs).toEqual(['input-pdf-0-page-1.png', 'input-pdf-0-page-2.png', 'input-pdf-0-page-3.png']);
+  });
+
+  it('flags truncation when the PDF exceeds the 20-page cap', async () => {
+    pdf.pages = 20;
+    const out = await toCodexInput([pdfBlock], dir) as Array<Record<string, unknown>>;
+    const note = out.find(o => o.type === 'text') as { text: string };
+    expect(note.text).toContain('only the first 20 pages');
+    expect(out.filter(o => o.type === 'local_image')).toHaveLength(20);
   });
 });
 
