@@ -1,22 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { ThreadEvent } from '@openai/codex-sdk';
 import { translateEvent, mapUsage, toCodexInput } from '../backends/codex-translate';
-
-// Stub poppler's `pdftoppm`: instead of rasterizing, fabricate <prefix>-N.png pages
-// so the PDF→images path is testable deterministically without the binary.
-const pdf = vi.hoisted(() => ({ pages: 3, fail: false }));
-vi.mock('child_process', () => ({
-  execFile: (_file: string, args: string[], _opts: unknown, cb: (e: unknown, r: unknown) => void) => {
-    if (pdf.fail) { cb(new Error('pdftoppm: not found'), null); return; } // simulate poppler missing / render failure
-    const realFs = require('fs');
-    const prefix = args[args.length - 1]; // pdftoppm's output prefix is the last arg
-    for (let i = 1; i <= pdf.pages; i++) realFs.writeFileSync(`${prefix}-${i}.png`, 'x');
-    cb(null, { stdout: '', stderr: '' });
-  },
-}));
 
 describe('codex-translate / mapUsage', () => {
   it('maps Codex usage onto the ActivityUsageInput shape', () => {
@@ -40,45 +27,43 @@ describe('codex-translate / toCodexInput', () => {
   });
 });
 
-describe('codex-translate / toCodexInput — PDF rendered to page images', () => {
-  const pdfBlock = { type: 'document', source: { media_type: 'application/pdf', data: Buffer.from('%PDF-1.4 fake').toString('base64') } };
+describe('codex-translate / toCodexInput — PDF staged to disk', () => {
+  const pdfData = Buffer.from('%PDF-1.4 fake').toString('base64');
+  const pdfBlock = { type: 'document', source: { media_type: 'application/pdf', data: pdfData } };
   let dir: string;
-  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-pdf-')); pdf.fail = false; });
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-pdf-')); });
 
-  it('renders a PDF to ordered page images preceded by a guidance note', async () => {
-    pdf.pages = 3;
+  it('stages the PDF to ./attachments/ and emits a pdftotext guidance note', async () => {
     const out = await toCodexInput([{ type: 'text', text: 'summarize' }, pdfBlock], dir) as Array<Record<string, unknown>>;
     expect(out[0]).toEqual({ type: 'text', text: 'summarize' });
     expect(out[1].type).toBe('text');
-    expect(out[1].text).toContain('3 page images');
-    const imgs = out.filter(o => o.type === 'local_image').map(o => path.basename(o.path as string));
-    expect(imgs).toEqual(['page-1.png', 'page-2.png', 'page-3.png']);
+    expect(String(out[1].text)).toContain('attachment-0.pdf');
+    expect(String(out[1].text)).toContain('pdftotext');
+    // File actually written to disk
+    expect(fs.existsSync(path.join(dir, 'attachments', 'attachment-0.pdf'))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, 'attachments', 'attachment-0.pdf'))).toEqual(Buffer.from(pdfData, 'base64'));
   });
 
-  it('flags truncation when the PDF exceeds the 20-page cap', async () => {
-    pdf.pages = 20;
-    const out = await toCodexInput([pdfBlock], dir) as Array<Record<string, unknown>>;
-    const note = out.find(o => o.type === 'text') as { text: string };
-    expect(note.text).toContain('only the first 20 pages');
-    expect(out.filter(o => o.type === 'local_image')).toHaveLength(20);
+  it('stages two PDFs in the same turn with distinct names', async () => {
+    await toCodexInput([pdfBlock, pdfBlock], dir);
+    const files = fs.readdirSync(path.join(dir, 'attachments')).sort();
+    expect(files).toEqual(['attachment-0.pdf', 'attachment-1.pdf']);
   });
 
-  it('does NOT mix pages from an earlier PDF rendered into the same (persistent) session dir', async () => {
-    // Regression: the session work dir is reused across turns. A 20-page PDF in turn 1
-    // must not leak its stale pages into a 3-page PDF in turn 2 (same dir).
-    pdf.pages = 20;
-    await toCodexInput([pdfBlock], dir); // turn 1
-    pdf.pages = 3;
-    const out = await toCodexInput([pdfBlock], dir) as Array<Record<string, unknown>>; // turn 2, same dir
-    expect(out.filter(o => o.type === 'local_image')).toHaveLength(3); // only turn 2's pages, not 23
+  it('does not produce local_image blocks for PDFs', async () => {
+    const out = await toCodexInput([pdfBlock], dir);
+    // single PDF → collapses to a plain string (the guidance note), no images
+    expect(typeof out === 'string' || (Array.isArray(out) && out.every((o: unknown) => (o as Record<string, unknown>).type !== 'local_image'))).toBe(true);
   });
 
-  it('surfaces a note (not silence) when PDF rendering fails', async () => {
-    pdf.fail = true; // poppler missing / pdftoppm error
-    const out = await toCodexInput([{ type: 'text', text: 'q' }, pdfBlock], dir) as Array<Record<string, unknown>>;
-    const texts = out.filter(o => o.type === 'text').map(o => o.text as string);
-    expect(texts.some(t => /could not be read/i.test(t))).toBe(true);
-    expect(out.filter(o => o.type === 'local_image')).toHaveLength(0);
+  it('surfaces a note (not silence) when staging fails', async () => {
+    // Pass a read-only dir so mkdirSync/writeFileSync throws
+    const roDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ro-'));
+    fs.chmodSync(roDir, 0o555);
+    const out = await toCodexInput([pdfBlock], roDir);
+    const text = typeof out === 'string' ? out : (out as Array<Record<string, unknown>>).map(o => String(o.text)).join(' ');
+    expect(text).toMatch(/could not be saved/i);
+    fs.chmodSync(roDir, 0o755); // restore for cleanup
   });
 });
 

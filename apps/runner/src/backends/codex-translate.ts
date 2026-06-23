@@ -8,41 +8,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import type { Input, ThreadEvent, ThreadItem, Usage, UserInput } from '@openai/codex-sdk';
 import type { BackendMessage, BackendUsage, AgentPrompt } from '@slackhive/shared';
-
-const execFileAsync = promisify(execFile);
-
-/** Cap pages rendered from a PDF — each page is a vision image (token cost), so
- *  bound it; the prompt notes when a longer PDF was truncated. */
-const MAX_PDF_PAGES = 20;
-
-/**
- * Codex's input is text + images only (no document/PDF type), so a PDF can't be
- * passed natively. Rasterize each page to a PNG with poppler's `pdftoppm` and feed
- * them as `local_image` entries — Codex reads them via its vision tool, preserving
- * layout/tables/scans. Returns the page-image paths in order (empty on failure).
- *
- * Renders into a FRESH per-call subdir of `outDir` (the persistent session dir):
- * collecting pages by directory glob would otherwise pick up stale pages left by an
- * earlier PDF in the same thread (pdftoppm zero-pads filenames by page count, so a
- * later/shorter PDF doesn't even overwrite them) and feed a different document's
- * pages to the model. The fresh dir holds only this PDF's pages.
- */
-async function renderPdfToImages(pdfBuffer: Buffer, outDir: string): Promise<string[]> {
-  const dir = fs.mkdtempSync(path.join(outDir, 'pdf-'));
-  const pdfPath = path.join(dir, 'in.pdf');
-  fs.writeFileSync(pdfPath, pdfBuffer);
-  const prefix = path.join(dir, 'page');
-  // -scale-to 2048 caps the long edge (legible text, bounded upload); -l limits pages.
-  await execFileAsync('pdftoppm', ['-png', '-scale-to', '2048', '-l', String(MAX_PDF_PAGES), pdfPath, prefix], { timeout: 120_000 });
-  return fs.readdirSync(dir)
-    .filter((f) => f.startsWith('page') && f.endsWith('.png'))
-    .sort((a, b) => (parseInt(a.match(/-(\d+)\.png$/)?.[1] ?? '0', 10)) - (parseInt(b.match(/-(\d+)\.png$/)?.[1] ?? '0', 10)))
-    .map((f) => path.join(dir, f));
-}
 
 function assistant(content: Array<Record<string, unknown>>): BackendMessage {
   return { type: 'assistant', message: { role: 'assistant', content: content as never } };
@@ -161,12 +128,14 @@ export function translateEvent(event: ThreadEvent, finalParts: string[]): Backen
 }
 
 /** Convert a SlackHive prompt (string or Claude-style content blocks) into Codex Input.
- *  Async because PDFs (Claude-style `document` blocks) are rasterized to page images —
- *  Codex has no native PDF input, so we feed the pages through its vision path. */
+ *  PDFs are staged to the agent's working directory so Codex can read them with
+ *  its shell tools (pdftotext, etc.) — this preserves tables and dense data far
+ *  better than rasterizing to images, which loses row-level readability at scale. */
 export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise<Input> {
   if (typeof prompt === 'string') return prompt;
   const out: UserInput[] = [];
   let imgIdx = 0;
+  let pdfIdx = 0;
   for (const block of prompt as Array<Record<string, unknown>>) {
     if (block?.type === 'text' && typeof block.text === 'string') {
       out.push({ type: 'text', text: block.text });
@@ -181,25 +150,20 @@ export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise
         } catch { /* skip unreadable image */ }
       }
     } else if (block?.type === 'document') {
-      // A PDF (message-handler emits a Claude `document` block). Codex can't take it
-      // directly, so rasterize the pages and pass them as images.
+      // Stage the PDF to the agent's working directory so Codex can read it with
+      // shell tools (pdftotext, etc.). Image rasterization loses row-level detail
+      // on dense tabular data — pdftotext gives exact text for every row/column.
       const source = block.source as { data?: string; media_type?: string } | undefined;
       if (source?.data && source.media_type === 'application/pdf') {
+        const name = `attachment-${pdfIdx++}.pdf`;
+        const attDir = path.join(tmpDir, 'attachments');
         try {
-          const pages = await renderPdfToImages(Buffer.from(source.data, 'base64'), tmpDir);
-          if (pages.length > 0) {
-            const truncated = pages.length >= MAX_PDF_PAGES;
-            out.push({ type: 'text', text: `[Attached PDF rendered as ${pages.length} page image${pages.length > 1 ? 's' : ''} below${truncated ? ` — only the first ${MAX_PDF_PAGES} pages` : ''}. Read them as the document's pages, in order.]` });
-            for (const p of pages) out.push({ type: 'local_image', path: p });
-          } else {
-            // Rendered to zero pages — empty or unreadable PDF. Tell the model rather
-            // than silently dropping it (it would otherwise answer as if nothing was sent).
-            out.push({ type: 'text', text: '[A PDF was attached but produced no readable pages — it may be empty or corrupt. Ask the user to resend or paste the relevant text.]' });
-          }
+          fs.mkdirSync(attDir, { recursive: true });
+          fs.writeFileSync(path.join(attDir, name), Buffer.from(source.data, 'base64'));
+          out.push({ type: 'text', text: `[A PDF attachment has been saved to ./attachments/${name}. Run \`pdftotext ./attachments/${name} -\` to read its full text content (use \`-layout\` flag for tables), then answer the user's question based on it.]` });
         } catch {
-          // Render failed (e.g. poppler/pdftoppm missing, timeout, malformed PDF). Surface
-          // it to the model instead of swallowing — silent drop is undiagnosable.
-          out.push({ type: 'text', text: '[A PDF was attached but could not be read (PDF-to-image rendering failed on the server). Ask the user to paste the relevant text.]' });
+          // Staging failed — fall back to telling the model so it can ask the user.
+          out.push({ type: 'text', text: '[A PDF was attached but could not be saved to disk. Ask the user to paste the relevant text.]' });
         }
       }
     }
