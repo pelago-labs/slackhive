@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { listTasks, countInProgressByAgent, getAgentRollup, type ActivityFilter } from '@slackhive/shared';
+import { listTasks, countInProgressByAgent, type ActivityFilter } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
@@ -44,18 +44,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     };
 
     // Fetch up to 500 per column — plenty for the badge number. Filters apply
-    // so the count matches the kanban the user is looking at.
-    // Per-agent aggregate analytics — only when a single agent is selected
-    // (and the caller can access it). Powers the analytics panel on /activity.
-    const agentId = filter.agentId;
-    const canSeeAgent = !!agentId && (accessibleAgentIds === null || accessibleAgentIds.includes(agentId));
-
-    const [active, recent, errored, inProgressByAgent, agentRollup] = await Promise.all([
+    // so the count matches the kanban the user is looking at. (Per-agent rollup
+    // analytics moved to the Observability page, so it's no longer computed here.)
+    const [active, recent, errored, inProgressByAgent] = await Promise.all([
       listTasks('active', filter, 500, null),
       listTasks('recent', filter, 500, null),
       listTasks('errored', filter, 500, null),
       countInProgressByAgent(accessibleAgentIds ?? undefined),
-      canSeeAgent ? getAgentRollup({ agentId: agentId!, since: filter.since, until: filter.until }) : Promise.resolve(null),
     ]);
 
     return NextResponse.json({
@@ -65,9 +60,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         errored: errored.tasks.length,
       },
       inProgressByAgent,
-      // Editors are scoped to their own agents (canSeeAgent), so tokens/cost here
-      // are their agents' usage; no billing strip.
-      agentRollup,
     });
   } catch (err) {
     return apiError('activity-stats', err);

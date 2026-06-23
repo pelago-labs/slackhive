@@ -14,7 +14,6 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert, RotateCcw, Loader2 } from 'lucide-react';
-import type { AgentRollup } from '@slackhive/shared';
 import { TabSwitcher } from './_components/TabSwitcher';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
 import { relativeTime } from '@/lib/time';
@@ -85,7 +84,6 @@ export default function ActivityPage(): React.JSX.Element {
 interface StatsResponse {
   counts: { active: number; recent: number; errored: number };
   inProgressByAgent: Record<string, number>;
-  agentRollup?: AgentRollup | null;
 }
 
 function ActivityPageBody(): React.JSX.Element {
