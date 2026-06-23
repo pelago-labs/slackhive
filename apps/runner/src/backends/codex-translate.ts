@@ -127,11 +127,15 @@ export function translateEvent(event: ThreadEvent, finalParts: string[]): Backen
   }
 }
 
-/** Convert a SlackHive prompt (string or Claude-style content blocks) into Codex Input. */
-export function toCodexInput(prompt: AgentPrompt, tmpDir: string): Input {
+/** Convert a SlackHive prompt (string or Claude-style content blocks) into Codex Input.
+ *  PDFs are staged to the agent's working directory so Codex can read them with
+ *  its shell tools (pdftotext, etc.) — this preserves tables and dense data far
+ *  better than rasterizing to images, which loses row-level readability at scale. */
+export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise<Input> {
   if (typeof prompt === 'string') return prompt;
   const out: UserInput[] = [];
   let imgIdx = 0;
+  let pdfIdx = 0;
   for (const block of prompt as Array<Record<string, unknown>>) {
     if (block?.type === 'text' && typeof block.text === 'string') {
       out.push({ type: 'text', text: block.text });
@@ -144,6 +148,23 @@ export function toCodexInput(prompt: AgentPrompt, tmpDir: string): Input {
           fs.writeFileSync(p, Buffer.from(source.data, 'base64'));
           out.push({ type: 'local_image', path: p });
         } catch { /* skip unreadable image */ }
+      }
+    } else if (block?.type === 'document') {
+      // Stage the PDF to the agent's working directory so Codex can read it with
+      // shell tools (pdftotext, etc.). Image rasterization loses row-level detail
+      // on dense tabular data — pdftotext gives exact text for every row/column.
+      const source = block.source as { data?: string; media_type?: string } | undefined;
+      if (source?.data && source.media_type === 'application/pdf') {
+        const name = `attachment-${pdfIdx++}.pdf`;
+        const attDir = path.join(tmpDir, 'attachments');
+        try {
+          fs.mkdirSync(attDir, { recursive: true });
+          fs.writeFileSync(path.join(attDir, name), Buffer.from(source.data, 'base64'));
+          out.push({ type: 'text', text: `[A PDF attachment has been saved to ./attachments/${name}. Run \`pdftotext ./attachments/${name} -\` to read its full text content (use \`-layout\` flag for tables), then answer the user's question based on it.]` });
+        } catch {
+          // Staging failed — fall back to telling the model so it can ask the user.
+          out.push({ type: 'text', text: '[A PDF was attached but could not be saved to disk. Ask the user to paste the relevant text.]' });
+        }
       }
     }
   }

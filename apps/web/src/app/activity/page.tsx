@@ -13,7 +13,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDashed } from 'lucide-react';
+import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDashed, RotateCcw, Loader2 } from 'lucide-react';
 import { TabSwitcher } from './_components/TabSwitcher';
 import { FilterRow, type WindowKey } from './_components/FilterRow';
 
@@ -306,6 +306,7 @@ function ColumnView(props: {
             task={t}
             agentById={agentById}
             agentIds={agentsByTask[t.id] ?? (t.initialAgentId ? [t.initialAgentId] : [])}
+            isErrored={column.key === 'errored'}
           />
         ))}
         {hasMore && (
@@ -330,9 +331,36 @@ function TaskCard(props: {
   task: Task;
   agentById: Map<string, AgentLite>;
   agentIds: string[];
+  isErrored?: boolean;
 }): React.JSX.Element {
-  const { task, agentById, agentIds } = props;
+  const { task, agentById, agentIds, isErrored } = props;
   const initiatorLabel = task.initiatorHandle || task.initiatorUserId || 'unknown';
+  const [replaying, setReplaying] = useState(false);
+  const [replayDone, setReplayDone] = useState(false);
+  const [toast, setToast] = useState('');
+
+  async function handleReplay(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setReplaying(true);
+    try {
+      const res = await fetch(`/api/activity/${encodeURIComponent(task.id)}/replay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        setReplayDone(true);
+        setToast('Replay queued');
+        setTimeout(() => setToast(''), 3000);
+      } else {
+        setToast('Failed to replay');
+        setTimeout(() => setToast(''), 3000);
+      }
+    } finally {
+      setReplaying(false);
+    }
+  }
 
   return (
     <Link
@@ -363,12 +391,58 @@ function TaskCard(props: {
         <span>·</span>
         <span style={{ color: 'var(--subtle)' }}>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</span>
       </div>
-      {agentIds.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
-          <AvatarStack agentIds={agentIds} agentById={agentById} />
-          <Users size={11} style={{ color: 'var(--subtle)', marginLeft: 4 }} />
+      {toast && (
+        <div style={{
+          marginTop: 6, fontSize: 11, fontWeight: 500,
+          color: toast === 'Replay queued' ? '#047857' : '#dc2626',
+        }}>
+          {toast === 'Replay queued' ? <CheckCircle2 size={10} style={{ display: 'inline', marginRight: 4 }} /> : null}
+          {toast}
         </div>
       )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+        {agentIds.length > 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <AvatarStack agentIds={agentIds} agentById={agentById} />
+            <Users size={11} style={{ color: 'var(--subtle)', marginLeft: 4 }} />
+          </div>
+        ) : <span />}
+        {isErrored && (
+          <div style={{ position: 'relative' }}
+            onMouseEnter={e => { const t = e.currentTarget.querySelector<HTMLElement>('[data-tip]'); if (t) t.style.opacity = '1'; }}
+            onMouseLeave={e => { const t = e.currentTarget.querySelector<HTMLElement>('[data-tip]'); if (t) t.style.opacity = '0'; }}
+          >
+            <button
+              onClick={handleReplay}
+              disabled={replaying || replayDone}
+              title={replayDone ? 'Queued' : 'Replay'}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 24, height: 24, borderRadius: 5, border: 'none',
+                background: replayDone ? 'rgba(5,150,105,0.12)' : 'rgba(220,38,38,0.1)',
+                color: replayDone ? '#047857' : '#dc2626',
+                cursor: replaying || replayDone ? 'default' : 'pointer',
+                opacity: replaying ? 0.5 : 1,
+                flexShrink: 0,
+              }}
+            >
+              {replaying
+                ? <Loader2 size={11} style={{ animation: 'spin 1.2s linear infinite' }} />
+                : replayDone ? <CheckCircle2 size={11} /> : <RotateCcw size={11} />
+              }
+            </button>
+            <span data-tip style={{
+              position: 'absolute', bottom: '100%', right: 0, marginBottom: 5,
+              background: 'var(--text)', color: 'var(--bg, #fff)',
+              fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+              whiteSpace: 'nowrap', pointerEvents: 'none',
+              opacity: 0, transition: 'opacity 0.12s',
+            }}>
+              {replayDone ? 'Queued' : 'Replay'}
+            </span>
+          </div>
+        )}
+      </div>
     </Link>
   );
 }

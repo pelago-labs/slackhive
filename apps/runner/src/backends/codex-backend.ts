@@ -162,7 +162,7 @@ export class CodexBackend implements AgentBackend {
    * Per-session working dir: AGENTS.md (Codex reads it from cwd) + .agents/skills
    * (Codex skills) copied from the agent root, plus a memory/ dir and knowledge symlink.
    */
-  private getSessionWorkDir(sessionKey: string): string {
+  getSessionWorkDir(sessionKey: string): string {
     const safeName = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
     const sessionDir = path.join(this.sessionsDir, safeName);
 
@@ -395,7 +395,7 @@ export class CodexBackend implements AgentBackend {
       // for parity; the workspace-write sandbox still confines the filesystem.
       networkAccess: true,
     });
-    let input = toCodexInput(prompt, sessionWorkDir);
+    let input = await toCodexInput(prompt, sessionWorkDir);
     // Persona/identity (and the capability note) ride in the prompt itself — Codex's
     // base prompt outranks AGENTS.md and the SDK has no system/developer channel, so
     // this is the one place the model reliably honors them. Prepend every turn. The
