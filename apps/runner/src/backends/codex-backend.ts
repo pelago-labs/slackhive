@@ -162,7 +162,7 @@ export class CodexBackend implements AgentBackend {
    * Per-session working dir: AGENTS.md (Codex reads it from cwd) + .agents/skills
    * (Codex skills) copied from the agent root, plus a memory/ dir and knowledge symlink.
    */
-  private getSessionWorkDir(sessionKey: string): string {
+  getSessionWorkDir(sessionKey: string): string {
     const safeName = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
     const sessionDir = path.join(this.sessionsDir, safeName);
 
