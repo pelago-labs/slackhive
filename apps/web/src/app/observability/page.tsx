@@ -709,10 +709,16 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
   // Synchronous in-flight guard (state updates are async) so a fast double-click
   // can't fire two fetches for the same session.
   const inFlight = useRef<Set<string>>(new Set());
+  // Bumped whenever the underlying page resets (filter/window change); an in-flight
+  // session-turn fetch from a prior page checks this and drops its result so it can't
+  // write stale turns into the new page.
+  const loadGen = useRef(0);
   useEffect(() => {
     setRows(sessions); setNextCursor(cursor);
-    setOpenSessions(new Set()); setOpenTurns(new Set()); setTurnsBySession({}); setErrorSession(new Set());
+    setOpenSessions(new Set()); setOpenTurns(new Set()); setTurnsBySession({});
+    setErrorSession(new Set()); setLoadingSession(new Set());
     inFlight.current = new Set();
+    loadGen.current++;
   }, [sessions, cursor]);
 
   const loadMore = useCallback(async () => {
@@ -733,6 +739,7 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
   // error (NOT an empty list) so the row can offer a retry instead of looking empty.
   const loadSessionTurns = useCallback(async (id: string) => {
     if (turnsBySession[id] !== undefined || inFlight.current.has(id)) return;
+    const myGen = loadGen.current;
     inFlight.current.add(id);
     setLoadingSession(s => new Set(s).add(id));
     setErrorSession(s => { const n = new Set(s); n.delete(id); return n; });
@@ -740,12 +747,13 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
       const r = await fetch(`/api/activity/${encodeURIComponent(id)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
+      if (loadGen.current !== myGen) return; // page reset mid-fetch → drop stale result
       setTurnsBySession(prev => ({ ...prev, [id]: (j.turns ?? []) as TraceTurn[] }));
     } catch {
-      setErrorSession(s => new Set(s).add(id)); // leave turnsBySession undefined → retryable
+      if (loadGen.current === myGen) setErrorSession(s => new Set(s).add(id)); // retryable
     } finally {
       inFlight.current.delete(id);
-      setLoadingSession(s => { const n = new Set(s); n.delete(id); return n; });
+      if (loadGen.current === myGen) setLoadingSession(s => { const n = new Set(s); n.delete(id); return n; });
     }
   }, [turnsBySession]);
 
