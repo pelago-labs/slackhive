@@ -28,9 +28,12 @@ vi.mock('@slackhive/shared', async () => {
     getSensitiveEvents: vi.fn().mockResolvedValue([]),
     getSensitiveFlows: vi.fn().mockResolvedValue([]),
     getToolStats: vi.fn().mockResolvedValue([]),
-    getSessionSummaries: vi.fn().mockResolvedValue([
-      { sessionId: 's1', summary: 'hi', initiatorHandle: 'u', agentIds: ['ag'], turns: 2, inputTokens: 500, outputTokens: 200, status: 'done', sensitive: false, feedbackUp: 1, feedbackDown: 0, startedAt: '2026-01-01 00:00:00', lastActivityAt: '2026-01-01 00:01:00' },
-    ]),
+    getSessionSummaries: vi.fn().mockResolvedValue({
+      sessions: [
+        { sessionId: 's1', summary: 'hi', initiatorHandle: 'u', agentIds: ['ag'], turns: 2, inputTokens: 500, outputTokens: 200, status: 'done', sensitive: false, feedbackUp: 1, feedbackDown: 0, startedAt: '2026-01-01 00:00:00', lastActivityAt: '2026-01-01 00:01:00' },
+      ],
+      nextCursor: null,
+    }),
   };
 });
 

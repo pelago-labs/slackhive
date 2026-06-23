@@ -57,8 +57,11 @@ interface InsightsResponse {
   rollup: Rollup | null;
   byAgent?: AgentTokens[]; powerUsers?: PowerUser[] | null;
   events?: SensEvent[]; flows?: SensFlow[]; tools?: ToolStat[]; sessions?: SessionRow[];
+  sessionsCursor?: string | null;
   models?: { model: string; turns: number; tokens: number }[]; agentIds?: string[];
 }
+
+interface SessionsPage { sessions: SessionRow[]; nextCursor: string | null }
 
 type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sessions';
 
@@ -102,6 +105,15 @@ function Body(): React.JSX.Element {
       setData(await r.json()); setError(null);
     } catch { setError('Failed to load insights.'); } finally { setLoading(false); }
   }, [scope, agentFilter, windowKey, from, to]);
+
+  // Fetch the next page of sessions (keyset cursor) for the Sessions tab's "Load more".
+  const loadMoreSessions = useCallback(async (cursor: string): Promise<SessionsPage> => {
+    const qs = new URLSearchParams({ ...timeParams(windowKey, from, to), cursor });
+    if (agentFilter) qs.set('agent', agentFilter);
+    const r = await fetch(`/api/activity/sessions?${qs}`);
+    if (!r.ok) throw new Error('Failed to load more sessions');
+    return await r.json() as SessionsPage;
+  }, [agentFilter, windowKey, from, to]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -173,7 +185,7 @@ function Body(): React.JSX.Element {
             : activeTab === 'tokens' ? <Tokens data={data} agentName={agentName} canTokens={canTokens} isSuper={isSuper} />
             : activeTab === 'sensitive' ? <Sensitive events={data.events ?? []} flows={data.flows ?? []} />
             : activeTab === 'tools' ? <Tools tools={data.tools ?? []} />
-            : <Sessions sessions={data.sessions ?? []} agentName={agentName} canTokens={canTokens} />}
+            : <Sessions sessions={data.sessions ?? []} cursor={data.sessionsCursor ?? null} fetchMore={loadMoreSessions} agentName={agentName} canTokens={canTokens} />}
         </>
       )}
     </div>
@@ -582,18 +594,39 @@ function FeedbackCard({ r, scope }: { r: Rollup | null; scope: string }): React.
   );
 }
 
-function Sessions({ sessions, agentName, canTokens }: { sessions: SessionRow[]; agentName: Map<string, string>; canTokens: boolean }) {
+function Sessions({ sessions, cursor, fetchMore, agentName, canTokens }: { sessions: SessionRow[]; cursor: string | null; fetchMore: (cursor: string) => Promise<SessionsPage>; agentName: Map<string, string>; canTokens: boolean }) {
   const [q, setQ] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'done' | 'error' | 'active'>('all');
   const [sensOnly, setSensOnly] = useState(false);
   const [initiator, setInitiator] = useState('');
+  // Accumulated rows + the cursor for the next page. Reset whenever the first page
+  // changes (a filter/window re-fetch hands down a fresh `sessions` array).
+  const [rows, setRows] = useState<SessionRow[]>(sessions);
+  const [nextCursor, setNextCursor] = useState<string | null>(cursor);
+  const [loadingMore, setLoadingMore] = useState(false);
+  useEffect(() => { setRows(sessions); setNextCursor(cursor); }, [sessions, cursor]);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await fetchMore(nextCursor);
+      // Guard against duplicates if a row shifted between pages.
+      setRows(prev => {
+        const seen = new Set(prev.map(s => s.sessionId));
+        return [...prev, ...page.sessions.filter(s => !seen.has(s.sessionId))];
+      });
+      setNextCursor(page.nextCursor);
+    } catch { /* leave the cursor so the user can retry */ } finally { setLoadingMore(false); }
+  }, [nextCursor, loadingMore, fetchMore]);
+
   // Distinct initiators present in the loaded rows (for the dropdown).
   const initiators = useMemo(() =>
-    [...new Set(sessions.map(s => s.initiatorHandle).filter((h): h is string => !!h))].sort((a, b) => a.localeCompare(b)),
-    [sessions]);
+    [...new Set(rows.map(s => s.initiatorHandle).filter((h): h is string => !!h))].sort((a, b) => a.localeCompare(b)),
+    [rows]);
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return sessions.filter(s => {
+    return rows.filter(s => {
       if (stateFilter !== 'all' && s.status !== stateFilter) return false;
       if (sensOnly && !s.sensitive) return false;
       if (initiator && s.initiatorHandle !== initiator) return false;
@@ -603,10 +636,10 @@ function Sessions({ sessions, agentName, canTokens }: { sessions: SessionRow[]; 
         s.agentIds.some(id => (agentName.get(id) ?? '').toLowerCase().includes(needle)))) return false;
       return true;
     });
-  }, [sessions, q, stateFilter, sensOnly, initiator, agentName]);
+  }, [rows, q, stateFilter, sensOnly, initiator, agentName]);
   const names = (ids: string[]) => ids.map(id => agentName.get(id) ?? id).join(', ');
-  const errCount = sessions.filter(s => s.status === 'error').length;
-  const sensCount = sessions.filter(s => s.sensitive).length;
+  const errCount = rows.filter(s => s.status === 'error').length;
+  const sensCount = rows.filter(s => s.sensitive).length;
   return (
     <div style={card}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -649,6 +682,15 @@ function Sessions({ sessions, agentName, canTokens }: { sessions: SessionRow[]; 
           { label: 'Feedback', render: s => <FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /> },
           { label: 'Updated', align: 'right', render: s => <Subtle>{relativeTime(s.lastActivityAt)}</Subtle> },
         ]} />
+      {nextCursor && (
+        <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12 }}>
+          <button onClick={loadMore} disabled={loadingMore} style={{
+            fontSize: 12.5, fontWeight: 500, fontFamily: 'var(--font-sans)', color: 'var(--text)',
+            background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+            padding: '7px 16px', cursor: loadingMore ? 'default' : 'pointer', opacity: loadingMore ? 0.6 : 1,
+          }}>{loadingMore ? 'Loading…' : 'Load more'}</button>
+        </div>
+      )}
     </div>
   );
 }

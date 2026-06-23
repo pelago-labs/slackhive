@@ -683,16 +683,30 @@ export interface SessionSummary {
  * feedback and sensitivity for each thread in scope+window, newest first. One
  * grouped pass over activities + cheap joins (no per-session trace fetch).
  */
-export async function getSessionSummaries(filter: InsightsFilter = {}, limit = 100): Promise<SessionSummary[]> {
+export async function getSessionSummaries(
+  filter: InsightsFilter = {}, limit = 50, cursor?: string | null,
+): Promise<{ sessions: SessionSummary[]; nextCursor: string | null }> {
   const db = getDb();
   const scope = insightsScope(filter, 1);
-  if (!scope) return [];
+  if (!scope) return { sessions: [], nextCursor: null };
   const params: unknown[] = [...scope.params];
   const w = [scope.clause];
   if (filter.since) { w.push(`started_at >= $${params.length + 1}`); params.push(filter.since); }
   if (filter.until) { w.push(`started_at <= $${params.length + 1}`); params.push(filter.until); }
+
+  // Keyset pagination on the SAME (last_activity_at DESC, id DESC) order the query
+  // returns, so "load more" can't skip or duplicate rows as new activity arrives.
+  let cursorSql = '';
+  if (cursor) {
+    const [cTs, cId] = cursor.split('|', 2);
+    if (cTs && cId) {
+      const p = params.length;
+      cursorSql = `WHERE (t.last_activity_at < $${p + 1} OR (t.last_activity_at = $${p + 1} AND t.id < $${p + 2}))`;
+      params.push(cTs, cId);
+    }
+  }
   const lim = Math.min(500, Math.max(1, limit));
-  params.push(lim);
+  params.push(lim + 1); // fetch one extra to detect whether another page exists
 
   const { rows } = await db.query(
     `WITH scoped AS (
@@ -733,12 +747,13 @@ export async function getSessionSummaries(filter: InsightsFilter = {}, limit = 1
        JOIN tasks t ON t.id = agg.task_id
        LEFT JOIN fb   ON fb.task_id = t.id
        LEFT JOIN sens sx ON sx.session_id = t.id
+      ${cursorSql}
       ORDER BY t.last_activity_at DESC, t.id DESC
       LIMIT $${params.length}`,
     params,
   );
 
-  return rows.map(r => ({
+  const mapped: SessionSummary[] = rows.map(r => ({
     sessionId: r.id as string,
     summary: s(r.summary),
     initiatorHandle: s(r.initiator_handle),
@@ -753,6 +768,12 @@ export async function getSessionSummaries(filter: InsightsFilter = {}, limit = 1
     startedAt: String(r.started_at),
     lastActivityAt: String(r.last_activity_at),
   }));
+
+  const hasMore = mapped.length > lim;
+  const sessions = hasMore ? mapped.slice(0, lim) : mapped;
+  const last = sessions[sessions.length - 1];
+  const nextCursor = hasMore && last ? `${last.lastActivityAt}|${last.sessionId}` : null;
+  return { sessions, nextCursor };
 }
 
 // ── Sensitive-access audit feed ──────────────────────────────────────────────

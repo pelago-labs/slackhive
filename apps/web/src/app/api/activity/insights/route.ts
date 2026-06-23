@@ -23,6 +23,9 @@ import { windowBounds } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
 
+/** Sessions page size — kept in sync with /api/activity/sessions for load-more parity. */
+const SESSIONS_PAGE_SIZE = 50;
+
 type Scope = 'all' | 'agent' | 'session';
 
 /**
@@ -76,14 +79,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const acc = accessibleAgentIds ?? undefined;
     const filter = { agentId: scope === 'agent' ? agentId : undefined, since, until, accessibleAgentIds: acc };
 
-    const [rollup, byAgent, powerUsers, events, flows, tools, sessionsRaw] = await Promise.all([
+    const [rollup, byAgent, powerUsers, events, flows, tools, sessionsPage] = await Promise.all([
       getInsightsRollup(filter),
       getTokensByAgent(filter),
       showPowerUsers ? getTopUsers(filter, 10) : Promise.resolve([] as UserActivitySummary[]),
       getSensitiveEvents({ ...filter, limit: 200 }),
       getSensitiveFlows({ ...filter, limit: 100 }),
       getToolStats(filter),
-      getSessionSummaries(filter, 100),
+      // First page of sessions; subsequent pages load via /api/activity/sessions.
+      getSessionSummaries(filter, SESSIONS_PAGE_SIZE),
     ]);
 
     return NextResponse.json({
@@ -91,7 +95,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       rollup, byAgent,
       // Org-wide power-users leaderboard is superadmin-only.
       powerUsers: showPowerUsers ? powerUsers : null,
-      events, flows, tools, sessions: sessionsRaw,
+      events, flows, tools,
+      sessions: sessionsPage.sessions,
+      sessionsCursor: sessionsPage.nextCursor,
     });
   } catch (err) {
     return apiError('activity-insights', err);

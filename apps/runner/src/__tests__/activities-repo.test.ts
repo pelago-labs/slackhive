@@ -345,11 +345,33 @@ describe('getSessionSummaries', () => {
     await finishActivity(act, 'done');
     await seedSensitiveSpan(t, a2); // out-of-scope agent's sensitive span
 
-    const admin = (await getSessionSummaries({})).find(s => s.sessionId === t);
+    const admin = (await getSessionSummaries({})).sessions.find(s => s.sessionId === t);
     expect(admin?.sensitive).toBe(true);
 
-    const scopedA1 = (await getSessionSummaries({ accessibleAgentIds: [a1] })).find(s => s.sessionId === t);
+    const scopedA1 = (await getSessionSummaries({ accessibleAgentIds: [a1] })).sessions.find(s => s.sessionId === t);
     expect(scopedA1?.sensitive).toBe(false);
+  });
+
+  it('paginates via keyset cursor (newest-first, no gaps or duplicates)', async () => {
+    const agentId = await seedAgent();
+    for (let i = 0; i < 5; i++) {
+      const t = await upsertTask({ platform: 'slack', channelId: 'C', threadTs: `pg${i}`, initiatorUserId: 'U1' });
+      const act = await beginActivity({ taskId: t, agentId, platform: 'slack', initiatorKind: 'user', initiatorUserId: 'U1' });
+      await finishActivity(act, 'done');
+    }
+
+    const p1 = await getSessionSummaries({}, 2);
+    expect(p1.sessions).toHaveLength(2);
+    expect(p1.nextCursor).not.toBeNull();
+    const p2 = await getSessionSummaries({}, 2, p1.nextCursor);
+    expect(p2.sessions).toHaveLength(2);
+    expect(p2.nextCursor).not.toBeNull();
+    const p3 = await getSessionSummaries({}, 2, p2.nextCursor);
+    expect(p3.sessions).toHaveLength(1);
+    expect(p3.nextCursor).toBeNull();
+
+    const all = [...p1.sessions, ...p2.sessions, ...p3.sessions].map(s => s.sessionId);
+    expect(new Set(all).size).toBe(5); // no dupes, no missed rows across pages
   });
 });
 
