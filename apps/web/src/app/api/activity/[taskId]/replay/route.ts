@@ -23,25 +23,31 @@ export async function POST(
   if (denied) return denied;
 
   const { taskId } = await params;
+  // activityId is optional — omit to replay the last error activity on the task.
   const body = await req.json().catch(() => null) as { activityId?: string } | null;
-  if (!body?.activityId) {
-    return NextResponse.json({ error: 'activityId required' }, { status: 400 });
-  }
 
   const details = await getTaskWithDetails(taskId);
   if (!details) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
 
-  const activity = details.activities.find(a => a.id === body.activityId);
-  if (!activity) return NextResponse.json({ error: 'Activity not found' }, { status: 404 });
-  if (activity.status !== 'error') {
-    return NextResponse.json({ error: 'Only error activities can be replayed' }, { status: 400 });
+  let activityId = body?.activityId;
+  if (activityId) {
+    const activity = details.activities.find(a => a.id === activityId);
+    if (!activity) return NextResponse.json({ error: 'Activity not found' }, { status: 404 });
+    if (activity.status !== 'error') {
+      return NextResponse.json({ error: 'Only error activities can be replayed' }, { status: 400 });
+    }
+  } else {
+    // Find the last error activity (most recent first).
+    const errored = [...details.activities].reverse().find(a => a.status === 'error');
+    if (!errored) return NextResponse.json({ error: 'No error activity found on this task' }, { status: 400 });
+    activityId = errored.id;
   }
 
   const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
   const upstream = await fetch(`http://127.0.0.1:${port}/replay-activity`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activityId: body.activityId }),
+    body: JSON.stringify({ activityId }),
   }).catch((err: unknown) => {
     console.error('[api:activity/replay] runner unreachable', err);
     return null;
