@@ -663,7 +663,7 @@ function TurnRows({ turn, request, sessionId, cols, expanded, onToggle, canToken
         {canTokens && <td style={{ ...td, textAlign: 'right' }}><Mono>{formatTokens(turn.inputTokens + turn.outputTokens)}</Mono></td>}
         <td style={td}><TurnStatus status={turn.status} /></td>
         <td style={td}><FeedbackCell up={up} down={down} /></td>
-        <td style={{ ...td, paddingRight: 16, textAlign: 'right' }}><Subtle>{relativeTime(turn.startedAt)}</Subtle></td>
+        <td style={{ ...td, paddingRight: 16, textAlign: 'right' }} title={turn.startedAt}><Subtle>{relativeTime(turn.startedAt)}</Subtle></td>
       </tr>
       {expanded && (
         <tr>
@@ -794,7 +794,7 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
                 <th style={th}>Steps</th>
                 {canTokens && <th style={{ ...th, textAlign: 'right' }}>Tokens</th>}
                 <th style={th}>State</th><th style={th}>Feedback</th>
-                <th style={{ ...th, paddingRight: 16, textAlign: 'right' }}>Updated</th>
+                <th style={{ ...th, paddingRight: 16, textAlign: 'right' }}>When</th>
               </tr></thead>
               <tbody>
                 {filtered.map(s => {
@@ -816,7 +816,7 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
                         {canTokens && <td style={{ ...td, textAlign: 'right' }}><Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono></td>}
                         <td style={td}><StatePill status={s.status} /></td>
                         <td style={td}><FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /></td>
-                        <td style={{ ...td, paddingRight: 16, textAlign: 'right' }}><Subtle>{relativeTime(s.lastActivityAt)}</Subtle></td>
+                        <td style={{ ...td, paddingRight: 16, textAlign: 'right' }} title={s.startedAt}><Subtle>{relativeTime(s.startedAt)}</Subtle></td>
                       </tr>
                       {open && (loadingSession.has(s.sessionId) || turns === undefined ? (
                         <tr><td colSpan={cols} style={{ padding: '8px 16px 8px 34px', background: 'var(--surface-2)', color: 'var(--muted)', fontSize: 12.5, borderBottom: '1px solid var(--border)' }}>Loading turns…</td></tr>
