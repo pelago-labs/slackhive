@@ -22,7 +22,7 @@ import remarkGfm from 'remark-gfm';
 import {
   markSensitiveWith, SENS_COLOR, CAT_LABEL, humanizeTag,
   type SensitiveCategory as SensCategory, type SensScope, type ExtraMark,
-} from '@slackhive/shared/dist/sensitivity';
+} from '@slackhive/shared/sensitivity';
 import type { TraceTurn, TraceSpan } from '@slackhive/shared';
 import { formatTokens } from './formatTokens';
 import { expandMarkdownHits } from '@/lib/markdown-hits';

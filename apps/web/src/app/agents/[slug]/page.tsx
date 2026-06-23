@@ -14,7 +14,7 @@ import { Brain, Camera, Clock, History, Upload, Download, Wand2, Loader2, Link2,
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Agent, Skill, McpServer, Memory, Permission, Restriction, AgentSnapshot, AgentFeedbackReport, FeedbackRating } from '@slackhive/shared';
-import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared/dist/personas';
+import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared/personas';
 import type { PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';

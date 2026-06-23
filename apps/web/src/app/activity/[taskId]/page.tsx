@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { deepLinkLabelForPlatform } from '@slackhive/shared/dist/deep-link';
+import { deepLinkLabelForPlatform } from '@slackhive/shared/deep-link';
 import {
   ArrowLeft, ExternalLink, ChevronRight, ChevronDown,
   Wrench, CheckCircle2, AlertTriangle, Loader2,

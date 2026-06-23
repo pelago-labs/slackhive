@@ -16,7 +16,7 @@ import {
   COACH_MODEL_SETTING_KEY,
   DEFAULT_EVAL_JUDGE_MODEL,
   EVAL_JUDGE_MODEL_SETTING_KEY,
-} from '@slackhive/shared/dist/models';
+} from '@slackhive/shared/models';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
 import AiProviderSection from './AiProviderSection';
