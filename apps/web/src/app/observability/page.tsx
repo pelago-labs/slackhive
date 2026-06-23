@@ -69,34 +69,10 @@ type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sess
 
 const card: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' };
 
-function initials(name: string): string {
-  const p = name.trim().split(/\s+/).filter(Boolean);
-  if (!p.length) return '?';
-  return (p.length === 1 ? p[0].slice(0, 2) : p[0][0] + p[p.length - 1][0]).toUpperCase();
-}
-function hueFor(seed: string): number {
-  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
-  return Math.abs(h) % 360;
-}
-/** Small colored initials chip for an agent. */
-function Avatar({ name }: { name: string }): React.JSX.Element {
-  const hue = hueFor(name);
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18,
-      borderRadius: 5, flexShrink: 0, fontSize: 9, fontWeight: 700,
-      color: `hsl(${hue}, 45%, 32%)`, background: `hsl(${hue}, 60%, 90%)`,
-    }}>{initials(name)}</span>
-  );
-}
-/** Agent column cell: avatar of the first agent + (comma-joined) names. */
+/** Agent column cell: the (comma-joined) agent names. */
 function AgentCell({ names }: { names: string[] }): React.JSX.Element {
   if (!names.length) return <Subtle>—</Subtle>;
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <Avatar name={names[0]} /><Subtle>{truncate(names.join(', '), 22)}</Subtle>
-    </span>
-  );
+  return <Subtle>{truncate(names.join(', '), 24)}</Subtle>;
 }
 
 export default function InsightsPage(): React.JSX.Element {
