@@ -8,8 +8,35 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import type { Input, ThreadEvent, ThreadItem, Usage, UserInput } from '@openai/codex-sdk';
 import type { BackendMessage, BackendUsage, AgentPrompt } from '@slackhive/shared';
+
+const execFileAsync = promisify(execFile);
+
+/** Cap pages rendered from a PDF — each page is a vision image (token cost), so
+ *  bound it; the prompt notes when a longer PDF was truncated. */
+const MAX_PDF_PAGES = 20;
+
+/**
+ * Codex's input is text + images only (no document/PDF type), so a PDF can't be
+ * passed natively. Rasterize each page to a PNG with poppler's `pdftoppm` and feed
+ * them as `local_image` entries — Codex reads them via its vision tool, preserving
+ * layout/tables/scans. Returns the page-image paths in order (empty on failure).
+ */
+async function renderPdfToImages(pdfBuffer: Buffer, outDir: string, idx: number): Promise<string[]> {
+  const pdfPath = path.join(outDir, `input-pdf-${idx}.pdf`);
+  fs.writeFileSync(pdfPath, pdfBuffer);
+  const prefix = path.join(outDir, `input-pdf-${idx}-page`);
+  // -scale-to 2048 caps the long edge (legible text, bounded upload); -l limits pages.
+  await execFileAsync('pdftoppm', ['-png', '-scale-to', '2048', '-l', String(MAX_PDF_PAGES), pdfPath, prefix], { timeout: 120_000 });
+  const base = path.basename(prefix);
+  return fs.readdirSync(outDir)
+    .filter((f) => f.startsWith(base) && f.endsWith('.png'))
+    .sort((a, b) => (parseInt(a.match(/-(\d+)\.png$/)?.[1] ?? '0', 10)) - (parseInt(b.match(/-(\d+)\.png$/)?.[1] ?? '0', 10)))
+    .map((f) => path.join(outDir, f));
+}
 
 function assistant(content: Array<Record<string, unknown>>): BackendMessage {
   return { type: 'assistant', message: { role: 'assistant', content: content as never } };
@@ -127,11 +154,14 @@ export function translateEvent(event: ThreadEvent, finalParts: string[]): Backen
   }
 }
 
-/** Convert a SlackHive prompt (string or Claude-style content blocks) into Codex Input. */
-export function toCodexInput(prompt: AgentPrompt, tmpDir: string): Input {
+/** Convert a SlackHive prompt (string or Claude-style content blocks) into Codex Input.
+ *  Async because PDFs (Claude-style `document` blocks) are rasterized to page images —
+ *  Codex has no native PDF input, so we feed the pages through its vision path. */
+export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise<Input> {
   if (typeof prompt === 'string') return prompt;
   const out: UserInput[] = [];
   let imgIdx = 0;
+  let pdfIdx = 0;
   for (const block of prompt as Array<Record<string, unknown>>) {
     if (block?.type === 'text' && typeof block.text === 'string') {
       out.push({ type: 'text', text: block.text });
@@ -144,6 +174,20 @@ export function toCodexInput(prompt: AgentPrompt, tmpDir: string): Input {
           fs.writeFileSync(p, Buffer.from(source.data, 'base64'));
           out.push({ type: 'local_image', path: p });
         } catch { /* skip unreadable image */ }
+      }
+    } else if (block?.type === 'document') {
+      // A PDF (message-handler emits a Claude `document` block). Codex can't take it
+      // directly, so rasterize the pages and pass them as images.
+      const source = block.source as { data?: string; media_type?: string } | undefined;
+      if (source?.data && source.media_type === 'application/pdf') {
+        try {
+          const pages = await renderPdfToImages(Buffer.from(source.data, 'base64'), tmpDir, pdfIdx++);
+          if (pages.length > 0) {
+            const truncated = pages.length >= MAX_PDF_PAGES;
+            out.push({ type: 'text', text: `[Attached PDF rendered as ${pages.length} page image${pages.length > 1 ? 's' : ''} below${truncated ? ` — only the first ${MAX_PDF_PAGES} pages` : ''}. Read them as the document's pages, in order.]` });
+            for (const p of pages) out.push({ type: 'local_image', path: p });
+          }
+        } catch { /* skip unreadable / unrenderable pdf */ }
       }
     }
   }
