@@ -69,6 +69,36 @@ type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sess
 
 const card: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' };
 
+function initials(name: string): string {
+  const p = name.trim().split(/\s+/).filter(Boolean);
+  if (!p.length) return '?';
+  return (p.length === 1 ? p[0].slice(0, 2) : p[0][0] + p[p.length - 1][0]).toUpperCase();
+}
+function hueFor(seed: string): number {
+  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
+  return Math.abs(h) % 360;
+}
+/** Small colored initials chip for an agent. */
+function Avatar({ name }: { name: string }): React.JSX.Element {
+  const hue = hueFor(name);
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18,
+      borderRadius: 5, flexShrink: 0, fontSize: 9, fontWeight: 700,
+      color: `hsl(${hue}, 45%, 32%)`, background: `hsl(${hue}, 60%, 90%)`,
+    }}>{initials(name)}</span>
+  );
+}
+/** Agent column cell: avatar of the first agent + (comma-joined) names. */
+function AgentCell({ names }: { names: string[] }): React.JSX.Element {
+  if (!names.length) return <Subtle>—</Subtle>;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Avatar name={names[0]} /><Subtle>{truncate(names.join(', '), 22)}</Subtle>
+    </span>
+  );
+}
+
 export default function InsightsPage(): React.JSX.Element {
   return <Suspense fallback={null}><Body /></Suspense>;
 }
@@ -650,15 +680,15 @@ function TurnRows({ turn, request, sessionId, cols, expanded, onToggle, canToken
   return (
     <>
       <tr onClick={onToggle} style={{ cursor: 'pointer', background: indent ? 'var(--surface-2)' : undefined }} className="trace-node">
-        <td style={{ ...td, paddingLeft: indent ? 34 : 16, width: 22 }}>{expanded ? <ChevronDown size={13} style={{ color: 'var(--subtle)' }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)' }} />}</td>
+        <td style={{ ...td, paddingLeft: indent ? 40 : 16, width: 22, boxShadow: indent ? 'inset 4px 0 0 var(--border-2)' : undefined }}>{expanded ? <ChevronDown size={13} style={{ color: 'var(--subtle)' }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)' }} />}</td>
         <td style={{ ...td, whiteSpace: 'normal' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--muted)' }}>
             {turn.sensitive && <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
             <span title={request}>{truncate(request, 56)}</span>
           </span>
         </td>
         <td style={td}><Subtle>{whoLabel(turn)}</Subtle></td>
-        <td style={td}><Subtle>{truncate(turn.agentName || '—', 24)}</Subtle></td>
+        <td style={td}><AgentCell names={turn.agentName ? [turn.agentName] : []} /></td>
         <td style={td}><StepChips turn={turn} /></td>
         {canTokens && <td style={{ ...td, textAlign: 'right' }}><Mono>{formatTokens(turn.inputTokens + turn.outputTokens)}</Mono></td>}
         <td style={td}><TurnStatus status={turn.status} /></td>
@@ -667,8 +697,8 @@ function TurnRows({ turn, request, sessionId, cols, expanded, onToggle, canToken
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={cols} style={{ padding: 0, background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ padding: '6px 16px 12px 46px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <td colSpan={cols} style={{ padding: 0, background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', boxShadow: indent ? 'inset 4px 0 0 var(--border-2)' : undefined }}>
+            <div style={{ padding: '6px 16px 12px 56px', display: 'flex', flexDirection: 'column', gap: 6 }}>
               {/* RevealCtx is provided by the enclosing view (admin → revealable). */}
               {nodes.map(n => <NodeRow key={n.key} node={n} maxMs={maxMs} />)}
               <a href={`/activity/${encodeURIComponent(sessionId)}${firstSpan ? `?span=${encodeURIComponent(firstSpan)}` : ''}`}
@@ -750,7 +780,6 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
       return true;
     });
   }, [rows, q, stateFilter, sensOnly, initiator, agentName]);
-  const names = (ids: string[]) => ids.map(id => agentName.get(id) ?? id).join(', ');
   const errCount = rows.filter(s => s.status === 'error').length;
   const sensCount = rows.filter(s => s.sensitive).length;
   const cols = canTokens ? 9 : 8;
@@ -800,28 +829,32 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
                 {filtered.map(s => {
                   const open = openSessions.has(s.sessionId);
                   const turns = turnsBySession[s.sessionId];
+                  // When open, the session reads as a dropdown header: tinted, bolder,
+                  // and border-less at the bottom so it visually connects to its turns.
+                  const rowTd: React.CSSProperties = open ? { ...td, background: 'var(--surface-2)', borderBottom: 'none' } : td;
+                  const nestNote: React.CSSProperties = { padding: '8px 16px 8px 46px', background: 'var(--surface-2)', color: 'var(--muted)', fontSize: 12.5, borderBottom: '1px solid var(--border)', boxShadow: 'inset 4px 0 0 var(--border-2)' };
                   return (
                     <React.Fragment key={s.sessionId}>
                       <tr onClick={() => toggleSession(s.sessionId)} style={{ cursor: 'pointer' }} className="trace-node">
-                        <td style={{ ...td, paddingLeft: 16, width: 22 }}>{open ? <ChevronDown size={13} style={{ color: 'var(--subtle)' }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)' }} />}</td>
-                        <td style={{ ...td, whiteSpace: 'normal' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <td style={{ ...rowTd, paddingLeft: 16, width: 22 }}>{open ? <ChevronDown size={13} style={{ color: 'var(--accent)' }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)' }} />}</td>
+                        <td style={{ ...rowTd, whiteSpace: 'normal' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: open ? 600 : 500 }}>
                             {s.sensitive && <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
                             <span title={s.summary ?? ''}>{truncate(s.summary || '(no summary)', 56)}</span>
                           </span>
                         </td>
-                        <td style={td}><Subtle>{s.initiatorHandle ? `@${s.initiatorHandle}` : '—'}</Subtle></td>
-                        <td style={td}><Subtle>{truncate(names(s.agentIds) || '—', 24)}</Subtle></td>
-                        <td style={td}><Subtle>{s.turns} turn{s.turns === 1 ? '' : 's'}</Subtle></td>
-                        {canTokens && <td style={{ ...td, textAlign: 'right' }}><Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono></td>}
-                        <td style={td}><StatePill status={s.status} /></td>
-                        <td style={td}><FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /></td>
-                        <td style={{ ...td, paddingRight: 16, textAlign: 'right' }} title={s.startedAt}><Subtle>{relativeTime(s.startedAt)}</Subtle></td>
+                        <td style={rowTd}><Subtle>{s.initiatorHandle ? `@${s.initiatorHandle}` : '—'}</Subtle></td>
+                        <td style={rowTd}><AgentCell names={s.agentIds.map(id => agentName.get(id) ?? id)} /></td>
+                        <td style={rowTd}><Subtle>{s.turns} turn{s.turns === 1 ? '' : 's'}</Subtle></td>
+                        {canTokens && <td style={{ ...rowTd, textAlign: 'right' }}><Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono></td>}
+                        <td style={rowTd}><StatePill status={s.status} /></td>
+                        <td style={rowTd}><FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /></td>
+                        <td style={{ ...rowTd, paddingRight: 16, textAlign: 'right' }} title={s.startedAt}><Subtle>{relativeTime(s.startedAt)}</Subtle></td>
                       </tr>
                       {open && (loadingSession.has(s.sessionId) || turns === undefined ? (
-                        <tr><td colSpan={cols} style={{ padding: '8px 16px 8px 34px', background: 'var(--surface-2)', color: 'var(--muted)', fontSize: 12.5, borderBottom: '1px solid var(--border)' }}>Loading turns…</td></tr>
+                        <tr><td colSpan={cols} style={nestNote}>Loading turns…</td></tr>
                       ) : turns.length === 0 ? (
-                        <tr><td colSpan={cols} style={{ padding: '8px 16px 8px 34px', background: 'var(--surface-2)', color: 'var(--muted)', fontSize: 12.5, borderBottom: '1px solid var(--border)' }}>No turns.</td></tr>
+                        <tr><td colSpan={cols} style={nestNote}>No turns.</td></tr>
                       ) : turns.map(t => (
                         <TurnRows key={t.activityId} turn={t} request={t.messagePreview || '(turn)'} sessionId={s.sessionId}
                           cols={cols} canTokens={canTokens} indent expanded={openTurns.has(t.activityId)} onToggle={() => toggleTurn(t.activityId)} />
