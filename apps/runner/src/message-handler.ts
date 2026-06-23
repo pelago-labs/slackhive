@@ -10,6 +10,8 @@
  * @module runner/message-handler
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type { PlatformAdapter, IncomingMessage, FileAttachment, MessagePayload } from '@slackhive/shared';
 import { extractSlackPermalinkUrls } from './adapters/slack-adapter';
 import type { Agent, Restriction, Platform } from '@slackhive/shared';
@@ -75,7 +77,19 @@ function safeJsonPreview(value: unknown): string | undefined {
 
 const MAX_THREAD_CONTEXT_CHARS = 8_000;
 
-/** Max bytes for text file content. */
+/** Window for dropping a duplicate delivery of the same message to the same session.
+ *  Slack delivers events at-least-once, and a boss agent re-mentioning a reportee in
+ *  a multi-part reply lands as a second identical event ~1s later — both would
+ *  otherwise pre-empt the reportee's own in-flight turn (a spurious "Operation
+ *  aborted"). 15s comfortably covers the observed ~1s gap with minimal false drops. */
+const DUPLICATE_MESSAGE_WINDOW_MS = 15_000;
+
+/** Text files at or below this are inlined into the prompt (small, convenient,
+ *  ~8K tokens). Larger ones are written to the agent's cwd to read on demand —
+ *  inlining 100s of KB would blow the context window. */
+const INLINE_TEXT_FILE_BYTES = 32 * 1024;
+/** Hard cap when we can't stage a large file to disk: truncate rather than inline
+ *  everything. */
 const MAX_TEXT_FILE_BYTES = 512 * 1024;
 
 export class MessageHandler {
@@ -83,6 +97,8 @@ export class MessageHandler {
   private correctionHandler: CorrectionHandler;
   private activeControllers = new Map<string, AbortController>();
   private currentReactions = new Map<string, string>();
+  /** Recent message signatures → last-seen ms, for at-least-once delivery dedup. */
+  private recentMessages = new Map<string, number>();
 
   constructor(
     private adapter: PlatformAdapter,
@@ -171,6 +187,24 @@ export class MessageHandler {
     }
 
     const sessionKey = this.backend.getSessionKey(userId, channelId, threadId);
+
+    // Drop duplicate deliveries before they pre-empt our own in-flight turn. Slack
+    // delivers events at-least-once, and a boss agent re-mentioning a reportee in a
+    // multi-part reply arrives as a second identical event ~1s later; either way the
+    // duplicate hits the same sessionKey and would abort the turn started by the first
+    // (surfacing as "Operation aborted"). Dedup on (session + messageId); text is a
+    // fallback for platforms that don't supply a stable message id.
+    const dedupKey = `${sessionKey}:${messageId || text || ''}`;
+    const nowMs = Date.now();
+    for (const [k, seenAt] of this.recentMessages) {
+      if (nowMs - seenAt > DUPLICATE_MESSAGE_WINDOW_MS) this.recentMessages.delete(k);
+    }
+    if (this.recentMessages.has(dedupKey)) {
+      this.log.info('Dropping duplicate message (already handled within window)', { sessionKey, messageId });
+      return;
+    }
+    this.recentMessages.set(dedupKey, nowMs);
+
     this.log.info('Processing message', {
       userId, channelId, threadId, sessionKey,
       textLength: text.length,
@@ -193,7 +227,7 @@ export class MessageHandler {
     // sender's highest-priority audience group) — used for BOTH the narration
     // directive (inside buildPrompt) and the streaming/posting gates below, so
     // an audience verbose override actually takes effect on what gets posted.
-    const { prompt, verbose: resolvedVerbose } = await this.buildPrompt(userId, channelId, threadId, text, files);
+    const { prompt, verbose: resolvedVerbose } = await this.buildPrompt(userId, channelId, threadId, text, files, sessionKey);
 
     // Activity dashboard recorder — no-ops when ACTIVITY_DASHBOARD is off.
     // A Slack thread == one task; each agent's reply in the thread is a new
@@ -722,6 +756,7 @@ export class MessageHandler {
     threadId: string | undefined,
     userText: string,
     files?: FileAttachment[],
+    sessionKey?: string,
   ): Promise<{ prompt: string | ContentBlockParam[]; verbose: boolean }> {
     // Resolve sender display name for the header. Failure is non-fatal — the
     // userId alone is still enough for user-keyed memory rules to match.
@@ -858,7 +893,7 @@ export class MessageHandler {
     const binaryBlocks: ContentBlockParam[] = [];
 
     if (allFiles.length > 0) {
-      for (const file of allFiles) {
+      for (const [fileIdx, file] of allFiles.entries()) {
         if (!file.url) continue;
         const kind = this.getFileKind(file);
         if (kind === 'unsupported') continue;
@@ -868,9 +903,34 @@ export class MessageHandler {
           const label = file.name;
 
           if (kind === 'text') {
-            let text = new TextDecoder().decode(buffer.slice(0, MAX_TEXT_FILE_BYTES));
-            if (buffer.byteLength > MAX_TEXT_FILE_BYTES) text += '\n[... truncated at 512 KB ...]';
-            textChunks.push(`[File: ${label}]\n${text}`);
+            // Large files: don't inline (and don't truncate — that loses data). Write
+            // the FULL file into the agent's cwd and point it there, so it reads/chunks
+            // on demand with its own tools (head/grep/sed/Read) — like Claude Code.
+            const isLarge = buffer.byteLength > INLINE_TEXT_FILE_BYTES;
+            const workDir = (isLarge && sessionKey) ? this.tryGetSessionWorkDir(sessionKey) : undefined;
+            let staged = false;
+            if (isLarge && workDir) {
+              // Index-prefix the name so two attachments whose names sanitize to the
+              // same string don't overwrite each other (and lose one silently).
+              const safe = `${fileIdx}-${(label || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+              try {
+                const attDir = path.join(workDir, 'attachments');
+                fs.mkdirSync(attDir, { recursive: true });
+                fs.writeFileSync(path.join(attDir, safe), Buffer.from(buffer));
+                const kb = Math.round(buffer.byteLength / 1024);
+                textChunks.push(`[Attached file "${label}" (${kb} KB) is too large to inline — saved to ./attachments/${safe}. Read it from there with your tools (e.g. head/grep/sed/Read) to access any part.]`);
+                staged = true;
+              } catch (err) {
+                // Disk full / permission error: fall back to inlining rather than crash
+                // the whole turn (the staging path must never break an otherwise-fine turn).
+                this.log.warn('Failed to stage large attachment to disk; inlining instead', { name: label, error: (err as Error).message });
+              }
+            }
+            if (!staged) {
+              let text = new TextDecoder().decode(buffer.slice(0, MAX_TEXT_FILE_BYTES));
+              if (buffer.byteLength > MAX_TEXT_FILE_BYTES) text += '\n[... truncated at 512 KB ...]';
+              textChunks.push(`[File: ${label}]\n${text}`);
+            }
           } else if (kind === 'image') {
             const mt = file.mimeType ?? 'image/jpeg';
             binaryBlocks.push({
@@ -901,6 +961,17 @@ export class MessageHandler {
     }
 
     return { prompt: textPrompt, verbose: resolvedVerbose };
+  }
+
+  /** Resolve the session cwd, swallowing errors so attachment-staging never breaks
+   *  the turn (caller falls back to inlining). */
+  private tryGetSessionWorkDir(sessionKey: string): string | undefined {
+    try {
+      return this.backend.getSessionWorkDir(sessionKey);
+    } catch (err) {
+      this.log.warn('Could not resolve session work dir for attachment staging', { error: (err as Error).message });
+      return undefined;
+    }
   }
 
   /** Classify file type. */

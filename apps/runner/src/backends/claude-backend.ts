@@ -480,7 +480,7 @@ export class ClaudeBackend implements AgentBackend {
    * Returns the isolated working directory for a session.
    * Creates it on first access and copies CLAUDE.md from the agent root.
    */
-  private getSessionWorkDir(sessionKey: string): string {
+  getSessionWorkDir(sessionKey: string): string {
     // Sanitize key for use as a directory name
     const safeName = sessionDirName(sessionKey);
     const sessionDir = path.join(this.sessionsDir, safeName);

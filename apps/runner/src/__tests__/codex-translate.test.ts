@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { ThreadEvent } from '@openai/codex-sdk';
 import { translateEvent, mapUsage, toCodexInput } from '../backends/codex-translate';
 
@@ -13,11 +16,54 @@ describe('codex-translate / mapUsage', () => {
 });
 
 describe('codex-translate / toCodexInput', () => {
-  it('passes through plain strings', () => {
-    expect(toCodexInput('hello', '/tmp')).toBe('hello');
+  it('passes through plain strings', async () => {
+    expect(await toCodexInput('hello', '/tmp')).toBe('hello');
   });
-  it('collapses a single text block to a string', () => {
-    expect(toCodexInput([{ type: 'text', text: 'hi' }], '/tmp')).toBe('hi');
+  it('collapses a single text block to a string', async () => {
+    expect(await toCodexInput([{ type: 'text', text: 'hi' }], '/tmp')).toBe('hi');
+  });
+  it('drops unsupported blocks (e.g. a non-pdf document) rather than crashing', async () => {
+    expect(await toCodexInput([{ type: 'document', source: { media_type: 'text/csv', data: 'x' } }], '/tmp')).toBe('');
+  });
+});
+
+describe('codex-translate / toCodexInput — PDF staged to disk', () => {
+  const pdfData = Buffer.from('%PDF-1.4 fake').toString('base64');
+  const pdfBlock = { type: 'document', source: { media_type: 'application/pdf', data: pdfData } };
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-pdf-')); });
+
+  it('stages the PDF to ./attachments/ and emits a pdftotext guidance note', async () => {
+    const out = await toCodexInput([{ type: 'text', text: 'summarize' }, pdfBlock], dir) as Array<Record<string, unknown>>;
+    expect(out[0]).toEqual({ type: 'text', text: 'summarize' });
+    expect(out[1].type).toBe('text');
+    expect(String(out[1].text)).toContain('attachment-0.pdf');
+    expect(String(out[1].text)).toContain('pdftotext');
+    // File actually written to disk
+    expect(fs.existsSync(path.join(dir, 'attachments', 'attachment-0.pdf'))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, 'attachments', 'attachment-0.pdf'))).toEqual(Buffer.from(pdfData, 'base64'));
+  });
+
+  it('stages two PDFs in the same turn with distinct names', async () => {
+    await toCodexInput([pdfBlock, pdfBlock], dir);
+    const files = fs.readdirSync(path.join(dir, 'attachments')).sort();
+    expect(files).toEqual(['attachment-0.pdf', 'attachment-1.pdf']);
+  });
+
+  it('does not produce local_image blocks for PDFs', async () => {
+    const out = await toCodexInput([pdfBlock], dir);
+    // single PDF → collapses to a plain string (the guidance note), no images
+    expect(typeof out === 'string' || (Array.isArray(out) && out.every((o: unknown) => (o as Record<string, unknown>).type !== 'local_image'))).toBe(true);
+  });
+
+  it('surfaces a note (not silence) when staging fails', async () => {
+    // Pass a read-only dir so mkdirSync/writeFileSync throws
+    const roDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ro-'));
+    fs.chmodSync(roDir, 0o555);
+    const out = await toCodexInput([pdfBlock], roDir);
+    const text = typeof out === 'string' ? out : (out as Array<Record<string, unknown>>).map(o => String(o.text)).join(' ');
+    expect(text).toMatch(/could not be saved/i);
+    fs.chmodSync(roDir, 0o755); // restore for cleanup
   });
 });
 

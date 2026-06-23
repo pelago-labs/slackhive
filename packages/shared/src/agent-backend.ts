@@ -100,6 +100,13 @@ export interface AgentBackend {
   getSessionKey(userId: string, channelId: string, threadTs?: string): string;
 
   /**
+   * Per-thread working directory (the agent's cwd) for `sessionKey`, created if
+   * needed. Lets the caller drop large attachments on disk for the agent to read
+   * with its file tools — like Claude Code — instead of inlining/truncating them.
+   */
+  getSessionWorkDir(sessionKey: string): string;
+
+  /**
    * Stream a query for `sessionKey`, yielding normalized {@link BackendMessage}s.
    * Resumes a prior session when one exists for the key; callers break on
    * `abortController.signal.aborted` to cancel.
