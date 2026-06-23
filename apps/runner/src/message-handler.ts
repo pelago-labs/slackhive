@@ -74,6 +74,13 @@ function safeJsonPreview(value: unknown): string | undefined {
 
 const MAX_THREAD_CONTEXT_CHARS = 8_000;
 
+/** Window for dropping a duplicate delivery of the same message to the same session.
+ *  Slack delivers events at-least-once, and a boss agent re-mentioning a reportee in
+ *  a multi-part reply lands as a second identical event ~1s later — both would
+ *  otherwise pre-empt the reportee's own in-flight turn (a spurious "Operation
+ *  aborted"). 15s comfortably covers the observed ~1s gap with minimal false drops. */
+const DUPLICATE_MESSAGE_WINDOW_MS = 15_000;
+
 /** Text files at or below this are inlined into the prompt (small, convenient,
  *  ~8K tokens). Larger ones are written to the agent's cwd to read on demand —
  *  inlining 100s of KB would blow the context window. */
@@ -87,6 +94,8 @@ export class MessageHandler {
   private correctionHandler: CorrectionHandler;
   private activeControllers = new Map<string, AbortController>();
   private currentReactions = new Map<string, string>();
+  /** Recent message signatures → last-seen ms, for at-least-once delivery dedup. */
+  private recentMessages = new Map<string, number>();
 
   constructor(
     private adapter: PlatformAdapter,
@@ -175,6 +184,24 @@ export class MessageHandler {
     }
 
     const sessionKey = this.backend.getSessionKey(userId, channelId, threadId);
+
+    // Drop duplicate deliveries before they pre-empt our own in-flight turn. Slack
+    // delivers events at-least-once, and a boss agent re-mentioning a reportee in a
+    // multi-part reply arrives as a second identical event ~1s later; either way the
+    // duplicate hits the same sessionKey and would abort the turn started by the first
+    // (surfacing as "Operation aborted"). Dedup on (session + content); file-only
+    // messages fall back to the message id (unique per Slack message).
+    const dedupKey = `${sessionKey}:${text || messageId || ''}`;
+    const nowMs = Date.now();
+    for (const [k, seenAt] of this.recentMessages) {
+      if (nowMs - seenAt > DUPLICATE_MESSAGE_WINDOW_MS) this.recentMessages.delete(k);
+    }
+    if (this.recentMessages.has(dedupKey)) {
+      this.log.info('Dropping duplicate message (already handled within window)', { sessionKey, messageId });
+      return;
+    }
+    this.recentMessages.set(dedupKey, nowMs);
+
     this.log.info('Processing message', {
       userId, channelId, threadId, sessionKey,
       textLength: text.length,
