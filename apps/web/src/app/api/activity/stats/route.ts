@@ -44,8 +44,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     };
 
     // Fetch up to 500 per column — plenty for the badge number. Filters apply
-    // so the count matches the kanban the user is looking at. (Per-agent rollup
-    // analytics moved to the Observability page, so it's no longer computed here.)
+    // so the count matches the kanban the user is looking at. (The per-agent
+    // analytics panel this route used to feed via getAgentRollup was removed; the
+    // Observability page now provides equivalent rollups through getInsightsRollup.)
     const [active, recent, errored, inProgressByAgent] = await Promise.all([
       listTasks('active', filter, 500, null),
       listTasks('recent', filter, 500, null),
