@@ -420,7 +420,14 @@ export class MessageHandler {
         if (recorder) await this.closeActivity(recorder.activityId, 'error', error?.message ?? 'unknown error');
       }
     } finally {
-      this.activeControllers.delete(sessionKey);
+      // Only clear the slot if it still holds OUR controller. A newer message for
+      // the same session aborts us and overwrites the slot with its own controller;
+      // an unconditional delete-by-key here would wipe that live turn's handle, so
+      // the next message would find nothing to abort and start a turn in parallel
+      // with the one still running. Identity-guard prevents that cross-generation clobber.
+      if (this.activeControllers.get(sessionKey) === abortController) {
+        this.activeControllers.delete(sessionKey);
+      }
       setTimeout(() => this.currentReactions.delete(sessionKey), 5 * 60 * 1000);
     }
   }
