@@ -13,13 +13,13 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert } from 'lucide-react';
+import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert, UserRound } from 'lucide-react';
 import { TabSwitcher } from './_components/TabSwitcher';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
 import { ReplayButton } from './_components/ReplayButton';
 import { relativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import { PageShell, EmptyState, AvatarStack } from '@/components/patterns';
+import { PageShell, EmptyState } from '@/components/patterns';
 
 interface Task {
   id: string;
@@ -292,39 +292,29 @@ function TaskCard(props: {
   return (
     <Link
       href={href}
-      className="block rounded-md border border-border bg-card px-3 py-2.5 text-inherit no-underline shadow-sm transition-[background-color,border-color,box-shadow] duration-150 hover:border-border/80 hover:bg-muted/35 hover:shadow-md"
+      className="block rounded-md border border-border bg-card px-3 py-2.5 text-inherit no-underline shadow-sm transition-[background-color,border-color,box-shadow] duration-150 hover:border-ring/40 hover:bg-secondary/35 hover:shadow-md"
     >
-      {/* Top row: ref code + assignee + time */}
-      <div className="mb-1.5 flex items-center gap-1.5">
+      {/* Top row: stable ref + requester + time */}
+      <div className="mb-2 flex items-center gap-1.5">
         <span className="font-mono text-2xs font-semibold tracking-normal text-muted-foreground/85">{shortRef(task.id)}</span>
         {task.sensitive && (
           <ShieldAlert size={12} className="shrink-0 text-amber" aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
         )}
-        {agentIds.length > 0 && (
-          <span className="ml-auto">
-            <AvatarStack
-              items={agentIds.map(id => ({ id, name: agentById.get(id)?.name ?? id.slice(0, 6) }))}
-              size={16}
-              max={2}
-            />
-          </span>
-        )}
-        <span className={cn('shrink-0 text-2xs text-muted-foreground/80', agentIds.length === 0 && 'ml-auto')}>{relativeTime(task.lastActivityAt)}</span>
+        <InitiatorBadge task={task} />
+        <span className="ml-auto shrink-0 text-2xs text-muted-foreground/80">{relativeTime(task.lastActivityAt)}</span>
       </div>
 
       {/* Title — up to two lines, like a Linear issue */}
       <div
-        className="overflow-hidden text-sm font-medium leading-snug text-foreground"
+        className="overflow-hidden text-xs font-medium leading-5 text-foreground"
         style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
       >
         {task.summary || '(empty message)'}
       </div>
 
       {/* Footer: compact metadata chips */}
-      <div className="mt-2 flex items-center gap-1.5">
-        {primaryAgentName && (
-          <span className="overflow-hidden text-ellipsis whitespace-nowrap rounded-md bg-muted px-1.5 py-px text-2xs font-medium text-muted-foreground">{primaryAgentName}</span>
-        )}
+      <div className="mt-2.5 flex items-center gap-1.5">
+        {primaryAgentName && <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded-md bg-muted px-1.5 py-px text-2xs font-medium text-muted-foreground">{primaryAgentName}</span>}
         <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
           {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
           {!!task.feedbackDown && <Chip color="#dc2626"><ThumbsDown size={10} />{task.feedbackDown}</Chip>}
@@ -333,6 +323,28 @@ function TaskCard(props: {
         </span>
       </div>
     </Link>
+  );
+}
+
+function InitiatorBadge({ task }: { task: Task }): React.JSX.Element {
+  const label = task.initiatorHandle
+    ? `@${task.initiatorHandle}`
+    : task.initiatorUserId
+      ? task.initiatorUserId
+      : 'Unknown';
+  const initials = task.initiatorHandle
+    ? task.initiatorHandle.slice(0, 2).toUpperCase()
+    : task.initiatorUserId
+      ? task.initiatorUserId.slice(0, 2).toUpperCase()
+      : '';
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-secondary px-1.5 py-px text-2xs text-muted-foreground">
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-border bg-card text-[8px] font-semibold text-muted-foreground">
+        {initials || <UserRound size={10} />}
+      </span>
+      <span className="max-w-[92px] overflow-hidden text-ellipsis whitespace-nowrap font-medium text-muted-foreground">{label}</span>
+    </span>
   );
 }
 
