@@ -493,6 +493,7 @@ export async function getAllEnabledJobs(): Promise<ScheduledJob[]> {
     targetType: row.target_type as 'channel' | 'dm',
     targetId: row.target_id as string,
     enabled: row.enabled !== false && row.enabled !== 0,
+    skipWhen: (row.skip_when as string) || undefined,
     createdBy: (row.created_by as string) ?? 'system',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -513,6 +514,7 @@ export async function getScheduledJobById(id: string): Promise<ScheduledJob | nu
     targetType: row.target_type as 'channel' | 'dm',
     targetId: row.target_id as string,
     enabled: row.enabled !== false && row.enabled !== 0,
+    skipWhen: (row.skip_when as string) || undefined,
     createdBy: (row.created_by as string) ?? 'system',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -544,11 +546,13 @@ export async function updateJobRun(
   runId: string,
   status: 'success' | 'error',
   output?: string | null,
-  error?: string | null
+  error?: string | null,
+  /** False when the run completed but was intentionally not posted (skipWhen matched). */
+  posted = true
 ): Promise<void> {
   await getDb().query(
-    'UPDATE job_runs SET status = $1, output = $2, error = $3, finished_at = now() WHERE id = $4',
-    [status, output ?? null, error ?? null, runId]
+    'UPDATE job_runs SET status = $1, output = $2, error = $3, posted = $4, finished_at = now() WHERE id = $5',
+    [status, output ?? null, error ?? null, posted, runId]
   );
 }
 

@@ -9,7 +9,8 @@ vi.mock('../db', () => ({
   updateJobRun: (...a: unknown[]) => updateJobRun(...a),
 }));
 
-import { JobScheduler } from '../job-scheduler';
+import { JobScheduler, isSilent, notificationGate } from '../job-scheduler';
+import { parseJobSentinel } from '@slackhive/shared';
 
 function makeAgent(resultText: string) {
   async function* stream() {
@@ -34,6 +35,9 @@ const job = {
 } as never;
 
 beforeEach(() => { insertJobRun.mockClear(); updateJobRun.mockClear(); });
+
+const exec = (s: JobScheduler, j: unknown) =>
+  (s as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(j);
 
 describe('JobScheduler.executeJob (backend-agnostic)', () => {
   it('pre-posts a thread anchor, injects a channel/thread header, and threads the result', async () => {
@@ -223,5 +227,140 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     agentUp = true;
     await (scheduler as unknown as { executeJob: (j: unknown) => Promise<void> }).executeJob(job);
     expect(insertJobRun).toHaveBeenCalledTimes(1); // ran once the agent returned
+  });
+});
+
+describe('JobScheduler.executeJob — skipWhen suppression', () => {
+  const skipJob = { ...(job as object), skipWhen: 'there are no fraud cases to report' } as never;
+
+  it('injects the notification gate (condition + sentinel) into a suppressible job prompt', async () => {
+    const { agent, backend } = makeAgent('NO_UPDATE: nothing changed');
+    await exec(new JobScheduler(() => agent as never), skipJob);
+
+    const sentPrompt = backend.streamQuery.mock.calls[0][0] as string;
+    expect(sentPrompt).toContain('Notification gate');
+    expect(sentPrompt).toContain('there are no fraud cases to report');
+    expect(sentPrompt).toContain('NO_UPDATE');
+    // Original task body is still present, before the gate.
+    expect(sentPrompt).toContain('Summarize today');
+  });
+
+  it('suppresses the post and records the run as not-posted (keeping the reason for debug)', async () => {
+    const { agent, adapter } = makeAgent('NO_UPDATE: no new fraud cases today');
+    await exec(new JobScheduler(() => agent as never), skipJob);
+
+    // The whole point: nothing reaches Slack — not even the "running…" anchor
+    // (pre-posting then deleting it would still ping the channel).
+    expect(adapter.postMessage).not.toHaveBeenCalled();
+    expect(adapter.postPayload).not.toHaveBeenCalled();
+    expect(adapter.updatePayload).not.toHaveBeenCalled();
+    // Recorded success-but-not-posted, with the full reply (incl. reason) for debugging.
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'NO_UPDATE: no new fraud cases today', null, false);
+  });
+
+  it('a suppressible job that DOES have output posts via the legacy parent path (no anchor)', async () => {
+    const { agent, adapter } = makeAgent('Fraud cases rose to 12 — see breakdown.');
+    await exec(new JobScheduler(() => agent as never), skipJob);
+
+    // No pre-posted anchor (would ping), so the first payload becomes the parent.
+    expect(adapter.postMessage).not.toHaveBeenCalled();
+    expect(adapter.updatePayload).not.toHaveBeenCalled();
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'Fraud cases rose to 12 — see breakdown.' }, undefined);
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'Fraud cases rose to 12 — see breakdown.');
+  });
+
+  it('does not mistake natural prose containing "no update" for the sentinel', async () => {
+    const { agent, adapter } = makeAgent('No update to the figures: still 42 open cases.');
+    await exec(new JobScheduler(() => agent as never), skipJob);
+
+    // The underscore token NO_UPDATE did not match → posts normally.
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'No update to the figures: still 42 open cases.' }, undefined);
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'success', 'No update to the figures: still 42 open cases.');
+  });
+
+  it('leaves a job without skipWhen completely unchanged (no gate, anchor pre-posted)', async () => {
+    const { agent, backend, adapter } = makeAgent('Here is your digest.');
+    await exec(new JobScheduler(() => agent as never), job);
+
+    expect(backend.streamQuery.mock.calls[0][0]).not.toContain('Notification gate');
+    expect(adapter.postMessage).toHaveBeenCalledWith('C123', '*Daily digest* · ⏳ _running…_');
+    expect(adapter.updatePayload).toHaveBeenCalledWith('C123', 'anchor-ts', { text: 'Here is your digest.' });
+  });
+
+  it('surfaces a failure in-channel when a suppressible job errors (no silent breakage)', async () => {
+    const { agent, backend, adapter } = makeAgent('unused');
+    backend.streamQuery.mockImplementationOnce(() => {
+      async function* boom(): AsyncGenerator<never> { throw new Error('query exploded'); }
+      return boom();
+    });
+    await exec(new JobScheduler(() => agent as never), skipJob);
+
+    // No anchor was pre-posted (suppressible), but an error must still be visible —
+    // posted as a fresh failure line rather than vanishing into the logs.
+    expect(adapter.postMessage).toHaveBeenCalledWith('C123', '*Daily digest* · ⚠️ _did not complete_');
+    expect(updateJobRun).toHaveBeenCalledWith('run-1', 'error', null, 'query exploded');
+  });
+});
+
+describe('isSilent — NO_UPDATE sentinel detection', () => {
+  it.each([
+    ['the bare token', 'NO_UPDATE'],
+    ['lowercase', 'no_update'],
+    ['surrounding whitespace', '  NO_UPDATE  '],
+    ['wrapped in backticks', '`NO_UPDATE`'],
+    ['bold markdown', '**NO_UPDATE**'],
+    ['italic underscore markdown', '_NO_UPDATE_'],
+    ['italic markdown with a reason', '_NO_UPDATE_: no new cases'],
+    ['bold markdown with a reason', '**NO_UPDATE**: all clear'],
+    ['blockquote prefix', '> NO_UPDATE'],
+    ['with a trailing reason', 'NO_UPDATE: no fraud cases to report today'],
+    ['reason after a dash', 'NO_UPDATE - everything nominal'],
+  ])('treats %s as silent', (_label, output) => {
+    expect(isSilent(output)).toBe(true);
+  });
+
+  it.each([
+    ['empty output', ''],
+    ['whitespace only', '   '],
+    ['prose that merely says "no update"', 'No update to the figures: still 42 open cases.'],
+    ['the token mid-sentence', 'The pipeline emitted NO_UPDATE for column 3, here is the report.'],
+    ['a normal report', 'Fraud cases rose to 12 — see the breakdown below.'],
+    ['a hyphenated lookalike', 'NO-UPDATE today'],
+    ['a longer word starting with the token', 'NO_UPDATED the records successfully.'],
+  ])('does NOT treat %s as silent', (_label, output) => {
+    expect(isSilent(output)).toBe(false);
+  });
+});
+
+describe('parseJobSentinel — reason extraction (run-history debug view)', () => {
+  it.each([
+    ['bare token → empty reason', 'NO_UPDATE', ''],
+    ['colon-separated reason', 'NO_UPDATE: no new fraud cases', 'no new fraud cases'],
+    ['dash-separated reason', 'NO_UPDATE - all clear', 'all clear'],
+    ['markdown-wrapped with reason', '_NO_UPDATE_: nothing changed', 'nothing changed'],
+    ['multi-line reply collapses to one line', 'NO_UPDATE\n\nNo rows returned\nfrom the query', 'No rows returned from the query'],
+    ['stray-period delimiter is consumed', 'NO_UPDATE. done', 'done'],
+  ])('%s', (_label, output, expected) => {
+    const parsed = parseJobSentinel(output);
+    expect(parsed.silent).toBe(true);
+    expect(parsed.reason).toBe(expected);
+  });
+
+  it('returns silent=false (and empty reason) for non-sentinel output', () => {
+    expect(parseJobSentinel('Here is the full report.')).toEqual({ silent: false, reason: '' });
+    expect(parseJobSentinel(null)).toEqual({ silent: false, reason: '' });
+  });
+});
+
+describe('notificationGate — injected skip instruction', () => {
+  it('embeds the condition and the sentinel token, and marks itself as a gate', () => {
+    const gate = notificationGate('the report has no rows');
+    expect(gate).toContain('Notification gate');
+    expect(gate).toContain('the report has no rows');
+    expect(gate).toContain('NO_UPDATE');
+  });
+
+  it('trims surrounding whitespace from the condition', () => {
+    expect(notificationGate('   nothing to report   ')).toContain('"nothing to report"');
   });
 });

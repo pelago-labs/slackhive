@@ -316,6 +316,10 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
                      CHECK (target_type IN ('channel', 'dm')),
   target_id     TEXT NOT NULL,
   enabled       INTEGER NOT NULL DEFAULT 1,
+  -- Optional plain-English condition. When set, the runner injects it plus a
+  -- NO_UPDATE sentinel instruction; if the agent decides the condition holds it
+  -- replies NO_UPDATE and the run posts nothing. NULL/empty → always post.
+  skip_when     TEXT,
   created_by    TEXT NOT NULL DEFAULT 'system',
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -329,7 +333,9 @@ CREATE TABLE IF NOT EXISTS job_runs (
   status      TEXT NOT NULL DEFAULT 'running'
                    CHECK (status IN ('running', 'success', 'error')),
   output      TEXT,
-  error       TEXT
+  error       TEXT,
+  -- 0 when the run completed but was intentionally not posted (skip_when matched).
+  posted      INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS agent_access (
@@ -690,6 +696,14 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const jobCols = (db.pragma('table_info(scheduled_jobs)') as { name: string }[]).map(c => c.name);
   if (!jobCols.includes('created_by')) {
     db.exec("ALTER TABLE scheduled_jobs ADD COLUMN created_by TEXT NOT NULL DEFAULT 'system'");
+  }
+  if (!jobCols.includes('skip_when')) {
+    db.exec('ALTER TABLE scheduled_jobs ADD COLUMN skip_when TEXT');
+  }
+
+  const jobRunCols = (db.pragma('table_info(job_runs)') as { name: string }[]).map(c => c.name);
+  if (!jobRunCols.includes('posted')) {
+    db.exec('ALTER TABLE job_runs ADD COLUMN posted INTEGER NOT NULL DEFAULT 1');
   }
 
   const skillCols = (db.pragma('table_info(skills)') as { name: string }[]).map(c => c.name);

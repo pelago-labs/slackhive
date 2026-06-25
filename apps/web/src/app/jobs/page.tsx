@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { parseJobSentinel } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { Portal } from '@/lib/portal';
 import { Hash, MessageSquare, CalendarClock } from 'lucide-react';
@@ -22,6 +23,8 @@ interface JobRun {
   status: 'running' | 'success' | 'error';
   output?: string;
   error?: string;
+  /** False when the run completed but was intentionally not posted (skipWhen matched). */
+  posted?: boolean;
 }
 
 interface Job {
@@ -33,6 +36,8 @@ interface Job {
   targetType: 'channel' | 'dm';
   targetId: string;
   enabled: boolean;
+  /** Optional plain-English condition; when set, runs that meet it post nothing. */
+  skipWhen?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -64,6 +69,19 @@ function cronToHuman(cron: string): string {
   if (min === '0' && dow === '*' && dom === '*' && mon === '*') return `Daily at ${hour}:00`;
   if (dom !== '*' && mon === '*') return `Day ${dom} at ${hour}:${min.padStart(2, '0')}`;
   return cron;
+}
+
+/**
+ * Visual treatment (label + dot/badge color) for a run's terminal state. A
+ * successful run that wasn't posted (skipWhen condition met) shows as amber
+ * "skipped". One source of truth so the last-run badge and the run-history rows
+ * can't drift apart.
+ */
+function runStatusView(status: JobRun['status'], posted?: boolean): { label: string; color: string } {
+  if (status === 'success' && posted === false) return { label: 'skipped', color: '#d97706' };
+  if (status === 'success') return { label: 'success', color: '#059669' };
+  if (status === 'error') return { label: 'error', color: '#dc2626' };
+  return { label: status, color: '#2563eb' }; // running
 }
 
 /**
@@ -194,17 +212,16 @@ export default function JobsPage() {
                 {/* Status indicator */}
                 <div title={
                   !job.enabled ? 'Paused'
-                  : job.lastRun?.status === 'error' ? 'Last run errored'
-                  : job.lastRun?.status === 'success' ? 'Last run succeeded'
-                  : job.lastRun?.status === 'running' ? 'Running now'
-                  : 'Scheduled — waiting for first run'
+                  : !job.lastRun ? 'Scheduled — waiting for first run'
+                  : job.lastRun.status === 'error' ? 'Last run errored'
+                  : (job.lastRun.status === 'success' && job.lastRun.posted === false) ? 'Last run skipped (condition met)'
+                  : job.lastRun.status === 'success' ? 'Last run succeeded'
+                  : 'Running now'
                 } style={{
                   width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
                   background: !job.enabled ? 'var(--border-2)'
-                    : job.lastRun?.status === 'error' ? '#dc2626'
-                    : job.lastRun?.status === 'success' ? '#059669'
-                    : job.lastRun?.status === 'running' ? '#2563eb'
-                    : '#d97706',
+                    : !job.lastRun ? '#d97706'
+                    : runStatusView(job.lastRun.status, job.lastRun.posted).color,
                 }} />
 
                 {/* Info */}
@@ -244,20 +261,19 @@ export default function JobsPage() {
 
                 {/* Last run */}
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  {job.lastRun ? (
+                  {job.lastRun ? (() => {
+                    const view = runStatusView(job.lastRun.status, job.lastRun.posted);
+                    return (
                     <>
                       <div style={{
-                        fontSize: 11, fontWeight: 600,
-                        color: job.lastRun.status === 'success' ? '#059669'
-                          : job.lastRun.status === 'error' ? '#dc2626'
-                          : '#2563eb',
-                        textTransform: 'uppercase',
-                      }}>{job.lastRun.status}</div>
+                        fontSize: 11, fontWeight: 600, color: view.color, textTransform: 'uppercase',
+                      }}>{view.label}</div>
                       <div style={{ fontSize: 11, color: 'var(--subtle)' }}>
                         {new Date(job.lastRun.startedAt).toLocaleString()}
                       </div>
                     </>
-                  ) : (
+                    );
+                  })() : (
                     <div style={{ fontSize: 11, color: 'var(--subtle)' }}>Never run</div>
                   )}
                 </div>
@@ -340,7 +356,12 @@ export default function JobsPage() {
                   {(runs[job.id] ?? []).length === 0 ? (
                     <div style={{ padding: '12px 20px', fontSize: 12, color: 'var(--subtle)' }}>No runs yet</div>
                   ) : (
-                    (runs[job.id] ?? []).slice(0, 10).map(run => (
+                    (runs[job.id] ?? []).slice(0, 10).map(run => {
+                      // A successful run that was intentionally not posted (skipWhen matched).
+                      const skipped = run.status === 'success' && run.posted === false;
+                      const view = runStatusView(run.status, run.posted);
+                      const reason = skipped ? parseJobSentinel(run.output).reason : '';
+                      return (
                       <div key={run.id} style={{
                         display: 'flex', alignItems: 'flex-start', gap: 10,
                         padding: '10px 20px', borderTop: '1px solid var(--border)',
@@ -348,14 +369,14 @@ export default function JobsPage() {
                       }}>
                         <div style={{
                           width: 6, height: 6, borderRadius: '50%', marginTop: 5, flexShrink: 0,
-                          background: run.status === 'success' ? '#059669' : run.status === 'error' ? '#dc2626' : '#2563eb',
+                          background: view.color,
                         }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', gap: 10, color: 'var(--muted)' }}>
                             <span style={{
                               fontWeight: 600, textTransform: 'uppercase',
-                              color: run.status === 'success' ? '#059669' : run.status === 'error' ? '#dc2626' : '#2563eb',
-                            }}>{run.status}</span>
+                              color: view.color,
+                            }}>{view.label}</span>
                             <span>{new Date(run.startedAt).toLocaleString()}</span>
                             {run.finishedAt && (
                               <span style={{ color: 'var(--subtle)' }}>
@@ -363,7 +384,14 @@ export default function JobsPage() {
                               </span>
                             )}
                           </div>
-                          {run.output && (
+                          {skipped ? (
+                            <div style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--muted)' }}>
+                              <span style={{ fontStyle: 'italic' }}>Notification skipped.</span>
+                              {reason && (
+                                <span style={{ color: 'var(--text)' }}> {reason}</span>
+                              )}
+                            </div>
+                          ) : run.output && (
                             <pre style={{
                               margin: '4px 0 0', fontSize: 11, color: 'var(--text)',
                               whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -379,7 +407,8 @@ export default function JobsPage() {
                           )}
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}
@@ -416,6 +445,7 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
   const [targetType, setTargetType] = useState<'channel' | 'dm'>(job?.targetType ?? 'channel');
   const [targetId, setTargetId] = useState(job?.targetId ?? '');
   const [enabled, setEnabled] = useState(job?.enabled ?? true);
+  const [skipWhen, setSkipWhen] = useState(job?.skipWhen ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -427,7 +457,7 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
     setSaving(true);
     setError('');
     try {
-      const body = { agentId, name, prompt, cronSchedule, targetType, targetId, enabled };
+      const body = { agentId, name, prompt, cronSchedule, targetType, targetId, enabled, skipWhen };
       const r = isEdit
         ? await fetch(`/api/jobs/${job!.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -542,6 +572,18 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
           <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)}
             placeholder={targetType === 'channel' ? 'Channel ID (e.g. C0ANTCQ918U)' : 'User ID (e.g. U095GQAM6PL)'}
             style={inputStyle} />
+        </div>
+
+        {/* Skip notification condition (optional) */}
+        <div>
+          <label style={labelStyle}>Skip notification when… <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span></label>
+          <textarea value={skipWhen} onChange={e => setSkipWhen(e.target.value)} rows={2}
+            placeholder="e.g. there are no fraud cases to report (the report is empty)"
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-sans)' }} />
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+            Leave blank to always post. If set, the agent stays silent (no message) on runs where this condition holds.
+            Phrase it so it can be judged from this run alone — the agent has no memory of previous runs.
+          </div>
         </div>
 
         {/* Enabled */}
