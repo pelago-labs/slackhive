@@ -29,17 +29,25 @@ import {
   Sparkles,
   Wand2,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { EvalsCasesDrawer } from './evals-cases-drawer';
 import { EvalsRunsDrawer } from './evals-runs-drawer';
 import { elapsedMmSs, relativeTime } from '@/lib/evals/format';
 
 type RunWithResults = { run: EvalRun; results: EvalRunResult[] };
 
-const VERDICT_COLOR: Record<EvalRunResult['verdict'], { fg: string; bg: string }> = {
-  PASS:    { fg: 'var(--green)', bg: '#dcfce7' },
-  FAIL:    { fg: 'var(--red)',   bg: '#fee2e2' },
-  SUSPECT: { fg: 'var(--amber)', bg: '#fef3c7' },
-  INFRA:   { fg: 'var(--muted)', bg: 'var(--surface-2)' },
+// Verdict pill colors: foreground token class + a soft background built from
+// the same token via color-mix (the green/red/amber tokens are raw var() hex,
+// so Tailwind opacity modifiers like bg-green/15 can't tint them — see report).
+const VERDICT_COLOR: Record<
+  EvalRunResult['verdict'],
+  { fg: string; bg: string | undefined }
+> = {
+  PASS:    { fg: 'text-green', bg: 'color-mix(in srgb, var(--green) 15%, transparent)' },
+  FAIL:    { fg: 'text-red',   bg: 'color-mix(in srgb, var(--red) 15%, transparent)' },
+  SUSPECT: { fg: 'text-amber', bg: 'color-mix(in srgb, var(--amber) 15%, transparent)' },
+  INFRA:   { fg: 'text-muted-foreground', bg: undefined },
 };
 
 interface Issue {
@@ -64,10 +72,6 @@ const CHECKS_META: Array<{ code: string; name: string; help: string }> = [
   { code: 'QA005', name: 'Persona hygiene',   help: 'Flags banned patterns: force-push, rm -rf, prompt-injection markers, always-agree.' },
   { code: 'QA006', name: 'PII & secrets',     help: 'Flags possible leaked secrets (API keys, tokens), financial IDs (credit card, SSN), and contact PII (email, phone) in CLAUDE.md and skills.' },
 ];
-
-const spinStyle: React.CSSProperties = {
-  animation: 'spin 0.8s linear infinite',
-};
 
 /**
  * Build the seed message Coach receives when the user clicks "Ask Coach" on
@@ -275,68 +279,37 @@ export function EvalsPanel({
   }
 
   return (
-    <div style={{ maxWidth: 1024 }}>
+    <div className="max-w-[1024px]">
       {/* ── Tier 1 ────────────────────────────────────────── */}
       <section>
-        <header
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            marginBottom: 16,
-            gap: 16,
-          }}
-        >
+        <header className="flex justify-between items-end mb-4 gap-4">
           <div>
-            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>
+            <div className="text-xl font-semibold tracking-tight">
               Tier 1 · Static healthcheck
             </div>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            <div className="text-sm text-muted-foreground mt-1">
               {loading ? 'Loading…' : error ? 'Failed to load' : describeSummary(data)}
               {lastRunAt && !loading && (
                 <span> · last run {relativeTime(lastRunAt)}</span>
               )}
             </div>
           </div>
-          <button
-            onClick={fetchHealthcheck}
-            disabled={loading}
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border-2)',
-              borderRadius: 6,
-              padding: '6px 12px',
-              fontSize: 13,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              color: 'var(--text)',
-              opacity: loading ? 0.6 : 1,
-              fontFamily: 'inherit',
-            }}
-          >
+          <Button variant="outline" size="sm" onClick={fetchHealthcheck} disabled={loading}>
             {loading ? (
-              <Loader2 size={14} style={spinStyle} />
+              <Loader2 size={14} className="animate-spin" />
             ) : (
               <RotateCcw size={14} />
             )}
             Re-run
-          </button>
+          </Button>
         </header>
 
         {error && (
           <div
+            className="px-4 py-3 rounded-lg text-red text-sm flex items-center gap-2 border"
             style={{
-              padding: '12px 16px',
               background: 'var(--red-soft-bg)',
-              border: '1px solid var(--red-soft-border)',
-              borderRadius: 8,
-              color: 'var(--red)',
-              fontSize: 13,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
+              borderColor: 'var(--red-soft-border)',
             }}
           >
             <AlertCircle size={16} />
@@ -345,13 +318,7 @@ export function EvalsPanel({
         )}
 
         {!error && (
-          <div
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              background: 'var(--surface)',
-            }}
-          >
+          <div className="border border-border rounded-lg bg-card">
             {CHECKS_META.map((meta, idx) => {
               const status = data ? statusOf(meta.code) : 'clean';
               const issues = issuesByCode.get(meta.code) ?? [];
@@ -362,75 +329,43 @@ export function EvalsPanel({
                 <div key={meta.code}>
                   <div
                     onClick={() => hasIssues && toggleCheck(meta.code)}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '24px 1fr auto 20px',
-                      gap: 14,
-                      alignItems: 'center',
-                      padding: '11px 14px',
-                      cursor: hasIssues ? 'pointer' : 'default',
-                      borderBottom: isLast && !isOpen ? 'none' : '1px solid var(--border)',
-                      userSelect: 'none',
-                    }}
+                    className={cn(
+                      'grid grid-cols-[24px_1fr_auto_20px] gap-3.5 items-center px-3.5 py-2.5 select-none',
+                      hasIssues ? 'cursor-pointer' : 'cursor-default',
+                      isLast && !isOpen ? '' : 'border-b border-border',
+                    )}
                   >
                     <StatusIcon status={status} loading={loading} />
-                    <span style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span className="text-sm inline-flex items-center gap-1.5">
                       {meta.name}
                       <span
                         onMouseEnter={() => setHoveredHelp(meta.code)}
                         onMouseLeave={() => setHoveredHelp(null)}
                         onClick={(e) => e.stopPropagation()}
-                        style={{
-                          position: 'relative',
-                          display: 'inline-flex',
-                          cursor: 'help',
-                          color: 'var(--subtle)',
-                        }}
+                        className="relative inline-flex cursor-help text-muted-foreground"
                       >
                         <HelpCircle size={12} />
                         {hoveredHelp === meta.code && (
-                          <span
-                            style={{
-                              position: 'absolute',
-                              left: 'calc(100% + 8px)',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              padding: '8px 12px',
-                              background: '#1f2937',
-                              color: '#ffffff',
-                              fontSize: 12,
-                              fontWeight: 400,
-                              lineHeight: 1.45,
-                              borderRadius: 6,
-                              width: 'max-content',
-                              maxWidth: 280,
-                              whiteSpace: 'normal',
-                              textAlign: 'left',
-                              pointerEvents: 'none',
-                              zIndex: 10,
-                              boxShadow: '0 6px 20px rgba(0,0,0,0.18)',
-                            }}
-                          >
+                          <span className="absolute left-[calc(100%+8px)] top-1/2 -translate-y-1/2 px-3 py-2 bg-popover text-popover-foreground text-xs font-normal leading-[1.45] rounded-md w-max max-w-[280px] whitespace-normal text-left pointer-events-none z-10 shadow-lg border border-border">
                             {meta.help}
                           </span>
                         )}
                       </span>
                     </span>
                     <span
-                      style={{
-                        fontSize: 12,
-                        color:
-                          status === 'fail'
-                            ? 'var(--red)'
-                            : status === 'warn'
-                              ? 'var(--amber)'
-                              : 'var(--muted)',
-                        fontWeight: status === 'clean' ? 400 : 500,
-                      }}
+                      className={cn(
+                        'text-xs',
+                        status === 'fail'
+                          ? 'text-red'
+                          : status === 'warn'
+                            ? 'text-amber'
+                            : 'text-muted-foreground',
+                        status === 'clean' ? 'font-normal' : 'font-medium',
+                      )}
                     >
                       {loading ? '…' : countLabel(meta.code)}
                     </span>
-                    <span style={{ color: 'var(--subtle)', display: 'flex' }}>
+                    <span className="text-muted-foreground flex">
                       {hasIssues ? (
                         isOpen ? (
                           <ChevronDown size={14} />
@@ -442,45 +377,26 @@ export function EvalsPanel({
                   </div>
                   {isOpen && hasIssues && (
                     <div
-                      style={{
-                        padding: '10px 14px 14px 56px',
-                        background: 'var(--surface-2)',
-                        borderBottom: isLast ? 'none' : '1px solid var(--border)',
-                      }}
+                      className={cn(
+                        'pt-2.5 pr-3.5 pb-3.5 pl-14 bg-muted',
+                        isLast ? '' : 'border-b border-border',
+                      )}
                     >
                       {issues.map((issue, i) => (
                         <div
                           key={i}
-                          style={{
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 12,
-                            padding: '5px 0',
-                            color: 'var(--text-2)',
-                            display: 'grid',
-                            gridTemplateColumns: '12px 1fr auto',
-                            gap: 8,
-                            alignItems: 'baseline',
-                          }}
+                          className="font-mono text-xs py-[5px] text-foreground grid grid-cols-[12px_1fr_auto] gap-2 items-baseline"
                         >
                           <span
-                            style={{
-                              color:
-                                issue.severity === 'error'
-                                  ? 'var(--red)'
-                                  : 'var(--amber)',
-                              fontSize: 10,
-                            }}
+                            className={cn(
+                              'text-[10px]',
+                              issue.severity === 'error' ? 'text-red' : 'text-amber',
+                            )}
                           >
                             ●
                           </span>
                           <span>{issue.message}</span>
-                          <span
-                            style={{
-                              color: 'var(--muted)',
-                              fontSize: 11,
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
+                          <span className="text-muted-foreground text-2xs whitespace-nowrap">
                             {issue.file}
                             {issue.line ? `:${issue.line}` : ''}
                           </span>
@@ -496,25 +412,18 @@ export function EvalsPanel({
       </section>
 
       {/* ── Tier 2 ────────────────────────────────────────── */}
-      <section style={{ marginTop: 32 }}>
-        <header style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>
+      <section className="mt-8">
+        <header className="mb-4">
+          <div className="text-xl font-semibold tracking-tight">
             Tier 2 · Regression eval
           </div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+          <div className="text-sm text-muted-foreground mt-1">
             Define test cases · run them to catch behavioral regressions.
           </div>
         </header>
 
         {/* Unified card: cases header (thin top row) + regression run body */}
-        <div
-          style={{
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            background: 'var(--surface)',
-            overflow: 'hidden',
-          }}
-        >
+        <div className="border border-border rounded-lg bg-card overflow-hidden">
           {latest?.run.status === 'running' && (
             <RunProgressBar
               approvedCases={cases.filter((c) => c.status === 'approved')}
@@ -523,52 +432,30 @@ export function EvalsPanel({
               startedAt={latest.run.startedAt}
             />
           )}
-          <div style={{ padding: '14px 16px' }}>
+          <div className="px-4 py-3.5">
           {/* Top row — cases summary + Manage cases */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 14,
-              paddingBottom: 12,
-              borderBottom: '1px solid var(--border)',
-              marginBottom: 14,
-            }}
-          >
-            <div style={{ fontSize: 13 }}>
+          <div className="flex items-center justify-between gap-3.5 pb-3 border-b border-border mb-3.5">
+            <div className="text-sm">
               {caseCounts.total === 0 ? (
-                <span style={{ color: 'var(--muted)' }}>No cases yet</span>
+                <span className="text-muted-foreground">No cases yet</span>
               ) : (
                 <>
                   <strong>
                     {caseCounts.total} case{caseCounts.total === 1 ? '' : 's'}
                   </strong>
-                  <span style={{ color: 'var(--muted)' }}>
+                  <span className="text-muted-foreground">
                     {' · '}
                     {caseCounts.approved} approved · {caseCounts.proposed} proposed
                   </span>
                 </>
               )}
             </div>
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => {
                 setDrawerStartInNew(caseCounts.total === 0);
                 setDrawerOpen(true);
-              }}
-              style={{
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                border: '1px solid var(--border-2)',
-                borderRadius: 6,
-                padding: '6px 12px',
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontFamily: 'inherit',
-                whiteSpace: 'nowrap',
               }}
             >
               {caseCounts.total === 0 ? (
@@ -578,108 +465,67 @@ export function EvalsPanel({
               ) : (
                 'Manage cases'
               )}
-            </button>
+            </Button>
           </div>
 
           <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 14,
-              marginBottom: latest?.run.status === 'done' ? 14 : 0,
-            }}
+            className={cn(
+              'flex items-center justify-between gap-3.5',
+              latest?.run.status === 'done' ? 'mb-3.5' : 'mb-0',
+            )}
           >
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex-1 min-w-0">
               <RunHeader
                 latest={latest}
                 approvedCount={caseCounts.approved}
                 onShowHistory={() => setHistoryOpen(true)}
               />
             </div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <div className="inline-flex items-center gap-2">
               {onOpenCoach && !agent.isBoss && (
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={onOpenCoach}
                   title="Open Coach — chat with the agent's tuner without sending a failure context"
-                  style={{
-                    background: 'var(--surface)',
-                    color: 'var(--text)',
-                    border: '1px solid var(--border-2)',
-                    borderRadius: 6,
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontFamily: 'inherit',
-                    whiteSpace: 'nowrap',
-                  }}
                 >
                   <Wand2 size={13} />
                   Coach
-                </button>
+                </Button>
               )}
-              <button
+              <Button
+                size="sm"
                 onClick={startRun}
                 disabled={
                   startingRun ||
                   latest?.run.status === 'running' ||
                   caseCounts.approved === 0
                 }
-                style={{
-                  background:
-                    caseCounts.approved === 0 || latest?.run.status === 'running'
-                      ? 'var(--surface-2)'
-                      : 'var(--accent)',
-                  color:
-                    caseCounts.approved === 0 || latest?.run.status === 'running'
-                      ? 'var(--muted)'
-                      : 'var(--accent-fg)',
-                  border: '1px solid var(--border-2)',
-                  borderRadius: 6,
-                  padding: '7px 12px',
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor:
-                    startingRun ||
-                    latest?.run.status === 'running' ||
-                    caseCounts.approved === 0
-                      ? 'not-allowed'
-                      : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  fontFamily: 'inherit',
-                  whiteSpace: 'nowrap',
-                }}
               >
                 {latest?.run.status === 'running' || startingRun ? (
-                  <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+                  <Loader2 size={14} className="animate-spin" />
                 ) : (
                   <Play size={13} />
                 )}
                 Run regression
-              </button>
+              </Button>
             </div>
           </div>
 
           {latest?.run.status === 'done' && (
             <>
               <div
+                className="grid gap-2"
                 style={{
-                  display: 'grid',
                   gridTemplateColumns: `repeat(${latest.run.infraCount > 0 ? 5 : 4}, 1fr)`,
-                  gap: 8,
                 }}
               >
-                <StatCard label="PASS" value={String(latest.run.passCount)} color="var(--green)" />
-                <StatCard label="FAIL" value={String(latest.run.failCount)} color="var(--red)" />
+                <StatCard label="PASS" value={String(latest.run.passCount)} color="text-green" />
+                <StatCard label="FAIL" value={String(latest.run.failCount)} color="text-red" />
                 <StatCard
                   label="SUSPECT"
                   value={String(latest.run.suspectCount)}
-                  color="var(--amber)"
+                  color="text-amber"
                 />
                 {latest.run.infraCount > 0 && (
                   <InfraStatCard
@@ -693,7 +539,7 @@ export function EvalsPanel({
                   value={
                     latest.run.totalMs != null ? `${(latest.run.totalMs / 1000).toFixed(1)}s` : '—'
                   }
-                  color="var(--muted)"
+                  color="text-muted-foreground"
                 />
               </div>
 
@@ -840,27 +686,16 @@ function RunProgressBar({
   const elapsed = elapsedMmSs(startedAt);
 
   return (
-    <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--border)' }}>
-      <div
-        style={{
-          display: 'grid',
-          gridAutoFlow: 'column',
-          gridAutoColumns: '1fr',
-          gap: 4,
-        }}
-      >
+    <div className="px-4 pt-3 pb-2.5 border-b border-border">
+      <div className="grid grid-flow-col auto-cols-fr gap-1">
         {segments.map((seg, i) => {
           if (seg.state === 'done') {
             const color = SEGMENT_COLOR[seg.verdict];
             return (
               <div
                 key={i}
-                style={{
-                  height: 8,
-                  borderRadius: 4,
-                  background: color,
-                  border: `1px solid ${color}`,
-                }}
+                className="h-2 rounded-[4px]"
+                style={{ background: color, border: `1px solid ${color}` }}
               />
             );
           }
@@ -868,19 +703,11 @@ function RunProgressBar({
             return (
               <div
                 key={i}
-                style={{
-                  height: 8,
-                  borderRadius: 4,
-                  background: 'var(--surface-2)',
-                  border: '1px solid var(--blue)',
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
+                className="h-2 rounded-[4px] bg-muted border border-blue relative overflow-hidden"
               >
                 <div
+                  className="absolute inset-0"
                   style={{
-                    position: 'absolute',
-                    inset: 0,
                     background:
                       'linear-gradient(90deg, transparent 0%, var(--blue) 40%, var(--blue) 60%, transparent 100%)',
                     animation: 'indeterm-sweep 1.4s ease-in-out infinite',
@@ -891,28 +718,11 @@ function RunProgressBar({
             );
           }
           return (
-            <div
-              key={i}
-              style={{
-                height: 8,
-                borderRadius: 4,
-                background: 'var(--surface-2)',
-                border: '1px solid var(--border)',
-              }}
-            />
+            <div key={i} className="h-2 rounded-[4px] bg-muted border border-border" />
           );
         })}
       </div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontSize: 11,
-          color: 'var(--muted)',
-          marginTop: 6,
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
+      <div className="flex justify-between text-2xs text-muted-foreground mt-1.5 tabular-nums">
         <span>
           {done >= total
             ? 'Wrapping up…'
@@ -936,24 +746,12 @@ function RunHeader({
   approvedCount: number;
   onShowHistory: () => void;
 }) {
-  const titleStyle: React.CSSProperties = { fontSize: 14, fontWeight: 600 };
-  const subStyle: React.CSSProperties = { fontSize: 12, color: 'var(--muted)', marginTop: 2 };
+  const titleClass = 'text-base font-semibold';
+  const subClass = 'text-xs text-muted-foreground mt-0.5';
   const historyLink = (
     <button
       onClick={onShowHistory}
-      style={{
-        background: 'transparent',
-        border: 'none',
-        color: 'var(--blue)',
-        fontSize: 12,
-        cursor: 'pointer',
-        padding: 0,
-        marginLeft: 6,
-        textDecoration: 'none',
-        fontFamily: 'inherit',
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-      onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+      className="bg-transparent border-0 text-blue text-xs cursor-pointer p-0 ml-1.5 no-underline hover:underline font-[inherit]"
     >
       View history ▸
     </button>
@@ -962,8 +760,8 @@ function RunHeader({
   if (!latest) {
     return (
       <>
-        <div style={titleStyle}>Run regression</div>
-        <div style={subStyle}>
+        <div className={titleClass}>Run regression</div>
+        <div className={subClass}>
           {approvedCount === 0
             ? 'Add and approve test cases above before running.'
             : 'No runs yet. Click Run regression to start.'}
@@ -988,10 +786,10 @@ function RunHeader({
       .join(' · ');
     return (
       <>
-        <div style={titleStyle}>
+        <div className={titleClass}>
           Running case {done + 1} of {total}
         </div>
-        <div style={subStyle}>
+        <div className={subClass}>
           {partial && partial + ' · '}started {when}
           {historyLink}
         </div>
@@ -1002,8 +800,8 @@ function RunHeader({
   if (latest.run.status === 'error') {
     return (
       <>
-        <div style={{ ...titleStyle, color: 'var(--red)' }}>Last run errored</div>
-        <div style={subStyle}>
+        <div className={cn(titleClass, 'text-red')}>Last run errored</div>
+        <div className={subClass}>
           Started {when}. Click Run regression to retry.
           {historyLink}
         </div>
@@ -1019,10 +817,10 @@ function RunHeader({
     latest.run.infraCount;
   return (
     <>
-      <div style={titleStyle}>
+      <div className={titleClass}>
         Last run · {when} by {latest.run.triggeredBy}
       </div>
-      <div style={subStyle}>
+      <div className={subClass}>
         {total} case{total === 1 ? '' : 's'}
         {latest.run.totalMs != null && ` · ${(latest.run.totalMs / 1000).toFixed(1)}s`}
         {historyLink}
@@ -1033,25 +831,9 @@ function RunHeader({
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div
-      style={{
-        background: 'var(--surface-2)',
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: '10px 12px',
-      }}
-    >
-      <div style={{ fontSize: 20, fontWeight: 600, color, lineHeight: 1.1 }}>{value}</div>
-      <div
-        style={{
-          fontSize: 10,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          color: 'var(--muted)',
-          marginTop: 4,
-          fontWeight: 600,
-        }}
-      >
+    <div className="bg-muted border border-border rounded-lg px-3 py-2.5">
+      <div className={cn('text-xl font-semibold leading-[1.1]', color)}>{value}</div>
+      <div className="text-2xs uppercase tracking-[0.05em] text-muted-foreground mt-1 font-semibold">
         {label}
       </div>
     </div>
@@ -1080,47 +862,18 @@ function InfraStatCard({
       type="button"
       onClick={onRetry}
       disabled={disabled}
-      style={{
-        background: 'var(--surface-2)',
-        border: '1px solid var(--border-2)',
-        borderRadius: 8,
-        padding: '10px 12px',
-        textAlign: 'left',
-        font: 'inherit',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.6 : 1,
-        transition: 'background 0.12s ease, border-color 0.12s ease',
-      }}
-      onMouseOver={(e) => {
-        if (!disabled) e.currentTarget.style.background = 'var(--surface-3)';
-      }}
-      onMouseOut={(e) => {
-        if (!disabled) e.currentTarget.style.background = 'var(--surface-2)';
-      }}
+      className={cn(
+        'bg-muted border border-input rounded-lg px-3 py-2.5 text-left font-[inherit] transition-colors',
+        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-secondary',
+      )}
     >
-      <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.1 }}>
+      <div className="text-xl font-semibold text-muted-foreground leading-[1.1]">
         {count}
       </div>
-      <div
-        style={{
-          fontSize: 10,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          color: 'var(--muted)',
-          marginTop: 4,
-          fontWeight: 600,
-        }}
-      >
+      <div className="text-2xs uppercase tracking-[0.05em] text-muted-foreground mt-1 font-semibold">
         Infra error
       </div>
-      <div
-        style={{
-          fontSize: 11,
-          color: 'var(--blue)',
-          marginTop: 6,
-          fontWeight: 500,
-        }}
-      >
+      <div className="text-2xs text-blue mt-1.5 font-medium">
         Retry ▸
       </div>
     </button>
@@ -1151,29 +904,20 @@ function ResultsList({
   const [sectionOpen, setSectionOpen] = useState(defaultOpen);
   const isOpen = collapsible ? sectionOpen : true;
   return (
-    <div style={{ marginTop: 14 }}>
+    <div className="mt-3.5">
       <div
         onClick={collapsible ? () => setSectionOpen((v) => !v) : undefined}
-        style={{
-          fontSize: 11,
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-          color: 'var(--muted)',
-          fontWeight: 600,
-          marginBottom: 6,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          cursor: collapsible ? 'pointer' : 'default',
-          userSelect: 'none',
-        }}
+        className={cn(
+          'text-2xs uppercase tracking-[0.04em] text-muted-foreground font-semibold mb-1.5 flex items-center gap-1.5 select-none',
+          collapsible ? 'cursor-pointer' : 'cursor-default',
+        )}
       >
         {collapsible &&
           (isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
         {title}
       </div>
       {isOpen && (
-      <div style={{ border: '1px solid var(--border)', borderRadius: 8 }}>
+      <div className="border border-border rounded-lg">
         {results.map((r, idx) => {
           const caseRow = cases.find((c) => c.id === r.caseId);
           const palette = VERDICT_COLOR[r.verdict];
@@ -1188,37 +932,22 @@ function ResultsList({
             <div key={r.id}>
               <div
                 onClick={() => onToggle(r.id)}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: cols.join(' '),
-                  gap: 10,
-                  alignItems: 'center',
-                  padding: '9px 12px',
-                  cursor: 'pointer',
-                  borderBottom:
-                    isLast && !isOpen ? 'none' : '1px solid var(--border)',
-                }}
+                className={cn(
+                  'grid gap-2.5 items-center px-3 py-2.5 cursor-pointer',
+                  isLast && !isOpen ? '' : 'border-b border-border',
+                )}
+                style={{ gridTemplateColumns: cols.join(' ') }}
               >
-                <span
-                  style={{
-                    fontSize: 13,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+                <span className="text-sm overflow-hidden text-ellipsis whitespace-nowrap">
                   {caseRow?.question ?? `Case ${r.caseId.slice(0, 8)}`}
                 </span>
                 <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    padding: '2px 8px',
-                    borderRadius: 10,
-                    background: palette.bg,
-                    color: palette.fg,
-                    fontFamily: 'var(--font-mono)',
-                  }}
+                  className={cn(
+                    'text-2xs font-semibold px-2 py-0.5 rounded-[10px] font-mono',
+                    palette.bg ? '' : 'bg-muted',
+                    palette.fg,
+                  )}
+                  style={palette.bg ? { background: palette.bg } : undefined}
                 >
                   {r.verdict}
                 </span>
@@ -1231,100 +960,52 @@ function ResultsList({
                     }}
                     title="View this test case (editable)"
                     aria-label="View this test case (editable)"
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      padding: 4,
-                      cursor: 'pointer',
-                      color: 'var(--muted)',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: 4,
-                    }}
+                    className="bg-transparent border-0 p-1 cursor-pointer text-muted-foreground inline-flex items-center justify-center rounded-[4px] hover:bg-secondary"
                   >
                     <Eye size={14} />
                   </button>
                 )}
-                <span style={{ color: 'var(--subtle)', display: 'flex' }}>
+                <span className="text-muted-foreground flex">
                   {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 </span>
               </div>
               {isOpen && (
                 <div
-                  style={{
-                    padding: '12px 14px',
-                    background: 'var(--surface-2)',
-                    borderBottom: isLast ? 'none' : '1px solid var(--border)',
-                    fontSize: 12,
-                  }}
+                  className={cn(
+                    'px-3.5 py-3 bg-muted text-xs',
+                    isLast ? '' : 'border-b border-border',
+                  )}
                 >
                   {r.checkResults.map((cr, ci) => (
                     <div
                       key={ci}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '90px 70px 1fr',
-                        gap: 8,
-                        padding: '4px 0',
-                        fontFamily: 'var(--font-mono)',
-                      }}
+                      className="grid grid-cols-[90px_70px_1fr] gap-2 py-1 font-mono"
                     >
-                      <span style={{ color: 'var(--muted)' }}>{cr.primitive}</span>
-                      <span style={{ color: VERDICT_COLOR[cr.verdict].fg, fontWeight: 600 }}>
+                      <span className="text-muted-foreground">{cr.primitive}</span>
+                      <span className={cn('font-semibold', VERDICT_COLOR[cr.verdict].fg)}>
                         {cr.verdict}
                       </span>
-                      <span style={{ color: 'var(--text-2)' }}>{cr.message ?? '—'}</span>
+                      <span className="text-foreground">{cr.message ?? '—'}</span>
                     </div>
                   ))}
                   {r.finalReply && (
-                    <div style={{ marginTop: 10 }}>
-                      <div
-                        style={{
-                          fontSize: 10,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em',
-                          color: 'var(--muted)',
-                          fontWeight: 600,
-                          marginBottom: 4,
-                        }}
-                      >
+                    <div className="mt-2.5">
+                      <div className="text-2xs uppercase tracking-[0.04em] text-muted-foreground font-semibold mb-1">
                         Final reply
                       </div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          fontFamily: 'var(--font-mono)',
-                          background: 'var(--surface)',
-                          padding: '8px 10px',
-                          borderRadius: 6,
-                          border: '1px solid var(--border)',
-                          maxHeight: 180,
-                          overflow: 'auto',
-                          whiteSpace: 'pre-wrap',
-                        }}
-                      >
+                      <div className="text-xs font-mono bg-card px-2.5 py-2 rounded-md border border-border max-h-[180px] overflow-auto whitespace-pre-wrap">
                         {r.finalReply}
                       </div>
                     </div>
                   )}
                   {r.toolCalls && r.toolCalls.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
-                      <div
-                        style={{
-                          fontSize: 10,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em',
-                          color: 'var(--muted)',
-                          fontWeight: 600,
-                          marginBottom: 4,
-                        }}
-                      >
+                    <div className="mt-2.5">
+                      <div className="text-2xs uppercase tracking-[0.04em] text-muted-foreground font-semibold mb-1">
                         Tool calls ({r.toolCalls.length})
                       </div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                      <div className="font-mono text-2xs">
                         {r.toolCalls.map((tc, ti) => (
-                          <div key={ti} style={{ color: 'var(--text-2)', padding: '2px 0' }}>
+                          <div key={ti} className="text-foreground py-0.5">
                             {tc.toolId}
                           </div>
                         ))}
@@ -1332,15 +1013,7 @@ function ResultsList({
                     </div>
                   )}
                   {showAskCoach && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        marginTop: 12,
-                        paddingTop: 12,
-                        borderTop: '1px dashed var(--border)',
-                      }}
-                    >
+                    <div className="flex justify-end mt-3 pt-3 border-t border-dashed border-border">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1349,21 +1022,7 @@ function ResultsList({
                         }}
                         title="Ask Coach to debug this failure"
                         aria-label="Ask Coach to debug this failure"
-                        style={{
-                          background: 'var(--accent-soft-bg, rgba(99,102,241,0.08))',
-                          border: '1px solid var(--accent)',
-                          color: 'var(--accent)',
-                          padding: '5px 12px',
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          borderRadius: 5,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          lineHeight: 1.2,
-                          fontFamily: 'var(--font-sans)',
-                        }}
+                        className="bg-primary/10 border border-primary text-primary px-3 py-1.5 cursor-pointer inline-flex items-center gap-1.5 rounded-md text-xs font-semibold leading-tight hover:bg-primary/15"
                       >
                         <Sparkles size={12} />
                         Ask Coach about this failure
@@ -1390,39 +1049,23 @@ function StatusIcon({
 }) {
   if (loading) {
     return (
-      <span
-        style={{
-          width: 18,
-          height: 18,
-          borderRadius: '50%',
-          background: 'var(--surface-2)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--subtle)',
-        }}
-      >
-        <Loader2 size={11} style={spinStyle} />
+      <span className="w-[18px] h-[18px] rounded-full bg-muted inline-flex items-center justify-center text-muted-foreground">
+        <Loader2 size={11} className="animate-spin" />
       </span>
     );
   }
   const palette = {
-    clean: { bg: '#dcfce7', fg: '#16a34a', icon: <Check size={11} strokeWidth={3} /> },
-    warn: { bg: '#fef3c7', fg: '#d97706', icon: <AlertTriangle size={11} /> },
-    fail: { bg: '#fee2e2', fg: '#dc2626', icon: <AlertCircle size={11} /> },
+    clean: { token: '--green', fg: 'text-green', icon: <Check size={11} strokeWidth={3} /> },
+    warn: { token: '--amber', fg: 'text-amber', icon: <AlertTriangle size={11} /> },
+    fail: { token: '--red', fg: 'text-red', icon: <AlertCircle size={11} /> },
   }[status];
   return (
     <span
-      style={{
-        width: 18,
-        height: 18,
-        borderRadius: '50%',
-        background: palette.bg,
-        color: palette.fg,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
+      className={cn(
+        'w-[18px] h-[18px] rounded-full inline-flex items-center justify-center',
+        palette.fg,
+      )}
+      style={{ background: `color-mix(in srgb, var(${palette.token}) 18%, transparent)` }}
     >
       {palette.icon}
     </span>
@@ -1440,4 +1083,3 @@ function describeSummary(data: HealthcheckResult | null): string {
     parts.push(`${summary.warnings} warning${summary.warnings === 1 ? '' : 's'}`);
   return `${parts.join(', ')} across ${CHECKS_META.length} checks`;
 }
-

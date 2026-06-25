@@ -10,6 +10,7 @@
 
 import React, { useState } from 'react';
 import { Filter as FilterIcon, Calendar as CalendarIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export type WindowKey = '1h' | '5h' | '24h' | '7d' | '30d' | '90d' | 'custom';
 
@@ -60,12 +61,8 @@ function localDate(ms: number): string {
 const todayStr = () => localDate(Date.now());
 const daysAgoStr = (n: number) => localDate(Date.now() - n * 86_400_000);
 
-const selectStyle: React.CSSProperties = {
-  fontSize: 13, fontWeight: 500, color: 'var(--text)',
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 8, padding: '6px 12px', cursor: 'pointer',
-  fontFamily: 'var(--font-sans)', boxShadow: 'var(--shadow-sm)',
-};
+const selectClass =
+  'text-sm font-medium text-foreground bg-card border border-border rounded-md px-3 py-1.5 cursor-pointer shadow-sm';
 
 export function FilterRow(props: {
   agents: AgentOption[];
@@ -80,16 +77,14 @@ export function FilterRow(props: {
 }): React.JSX.Element {
   const { agents, agentFilter, windowKey, onAgentChange, onWindowChange, from, to, onRangeChange } = props;
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, flexWrap: 'wrap',
-    }}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: 'var(--muted)', padding: '6px 10px 6px 0' }}>
+    <div className="flex items-center gap-2 mb-[18px] flex-wrap">
+      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground pl-0 pr-2.5 py-1.5">
         <FilterIcon size={14} /> Filter
       </span>
       <select
         value={agentFilter}
         onChange={e => onAgentChange(e.target.value)}
-        style={selectStyle}
+        className={selectClass}
       >
         <option value="">All agents</option>
         {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -102,7 +97,7 @@ export function FilterRow(props: {
           if (w === 'custom' && onRangeChange && (!from || !to)) onRangeChange(from || daysAgoStr(7), to || todayStr());
           onWindowChange(w);
         }}
-        style={selectStyle}
+        className={selectClass}
       >
         {WINDOWS.filter(w => w.key !== 'custom' || onRangeChange).map(w => <option key={w.key} value={w.key}>{w.label}</option>)}
       </select>
@@ -160,33 +155,29 @@ function RangePicker({ from, to, onApply }: { from: string; to: string; onApply:
   for (let d = 1; d <= daysInMonth; d++) cells.push(`${view.y}-${pad2(view.m + 1)}-${pad2(d)}`);
 
   return (
-    <div style={{ position: 'relative' }}>
-      <button onClick={openPanel} style={{ ...selectStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <CalendarIcon size={13} style={{ color: 'var(--muted)' }} />
+    <div className="relative">
+      <button onClick={openPanel} className={cn(selectClass, 'inline-flex items-center gap-1.5')}>
+        <CalendarIcon size={13} className="text-muted-foreground" />
         {from && to ? `${fmtShort(from)} – ${fmtShort(to)}` : 'Pick range'}
       </button>
       {open && (
         <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-          <div style={{
-            position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 41,
-            background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
-            boxShadow: 'var(--shadow-md)', padding: 12, width: 252,
-          }}>
+          <div onClick={() => setOpen(false)} className="fixed inset-0 z-40" />
+          <div className="absolute top-[calc(100%+6px)] left-0 z-[41] bg-card border border-border rounded-lg shadow-md p-3 w-[252px]">
             {/* month header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <button onClick={() => shiftMonth(-1)} style={navBtn}>‹</button>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{MONTHS[view.m]} {view.y}</span>
-              <button onClick={() => shiftMonth(1)} style={navBtn}>›</button>
+            <div className="flex items-center justify-between mb-2">
+              <button onClick={() => shiftMonth(-1)} className={navBtnClass}>‹</button>
+              <span className="text-sm font-semibold text-foreground">{MONTHS[view.m]} {view.y}</span>
+              <button onClick={() => shiftMonth(1)} className={navBtnClass}>›</button>
             </div>
             {/* weekday row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 2 }}>
+            <div className="grid grid-cols-7 gap-0.5 mb-0.5">
               {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, i) => (
-                <div key={i} style={{ textAlign: 'center', fontSize: 9, fontWeight: 600, color: 'var(--subtle)', padding: '2px 0' }}>{w}</div>
+                <div key={i} className="text-center text-[9px] font-semibold text-muted-foreground py-0.5">{w}</div>
               ))}
             </div>
             {/* day grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+            <div className="grid grid-cols-7 gap-0.5">
               {cells.map((ds, i) => {
                 if (!ds) return <div key={i} />;
                 const future = ds > today;
@@ -198,13 +189,17 @@ function RangePicker({ from, to, onApply }: { from: string; to: string; onApply:
                     key={i}
                     disabled={future}
                     onClick={() => pick(ds)}
-                    style={{
-                      height: 28, border: 'none', borderRadius: 6, cursor: future ? 'default' : 'pointer',
-                      fontSize: 12, fontFamily: 'var(--font-sans)',
-                      background: endpoint ? 'var(--accent)' : inRange ? 'var(--surface-3, var(--surface-2))' : 'transparent',
-                      color: endpoint ? 'var(--accent-fg)' : future ? 'var(--subtle)' : 'var(--text)',
-                      opacity: future ? 0.4 : 1, fontWeight: endpoint ? 600 : 400,
-                    }}
+                    className={cn(
+                      'h-7 border-0 rounded-md text-xs',
+                      future ? 'cursor-default opacity-40' : 'cursor-pointer',
+                      endpoint
+                        ? 'bg-primary text-primary-foreground font-semibold'
+                        : cn(
+                            'font-normal',
+                            inRange ? 'bg-secondary' : 'bg-transparent',
+                            future ? 'text-muted-foreground' : 'text-foreground',
+                          ),
+                    )}
                   >
                     {Number(ds.slice(8))}
                   </button>
@@ -212,14 +207,18 @@ function RangePicker({ from, to, onApply }: { from: string; to: string; onApply:
               })}
             </div>
             {/* footer */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 8 }}>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+            <div className="flex items-center justify-between mt-2.5 gap-2">
+              <span className="text-2xs text-muted-foreground">
                 {start ? (end ? `${fmtShort(start)} – ${fmtShort(end)}` : `${fmtShort(start)} – …`) : 'Select a range'}
               </span>
               <button
                 disabled={!start || !end}
                 onClick={() => { onApply(start, end); setOpen(false); }}
-                style={{ ...selectStyle, padding: '5px 14px', background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', fontWeight: 600, opacity: (!start || !end) ? 0.5 : 1, cursor: (!start || !end) ? 'default' : 'pointer' }}
+                className={cn(
+                  selectClass,
+                  'px-3.5 py-1 bg-primary text-primary-foreground border-0 font-semibold',
+                  (!start || !end) ? 'opacity-50 cursor-default' : 'cursor-pointer',
+                )}
               >
                 Apply
               </button>
@@ -231,7 +230,5 @@ function RangePicker({ from, to, onApply }: { from: string; to: string; onApply:
   );
 }
 
-const navBtn: React.CSSProperties = {
-  width: 26, height: 26, borderRadius: 6, border: '1px solid var(--border)',
-  background: 'var(--surface-2)', color: 'var(--text)', cursor: 'pointer', fontSize: 14, lineHeight: 1,
-};
+const navBtnClass =
+  'w-[26px] h-[26px] rounded-md border border-border bg-secondary text-foreground cursor-pointer text-base leading-none';

@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bell, X } from 'lucide-react';
 import entriesData from '@/data/whats-new.json';
+import { cn } from '@/lib/utils';
 
 interface Entry { id: string; date: string; title: string; summary: string }
 
@@ -70,55 +71,54 @@ export function WhatsNew(): React.JSX.Element {
   return (
     <>
       {/* Subtle inline bell (sits in the sidebar header); dot signals updates. */}
-      <button ref={btnRef} onClick={openPanel} title="What's New" aria-label="What's New" style={{
-        position: 'relative', width: 28, height: 28, borderRadius: 8, border: 'none', padding: 0,
-        background: open ? 'var(--surface-2)' : 'transparent', boxShadow: 'none',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', color: open ? 'var(--text)' : 'var(--muted)', transition: 'background 0.12s, color 0.12s',
-      }}
-        onMouseEnter={e => { if (!open) { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; } }}
-        onMouseLeave={e => { if (!open) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; } }}
+      <button
+        ref={btnRef}
+        onClick={openPanel}
+        title="What's New"
+        aria-label="What's New"
+        className={cn(
+          'relative flex h-7 w-7 items-center justify-center rounded-md p-0 transition-colors',
+          open
+            ? 'bg-secondary text-foreground'
+            : 'bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground',
+        )}
       >
         <Bell size={16} strokeWidth={1.75} />
         {unread > 0 && (
-          <span style={{
-            position: 'absolute', top: 4, right: 4, width: 7, height: 7,
-            borderRadius: '50%', background: '#2563eb', border: '1.5px solid var(--surface)',
-          }} />
+          <span className="absolute right-1 top-1 h-[7px] w-[7px] rounded-full border-[1.5px] border-background bg-blue" />
         )}
       </button>
 
       {open && box && createPortal(
         <>
-          <div onClick={() => setBox(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000 }} />
-          <div style={{
-            position: 'fixed', zIndex: 1001,
-            // Open below the bell, but flip above when there isn't room (the bell
-            // sits low in the sidebar, so the panel would otherwise run off-screen).
-            ...panelPlacement(box),
-            width: 340, overflowY: 'auto',
-            background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
-            boxShadow: '0 8px 28px rgba(0,0,0,0.22)', padding: 0,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--surface)' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+          <div onClick={() => setBox(null)} className="fixed inset-0 z-[1000]" />
+          <div
+            className="fixed z-[1001] w-[340px] overflow-y-auto rounded-lg border border-border bg-card p-0 shadow-lg"
+            style={{
+              // Open below the bell, but flip above when there isn't room (the bell
+              // sits low in the sidebar, so the panel would otherwise run off-screen).
+              ...panelPlacement(box),
+            }}
+          >
+            <div className="sticky top-0 flex items-center justify-between border-b border-border bg-card px-3.5 py-3">
+              <div className="inline-flex items-center gap-2 text-sm font-bold text-foreground">
                 <Bell size={14} /> What&apos;s New
               </div>
-              <button onClick={() => setBox(null)} style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', padding: 2 }} aria-label="Close">
+              <button onClick={() => setBox(null)} className="inline-flex p-0.5 text-muted-foreground" aria-label="Close">
                 <X size={15} />
               </button>
             </div>
-            <div style={{ padding: '6px 0' }}>
+            <div className="py-1.5">
               {ENTRIES.length === 0 && (
-                <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Nothing new yet.</div>
+                <div className="p-6 text-center text-sm text-muted-foreground">Nothing new yet.</div>
               )}
               {ENTRIES.map(e => (
-                <div key={e.id} style={{ padding: '11px 14px', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{e.title}</span>
-                    <span style={{ fontSize: 11, color: 'var(--subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</span>
+                <div key={e.id} className="border-b border-border px-3.5 py-3">
+                  <div className="flex items-baseline justify-between gap-2.5">
+                    <span className="text-sm font-semibold text-foreground">{e.title}</span>
+                    <span className="shrink-0 whitespace-nowrap text-2xs text-muted-foreground">{fmtDate(e.date)}</span>
                   </div>
-                  <div style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5, color: 'var(--muted)' }}>{e.summary}</div>
+                  <div className="mt-1 text-xs leading-normal text-muted-foreground">{e.summary}</div>
                 </div>
               ))}
             </div>

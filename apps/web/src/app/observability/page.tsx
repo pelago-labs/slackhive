@@ -20,6 +20,8 @@ import { formatTokens } from '../activity/_components/formatTokens';
 import { SevBadge } from '../activity/_components/SevBadge';
 import { RevealCtx, NodeDetailProvider, buildNodes, NodeRow, SensitiveBadge, type NodeData } from '../activity/_components/trace-nodes';
 import { relativeTime } from '@/lib/time';
+import { cn } from '@/lib/utils';
+import { PageShell } from '@/components/patterns';
 import type { TraceTurn } from '@slackhive/shared';
 
 interface AgentLite { id: string; slug: string; name: string }
@@ -67,7 +69,7 @@ interface SessionsPage { sessions: SessionRow[]; nextCursor: string | null }
 
 type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sessions';
 
-const card: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' };
+const cardCls = 'rounded-lg border border-border bg-card px-4 py-3.5';
 
 /** Agent column cell: the (comma-joined) agent names. */
 function AgentCell({ names }: { names: string[] }): React.JSX.Element {
@@ -154,16 +156,16 @@ function Body(): React.JSX.Element {
   const activeTab = tabs.some(t => t.key === tab) ? tab : 'overview';
 
   return (
-    <div style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }} className="fade-up">
+    <PageShell>
       {(
         <>
           {/* Header: title/subtitle left, filters right — fills the otherwise-empty right side. */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-6">
             <div>
-              <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)' }}>
+              <h1 className="text-xl font-bold tracking-[-0.02em] text-foreground">
                 {scope === 'agent' ? `Observability · ${agentName.get(agentFilter) ?? 'Agent'}` : 'Observability'}
               </h1>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+              <div className="mt-1 text-sm text-muted-foreground">
                 Tokens, cost, sensitive data, tools, feedback and sessions across your agents.
               </div>
             </div>
@@ -174,16 +176,14 @@ function Body(): React.JSX.Element {
             />
           </div>
           {/* Tabs */}
-          <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div className="mb-4 flex flex-wrap gap-1">
             {tabs.map(t => {
               const on = t.key === activeTab;
               return (
-                <button key={t.key} onClick={() => setTab(t.key)} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8,
-                  border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`, cursor: 'pointer',
-                  background: on ? 'var(--surface-2)' : 'var(--surface)', color: on ? 'var(--text)' : 'var(--muted)',
-                  fontSize: 12.5, fontWeight: on ? 600 : 500, fontFamily: 'var(--font-sans)',
-                }}><t.Icon size={13} /> {t.label}</button>
+                <button key={t.key} onClick={() => setTab(t.key)} className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs',
+                  on ? 'border-primary bg-muted font-semibold text-foreground' : 'border-border bg-card font-medium text-muted-foreground',
+                )}><t.Icon size={13} /> {t.label}</button>
               );
             })}
           </div>
@@ -198,20 +198,20 @@ function Body(): React.JSX.Element {
             : <Sessions sessions={data.sessions ?? []} cursor={data.sessionsCursor ?? null} fetchMore={loadMoreSessions} agentName={agentName} canTokens={canTokens} canReveal={canReveal} />}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
 
 function Muted({ children }: { children: React.ReactNode }) {
-  return <div style={{ ...card, color: 'var(--muted)', fontSize: 13 }}>{children}</div>;
+  return <div className={cn(cardCls, 'text-sm text-muted-foreground')}>{children}</div>;
 }
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div style={{ ...card, minWidth: 120, flex: '1 1 120px' }}>
-      <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)' }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginTop: 4 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
+    <div className={cn(cardCls, 'min-w-[120px] flex-[1_1_120px]')}>
+      <div className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-xl font-bold text-foreground">{value}</div>
+      {sub && <div className="mt-0.5 text-2xs text-muted-foreground">{sub}</div>}
     </div>
   );
 }
@@ -220,14 +220,14 @@ function fmtMs(ms: number): string { return ms >= 1000 ? `${(ms / 1000).toFixed(
 
 function Bars({ rows, max }: { rows: { label: string; value: number; sub: string }[]; max: number }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="flex flex-col gap-2">
       {rows.map((r, i) => (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '150px 1fr auto', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 12.5, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
-          <div style={{ height: 8, background: 'var(--surface-2)', borderRadius: 99, overflow: 'hidden' }}>
-            <div style={{ width: `${Math.max(3, max ? (r.value / max) * 100 : 0)}%`, height: '100%', background: 'var(--accent-2, #404040)', opacity: 0.75 }} />
+        <div key={i} className="grid grid-cols-[150px_1fr_auto] items-center gap-2.5">
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-foreground">{r.label}</span>
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div className="h-full opacity-75" style={{ width: `${Math.max(3, max ? (r.value / max) * 100 : 0)}%`, background: 'var(--accent-2, #404040)' }} />
           </div>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{r.sub}</span>
+          <span className="whitespace-nowrap font-mono text-2xs text-muted-foreground">{r.sub}</span>
         </div>
       ))}
     </div>
@@ -247,40 +247,37 @@ function TokensChart({ data }: { data: { date: string; input: number; output: nu
   return (
     <div>
       {/* Tooltip line — reserves height so the chart doesn't jump on hover. */}
-      <div style={{ height: 18, marginBottom: 6, fontSize: 12, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="mb-1.5 flex h-[18px] items-center gap-2 text-xs text-foreground">
         {h ? (
           <>
-            <span style={{ fontWeight: 600 }}>{fmtDay(h.date)}</span>
-            <span style={{ color: 'var(--muted)' }}>{formatTokens(h.input + h.output)} total</span>
-            <span style={{ color: 'var(--subtle)' }}>· {formatTokens(h.input)} in · {formatTokens(h.output)} out</span>
+            <span className="font-semibold">{fmtDay(h.date)}</span>
+            <span className="text-muted-foreground">{formatTokens(h.input + h.output)} total</span>
+            <span className="text-muted-foreground">· {formatTokens(h.input)} in · {formatTokens(h.output)} out</span>
           </>
-        ) : <span style={{ color: 'var(--subtle)', fontSize: 11.5 }}>Hover a day for details</span>}
+        ) : <span className="text-2xs text-muted-foreground">Hover a day for details</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 80 }} onMouseLeave={() => setHover(null)}>
+      <div className="flex h-20 items-end gap-[3px]" onMouseLeave={() => setHover(null)}>
         {data.map((d, i) => {
           const total = d.input + d.output;
           const on = hover === i;
           return (
             <div key={d.date} onMouseEnter={() => setHover(i)}
-              style={{ flex: 1, minWidth: 3, height: '100%', display: 'flex', alignItems: 'flex-end', cursor: 'default' }}>
-              <div style={{
-                width: '100%', height: `${Math.max(2, (total / max) * 100)}%`,
-                display: 'flex', flexDirection: 'column', borderRadius: 3, overflow: 'hidden',
-                opacity: hover === null || on ? 1 : 0.45, transition: 'opacity 0.1s',
-              }}>
+              className="flex h-full min-w-[3px] flex-1 cursor-default items-end">
+              <div className="flex w-full flex-col overflow-hidden rounded-[3px] transition-opacity duration-100"
+                style={{ height: `${Math.max(2, (total / max) * 100)}%`, opacity: hover === null || on ? 1 : 0.45 }}>
                 <div style={{ height: `${total ? (d.output / total) * 100 : 0}%`, background: 'var(--accent-2, #404040)' }} />
-                <div style={{ height: `${total ? (d.input / total) * 100 : 0}%`, background: 'var(--muted)' }} />
+                <div className="bg-[color:var(--muted)]" style={{ height: `${total ? (d.input / total) * 100 : 0}%` }} />
               </div>
             </div>
           );
         })}
       </div>
       {/* Axis: first → last date + legend. */}
-      <div style={{ display: 'flex', alignItems: 'center', marginTop: 6, fontSize: 10.5, color: 'var(--subtle)' }}>
+      <div className="mt-1.5 flex items-center text-2xs text-muted-foreground">
         <span>{fmtDay(data[0].date)}</span>
-        <span style={{ marginLeft: 'auto', marginRight: 'auto', display: 'inline-flex', gap: 12 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--muted)' }} /> in</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--accent-2, #404040)' }} /> out</span>
+        <span className="mx-auto inline-flex gap-3">
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-[2px] bg-[color:var(--muted)]" /> in</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-[2px]" style={{ background: 'var(--accent-2, #404040)' }} /> out</span>
         </span>
         <span>{fmtDay(data[data.length - 1].date)}</span>
       </div>
@@ -293,18 +290,15 @@ function TokensChart({ data }: { data: { date: string; input: number; output: nu
 /** Accepts a ms epoch (span timestamps) OR a SQLite 'YYYY-MM-DD HH:MM:SS' string. */
 interface Col<T> { label: string; align?: 'left' | 'right' | 'center'; width?: string; render: (row: T) => React.ReactNode }
 
+const thCls = 'whitespace-nowrap border-b border-border px-3 py-2 text-2xs font-semibold uppercase tracking-[0.03em] text-muted-foreground';
+
 function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; rowHref?: (r: T) => string | undefined; empty: string }) {
   const router = useRouter();
-  const [hover, setHover] = useState<number | null>(null);
-  if (rows.length === 0) return <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center' }}>{empty}</div>;
-  const th: React.CSSProperties = {
-    fontSize: 11, fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase',
-    color: 'var(--subtle)', padding: '8px 12px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
-  };
+  if (rows.length === 0) return <div className="px-3 py-4 text-center text-xs text-muted-foreground">{empty}</div>;
   return (
-    <div style={{ overflowX: 'auto', margin: '0 -16px -14px', borderTop: '1px solid var(--border)' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans)' }}>
-        <thead><tr>{cols.map((c, i) => <th key={i} style={{ ...th, textAlign: c.align ?? 'left', width: c.width, paddingLeft: i === 0 ? 16 : 12, paddingRight: i === cols.length - 1 ? 16 : 12 }}>{c.label}</th>)}</tr></thead>
+    <div className="-mx-4 -mb-3.5 overflow-x-auto border-t border-border">
+      <table className="w-full border-collapse">
+        <thead><tr>{cols.map((c, i) => <th key={i} className={cn(thCls, i === 0 ? 'pl-4' : 'pl-3', i === cols.length - 1 ? 'pr-4' : 'pr-3')} style={{ textAlign: c.align ?? 'left', width: c.width }}>{c.label}</th>)}</tr></thead>
         <tbody>
           {rows.map((row, ri) => {
             const href = rowHref?.(row);
@@ -312,16 +306,15 @@ function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; r
             return (
               <tr key={ri}
                 onClick={href ? () => router.push(href) : undefined}
-                onMouseEnter={() => setHover(ri)} onMouseLeave={() => setHover(null)}
-                style={{ cursor: href ? 'pointer' : 'default', background: hover === ri ? 'var(--surface-2)' : 'transparent', transition: 'background 0.1s' }}>
+                className={cn('trace-node', href ? 'cursor-pointer' : 'cursor-default')}>
                 {cols.map((c, ci) => (
-                  <td key={ci} style={{
-                    fontSize: 13, color: 'var(--text)', padding: '10px 12px',
-                    paddingLeft: ci === 0 ? 16 : 12, paddingRight: ci === cols.length - 1 ? 16 : 12,
-                    borderBottom: last ? 'none' : '1px solid var(--border)', whiteSpace: 'nowrap', verticalAlign: 'middle',
-                    textAlign: c.align ?? 'left',
-                    ...(c.align === 'right' ? { fontVariantNumeric: 'tabular-nums' } : {}),
-                  }}>{c.render(row)}</td>
+                  <td key={ci} className={cn(
+                    'px-3 py-2.5 align-middle text-sm text-foreground',
+                    ci === 0 ? 'pl-4' : 'pl-3', ci === cols.length - 1 ? 'pr-4' : 'pr-3',
+                    last ? 'border-b-0' : 'border-b border-border',
+                    c.align === 'right' && 'whitespace-nowrap tabular-nums',
+                    c.align !== 'right' && 'whitespace-nowrap',
+                  )} style={{ textAlign: c.align ?? 'left' }}>{c.render(row)}</td>
                 ))}
               </tr>
             );
@@ -333,17 +326,18 @@ function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; r
 }
 
 function StatePill({ status }: { status: 'active' | 'done' | 'error' }) {
-  const c = status === 'error' ? '#dc2626' : status === 'active' ? '#2563eb' : '#16a34a';
+  const cls = status === 'error' ? 'text-red' : status === 'active' ? 'text-blue' : 'text-green';
+  const dot = status === 'error' ? 'bg-red' : status === 'active' ? 'bg-blue' : 'bg-green';
   const label = status === 'active' ? 'Running' : status === 'error' ? 'Error' : 'OK';
-  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: c }}>
-    <span style={{ width: 6, height: 6, borderRadius: '50%', background: c }} />{label}</span>;
+  return <span className={cn('inline-flex items-center gap-1.5 text-2xs', cls)}>
+    <span className={cn('h-1.5 w-1.5 rounded-full', dot)} />{label}</span>;
 }
 
 function FeedbackCell({ up, down }: { up: number; down: number }) {
-  if (up + down === 0) return <span style={{ color: 'var(--subtle)' }}>—</span>;
-  return <span style={{ display: 'inline-flex', gap: 10, fontSize: 12 }}>
-    {up > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#16a34a' }}><ThumbsUp size={12} />{up}</span>}
-    {down > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#dc2626' }}><ThumbsDown size={12} />{down}</span>}
+  if (up + down === 0) return <span className="text-muted-foreground">—</span>;
+  return <span className="inline-flex gap-2.5 text-xs">
+    {up > 0 && <span className="inline-flex items-center gap-0.5 text-green"><ThumbsUp size={12} />{up}</span>}
+    {down > 0 && <span className="inline-flex items-center gap-0.5 text-red"><ThumbsDown size={12} />{down}</span>}
   </span>;
 }
 
@@ -357,15 +351,15 @@ function Overview({ data, agentName, canTokens, onTab }: { data: InsightsRespons
   const sessions = (data.sessions ?? []).slice(0, 6);
   const events = [...(data.events ?? [])].sort((a, b) => b.startMs - a.startMs).slice(0, 6);
   const sectionTitle = (label: string, t?: TabKey): React.ReactNode => (
-    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-      <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
-      {t && <button onClick={() => onTab(t)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11.5, fontFamily: 'var(--font-sans)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>View all <ArrowRight size={11} /></button>}
+    <div className="mb-2 flex items-center">
+      <span className="text-sm font-semibold">{label}</span>
+      {t && <button onClick={() => onTab(t)} className="ml-auto inline-flex cursor-pointer items-center gap-0.5 border-none bg-transparent text-2xs text-muted-foreground">View all <ArrowRight size={11} /></button>}
     </div>
   );
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div className="flex flex-col gap-3.5">
       {/* KPI strip */}
-      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
         <Kpi label="Sessions" value={String(r.sessions ?? 0)} sub={`${r.turns} turns`} />
         <Kpi label="Errors" value={String(r.errorTurns ?? 0)} sub={r.turns ? `${Math.round(((r.errorTurns ?? 0) / r.turns) * 100)}% of turns` : '—'} />
         <Kpi label="Latency p50/p95" value={fmtMs(r.p50DurationMs)} sub={`p95 ${fmtMs(r.p95DurationMs)}`} />
@@ -376,23 +370,23 @@ function Overview({ data, agentName, canTokens, onTab }: { data: InsightsRespons
 
       {/* Tokens per day (superadmin) */}
       {canTokens && tokDays.length > 1 && (
-        <div style={card}>
+        <div className={cardCls}>
           {sectionTitle('Tokens per day')}
           <TokensChart data={tokDays} />
         </div>
       )}
 
       {/* Models + top tools + satisfaction */}
-      <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-3.5">
         {r.models.length > 0 && (
-          <div style={card}>
+          <div className={cardCls}>
             {sectionTitle('By model')}
             <Bars max={Math.max(1, ...r.models.map(m => canTokens ? m.tokens : m.turns))}
               rows={r.models.map(m => ({ label: m.model, value: canTokens ? m.tokens : m.turns, sub: canTokens ? `${formatTokens(m.tokens)} tok` : `${m.turns} turns` }))} />
           </div>
         )}
         {topTools.length > 0 && (
-          <div style={card}>
+          <div className={cardCls}>
             {sectionTitle('Top tools', 'tools')}
             <Bars max={Math.max(1, ...topTools.map(t => t.count))}
               rows={topTools.slice(0, 6).map(t => ({ label: t.name, value: t.count, sub: `${t.count}${t.errors ? ` · ${t.errors} err` : ''}` }))} />
@@ -403,7 +397,7 @@ function Overview({ data, agentName, canTokens, onTab }: { data: InsightsRespons
 
       {/* Recent sessions */}
       {sessions.length > 0 && (
-        <div style={card}>
+        <div className={cardCls}>
           {sectionTitle('Recent sessions', 'sessions')}
           <Table<SessionRow> rows={sessions} empty="" rowHref={s => `/activity/${encodeURIComponent(s.sessionId)}`}
             cols={[
@@ -418,13 +412,13 @@ function Overview({ data, agentName, canTokens, onTab }: { data: InsightsRespons
 
       {/* Recent sensitive activity */}
       {events.length > 0 && (
-        <div style={card}>
+        <div className={cardCls}>
           {sectionTitle('Recent sensitive activity', 'sensitive')}
           <Table<SensEvent> rows={events} empty="" rowHref={e => `/activity/${encodeURIComponent(e.sessionId)}?span=${encodeURIComponent(e.spanId)}`}
             cols={[
               { label: 'Severity', render: e => e.severity ? <SevBadge s={e.severity} /> : <Subtle>—</Subtle> },
               { label: 'Type', render: e => <Mono>{e.reason ?? ''}</Mono> },
-              { label: 'Where', render: e => <code style={{ fontSize: 12, fontWeight: 600 }}>{e.toolName ?? 'response'}</code> },
+              { label: 'Where', render: e => <code className="text-xs font-semibold">{e.toolName ?? 'response'}</code> },
               { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(e.startMs)}</Subtle> },
             ]} />
         </div>
@@ -438,12 +432,12 @@ function Tokens({ data, agentName, canTokens, isSuper }: { data: InsightsRespons
   const byAgent = (data.byAgent ?? []).slice().sort((a, b) => (b.inputTokens + b.outputTokens) - (a.inputTokens + a.outputTokens));
   const power = data.powerUsers ?? [];
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={card}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tokens by agent</div>
+    <div className="flex flex-col gap-3.5">
+      <div className={cardCls}>
+        <div className="mb-1.5 text-sm font-semibold">Tokens by agent</div>
         <Table<AgentTokens> rows={byAgent} empty="No token usage in this window."
           cols={[
-            { label: 'Agent', render: a => <span style={{ fontWeight: 500 }}>{agentName.get(a.agentId) ?? a.agentId}</span> },
+            { label: 'Agent', render: a => <span className="font-medium">{agentName.get(a.agentId) ?? a.agentId}</span> },
             { label: 'Input', align: 'right', render: a => <Mono>{formatTokens(a.inputTokens)}</Mono> },
             { label: 'Output', align: 'right', render: a => <Mono>{formatTokens(a.outputTokens)}</Mono> },
             { label: 'Total', align: 'right', render: a => <Mono>{formatTokens(a.inputTokens + a.outputTokens)}</Mono> },
@@ -452,8 +446,8 @@ function Tokens({ data, agentName, canTokens, isSuper }: { data: InsightsRespons
       </div>
       {/* Org-wide power-users leaderboard is superadmin-only (the route returns null otherwise). */}
       {isSuper && (
-        <div style={card}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Power users</div>
+        <div className={cardCls}>
+          <div className="mb-1.5 text-sm font-semibold">Power users</div>
           <Table<PowerUser> rows={power} empty="No users in this window."
             cols={[
               { label: '#', width: '32px', render: (_u: PowerUser) => <span /> },
@@ -470,29 +464,29 @@ function Tokens({ data, agentName, canTokens, isSuper }: { data: InsightsRespons
 
 function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div className="flex flex-col gap-3.5">
       {flows.length > 0 && (
-        <div style={card}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Exfiltration flows</div>
+        <div className={cardCls}>
+          <div className="mb-1.5 text-sm font-semibold">Exfiltration flows</div>
           <Table<SensFlow> rows={flows} empty="" rowHref={f => f.sessionId ? `/activity/${encodeURIComponent(f.sessionId)}?span=${encodeURIComponent(f.sinkSpanId)}` : undefined}
             cols={[
               { label: 'Severity', render: f => <SevBadge s={f.severity} /> },
-              { label: 'Kind', render: f => <span style={{ fontWeight: 500 }}>{f.label}</span> },
+              { label: 'Kind', render: f => <span className="font-medium">{f.label}</span> },
               { label: 'Source → Sink', render: f => <Mono>{f.sourceLabel} → {f.sinkLabel}</Mono> },
               { label: 'When', align: 'right', render: f => <Subtle>{relativeTime(f.startMs)}</Subtle> },
             ]} />
         </div>
       )}
-      <div style={card}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Sensitive access</div>
+      <div className={cardCls}>
+        <div className="mb-1.5 text-sm font-semibold">Sensitive access</div>
         <Table<SensEvent> rows={[...events].sort((a, b) => b.startMs - a.startMs)} empty="Nothing flagged in this window."
           rowHref={e => `/activity/${encodeURIComponent(e.sessionId)}?span=${encodeURIComponent(e.spanId)}`}
           cols={[
             { label: 'Severity', render: e => e.severity ? <SevBadge s={e.severity} /> : <Subtle>—</Subtle> },
             { label: 'Type', render: e => <Mono>{e.reason ?? ''}</Mono> },
-            { label: 'Where', render: e => <code style={{ fontSize: 12, fontWeight: 600 }}>{e.toolName ?? 'response'}</code> },
+            { label: 'Where', render: e => <code className="text-xs font-semibold">{e.toolName ?? 'response'}</code> },
             { label: 'Source', render: e => e.caughtByLlm
-              ? <span title="Caught by the Smart (LLM) detector" style={{ fontSize: 11.5, fontWeight: 600, color: '#b45309' }}>AI</span>
+              ? <span title="Caught by the Smart (LLM) detector" className="text-2xs font-semibold text-amber">AI</span>
               : <Subtle>regex</Subtle> },
             { label: 'Agent', render: e => <Subtle>{e.agentName ?? ''}</Subtle> },
             { label: 'When', align: 'right', render: e => <Subtle>{relativeTime(e.startMs)}</Subtle> },
@@ -506,39 +500,39 @@ function Tools({ tools }: { tools: ToolStat[] }) {
   const [open, setOpen] = useState<string | null>(null);
   const sorted = [...tools].sort((a, b) => b.calls - a.calls);
   return (
-    <div style={card}>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tools</div>
-      {sorted.length === 0 ? <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center' }}>No tool calls in this window.</div> : (
-        <div style={{ margin: '0 -16px -14px', borderTop: '1px solid var(--border)' }}>
+    <div className={cardCls}>
+      <div className="mb-1.5 text-sm font-semibold">Tools</div>
+      {sorted.length === 0 ? <div className="px-3 py-4 text-center text-xs text-muted-foreground">No tool calls in this window.</div> : (
+        <div className="-mx-4 -mb-3.5 border-t border-border">
           {sorted.map((t, i) => {
             const hasErr = t.errors > 0 && (t.errorGroups?.length ?? 0) > 0;
             const expanded = open === t.name;
             const last = i === sorted.length - 1;
             return (
-              <div key={t.name} style={{ borderBottom: last && !expanded ? 'none' : '1px solid var(--border)' }}>
+              <div key={t.name} className={cn(last && !expanded ? 'border-b-0' : 'border-b border-border')}>
                 <div
                   onClick={hasErr ? () => setOpen(expanded ? null : t.name) : undefined}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', cursor: hasErr ? 'pointer' : 'default' }}>
+                  className={cn('flex items-center gap-2.5 px-4 py-2.5', hasErr ? 'cursor-pointer' : 'cursor-default')}>
                   {hasErr
-                    ? (expanded ? <ChevronDown size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} />)
-                    : <span style={{ width: 13, flexShrink: 0 }} />}
-                  <code style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</code>
-                  <span style={{ fontSize: 12.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', width: 70, textAlign: 'right' }}>{t.calls} calls</span>
-                  <span style={{ fontSize: 12.5, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', width: 90, textAlign: 'right', color: t.errors ? '#dc2626' : 'var(--subtle)' }}>
+                    ? (expanded ? <ChevronDown size={13} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={13} className="shrink-0 text-muted-foreground" />)
+                    : <span className="w-[13px] shrink-0" />}
+                  <code className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold">{t.name}</code>
+                  <span className="w-[70px] text-right font-mono text-xs tabular-nums text-muted-foreground">{t.calls} calls</span>
+                  <span className={cn('w-[90px] text-right font-mono text-xs tabular-nums', t.errors ? 'text-red' : 'text-muted-foreground')}>
                     {t.errors ? `${t.errors} err · ${Math.round((t.errors / t.calls) * 100)}%` : 'no errors'}
                   </span>
                 </div>
                 {expanded && (
-                  <div style={{ padding: '2px 16px 12px 39px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="flex flex-col gap-2 pb-3 pl-[39px] pr-4 pt-0.5">
                     {(t.errorGroups ?? []).map((g, gi) => (
-                      <div key={gi} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                        <span title={`${g.count} occurrences`} style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: '#dc2626', background: 'rgba(220,38,38,0.1)', borderRadius: 6, padding: '2px 7px', fontVariantNumeric: 'tabular-nums' }}>{g.count}×</span>
-                        <span style={{ flex: 1, fontSize: 12, color: 'var(--text-2)', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 }}>{g.message}</span>
-                        <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          {g.sessions > 1 && <span style={{ fontSize: 11, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>{g.sessions} sessions</span>}
+                      <div key={gi} className="flex items-start gap-2.5">
+                        <span title={`${g.count} occurrences`} className="shrink-0 rounded-md bg-destructive/10 px-1.5 py-0.5 text-2xs font-bold tabular-nums text-red">{g.count}×</span>
+                        <span className="flex-1 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{g.message}</span>
+                        <span className="inline-flex shrink-0 items-center gap-2">
+                          {g.sessions > 1 && <span className="whitespace-nowrap text-2xs text-muted-foreground">{g.sessions} sessions</span>}
                           {g.sampleSessionId && (
                             <Link href={`/activity/${encodeURIComponent(g.sampleSessionId)}`} onClick={e => e.stopPropagation()}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                              className="inline-flex items-center gap-1 whitespace-nowrap text-2xs text-primary no-underline">
                               {g.sessions > 1 ? 'Latest' : 'View session'} <ArrowRight size={11} />
                             </Link>
                           )}
@@ -557,19 +551,27 @@ function Tools({ tools }: { tools: ToolStat[] }) {
 }
 
 function FilterChip({ active, onClick, color, children }: { active: boolean; onClick: () => void; color?: string; children: React.ReactNode }): React.JSX.Element {
-  const c = color ?? 'var(--accent)';
+  // When a `color` is supplied (the sensitive chip), the active border/text/bg are
+  // tinted with that color — kept inline since it's a dynamic per-chip value.
+  if (color) {
+    return (
+      <button onClick={onClick} className="rounded-md border px-2.5 py-1 text-2xs font-medium" style={{
+        borderColor: active ? color : 'var(--border)',
+        background: active ? `${color}14` : 'var(--surface)',
+        color: active ? color : 'var(--muted)',
+      }}>{children}</button>
+    );
+  }
   return (
-    <button onClick={onClick} style={{
-      fontSize: 11.5, fontWeight: 500, padding: '4px 10px', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-      border: `1px solid ${active ? c : 'var(--border)'}`,
-      background: active ? `${color ? `${color}14` : 'var(--surface-2)'}` : 'var(--surface)',
-      color: active ? (color ?? 'var(--text)') : 'var(--muted)',
-    }}>{children}</button>
+    <button onClick={onClick} className={cn(
+      'rounded-md border px-2.5 py-1 text-2xs font-medium',
+      active ? 'border-primary bg-muted text-foreground' : 'border-border bg-card text-muted-foreground',
+    )}>{children}</button>
   );
 }
 
-function Mono({ children }: { children: React.ReactNode }) { return <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{children}</span>; }
-function Subtle({ children }: { children: React.ReactNode }) { return <span style={{ color: 'var(--subtle)' }}>{children}</span>; }
+function Mono({ children }: { children: React.ReactNode }) { return <span className="font-mono text-muted-foreground">{children}</span>; }
+function Subtle({ children }: { children: React.ReactNode }) { return <span className="text-muted-foreground">{children}</span>; }
 
 /** Satisfaction card (rendered on the Overview): big %, a green/red split bar,
  *  up/down counts, and a contextual note. Returns null when there are no ratings. */
@@ -578,27 +580,27 @@ function FeedbackCard({ r, scope }: { r: Rollup | null; scope: string }): React.
   const total = up + down;
   if (total === 0) return null;
   const pct = Math.round((up / total) * 100);
-  const tone = pct >= 80 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+  const toneCls = pct >= 80 ? 'text-green' : pct >= 50 ? 'text-amber' : 'text-red';
   const label = pct >= 80 ? 'Great' : pct >= 50 ? 'Mixed' : 'Poor';
   return (
-    <div style={card}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>Satisfaction</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--subtle)' }}>{total} rating{total === 1 ? '' : 's'}</span>
+    <div className={cardCls}>
+      <div className="mb-2.5 flex items-center">
+        <span className="text-sm font-semibold">Satisfaction</span>
+        <span className="ml-auto text-2xs text-muted-foreground">{total} rating{total === 1 ? '' : 's'}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', color: tone, lineHeight: 1 }}>{pct}%</span>
-        <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{label}</span>
+      <div className="flex items-baseline gap-2.5">
+        <span className={cn('text-3xl font-bold leading-none tracking-[-0.02em]', toneCls)}>{pct}%</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
       </div>
       {/* green / red split bar */}
-      <div style={{ display: 'flex', height: 6, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', marginTop: 12 }}>
-        <div style={{ width: `${pct}%`, background: '#16a34a' }} />
-        <div style={{ width: `${100 - pct}%`, background: '#dc2626', opacity: 0.55 }} />
+      <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className="bg-green" style={{ width: `${pct}%` }} />
+        <div className="bg-red opacity-55" style={{ width: `${100 - pct}%` }} />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsUp size={13} style={{ color: '#16a34a' }} /> {up}</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><ThumbsDown size={13} style={{ color: '#dc2626' }} /> {down}</span>
-        {scope === 'all' && <span style={{ marginLeft: 'auto', color: 'var(--subtle)', fontSize: 11.5 }}>Pick an agent for individual ratings</span>}
+      <div className="mt-2.5 flex items-center gap-3.5 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1"><ThumbsUp size={13} className="text-green" /> {up}</span>
+        <span className="inline-flex items-center gap-1"><ThumbsDown size={13} className="text-red" /> {down}</span>
+        {scope === 'all' && <span className="ml-auto text-2xs text-muted-foreground">Pick an agent for individual ratings</span>}
       </div>
     </div>
   );
@@ -614,17 +616,17 @@ function whoLabel(t: TraceTurn): string {
 function StepChips({ nodes }: { nodes: NodeData[] }): React.JSX.Element {
   const shown = nodes.slice(0, 6);
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+    <span className="inline-flex flex-wrap items-center gap-1">
       {shown.map((n, i) => {
         const Icon = n.kind === 'error' ? AlertTriangle : n.kind === 'final' ? CheckCircle2 : n.kind === 'tool' ? Wrench : Brain;
-        const color = n.kind === 'error' ? '#dc2626' : n.kind === 'final' ? '#047857' : 'var(--muted)';
+        const colorCls = n.kind === 'error' ? 'text-red' : n.kind === 'final' ? 'text-green' : 'text-muted-foreground';
         return (
-          <span key={i} title={n.title} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color, background: 'var(--surface-2)', borderRadius: 6, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+          <span key={i} title={n.title} className={cn('inline-flex items-center gap-0.5 whitespace-nowrap rounded-md bg-muted px-1.5 py-px text-2xs', colorCls)}>
             <Icon size={11} />{n.kind === 'tool' ? truncate(n.title, 14) : null}
           </span>
         );
       })}
-      {nodes.length > 6 && <span style={{ fontSize: 11, color: 'var(--subtle)' }}>+{nodes.length - 6}</span>}
+      {nodes.length > 6 && <span className="text-2xs text-muted-foreground">+{nodes.length - 6}</span>}
       {nodes.length === 0 && <Subtle>—</Subtle>}
     </span>
   );
@@ -632,11 +634,11 @@ function StepChips({ nodes }: { nodes: NodeData[] }): React.JSX.Element {
 
 function TurnStatus({ status }: { status: 'in_progress' | 'done' | 'error' }): React.JSX.Element {
   const map = {
-    in_progress: { label: 'Running', bg: 'rgba(37,99,235,0.1)', fg: '#1d4ed8', icon: <Loader2 size={10} style={{ animation: 'spin 1.2s linear infinite' }} /> },
-    done: { label: 'Done', bg: 'rgba(5,150,105,0.1)', fg: '#047857', icon: <CheckCircle2 size={10} /> },
-    error: { label: 'Error', bg: 'rgba(220,38,38,0.1)', fg: '#b91c1c', icon: <AlertTriangle size={10} /> },
+    in_progress: { label: 'Running', cls: 'bg-blue/10 text-blue', icon: <Loader2 size={10} className="animate-spin" /> },
+    done: { label: 'Done', cls: 'bg-green/10 text-green', icon: <CheckCircle2 size={10} /> },
+    error: { label: 'Error', cls: 'bg-destructive/10 text-red', icon: <AlertTriangle size={10} /> },
   }[status];
-  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 10, background: map.bg, color: map.fg, fontSize: 10, fontWeight: 600 }}>{map.icon}{map.label}</span>;
+  return <span className={cn('inline-flex items-center gap-1 rounded-[10px] px-1.5 py-0.5 text-2xs font-semibold', map.cls)}>{map.icon}{map.label}</span>;
 }
 
 /** One turn rendered to mirror the Session table's columns (Request · Initiated by ·
@@ -649,36 +651,36 @@ function TurnRows({ turn, request, sessionId, cols, expanded, onToggle, canToken
 }): React.JSX.Element {
   const nodes = useMemo(() => buildNodes(turn), [turn]);
   const maxMs = Math.max(1, ...nodes.map(n => n.durationMs ?? 0));
-  const td: React.CSSProperties = { fontSize: 13, color: 'var(--text)', padding: '10px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', whiteSpace: 'nowrap' };
+  const tdCls = 'whitespace-nowrap border-b border-border px-3 py-2.5 align-middle text-sm text-foreground';
   const firstSpan = nodes[0]?.key && !nodes[0].key.startsWith('__') ? nodes[0].key : '';
   const up = turn.feedback.filter(f => f.sentiment === 'up').length;
   const down = turn.feedback.filter(f => f.sentiment === 'down').length;
   return (
     <>
-      <tr onClick={onToggle} style={{ cursor: 'pointer', background: indent ? 'var(--surface-2)' : undefined }} className="trace-node">
-        <td style={{ ...td, paddingLeft: indent ? 40 : 16, width: 22, boxShadow: indent ? 'inset 4px 0 0 var(--border-2)' : undefined }}>{expanded ? <ChevronDown size={13} style={{ color: 'var(--subtle)' }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)' }} />}</td>
-        <td style={{ ...td, whiteSpace: 'normal' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--muted)' }}>
-            {turn.sensitive && <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
+      <tr onClick={onToggle} className={cn('trace-node cursor-pointer', indent && 'bg-muted')}>
+        <td className={cn(tdCls, 'w-[22px]', indent ? 'pl-10' : 'pl-4')} style={indent ? { boxShadow: 'inset 4px 0 0 var(--border-2)' } : undefined}>{expanded ? <ChevronDown size={13} className="text-muted-foreground" /> : <ChevronRight size={13} className="text-muted-foreground" />}</td>
+        <td className={cn(tdCls, 'whitespace-normal')}>
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+            {turn.sensitive && <ShieldAlert size={12} className="shrink-0 text-amber" />}
             <span title={request}>{truncate(request, 56)}</span>
           </span>
         </td>
-        <td style={td}><Subtle>{whoLabel(turn)}</Subtle></td>
-        <td style={td}><AgentCell names={turn.agentName ? [turn.agentName] : []} /></td>
-        <td style={td}><StepChips nodes={nodes} /></td>
-        {canTokens && <td style={{ ...td, textAlign: 'right' }}><Mono>{formatTokens(turn.inputTokens + turn.outputTokens)}</Mono></td>}
-        <td style={td}><TurnStatus status={turn.status} /></td>
-        <td style={td}><FeedbackCell up={up} down={down} /></td>
-        <td style={{ ...td, paddingRight: 16, textAlign: 'right' }} title={turn.startedAt}><Subtle>{relativeTime(turn.startedAt)}</Subtle></td>
+        <td className={tdCls}><Subtle>{whoLabel(turn)}</Subtle></td>
+        <td className={tdCls}><AgentCell names={turn.agentName ? [turn.agentName] : []} /></td>
+        <td className={tdCls}><StepChips nodes={nodes} /></td>
+        {canTokens && <td className={cn(tdCls, 'text-right')}><Mono>{formatTokens(turn.inputTokens + turn.outputTokens)}</Mono></td>}
+        <td className={tdCls}><TurnStatus status={turn.status} /></td>
+        <td className={tdCls}><FeedbackCell up={up} down={down} /></td>
+        <td className={cn(tdCls, 'pr-4 text-right')} title={turn.startedAt}><Subtle>{relativeTime(turn.startedAt)}</Subtle></td>
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={cols} style={{ padding: 0, background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', boxShadow: indent ? 'inset 4px 0 0 var(--border-2)' : undefined }}>
-            <div style={{ padding: '6px 16px 12px 56px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <td colSpan={cols} className="border-b border-border bg-muted p-0" style={indent ? { boxShadow: 'inset 4px 0 0 var(--border-2)' } : undefined}>
+            <div className="flex flex-col gap-1.5 pb-3 pl-14 pr-4 pt-1.5">
               {/* RevealCtx is provided by the enclosing view (admin → revealable). */}
               {nodes.map((n, ni) => <NodeRow key={n.key} node={n} maxMs={maxMs} isLast={ni === nodes.length - 1} />)}
               <a href={`/activity/${encodeURIComponent(sessionId)}${firstSpan ? `?span=${encodeURIComponent(firstSpan)}` : ''}`}
-                style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
+                className="inline-flex items-center gap-1 self-start text-xs text-primary no-underline">
                 Open full session <ArrowRight size={12} />
               </a>
             </div>
@@ -783,48 +785,43 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
   const errCount = rows.filter(s => s.status === 'error').length;
   const sensCount = rows.filter(s => s.sensitive).length;
   const cols = canTokens ? 9 : 8;
-  const th: React.CSSProperties = { fontSize: 11, fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '8px 12px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textAlign: 'left' };
-  const td: React.CSSProperties = { fontSize: 13, color: 'var(--text)', padding: '10px 12px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', whiteSpace: 'nowrap' };
+  const tdCls = 'whitespace-nowrap border-b border-border px-3 py-2.5 align-middle text-sm text-foreground';
 
   return (
     <RevealCtx.Provider value={canReveal}>
      <NodeDetailProvider>
-      <div style={card}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>Sessions</div>
-          <div style={{ display: 'inline-flex', gap: 4, marginLeft: 6 }}>
+      <div className={cardCls}>
+        <div className="mb-2.5 flex flex-wrap items-center gap-2">
+          <div className="text-sm font-semibold">Sessions</div>
+          <div className="ml-1.5 inline-flex gap-1">
             {([['all', 'All'], ['done', 'OK'], ['error', `Errors${errCount ? ` ${errCount}` : ''}`], ['active', 'Running']] as const).map(([key, label]) => (
               <FilterChip key={key} active={stateFilter === key} onClick={() => setStateFilter(key)}>{label}</FilterChip>
             ))}
             {sensCount > 0 && <FilterChip active={sensOnly} onClick={() => setSensOnly(v => !v)} color="#b45309">Sensitive {sensCount}</FilterChip>}
           </div>
           {initiators.length > 0 && (
-            <select value={initiator} onChange={e => setInitiator(e.target.value)} title="Filter by who initiated" style={{
-              fontSize: 12.5, fontWeight: 500, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>
+            <select value={initiator} onChange={e => setInitiator(e.target.value)} title="Filter by who initiated"
+              className="cursor-pointer rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground">
               <option value="">All initiators</option>
               {initiators.map(h => <option key={h} value={h}>@{h}</option>)}
             </select>
           )}
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search sessions…" style={{
-            marginLeft: 'auto', width: 200, padding: '6px 10px', fontSize: 12.5, borderRadius: 8,
-            border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)', fontFamily: 'var(--font-sans)',
-          }} />
-          <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{filtered.length}</span>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search sessions…"
+            className="ml-auto w-[200px] rounded-md border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground" />
+          <span className="text-2xs text-muted-foreground">{filtered.length}</span>
         </div>
         {filtered.length === 0 ? (
-          <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center' }}>No sessions in this window.</div>
+          <div className="px-3 py-4 text-center text-xs text-muted-foreground">No sessions in this window.</div>
         ) : (
-          <div style={{ overflowX: 'auto', margin: '0 -16px -14px', borderTop: '1px solid var(--border)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-sans)' }}>
+          <div className="-mx-4 -mb-3.5 overflow-x-auto border-t border-border">
+            <table className="w-full border-collapse">
               <thead><tr>
-                <th style={{ ...th, paddingLeft: 16, width: 22 }} />
-                <th style={th}>Request</th><th style={th}>Initiated by</th><th style={th}>Agent</th>
-                <th style={th}>Steps</th>
-                {canTokens && <th style={{ ...th, textAlign: 'right' }}>Tokens</th>}
-                <th style={th}>State</th><th style={th}>Feedback</th>
-                <th style={{ ...th, paddingRight: 16, textAlign: 'right' }}>When</th>
+                <th className={cn(thCls, 'w-[22px] pl-4')} />
+                <th className={thCls}>Request</th><th className={thCls}>Initiated by</th><th className={thCls}>Agent</th>
+                <th className={thCls}>Steps</th>
+                {canTokens && <th className={cn(thCls, 'text-right')}>Tokens</th>}
+                <th className={thCls}>State</th><th className={thCls}>Feedback</th>
+                <th className={cn(thCls, 'pr-4 text-right')}>When</th>
               </tr></thead>
               <tbody>
                 {filtered.map(s => {
@@ -832,41 +829,41 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
                   const turns = turnsBySession[s.sessionId];
                   // When open, the session reads as a dropdown header: tinted, bolder,
                   // and border-less at the bottom so it visually connects to its turns.
-                  const rowTd: React.CSSProperties = open ? { ...td, background: 'var(--surface-2)', borderBottom: 'none' } : td;
-                  const nestNote: React.CSSProperties = { padding: '8px 16px 8px 46px', background: 'var(--surface-2)', color: 'var(--muted)', fontSize: 12.5, borderBottom: '1px solid var(--border)', boxShadow: 'inset 4px 0 0 var(--border-2)' };
+                  const rowTdCls = cn(tdCls, open && 'bg-muted border-b-0');
+                  const nestNoteCls = 'border-b border-border bg-muted py-2 pl-[46px] pr-4 text-xs text-muted-foreground';
                   return (
                     <React.Fragment key={s.sessionId}>
-                      <tr onClick={() => toggleSession(s.sessionId)} style={{ cursor: 'pointer' }} className="trace-node">
-                        <td style={{ ...rowTd, paddingLeft: 16, width: 22 }}>{open ? <ChevronDown size={13} style={{ color: 'var(--accent)' }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)' }} />}</td>
-                        <td style={{ ...rowTd, whiteSpace: 'normal' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: open ? 600 : 500 }}>
-                            {s.sensitive && <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
+                      <tr onClick={() => toggleSession(s.sessionId)} className="trace-node cursor-pointer">
+                        <td className={cn(rowTdCls, 'w-[22px] pl-4')}>{open ? <ChevronDown size={13} className="text-primary" /> : <ChevronRight size={13} className="text-muted-foreground" />}</td>
+                        <td className={cn(rowTdCls, 'whitespace-normal')}>
+                          <span className={cn('inline-flex items-center gap-1.5', open ? 'font-semibold' : 'font-medium')}>
+                            {s.sensitive && <ShieldAlert size={12} className="shrink-0 text-amber" />}
                             <span title={s.summary ?? ''}>{truncate(s.summary || '(no summary)', 56)}</span>
                             <a href={`/activity/${encodeURIComponent(s.sessionId)}`} onClick={e => e.stopPropagation()} title="Open full session"
-                              style={{ display: 'inline-flex', color: 'var(--subtle)', flexShrink: 0 }}><ExternalLink size={12} /></a>
+                              className="inline-flex shrink-0 text-muted-foreground"><ExternalLink size={12} /></a>
                           </span>
                         </td>
-                        <td style={rowTd}><Subtle>{s.initiatorHandle ? `@${s.initiatorHandle}` : '—'}</Subtle></td>
-                        <td style={rowTd}><AgentCell names={s.agentIds.map(id => agentName.get(id) ?? id)} /></td>
-                        <td style={rowTd}><Subtle>{s.turns} turn{s.turns === 1 ? '' : 's'}</Subtle></td>
-                        {canTokens && <td style={{ ...rowTd, textAlign: 'right' }}><Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono></td>}
-                        <td style={rowTd}><StatePill status={s.status} /></td>
-                        <td style={rowTd}><FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /></td>
-                        <td style={{ ...rowTd, paddingRight: 16, textAlign: 'right' }} title={s.startedAt}><Subtle>{relativeTime(s.startedAt)}</Subtle></td>
+                        <td className={rowTdCls}><Subtle>{s.initiatorHandle ? `@${s.initiatorHandle}` : '—'}</Subtle></td>
+                        <td className={rowTdCls}><AgentCell names={s.agentIds.map(id => agentName.get(id) ?? id)} /></td>
+                        <td className={rowTdCls}><Subtle>{s.turns} turn{s.turns === 1 ? '' : 's'}</Subtle></td>
+                        {canTokens && <td className={cn(rowTdCls, 'text-right')}><Mono>{formatTokens(s.inputTokens + s.outputTokens)}</Mono></td>}
+                        <td className={rowTdCls}><StatePill status={s.status} /></td>
+                        <td className={rowTdCls}><FeedbackCell up={s.feedbackUp} down={s.feedbackDown} /></td>
+                        <td className={cn(rowTdCls, 'pr-4 text-right')} title={s.startedAt}><Subtle>{relativeTime(s.startedAt)}</Subtle></td>
                       </tr>
                       {open && (errorSession.has(s.sessionId) ? (
-                        <tr><td colSpan={cols} style={nestNote}>
+                        <tr><td colSpan={cols} className={nestNoteCls} style={{ boxShadow: 'inset 4px 0 0 var(--border-2)' }}>
                           Couldn’t load turns.{' '}
-                          <button onClick={() => loadSessionTurns(s.sessionId)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }}>Retry</button>
+                          <button onClick={() => loadSessionTurns(s.sessionId)} className="cursor-pointer border-none bg-transparent p-0 font-[inherit] text-primary">Retry</button>
                           {' · '}
-                          <a href={`/activity/${encodeURIComponent(s.sessionId)}`} style={{ color: 'var(--accent)' }}>Open full session</a>
+                          <a href={`/activity/${encodeURIComponent(s.sessionId)}`} className="text-primary">Open full session</a>
                         </td></tr>
                       ) : loadingSession.has(s.sessionId) || turns === undefined ? (
-                        <tr><td colSpan={cols} style={nestNote}>Loading turns…</td></tr>
+                        <tr><td colSpan={cols} className={nestNoteCls} style={{ boxShadow: 'inset 4px 0 0 var(--border-2)' }}>Loading turns…</td></tr>
                       ) : turns.length === 0 ? (
-                        <tr><td colSpan={cols} style={nestNote}>
+                        <tr><td colSpan={cols} className={nestNoteCls} style={{ boxShadow: 'inset 4px 0 0 var(--border-2)' }}>
                           No turns.{' '}
-                          <a href={`/activity/${encodeURIComponent(s.sessionId)}`} style={{ color: 'var(--accent)' }}>Open full session</a>
+                          <a href={`/activity/${encodeURIComponent(s.sessionId)}`} className="text-primary">Open full session</a>
                         </td></tr>
                       ) : turns.map(t => (
                         <TurnRows key={t.activityId} turn={t} request={t.messagePreview || '(turn)'} sessionId={s.sessionId}
@@ -880,12 +877,11 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
           </div>
         )}
         {nextCursor && (
-          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12 }}>
-            <button onClick={loadMore} disabled={loadingMore} style={{
-              fontSize: 12.5, fontWeight: 500, fontFamily: 'var(--font-sans)', color: 'var(--text)',
-              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
-              padding: '7px 16px', cursor: loadingMore ? 'default' : 'pointer', opacity: loadingMore ? 0.6 : 1,
-            }}>{loadingMore ? 'Loading…' : 'Load more'}</button>
+          <div className="flex justify-center pt-3">
+            <button onClick={loadMore} disabled={loadingMore} className={cn(
+              'rounded-md border border-border bg-card px-4 py-1.5 text-xs font-medium text-foreground',
+              loadingMore ? 'cursor-default opacity-60' : 'cursor-pointer',
+            )}>{loadingMore ? 'Loading…' : 'Load more'}</button>
           </div>
         )}
       </div>
@@ -896,11 +892,11 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
 
 function DeniedCard(): React.JSX.Element {
   return (
-    <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 12 }}>
-      <Lock size={18} style={{ color: 'var(--muted)' }} />
+    <div className={cn(cardCls, 'flex items-center gap-3')}>
+      <Lock size={18} className="text-muted-foreground" />
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Tokens & cost are superadmin-only</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Billing-adjacent data. Ask a superadmin if you need access.</div>
+        <div className="text-sm font-semibold text-foreground">Tokens & cost are superadmin-only</div>
+        <div className="text-xs text-muted-foreground">Billing-adjacent data. Ask a superadmin if you need access.</div>
       </div>
     </div>
   );

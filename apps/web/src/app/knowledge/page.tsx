@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '@/lib/auth-context';
-import { ChevronDown, ChevronRight, FileText, BookOpen, Download, Globe, GitBranch, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, BookOpen, Globe, GitBranch, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 interface WikiFolder {
   id: string;
@@ -93,7 +95,11 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
   if (isFolder) {
     return (
       <div>
-        <div onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: `6px 6px 2px ${6 + depth * 12}px`, fontSize: 10.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', letterSpacing: '0.02em' }}>
+        <div
+          onClick={() => setOpen(!open)}
+          className="flex cursor-pointer items-center gap-1 pb-0.5 pt-1.5 font-mono text-2xs tracking-[0.02em] text-muted-foreground"
+          style={{ paddingLeft: 6 + depth * 12, paddingRight: 6 }}
+        >
           {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
           {label}/
         </div>
@@ -107,12 +113,14 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
   return (
     <div
       onClick={() => node.path && onSelect(node.path)}
-      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: `4px 8px 4px ${8 + depth * 12}px`, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-mono)', background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent', color: isActive ? 'var(--accent)' : 'var(--muted)', transition: 'background 0.12s, color 0.12s', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
-      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+      className={cn(
+        'flex cursor-pointer items-center gap-1 overflow-hidden truncate whitespace-nowrap rounded-md py-1 pr-2 font-mono text-xs transition-colors',
+        isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-secondary',
+      )}
+      style={{ paddingLeft: 8 + depth * 12 }}
     >
-      <FileText size={12} style={{ flexShrink: 0 }} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name.replace('.md', '')}</span>
+      <FileText size={12} className="shrink-0" />
+      <span className="overflow-hidden truncate whitespace-nowrap">{node.name.replace('.md', '')}</span>
     </div>
   );
 }
@@ -120,7 +128,7 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
 function WikiTree({ articles, onSelect, selected }: { articles: WikiPage[]; onSelect: (path: string) => void; selected: string | null }) {
   const tree = buildTree(articles);
   return (
-    <div style={{ padding: '6px', flex: 1, overflow: 'auto' }}>
+    <div className="flex-1 overflow-auto p-1.5">
       {tree.map(node => (
         <WikiTreeNode key={node.path || node.name} node={node} depth={0} onSelect={onSelect} selected={selected} />
       ))}
@@ -185,7 +193,6 @@ export default function KnowledgePage() {
   const [showBuildDropdown, setShowBuildDropdown] = useState(false);
   const [syncStatus, setSyncStatus]               = useState<Record<string, string>>({});
   const [envVarKeys, setEnvVarKeys]               = useState<string[]>([]);
-  const [downloading, setDownloading]             = useState(false);
 
   const isAdmin = role === 'admin' || role === 'superadmin';
   const isOwnerOrAdmin = (f: WikiFolder) => isAdmin || (canEdit && f.createdBy === username);
@@ -428,78 +435,75 @@ export default function KnowledgePage() {
   // ── Folder list view ──────────────────────────────────────────────────────
   if (!selected) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }} className="fade-up">
+      <div className="fade-up flex min-h-screen flex-col">
         {/* Header */}
-        <div style={{ padding: '28px 40px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div className="shrink-0 border-b border-border px-10 pt-7">
+          <div className="mb-5 flex items-start justify-between">
             <div>
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.03em' }}>Knowledge Library</h1>
-              <p style={{ margin: '5px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+              <h1 className="m-0 text-xl font-bold tracking-tight text-foreground">Knowledge Library</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
                 {loading ? 'Loading…' : `${folders.length} shared wiki folder${folders.length !== 1 ? 's' : ''}`}
               </p>
             </div>
             {canEdit && (
-              <button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }} style={primaryBtnStyle}>
+              <Button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }}>
                 + New Folder
-              </button>
+              </Button>
             )}
           </div>
           {/* Spacer to align with tab bar on agent pages */}
-          <div style={{ height: 1 }} />
+          <div className="h-px" />
         </div>
 
         {/* Folder grid */}
-        <div style={{ padding: '28px 40px' }}>
+        <div className="px-10 py-7">
           {loading ? (
-            <div style={{ color: 'var(--muted)', fontSize: 14 }}>Loading…</div>
+            <div className="text-base text-muted-foreground">Loading…</div>
           ) : folders.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16, textAlign: 'center' }}>
-              <div style={{ width: 60, height: 60, borderRadius: 16, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
+            <div className="flex min-h-[300px] flex-col items-center justify-center gap-4 text-center">
+              <div className="flex h-[60px] w-[60px] items-center justify-center rounded-2xl border border-border bg-secondary">
+                <BookOpen size={28} className="text-muted-foreground" />
               </div>
               <div>
-                <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>No knowledge folders yet</p>
-                <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{canEdit ? 'Create a folder to start building shared wikis for your agents.' : 'No knowledge folders have been created yet.'}</p>
+                <p className="m-0 mb-1 text-md font-semibold text-foreground">No knowledge folders yet</p>
+                <p className="m-0 text-sm text-muted-foreground">{canEdit ? 'Create a folder to start building shared wikis for your agents.' : 'No knowledge folders have been created yet.'}</p>
               </div>
-              {canEdit && <button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }} style={primaryBtnStyle}>Create First Folder</button>}
+              {canEdit && <Button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }}>Create First Folder</Button>}
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+            <div className="grid gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
               {folders.map(f => (
                 <div
                   key={f.id}
                   onClick={() => openFolder(f)}
-                  className="fade-up"
-                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px', cursor: 'pointer', transition: 'box-shadow 0.2s, transform 0.2s, border-color 0.2s', boxShadow: 'var(--shadow-sm)' }}
-                  onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-md)'; el.style.transform = 'translateY(-2px)'; el.style.borderColor = 'var(--border-2)'; }}
-                  onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-sm)'; el.style.transform = 'translateY(0)'; el.style.borderColor = 'var(--border)'; }}
+                  className="fade-up cursor-pointer rounded-xl border border-border bg-card px-5 py-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-input hover:shadow-md"
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--text)' }}>
+                  <div className="mb-2.5 flex items-start justify-between">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-foreground">
                       <BookOpen size={18} />
                     </div>
                     {folderStats[f.id] && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 99, padding: '2px 9px' }}>
+                      <span className="rounded-full border border-border bg-secondary px-2.5 py-0.5 text-2xs font-semibold text-muted-foreground">
                         {folderStats[f.id].sources} source{folderStats[f.id].sources !== 1 ? 's' : ''}
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text)', marginBottom: 4, letterSpacing: '-0.01em' }}>{f.name}</div>
-                  <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, minHeight: 36, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {f.description || <span style={{ fontStyle: 'italic', color: 'var(--subtle)' }}>No description</span>}
+                  <div className="mb-1 text-base font-semibold tracking-tight text-foreground">{f.name}</div>
+                  <p className="m-0 mb-3.5 line-clamp-2 min-h-[36px] overflow-hidden text-xs leading-relaxed text-muted-foreground">
+                    {f.description || <span className="italic text-muted-foreground">No description</span>}
                   </p>
-                  <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--subtle)' }}>
+                  <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3 text-2xs text-muted-foreground">
                     {(() => {
                       const st = folderStats[f.id];
                       if (!st) return <span>—</span>;
                       return (
                         <>
                           <span>{st.words >= 1000 ? `${(st.words / 1000).toFixed(1)}k` : st.words} words</span>
-                          {st.lastSynced && <><span style={{ color: 'var(--border-2)' }}>·</span><span>synced {timeAgo(st.lastSynced)}</span></>}
+                          {st.lastSynced && <><span className="text-muted-foreground">·</span><span>synced {timeAgo(st.lastSynced)}</span></>}
                         </>
                       );
                     })()}
-                    <span style={{ marginLeft: 'auto' }}>Owner: {f.createdBy}</span>
+                    <span className="ml-auto">Owner: {f.createdBy}</span>
                   </div>
                 </div>
               ))}
@@ -510,10 +514,10 @@ export default function KnowledgePage() {
         {/* Modals */}
         {showNewFolder && (
           <Modal title="New Knowledge Folder" onClose={() => setShowNewFolder(false)}>
-            <label style={labelStyle}>Name</label>
-            <input style={inputStyle} autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createFolder()} placeholder="e.g. Backend API Docs" />
-            <label style={labelStyle}>Description (optional)</label>
-            <input style={inputStyle} value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+            <label className={labelClass}>Name</label>
+            <input className={inputClass} autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createFolder()} placeholder="e.g. Backend API Docs" />
+            <label className={labelClass}>Description (optional)</label>
+            <input className={inputClass} value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
             <ModalFooter onCancel={() => setShowNewFolder(false)} onSave={createFolder} saving={saving} saveLabel="Create Folder" disabled={!folderForm.name.trim()} />
           </Modal>
         )}
@@ -523,59 +527,59 @@ export default function KnowledgePage() {
 
   // ── Folder detail view (agent-page style) ─────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh' }} className="fade-up">
+    <div className="fade-up min-h-screen">
 
       {/* Top bar */}
-      <div style={{ padding: '28px 40px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <div className="shrink-0 border-b border-border px-10 pt-7">
         {/* Breadcrumb */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 12, color: 'var(--muted)' }}>
-          <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, padding: 0 }}>Knowledge Library</button>
-          <span style={{ color: 'var(--subtle)' }}>/</span>
-          <span style={{ color: 'var(--text)' }}>{selected.name}</span>
+        <div className="mb-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <button onClick={() => setSelected(null)} className="cursor-pointer border-none bg-none p-0 text-xs text-muted-foreground">Knowledge Library</button>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-foreground">{selected.name}</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.02em' }}>{selected.name}</h1>
-            {selected.description && <p style={{ margin: '3px 0 0', fontSize: 13, color: 'var(--muted)' }}>{selected.description}</p>}
-            <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 4 }}>Owner: <span style={{ fontWeight: 500, color: 'var(--muted)' }}>{selected.createdBy}</span></div>
+            <h1 className="m-0 text-lg font-semibold tracking-tight text-foreground">{selected.name}</h1>
+            {selected.description && <p className="mt-1 text-sm text-muted-foreground">{selected.description}</p>}
+            <div className="mt-1 text-2xs text-muted-foreground">Owner: <span className="font-medium text-muted-foreground">{selected.createdBy}</span></div>
           </div>
           {canManageSelected && (
-            <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+            <div className="flex shrink-0 items-center gap-2">
               {/* Edit icon */}
               <button
                 title="Edit folder"
                 onClick={() => { setFolderForm({ name: selected.name, description: selected.description ?? '' }); setEditingFolder(selected); }}
                 disabled={folderIsBuilding}
-                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 7, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', opacity: folderIsBuilding ? 0.4 : 1, color: 'var(--muted)', flexShrink: 0 }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Pencil size={14} />
               </button>
 
               {/* Build Wiki split button */}
-              <div style={{ position: 'relative' }}>
-                <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden' }}>
-                  <button
+              <div className="relative">
+                <div className="flex overflow-hidden rounded-md">
+                  <Button
                     onClick={() => buildFolder(false)}
                     disabled={folderIsBuilding}
-                    style={{ ...primaryBtnStyle, borderRadius: 0, borderRight: '1px solid rgba(255,255,255,0.2)', opacity: folderIsBuilding ? 0.6 : 1 }}
+                    className="rounded-none border-r border-white/20"
                   >
                     {folderIsBuilding ? 'Building…' : 'Build Wiki'}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={() => setShowBuildDropdown(v => !v)}
                     disabled={folderIsBuilding}
-                    style={{ ...primaryBtnStyle, borderRadius: 0, padding: '9px 10px', opacity: folderIsBuilding ? 0.6 : 1 }}
+                    className="rounded-none px-2.5"
                   >
                     <ChevronDown size={14} />
-                  </button>
+                  </Button>
                 </div>
                 {showBuildDropdown && !folderIsBuilding && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-md)', zIndex: 100, minWidth: 200, overflow: 'hidden' }}>
-                    <button onClick={() => buildFolder(false)} style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '10px 16px', textAlign: 'left', fontSize: 13, color: 'var(--text)', cursor: 'pointer' }}>
+                  <div className="absolute right-0 top-full z-[100] mt-1 min-w-[200px] overflow-hidden rounded-md border border-border bg-card shadow-md">
+                    <button onClick={() => buildFolder(false)} className="block w-full cursor-pointer border-none bg-none px-4 py-2.5 text-left text-sm text-foreground hover:bg-secondary">
                       Build pending / stale
                     </button>
-                    <button onClick={() => buildFolder(true)} style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '10px 16px', textAlign: 'left', fontSize: 13, color: 'var(--red)', cursor: 'pointer' }}>
+                    <button onClick={() => buildFolder(true)} className="block w-full cursor-pointer border-none bg-none px-4 py-2.5 text-left text-sm text-red hover:bg-secondary">
                       Rebuild from scratch
                     </button>
                   </div>
@@ -587,7 +591,7 @@ export default function KnowledgePage() {
                 title="Delete folder"
                 onClick={() => deleteFolder(selected.id)}
                 disabled={folderIsBuilding}
-                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 7, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', opacity: folderIsBuilding ? 0.4 : 1, color: 'var(--red)', flexShrink: 0 }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-red disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Trash2 size={14} />
               </button>
@@ -596,9 +600,16 @@ export default function KnowledgePage() {
         </div>
 
         {/* Tab bar */}
-        <div style={{ display: 'flex', gap: 0, overflowX: 'auto' }}>
+        <div className="flex gap-0 overflow-x-auto">
           {(['sources', 'wiki'] as const).map(tab => (
-            <button key={tab} onClick={() => switchTab(tab)} className={detailTab === tab ? 'tab-active' : ''} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', fontSize: 13, color: detailTab === tab ? 'var(--text)' : 'var(--muted)', fontWeight: detailTab === tab ? 500 : 400, transition: 'color 0.15s', fontFamily: 'var(--font-sans)' }}>
+            <button
+              key={tab}
+              onClick={() => switchTab(tab)}
+              className={cn(
+                'cursor-pointer border-none bg-none px-3.5 py-2.5 font-sans text-sm transition-colors',
+                detailTab === tab ? 'tab-active font-medium text-foreground' : 'text-muted-foreground',
+              )}
+            >
               {tab === 'sources' ? `Sources (${sources.length})` : 'Built Wiki'}
             </button>
           ))}
@@ -611,75 +622,74 @@ export default function KnowledgePage() {
       )}
 
       {/* Tab content */}
-      <div style={{ padding: '28px 40px' }}>
+      <div className="px-10 py-7">
 
         {/* ── Sources tab ── */}
         {detailTab === 'sources' && (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Knowledge Sources</div>
-              {canManageSelected && <button onClick={openAddSource} style={outlineBtnStyle}>+ Add Source</button>}
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Knowledge Sources</div>
+              {canManageSelected && <Button variant="outline" size="sm" onClick={openAddSource}>+ Add Source</Button>}
             </div>
             {sourcesLoading ? (
-              <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+              <div className="text-sm text-muted-foreground">Loading…</div>
             ) : sources.length === 0 ? (
-              <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+              <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
                 {canManageSelected ? 'No sources yet. Add a URL, file, or Git repo, then click Build Wiki.' : 'No sources added yet.'}
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="flex flex-col gap-2">
                 {sources.map(s => {
                   const isSyncing = syncStatus[s.id] === 'building' || s.status === 'building';
                   const disabled = folderIsBuilding;
-                  const iconBtn = (color = 'var(--muted)'): React.CSSProperties => ({
-                    width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                    cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1,
-                    color, flexShrink: 0,
-                  });
+                  const iconBtnClass = cn(
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-secondary',
+                    disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer',
+                  );
                   return (
-                    <div key={s.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
+                    <div key={s.id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3.5 py-3 shadow-sm">
                       {/* Left: info */}
-                      <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="min-w-0 flex-1">
                         {/* Row 1: type icon + name */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                          <span style={{ color: 'var(--muted)', flexShrink: 0, display: 'flex' }}>{SOURCE_TYPE_ICON[s.type]}</span>
-                          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                        <div className="mb-1 flex items-center gap-1.5">
+                          <span className="flex shrink-0 text-muted-foreground">{SOURCE_TYPE_ICON[s.type]}</span>
+                          <span className="overflow-hidden truncate whitespace-nowrap text-sm font-semibold text-foreground">{s.name}</span>
                         </div>
                         {/* Row 2: url/path */}
-                        <div style={{ fontSize: 11.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
+                        <div className="mb-1.5 overflow-hidden truncate whitespace-nowrap font-mono text-2xs text-muted-foreground">
                           {s.url || s.repoUrl || (s.content ? `${s.content.slice(0, 80)}…` : '—')}
                         </div>
                         {/* Row 3: status dot + word count + last synced */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLOR[s.status] ?? '#a3a3a3', flexShrink: 0, display: 'inline-block' }} />
-                            <span style={{ fontSize: 11.5, color: STATUS_COLOR[s.status] ?? '#a3a3a3', fontWeight: 500 }}>{s.status}</span>
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <span className="flex items-center gap-1.5">
+                            <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[s.status] ?? '#a3a3a3' }} />
+                            <span className="text-2xs font-medium" style={{ color: STATUS_COLOR[s.status] ?? '#a3a3a3' }}>{s.status}</span>
                           </span>
                           {s.wordCount > 0 && (
-                            <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{s.wordCount.toLocaleString()} words</span>
+                            <span className="text-2xs text-muted-foreground">{s.wordCount.toLocaleString()} words</span>
                           )}
                           {s.lastSynced && (
-                            <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>synced {timeAgo(s.lastSynced)}</span>
+                            <span className="text-2xs text-muted-foreground">synced {timeAgo(s.lastSynced)}</span>
                           )}
                         </div>
                       </div>
                       {/* Right: icon actions */}
                       {canManageSelected && (
-                        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                        <div className="flex shrink-0 items-center gap-1.5">
                           <button
                             title={isSyncing ? 'Syncing…' : 'Sync source'}
                             onClick={() => !isSyncing && !disabled && syncSource(s.id)}
                             disabled={disabled}
-                            style={iconBtn(isSyncing ? STATUS_COLOR.building : 'var(--muted)')}
+                            className={iconBtnClass}
+                            style={{ color: isSyncing ? STATUS_COLOR.building : undefined }}
                           >
-                            <RefreshCw size={13} style={isSyncing ? { animation: 'spin 1s linear infinite' } : undefined} />
+                            <RefreshCw size={13} className={cn(isSyncing && 'animate-spin')} />
                           </button>
                           <button
                             title="Edit source"
                             onClick={() => openEditSource(s)}
                             disabled={disabled}
-                            style={iconBtn()}
+                            className={cn(iconBtnClass, 'text-muted-foreground')}
                           >
                             <Pencil size={13} />
                           </button>
@@ -687,7 +697,7 @@ export default function KnowledgePage() {
                             title="Delete source"
                             onClick={() => deleteSource(s.id, s.name)}
                             disabled={disabled}
-                            style={iconBtn('var(--red)')}
+                            className={cn(iconBtnClass, 'text-red')}
                           >
                             <Trash2 size={13} />
                           </button>
@@ -703,49 +713,49 @@ export default function KnowledgePage() {
 
         {/* ── Built Wiki tab ── */}
         {detailTab === 'wiki' && (
-          wikiLoading ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+          wikiLoading ? <div className="text-sm text-muted-foreground">Loading…</div>
           : wikiPages.length === 0 ? (
-            <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
               No wiki pages built yet.{canManageSelected && ' Add sources then click Build Wiki.'}
             </div>
           ) : (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                <BookOpen size={14} style={{ color: 'var(--muted)' }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Wiki</span>
-                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>{wikiPages.length} articles</span>
+              <div className="mb-3 flex items-center gap-1.5">
+                <BookOpen size={14} className="text-muted-foreground" />
+                <span className="text-sm font-semibold text-foreground">Wiki</span>
+                <span className="text-xs text-muted-foreground">{wikiPages.length} articles</span>
               </div>
-              <div style={{ display: 'flex', gap: 14, height: 480 }}>
+              <div className="flex h-[480px] gap-3.5">
                 {/* Sidebar — file tree */}
-                <div style={{ width: 220, flexShrink: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Articles</span>
-                    <span style={{ fontSize: 10, color: 'var(--subtle)' }}>{wikiPages.length}</span>
+                <div className="flex w-[220px] shrink-0 flex-col overflow-auto rounded-lg border border-border bg-card">
+                  <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
+                    <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Articles</span>
+                    <span className="text-2xs text-muted-foreground">{wikiPages.length}</span>
                   </div>
                   <WikiTree articles={wikiPages} onSelect={viewArticle} selected={selectedArticle} />
                 </div>
 
                 {/* Main — article content */}
-                <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
                   {selectedArticle ? (
                     <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-                        <FileText size={13} style={{ color: 'var(--muted)' }} />
-                        <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>{selectedArticle}</span>
+                      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3.5 py-2.5">
+                        <FileText size={13} className="text-muted-foreground" />
+                        <span className="font-mono text-xs font-medium text-foreground">{selectedArticle}</span>
                       </div>
-                      <div style={{ flex: 1, padding: '16px 18px', overflow: 'auto' }}>
+                      <div className="flex-1 overflow-auto px-4 py-4">
                         {loadingArticle ? (
-                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</div>
+                          <div className="text-xs text-muted-foreground">Loading…</div>
                         ) : (
-                          <pre style={{ margin: 0, fontSize: 12.5, lineHeight: 1.7, color: 'var(--text)', fontFamily: 'var(--font-sans)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{articleContent}</pre>
+                          <pre className="m-0 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-foreground">{articleContent}</pre>
                         )}
                       </div>
                     </>
                   ) : (
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-                      <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Select an article to view</p>
-                      <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>Browse the folder tree on the left</p>
+                    <div className="flex flex-1 flex-col items-center justify-center gap-2">
+                      <BookOpen size={28} className="text-muted-foreground" />
+                      <p className="m-0 text-sm text-muted-foreground">Select an article to view</p>
+                      <p className="m-0 text-2xs text-muted-foreground">Browse the folder tree on the left</p>
                     </div>
                   )}
                 </div>
@@ -758,10 +768,10 @@ export default function KnowledgePage() {
       {/* ── Edit Folder Modal ── */}
       {editingFolder && (
         <Modal title="Edit Folder" onClose={() => setEditingFolder(null)}>
-          <label style={labelStyle}>Name</label>
-          <input style={inputStyle} autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && saveEditFolder()} />
-          <label style={labelStyle}>Description</label>
-          <input style={inputStyle} value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+          <label className={labelClass}>Name</label>
+          <input className={inputClass} autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && saveEditFolder()} />
+          <label className={labelClass}>Description</label>
+          <input className={inputClass} value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
           <ModalFooter onCancel={() => setEditingFolder(null)} onSave={saveEditFolder} saving={saving} saveLabel="Save" disabled={!folderForm.name.trim()} />
         </Modal>
       )}
@@ -769,46 +779,46 @@ export default function KnowledgePage() {
       {/* ── Add / Edit Source Modal ── */}
       {showSourceModal && (
         <Modal title={editingSource ? 'Edit Source' : 'Add Source'} onClose={() => { setShowSourceModal(false); setEditingSource(null); }}>
-          <label style={labelStyle}>Type</label>
-          <select style={inputStyle} value={sourceForm.type} onChange={e => setSourceForm(p => ({ ...p, type: e.target.value }))} disabled={!!editingSource}>
+          <label className={labelClass}>Type</label>
+          <select className={inputClass} value={sourceForm.type} onChange={e => setSourceForm(p => ({ ...p, type: e.target.value }))} disabled={!!editingSource}>
             <option value="url">URL</option>
             <option value="file">File</option>
             <option value="repo">Git Repository</option>
           </select>
-          <label style={labelStyle}>Name</label>
-          <input style={inputStyle} autoFocus value={sourceForm.name} onChange={e => setSourceForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. API Reference" />
+          <label className={labelClass}>Name</label>
+          <input className={inputClass} autoFocus value={sourceForm.name} onChange={e => setSourceForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. API Reference" />
 
           {sourceForm.type === 'url' && (
             <>
-              <label style={labelStyle}>URL</label>
-              <input style={inputStyle} value={sourceForm.url} onChange={e => setSourceForm(p => ({ ...p, url: e.target.value }))} placeholder="https://docs.example.com" />
+              <label className={labelClass}>URL</label>
+              <input className={inputClass} value={sourceForm.url} onChange={e => setSourceForm(p => ({ ...p, url: e.target.value }))} placeholder="https://docs.example.com" />
             </>
           )}
 
           {sourceForm.type === 'file' && (
             <>
-              <label style={labelStyle}>Content</label>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
-                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={fileUploading} style={{ background: 'var(--surface-3)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer', color: 'var(--text)', flexShrink: 0 }}>
+              <label className={labelClass}>Content</label>
+              <div className="mb-1.5 flex items-center gap-2">
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={fileUploading} className="shrink-0 cursor-pointer rounded-md border border-border bg-muted px-3 py-1.5 text-xs text-foreground">
                   {fileUploading ? 'Reading…' : 'Upload file'}
                 </button>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                <span className="text-2xs text-muted-foreground">
                   {sourceForm.content ? `${sourceForm.content.length.toLocaleString()} chars` : 'or paste below'}
                 </span>
               </div>
-              <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.ts,.js,.py,.go,.rb,.java,.c,.cpp,.h,.pdf" style={{ display: 'none' }} onChange={handleFileSelect} />
-              <textarea style={{ ...inputStyle, minHeight: 140, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 12 }} value={sourceForm.content} onChange={e => setSourceForm(p => ({ ...p, content: e.target.value }))} placeholder="Paste content here, or upload a file above…" />
+              <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.ts,.js,.py,.go,.rb,.java,.c,.cpp,.h,.pdf" className="hidden" onChange={handleFileSelect} />
+              <textarea className={cn(inputClass, 'min-h-[140px] resize-y font-mono text-xs')} value={sourceForm.content} onChange={e => setSourceForm(p => ({ ...p, content: e.target.value }))} placeholder="Paste content here, or upload a file above…" />
             </>
           )}
 
           {sourceForm.type === 'repo' && (
             <>
-              <label style={labelStyle}>Repository URL</label>
-              <input style={inputStyle} value={sourceForm.repoUrl} onChange={e => setSourceForm(p => ({ ...p, repoUrl: e.target.value }))} placeholder="https://github.com/org/repo" />
-              <label style={labelStyle}>Branch</label>
-              <input style={inputStyle} value={sourceForm.branch} onChange={e => setSourceForm(p => ({ ...p, branch: e.target.value }))} placeholder="main" />
-              <label style={labelStyle}>PAT env var (private repos only)</label>
-              <select style={inputStyle} value={sourceForm.patEnvRef} onChange={e => setSourceForm(p => ({ ...p, patEnvRef: e.target.value }))}>
+              <label className={labelClass}>Repository URL</label>
+              <input className={inputClass} value={sourceForm.repoUrl} onChange={e => setSourceForm(p => ({ ...p, repoUrl: e.target.value }))} placeholder="https://github.com/org/repo" />
+              <label className={labelClass}>Branch</label>
+              <input className={inputClass} value={sourceForm.branch} onChange={e => setSourceForm(p => ({ ...p, branch: e.target.value }))} placeholder="main" />
+              <label className={labelClass}>PAT env var (private repos only)</label>
+              <select className={inputClass} value={sourceForm.patEnvRef} onChange={e => setSourceForm(p => ({ ...p, patEnvRef: e.target.value }))}>
                 <option value="">— None (public repo) —</option>
                 {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
                 {envVarKeys.length === 0 && <option disabled>No accessible env vars</option>}
@@ -863,53 +873,49 @@ function BuildProgressPanel({ progress }: { progress?: BuildProgress }) {
   }
 
   return (
-    <div style={{
-      margin: '16px 40px 0', padding: '14px 18px',
-      background: 'rgba(37,99,235,0.07)', border: '1px solid rgba(37,99,235,0.2)',
-      borderRadius: 10, fontSize: 13,
-    }}>
+    <div className="mx-10 mt-4 rounded-lg border border-blue/20 bg-blue/[0.07] px-4 py-3.5 text-sm">
       {/* Top row: what's happening */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#2563eb', animation: 'pulse 1.5s ease-in-out infinite' }} />
-        <span style={{ fontWeight: 500, color: 'var(--text)' }}>
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span className="inline-block h-2 w-2 rounded-full bg-blue" style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <span className="font-medium text-foreground">
           {progress?.sourceName
             ? `Building wiki for ${progress.sourceName}`
             : (progress?.step ?? 'Building…')}
         </span>
-        {elapsed && <span style={{ marginLeft: 'auto', color: 'var(--subtle)', fontSize: 12 }}>Elapsed: {elapsed}</span>}
+        {elapsed && <span className="ml-auto text-xs text-muted-foreground">Elapsed: {elapsed}</span>}
       </div>
 
       {/* Source progress bar */}
       {sourcesTotal > 1 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>
+        <div className="mb-2">
+          <div className="mb-1 flex justify-between text-2xs text-muted-foreground">
             <span>Source {sourceIdx + 1} of {sourcesTotal}</span>
             {eta && <span>ETA {eta}</span>}
           </div>
-          <div style={{ height: 4, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${sourcePct}%`, background: '#2563eb', borderRadius: 4, transition: 'width 0.5s' }} />
+          <div className="h-1 overflow-hidden rounded bg-border">
+            <div className="h-full rounded bg-blue transition-[width] duration-500" style={{ width: `${sourcePct}%` }} />
           </div>
         </div>
       )}
 
       {/* Chunk progress */}
       {chunksTotal > 1 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>
+        <div className="mb-2">
+          <div className="mb-1 flex justify-between text-2xs text-muted-foreground">
             <span>Chunk {chunkIdx + 1} of {chunksTotal} {chunkElapsed ? `(${chunkElapsed} on this chunk)` : ''}</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+            <span className="font-mono text-2xs">
               Each chunk ≈ 100k chars of source code
             </span>
           </div>
-          <div style={{ height: 4, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${Math.round(((chunkIdx) / chunksTotal) * 100)}%`, background: 'rgba(37,99,235,0.5)', borderRadius: 4, transition: 'width 0.5s' }} />
+          <div className="h-1 overflow-hidden rounded bg-border">
+            <div className="h-full rounded bg-blue/50 transition-[width] duration-500" style={{ width: `${Math.round(((chunkIdx) / chunksTotal) * 100)}%` }} />
           </div>
         </div>
       )}
 
       {/* Detail step */}
       {progress?.step && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+        <div className="font-mono text-2xs text-muted-foreground">
           {progress.step}
           {progress.articlesWritten ? ` · ${progress.articlesWritten} articles written so far` : ''}
         </div>
@@ -923,10 +929,10 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   useEffect(() => { setMounted(true); }, []);
   if (!mounted) return null;
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 28px 24px', width: 460, maxWidth: '92vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', border: '1px solid var(--border)' }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 20 }}>{title}</div>
+      <div className="max-h-[90vh] w-[460px] max-w-[92vw] overflow-y-auto rounded-xl border border-border bg-card px-7 pb-6 pt-7 shadow-lg">
+        <div className="mb-5 text-md font-bold text-foreground">{title}</div>
         {children}
       </div>
     </div>,
@@ -936,15 +942,12 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 
 function ModalFooter({ onCancel, onSave, saving, saveLabel, disabled }: { onCancel: () => void; onSave: () => void; saving: boolean; saveLabel: string; disabled?: boolean }) {
   return (
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 22 }}>
-      <button onClick={onCancel} style={cancelBtnStyle}>Cancel</button>
-      <button onClick={onSave} disabled={saving || disabled} style={{ ...primaryBtnStyle, opacity: (saving || disabled) ? 0.5 : 1 }}>{saving ? 'Saving…' : saveLabel}</button>
+    <div className="mt-5 flex justify-end gap-2">
+      <Button variant="outline" onClick={onCancel}>Cancel</Button>
+      <Button onClick={onSave} disabled={saving || disabled}>{saving ? 'Saving…' : saveLabel}</Button>
     </div>
   );
 }
 
-const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5, marginTop: 14 };
-const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 10px', fontSize: 13.5, color: 'var(--text)', background: 'var(--surface-2)', outline: 'none' };
-const cancelBtnStyle: React.CSSProperties = { background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer', color: 'var(--text)' };
-const primaryBtnStyle: React.CSSProperties = { background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' };
-const outlineBtnStyle: React.CSSProperties = { background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 14px', fontSize: 13, cursor: 'pointer' };
+const labelClass = 'mb-1.5 mt-3.5 block text-xs font-semibold text-muted-foreground';
+const inputClass = 'box-border w-full rounded-md border border-input bg-secondary px-2.5 py-2 text-sm text-foreground outline-none';

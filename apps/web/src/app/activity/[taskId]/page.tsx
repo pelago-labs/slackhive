@@ -28,6 +28,8 @@ import { relativeTime } from '@/lib/time';
 import { SEV_COLOR } from '../_components/SevBadge';
 import { RevealCtx, NodeDetailProvider, SensitiveBadge, buildNodes, NodeRow, formatMs } from '../_components/trace-nodes';
 import { ReplayButton } from '../_components/ReplayButton';
+import { cn } from '@/lib/utils';
+import { PageShell, SectionLabel, Avatar, EmptyState } from '@/components/patterns';
 
 interface Task {
   id: string; platform: string; channelId: string; threadTs: string;
@@ -52,18 +54,6 @@ function formatCost(n: number): string {
   if (!n) return '—';
   return n < 1 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
 }
-function initials(name: string): string {
-  const p = name.trim().split(/\s+/).filter(Boolean);
-  if (!p.length) return '?';
-  return (p.length === 1 ? p[0].slice(0, 2) : p[0][0] + p[p.length - 1][0]).toUpperCase();
-}
-function agentColor(id: string): string {
-  let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffffffff;
-  return `hsl(${Math.abs(h) % 360}, 55%, 55%)`;
-}
-const STATUS_COLOR: Record<string, string> = {
-  in_progress: '#2563eb', done: '#059669', ok: '#059669', error: '#dc2626',
-};
 
 export default function TaskTracePage(): React.JSX.Element {
   const params = useParams<{ taskId: string }>();
@@ -119,7 +109,7 @@ export default function TaskTracePage(): React.JSX.Element {
   }, [agentsKey]);
 
   if (error) return <Shell><Empty>{error}</Empty></Shell>;
-  if (!detail) return <Shell><div style={{ marginTop: 20, padding: 24, color: 'var(--muted)', fontSize: 13 }}>Loading…</div></Shell>;
+  if (!detail) return <Shell><div className="mt-5 p-6 text-sm text-muted-foreground">Loading…</div></Shell>;
 
   const { task, turns, rollup, deepLink } = detail;
   const flows = detail.flows ?? [];
@@ -141,33 +131,33 @@ export default function TaskTracePage(): React.JSX.Element {
     <NodeDetailProvider>
     <Shell>
       {/* Title + description (the Back button above handles navigation) */}
-      <div style={{ marginTop: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1.35 }}>
+      <div className="mt-4">
+        <h1 className="m-0 text-xl font-bold leading-tight tracking-tight text-foreground">
           {task.summary || '(empty opening message)'}
         </h1>
-        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
-          Started by <strong style={{ color: 'var(--text)', fontWeight: 500 }}>@{initiator}</strong> · {relativeTime(task.startedAt)}
+        <div className="mt-2 text-sm text-muted-foreground">
+          Started by <strong className="font-medium text-foreground">@{initiator}</strong> · {relativeTime(task.startedAt)}
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', marginTop: 18, flexWrap: 'wrap' }}>
+      <div className="mt-[18px] flex flex-wrap items-start gap-6">
         {/* ── Main column: analytics + flows + activity timeline ── */}
-        <div style={{ flex: '1 1 600px', minWidth: 0 }}>
+        <div className="min-w-0 flex-[1_1_600px]">
           {rollup && <Analytics rollup={rollup} turns={turns} />}
 
           {flows.length > 0 && (
-            <div style={{ marginTop: 18 }}>
+            <div className="mt-[18px]">
               <SectionLabel>Sensitive data flows</SectionLabel>
-              <div style={{ marginTop: 8, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
                 {flows.map((f, i) => (
                   <a key={f.id} href={`#span-${f.sinkSpanId}`}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', textDecoration: 'none', color: 'inherit', borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
-                    <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: `${SEV_COLOR[f.severity]}1a`, color: SEV_COLOR[f.severity] }}>{f.severity}</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>{f.label}</span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)', minWidth: 0 }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.sourceLabel}</span>
-                      <ArrowRight size={12} style={{ color: 'var(--red)', flexShrink: 0 }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.sinkLabel}</span>
+                    className={cn('flex items-center gap-2.5 px-3.5 py-2.5 text-inherit no-underline', i !== 0 && 'border-t border-border')}>
+                    <span className="shrink-0 rounded-md px-1.5 py-0.5 text-2xs font-bold uppercase tracking-[0.04em]" style={{ background: `${SEV_COLOR[f.severity]}1a`, color: SEV_COLOR[f.severity] }}>{f.severity}</span>
+                    <span className="shrink-0 text-xs font-semibold text-foreground">{f.label}</span>
+                    <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                      <span className="overflow-hidden text-ellipsis whitespace-nowrap">{f.sourceLabel}</span>
+                      <ArrowRight size={12} className="shrink-0 text-red" />
+                      <span className="overflow-hidden text-ellipsis whitespace-nowrap">{f.sinkLabel}</span>
                     </span>
                   </a>
                 ))}
@@ -175,18 +165,18 @@ export default function TaskTracePage(): React.JSX.Element {
             </div>
           )}
 
-          <div style={{ marginTop: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px 8px' }}>
+          <div className="mt-[18px]">
+            <div className="flex items-center justify-between px-1 pb-2">
               <SectionLabel>Activity</SectionLabel>
               {(upTurns > 0 || downTurns > 0) && (
-                <div style={{ display: 'inline-flex', gap: 4 }}>
+                <div className="inline-flex gap-1">
                   <FbChip label="All" active={fbFilter === 'all'} onClick={() => setFbFilter('all')} />
-                  <FbChip icon={<ThumbsUp size={11} />} label={String(upTurns)} active={fbFilter === 'up'} color="#16a34a" onClick={() => setFbFilter(fbFilter === 'up' ? 'all' : 'up')} />
-                  <FbChip icon={<ThumbsDown size={11} />} label={String(downTurns)} active={fbFilter === 'down'} color="#dc2626" onClick={() => setFbFilter(fbFilter === 'down' ? 'all' : 'down')} />
+                  <FbChip icon={<ThumbsUp size={11} />} label={String(upTurns)} active={fbFilter === 'up'} color="text-green" onClick={() => setFbFilter(fbFilter === 'up' ? 'all' : 'up')} />
+                  <FbChip icon={<ThumbsDown size={11} />} label={String(downTurns)} active={fbFilter === 'down'} color="text-red" onClick={() => setFbFilter(fbFilter === 'down' ? 'all' : 'down')} />
                 </div>
               )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="flex flex-col gap-2.5">
               {turns.length === 0 && <Empty>No activity recorded yet.</Empty>}
               {turns.length > 0 && visibleTurns.length === 0 && <Empty>No turns match this filter.</Empty>}
               {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} taskId={task.id} highlightSpanId={highlightSpanId} />)}
@@ -195,22 +185,20 @@ export default function TaskTracePage(): React.JSX.Element {
         </div>
 
         {/* ── Properties rail ── */}
-        <aside style={{ flex: '0 0 240px', maxWidth: '100%', position: 'sticky', top: 24 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: 12 }}>Properties</div>
+        <aside className="sticky top-6 max-w-full flex-[0_0_240px]">
+          <div className="mb-3 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Properties</div>
           <PropRow label="Status"><StatusPill status={sessionStatus} /></PropRow>
           <PropRow label="Assignee">
-            <span style={{ fontSize: 12.5, color: 'var(--text)' }}>{agents.length ? agents.map(a => a.name).join(', ') : '—'}</span>
+            <span className="text-xs text-foreground">{agents.length ? agents.map(a => a.name).join(', ') : '—'}</span>
           </PropRow>
-          <PropRow label="Initiator"><span style={{ fontSize: 12.5, color: 'var(--text)' }}>@{initiator}</span></PropRow>
-          <PropRow label="Started"><span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{relativeTime(task.startedAt)}</span></PropRow>
+          <PropRow label="Initiator"><span className="text-xs text-foreground">@{initiator}</span></PropRow>
+          <PropRow label="Started"><span className="text-xs text-muted-foreground">{relativeTime(task.startedAt)}</span></PropRow>
           {turns.some(t => t.sensitive) && (
             <PropRow label="Sensitive"><SensitiveBadge categories={[...new Set(turns.flatMap(t => t.sensitiveCategories))]} /></PropRow>
           )}
           {deepLink && (
-            <a href={deepLink} target="_blank" rel="noopener noreferrer" style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 14, padding: '8px 14px', fontSize: 12.5, fontWeight: 500,
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, textDecoration: 'none',
-            }}>
+            <a href={deepLink} target="_blank" rel="noopener noreferrer"
+              className="mt-3.5 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground no-underline">
               {deepLinkLabelForPlatform(task.platform as 'slack' | 'discord' | 'telegram' | 'whatsapp' | 'teams')} <ExternalLink size={12} />
             </a>
           )}
@@ -231,29 +219,23 @@ function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
     else router.push('/activity');
   };
   return (
-    <div className="fade-up" style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }}>
-      <button onClick={back} style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)',
-        background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-      }}>
+    <PageShell>
+      <button onClick={back} className="inline-flex cursor-pointer items-center gap-1.5 border-none bg-transparent p-0 font-sans text-xs text-muted-foreground">
         <ArrowLeft size={13} /> Back
       </button>
       {children}
-    </div>
+    </PageShell>
   );
 }
 function Empty({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div style={{ marginTop: 20, padding: 24, textAlign: 'center', background: 'var(--surface)', border: '1px dashed var(--border)', borderRadius: 12, color: 'var(--muted)', fontSize: 13 }}>{children}</div>;
-}
-function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', padding: '0 4px 8px' }}>{children}</div>;
+  return <div className="mt-5"><EmptyState title={children} /></div>;
 }
 /** A label/value row in the session Properties rail. */
 function PropRow({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 30 }}>
-      <span style={{ flexShrink: 0, width: 72, fontSize: 12, color: 'var(--muted)' }}>{label}</span>
-      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{children}</span>
+    <div className="flex min-h-[30px] items-center gap-2.5">
+      <span className="w-[72px] shrink-0 text-xs text-muted-foreground">{label}</span>
+      <span className="min-w-0 overflow-hidden text-ellipsis">{children}</span>
     </div>
   );
 }
@@ -263,15 +245,15 @@ function Analytics({ rollup, turns }: { rollup: SessionRollup; turns: TraceTurn[
   const tokenData = turns.map((t, i) => ({ label: `#${i + 1}`, input: t.inputTokens, output: t.outputTokens }));
   const latencySeries = turns.map(t => t.durationMs ?? 0);
   return (
-    <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+    <div className="mt-4 flex flex-col gap-3.5">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
         <Kpi icon={<Layers size={13} />} label="Turns" value={String(rollup.turns)} />
         <Kpi icon={<Wrench size={13} />} label="Tool calls" value={String(rollup.toolCalls)} />
         <Kpi icon={<Coins size={13} />} label="Tokens" value={rollup.totalTokens > 0 ? formatTokens(rollup.totalTokens) : '—'} sub={rollup.totalTokens > 0 ? `${formatTokens(rollup.inputTokens)} in · ${formatTokens(rollup.outputTokens)} out` : undefined} />
         <Kpi icon={<Clock size={13} />} label="Latency" value={formatMs(rollup.p50DurationMs)} sub={`p95 ${formatMs(rollup.p95DurationMs)}`} />
       </div>
       {(rollup.inputTokens > 0 || rollup.outputTokens > 0 || rollup.reasoningTokens > 0) && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div className="flex flex-wrap gap-1.5">
           <TokenChip label="in" value={rollup.inputTokens} />
           <TokenChip label="out" value={rollup.outputTokens} />
           {rollup.reasoningTokens > 0 && <TokenChip label="reasoning" value={rollup.reasoningTokens} />}
@@ -280,24 +262,24 @@ function Analytics({ rollup, turns }: { rollup: SessionRollup; turns: TraceTurn[
         </div>
       )}
       {turns.length > 1 && (
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
           <StackBars title="Tokens per turn" data={tokenData} onBarClick={scrollToTurn} />
           <Bars title="Latency per turn" series={latencySeries} format={formatMs} color="var(--muted)" onBarClick={scrollToTurn} />
         </div>
       )}
       {rollup.models.length > 0 && (
         <div>
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: 6 }}>Models</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div className="mb-1.5 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Models</div>
+          <div className="flex flex-col gap-1.5">
             {rollup.models.map(m => {
               const max = rollup.models[0].tokens || 1;
               return (
-                <div key={m.model} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                  <code style={{ flexShrink: 0, width: 160, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.model}</code>
-                  <div style={{ flex: 1, height: 8, background: 'var(--surface-2)', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ width: `${Math.max(3, (m.tokens / max) * 100)}%`, height: '100%', background: 'var(--accent-2)', borderRadius: 4 }} />
+                <div key={m.model} className="flex items-center gap-2 text-xs">
+                  <code className="w-40 shrink-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-2xs text-foreground">{m.model}</code>
+                  <div className="h-2 flex-1 overflow-hidden rounded bg-secondary">
+                    <div className="h-full rounded bg-blue" style={{ width: `${Math.max(3, (m.tokens / max) * 100)}%` }} />
                   </div>
-                  <span style={{ flexShrink: 0, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)', fontSize: 11, minWidth: 48, textAlign: 'right' }}>{formatTokens(m.tokens)}</span>
+                  <span className="min-w-[48px] shrink-0 text-right font-mono text-2xs text-muted-foreground">{formatTokens(m.tokens)}</span>
                 </div>
               );
             })}
@@ -310,18 +292,18 @@ function Analytics({ rollup, turns }: { rollup: SessionRollup; turns: TraceTurn[
 
 function Kpi(props: { icon: React.ReactNode; label: string; value: string; sub?: string }): React.JSX.Element {
   return (
-    <div style={{ padding: '10px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'var(--subtle)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{props.icon}{props.label}</div>
-      <div style={{ marginTop: 4, fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{props.value}</div>
-      {props.sub && <div style={{ marginTop: 2, fontSize: 11, color: 'var(--subtle)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{props.sub}</div>}
+    <div className="rounded-lg border border-border bg-secondary px-3 py-2.5">
+      <div className="inline-flex items-center gap-1.5 whitespace-nowrap text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">{props.icon}{props.label}</div>
+      <div className="mt-1 whitespace-nowrap text-lg font-semibold tabular-nums tracking-tight text-foreground">{props.value}</div>
+      {props.sub && <div className="mt-0.5 whitespace-nowrap text-2xs tabular-nums text-muted-foreground">{props.sub}</div>}
     </div>
   );
 }
 function TokenChip(props: { label: string; value: number }): React.JSX.Element {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, padding: '3px 8px', borderRadius: 6, background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
-      <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: 9, fontWeight: 600, color: 'var(--subtle)' }}>{props.label}</span>
-      <span style={{ color: 'var(--text)', fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>{formatTokens(props.value)}</span>
+    <span className="inline-flex items-baseline gap-1.5 rounded-md border border-border bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
+      <span className="text-2xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">{props.label}</span>
+      <span className="font-mono font-semibold text-foreground">{formatTokens(props.value)}</span>
     </span>
   );
 }
@@ -329,24 +311,24 @@ function Bars(props: { title: string; series: number[]; format: (n: number) => s
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(1, ...props.series);
   return (
-    <div style={{ padding: '12px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8, minHeight: 14 }}>
-        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)' }}>{props.title}</span>
+    <div className="rounded-lg border border-border bg-secondary px-3.5 py-3">
+      <div className="mb-2 flex min-h-[14px] items-baseline justify-between">
+        <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{props.title}</span>
         {hover != null && (
-          <span style={{ fontSize: 11, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)' }}>
-            <span style={{ color: 'var(--subtle)' }}>#{hover + 1}</span> {props.format(props.series[hover])}
+          <span className="font-mono text-2xs text-foreground">
+            <span className="text-muted-foreground">#{hover + 1}</span> {props.format(props.series[hover])}
           </span>
         )}
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 56 }} onMouseLeave={() => setHover(null)}>
+      <div className="flex h-14 items-end gap-[3px]" onMouseLeave={() => setHover(null)}>
         {props.series.map((v, i) => (
           <div
             key={i}
             onMouseEnter={() => setHover(i)}
             onClick={() => props.onBarClick?.(i)}
-            style={{ flex: 1, minWidth: 2, height: '100%', display: 'flex', alignItems: 'flex-end', cursor: props.onBarClick ? 'pointer' : 'default' }}
+            className={cn('flex h-full min-w-[2px] flex-1 items-end', props.onBarClick ? 'cursor-pointer' : 'cursor-default')}
           >
-            <div style={{ width: '100%', height: `${Math.max(2, (v / max) * 100)}%`, background: props.color, borderRadius: 2, opacity: hover === i ? 1 : 0.5, transition: 'opacity 0.1s' }} />
+            <div className="w-full rounded-[2px] transition-opacity duration-100" style={{ height: `${Math.max(2, (v / max) * 100)}%`, background: props.color, opacity: hover === i ? 1 : 0.5 }} />
           </div>
         ))}
       </div>
@@ -365,27 +347,27 @@ function StackBars(props: { title: string; data: { label: string; input: number;
   const max = Math.max(1, ...props.data.map(d => d.input + d.output));
   const h = hover != null ? props.data[hover] : null;
   return (
-    <div style={{ padding: '12px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8, minHeight: 14 }}>
-        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)' }}>{props.title}</span>
-        {h && <span style={{ fontSize: 11, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)' }}><span style={{ color: 'var(--subtle)' }}>{h.label}</span> {formatTokens(h.input)} in · {formatTokens(h.output)} out</span>}
+    <div className="rounded-lg border border-border bg-secondary px-3.5 py-3">
+      <div className="mb-2 flex min-h-[14px] items-baseline justify-between">
+        <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{props.title}</span>
+        {h && <span className="font-mono text-2xs text-foreground"><span className="text-muted-foreground">{h.label}</span> {formatTokens(h.input)} in · {formatTokens(h.output)} out</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 56 }} onMouseLeave={() => setHover(null)}>
+      <div className="flex h-14 items-end gap-[3px]" onMouseLeave={() => setHover(null)}>
         {props.data.map((d, i) => {
           const total = d.input + d.output;
           return (
-            <div key={i} onMouseEnter={() => setHover(i)} onClick={() => props.onBarClick?.(i)} style={{ flex: 1, minWidth: 2, height: '100%', display: 'flex', alignItems: 'flex-end', cursor: props.onBarClick ? 'pointer' : 'default' }}>
-              <div style={{ width: '100%', height: `${Math.max(2, (total / max) * 100)}%`, display: 'flex', flexDirection: 'column', borderRadius: 2, overflow: 'hidden', opacity: hover === i ? 1 : 0.7, transition: 'opacity 0.1s' }}>
-                <div style={{ height: `${total ? (d.output / total) * 100 : 0}%`, background: 'var(--text-2)' }} />
-                <div style={{ height: `${total ? (d.input / total) * 100 : 0}%`, background: 'var(--muted)' }} />
+            <div key={i} onMouseEnter={() => setHover(i)} onClick={() => props.onBarClick?.(i)} className={cn('flex h-full min-w-[2px] flex-1 items-end', props.onBarClick ? 'cursor-pointer' : 'cursor-default')}>
+              <div className="flex w-full flex-col overflow-hidden rounded-[2px] transition-opacity duration-100" style={{ height: `${Math.max(2, (total / max) * 100)}%`, opacity: hover === i ? 1 : 0.7 }}>
+                <div className="bg-foreground" style={{ height: `${total ? (d.output / total) * 100 : 0}%` }} />
+                <div className="bg-muted-foreground" style={{ height: `${total ? (d.input / total) * 100 : 0}%` }} />
               </div>
             </div>
           );
         })}
       </div>
-      <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 10, color: 'var(--subtle)' }}>
-        <span><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--muted)', display: 'inline-block', marginRight: 4 }} />in</span>
-        <span><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--text-2)', display: 'inline-block', marginRight: 4 }} />out</span>
+      <div className="mt-2 flex gap-3 text-2xs text-muted-foreground">
+        <span><span className="mr-1 inline-block h-2 w-2 rounded-[2px] bg-muted-foreground" />in</span>
+        <span><span className="mr-1 inline-block h-2 w-2 rounded-[2px] bg-foreground" />out</span>
       </div>
     </div>
   );
@@ -399,8 +381,7 @@ function TurnCard({ turn, index, isLast, taskId, highlightSpanId }: { turn: Trac
   // and any still-running or errored turn so failures aren't hidden behind a card.
   const [open, setOpen] = useState(!!isLast || containsHighlight || turn.status === 'in_progress' || turn.status === 'error');
   const label = turn.agentName ?? turn.agentId.slice(0, 8);
-  const color = agentColor(turn.agentId);
-  const statusColor = STATUS_COLOR[turn.status] ?? 'var(--muted)';
+  const avatarStatus = turn.status === 'in_progress' ? 'in_progress' : turn.status === 'error' ? 'error' : 'done';
   const tokens = turn.inputTokens + turn.outputTokens;
   const toolCount = turn.spans.filter(s => s.kind === 'tool').length;
   const toolErrors = turn.spans.filter(s => s.kind === 'tool' && s.status === 'error').length;
@@ -416,39 +397,34 @@ function TurnCard({ turn, index, isLast, taskId, highlightSpanId }: { turn: Trac
 
   const running = turn.status === 'in_progress';
   return (
-    <div id={`turn-${index}`} style={{
-      background: running ? 'color-mix(in srgb, #2563eb 4%, var(--surface))' : 'var(--surface)',
-      border: `1px solid ${running ? 'rgba(37,99,235,0.35)' : 'var(--border)'}`,
-      borderRadius: 12, overflow: 'hidden', scrollMarginTop: 16, boxShadow: 'var(--shadow-sm)',
-    }}>
-      <div onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer' }}>
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <div style={{ width: 30, height: 30, borderRadius: '50%', background: color, color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{initials(label)}</div>
-          <div style={{ position: 'absolute', bottom: -1, right: -1, width: 10, height: 10, borderRadius: '50%', background: statusColor, border: '2px solid var(--surface)' }} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: 'var(--subtle)', fontWeight: 600 }}>#{index + 1}</span>
+    <div id={`turn-${index}`}
+      className="scroll-mt-4 overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+      style={running ? { background: 'color-mix(in srgb, var(--blue) 4%, var(--surface))', borderColor: 'color-mix(in srgb, var(--blue) 35%, transparent)' } : undefined}>
+      <div onClick={() => setOpen(o => !o)} className="flex cursor-pointer items-center gap-3 px-4 py-3">
+        <Avatar id={turn.agentId} name={label} size={30} status={avatarStatus} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-2xs font-semibold text-muted-foreground">#{index + 1}</span>
             {turn.agentSlug
-              ? <Link href={`/agents/${turn.agentSlug}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}>{label}</Link>
-              : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{label}</span>}
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--subtle)' }}>
+              ? <Link href={`/agents/${turn.agentSlug}`} onClick={e => e.stopPropagation()} className="text-sm font-semibold text-foreground no-underline">{label}</Link>
+              : <span className="text-sm font-semibold text-foreground">{label}</span>}
+            <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
               {turn.initiatorKind === 'agent' && <GitBranch size={11} />}{author}
             </span>
-            {running && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#2563eb' }}><Loader2 size={11} style={{ animation: 'spin 1.2s linear infinite' }} /> Working</span>}
-            {sentiment && (sentiment === 'up' ? <ThumbsUp size={13} style={{ color: '#16a34a' }} /> : <ThumbsDown size={13} style={{ color: '#dc2626' }} />)}
+            {running && <span className="inline-flex items-center gap-1 text-2xs font-semibold text-blue"><Loader2 size={11} className="animate-spin" /> Working</span>}
+            {sentiment && (sentiment === 'up' ? <ThumbsUp size={13} className="text-green" /> : <ThumbsDown size={13} className="text-red" />)}
             {turn.sensitive && <SensitiveBadge categories={turn.sensitiveCategories} />}
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginLeft: 'auto', fontSize: 11, color: 'var(--subtle)' }}>
-              {toolCount > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Wrench size={11} />{toolCount}{toolErrors > 0 && <span style={{ color: 'var(--red)', fontWeight: 600 }}> {toolErrors}✕</span>}</span>}
-              {tokens > 0 && <span title={`${formatTokens(turn.inputTokens)} in · ${formatTokens(turn.outputTokens)} out`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Coins size={11} />{formatTokens(turn.inputTokens)} in · {formatTokens(turn.outputTokens)} out</span>}
-              {turn.costUsd > 0 && <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>{formatCost(turn.costUsd)}</span>}
-              <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>{formatMs(turn.durationMs)}</span>
+            <span className="ml-auto inline-flex items-center gap-2.5 text-2xs text-muted-foreground">
+              {toolCount > 0 && <span className="inline-flex items-center gap-1"><Wrench size={11} />{toolCount}{toolErrors > 0 && <span className="font-semibold text-red"> {toolErrors}✕</span>}</span>}
+              {tokens > 0 && <span title={`${formatTokens(turn.inputTokens)} in · ${formatTokens(turn.outputTokens)} out`} className="inline-flex items-center gap-1"><Coins size={11} />{formatTokens(turn.inputTokens)} in · {formatTokens(turn.outputTokens)} out</span>}
+              {turn.costUsd > 0 && <span className="font-mono">{formatCost(turn.costUsd)}</span>}
+              <span className="font-mono">{formatMs(turn.durationMs)}</span>
               {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             </span>
           </div>
-          {turn.messagePreview && <div style={{ marginTop: 6, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{turn.messagePreview}</div>}
+          {turn.messagePreview && <div className="mt-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-relaxed text-muted-foreground">{turn.messagePreview}</div>}
           {turn.status === 'error' && (
-            <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
+            <div className="mt-2" onClick={e => e.stopPropagation()}>
               <ReplayButton taskId={taskId} activityId={turn.activityId} variant="labeled" />
             </div>
           )}
@@ -456,21 +432,24 @@ function TurnCard({ turn, index, isLast, taskId, highlightSpanId }: { turn: Trac
       </div>
 
       {open && (
-        <div style={{ padding: '4px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="flex flex-col gap-2 px-3.5 pb-3.5 pt-1">
           {turn.spans.length === 0 && turn.status === 'in_progress' && (
-            <div style={{ fontSize: 12, color: 'var(--subtle)', display: 'inline-flex', alignItems: 'center', gap: 6, paddingLeft: 4 }}><Loader2 size={12} style={{ animation: 'spin 1.2s linear infinite' }} /> running…</div>
+            <div className="inline-flex items-center gap-1.5 pl-1 text-xs text-muted-foreground"><Loader2 size={12} className="animate-spin" /> running…</div>
           )}
           {/* Observation list: type tag · name · proportional duration bar · duration. */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <div className="flex flex-col gap-px">
             {nodes.map((node, ni) => <NodeRow key={node.key} node={node} maxMs={maxStepMs} isLast={ni === nodes.length - 1} highlight={!!highlightSpanId && node.key === highlightSpanId} />)}
           </div>
 
           {turn.feedback.map((f, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 6, background: f.sentiment === 'up' ? 'rgba(22,163,74,0.06)' : 'rgba(220,38,38,0.06)', border: `1px solid ${f.sentiment === 'up' ? 'rgba(22,163,74,0.2)' : 'rgba(220,38,38,0.2)'}` }}>
-              {f.sentiment === 'up' ? <ThumbsUp size={13} style={{ color: '#16a34a', flexShrink: 0, marginTop: 1 }} /> : <ThumbsDown size={13} style={{ color: '#dc2626', flexShrink: 0, marginTop: 1 }} />}
-              <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--text)' }}>
-                {f.raterHandle && <span style={{ fontWeight: 500 }}>@{f.raterHandle}</span>}
-                {f.note && <span style={{ color: 'var(--muted)' }}>{f.raterHandle ? ' — ' : ''}{f.note}</span>}
+            <div key={i} className="flex items-start gap-2 rounded-md border px-2.5 py-2" style={{
+              background: `color-mix(in srgb, var(--${f.sentiment === 'up' ? 'green' : 'red'}) 6%, transparent)`,
+              borderColor: `color-mix(in srgb, var(--${f.sentiment === 'up' ? 'green' : 'red'}) 20%, transparent)`,
+            }}>
+              {f.sentiment === 'up' ? <ThumbsUp size={13} className="mt-px shrink-0 text-green" /> : <ThumbsDown size={13} className="mt-px shrink-0 text-red" />}
+              <div className="min-w-0 flex-1 text-xs text-foreground">
+                {f.raterHandle && <span className="font-medium">@{f.raterHandle}</span>}
+                {f.note && <span className="text-muted-foreground">{f.raterHandle ? ' — ' : ''}{f.note}</span>}
               </div>
             </div>
           ))}
@@ -483,13 +462,11 @@ function TurnCard({ turn, index, isLast, taskId, highlightSpanId }: { turn: Trac
 
 function FbChip({ label, icon, active, color, onClick }: { label: string; icon?: React.ReactNode; active: boolean; color?: string; onClick: () => void }): React.JSX.Element {
   return (
-    <button onClick={onClick} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 7,
-      fontSize: 11, fontWeight: 600, cursor: 'pointer',
-      border: `1px solid ${active ? 'var(--border-2)' : 'var(--border)'}`,
-      background: active ? 'var(--surface-2)' : 'transparent',
-      color: active && color ? color : active ? 'var(--text)' : 'var(--muted)',
-    }}>
+    <button onClick={onClick} className={cn(
+      'inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-0.5 text-2xs font-semibold',
+      active ? 'border-border bg-secondary' : 'border-border bg-transparent text-muted-foreground',
+      active && color ? color : active ? 'text-foreground' : '',
+    )}>
       {icon}{label}
     </button>
   );
@@ -498,12 +475,13 @@ function FbChip({ label, icon, active, color, onClick }: { label: string; icon?:
 
 function StatusPill({ status }: { status: 'in_progress' | 'done' | 'error' }): React.JSX.Element {
   const map = {
-    in_progress: { label: 'Running', bg: 'rgba(37,99,235,0.1)', fg: '#1d4ed8', icon: <Loader2 size={10} style={{ animation: 'spin 1.2s linear infinite' }} /> },
-    done: { label: 'Done', bg: 'rgba(5,150,105,0.1)', fg: '#047857', icon: <CheckCircle2 size={10} /> },
-    error: { label: 'Error', bg: 'rgba(220,38,38,0.1)', fg: '#b91c1c', icon: <AlertTriangle size={10} /> },
+    in_progress: { label: 'Running', color: 'blue', text: 'text-blue', icon: <Loader2 size={10} className="animate-spin" /> },
+    done: { label: 'Done', color: 'green', text: 'text-green', icon: <CheckCircle2 size={10} /> },
+    error: { label: 'Error', color: 'red', text: 'text-red', icon: <AlertTriangle size={10} /> },
   }[status];
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 10, background: map.bg, color: map.fg, fontSize: 10, fontWeight: 600, letterSpacing: '0.02em' }}>
+    <span className={cn('inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-2xs font-semibold tracking-[0.02em]', map.text)}
+      style={{ background: `color-mix(in srgb, var(--${map.color}) 10%, transparent)` }}>
       {map.icon}{map.label}
     </span>
   );

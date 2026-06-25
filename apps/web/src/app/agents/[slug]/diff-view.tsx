@@ -14,6 +14,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { lineDiff, hunks, diffStats, type DiffHunk } from '@/lib/diff';
+import { Button } from '@/components/ui/button';
 
 /** One file entry in a snapshot comparison. */
 export interface FileChange {
@@ -75,28 +76,20 @@ export function FilesChanged({ files }: { files: FileChange[] }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '10px 14px',
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
-      }}>
-        <span style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 600 }}>
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-card border border-border rounded-lg shadow-sm">
+        <span className="text-sm text-foreground font-semibold">
           {files.length} file{files.length === 1 ? '' : 's'} will change
         </span>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>·</span>
-        <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: ADD_COLOR }}>+{totals.added}</span>
-        <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: DEL_COLOR }}>−{totals.removed}</span>
-        <button
+        <span className="text-xs text-muted-foreground">·</span>
+        <span className="text-xs font-mono text-green">+{totals.added}</span>
+        <span className="text-xs font-mono text-red">−{totals.removed}</span>
+        <Button
           onClick={toggleAll}
-          style={{
-            marginLeft: 'auto', fontSize: 12, color: 'var(--muted)',
-            background: 'transparent', border: '1px solid var(--border)',
-            borderRadius: 6, padding: '3px 9px', cursor: 'pointer',
-            fontFamily: 'var(--font-sans)',
-          }}
-        >{allOpen ? 'Collapse all' : 'Expand all'}</button>
+          variant="outline"
+          size="sm"
+          className="ml-auto h-auto px-2.5 py-[3px] text-xs text-muted-foreground font-normal"
+        >{allOpen ? 'Collapse all' : 'Expand all'}</Button>
       </div>
 
       {files.map(f => (
@@ -130,37 +123,25 @@ function FileDiff({ file, open, onToggle }: { file: FileChange; open: boolean; o
   const chip = STATUS_CHIP[file.status];
 
   return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)',
-      overflow: 'hidden',
-    }}>
+    <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
       <button
         onClick={onToggle}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-          padding: '10px 14px', background: 'transparent', border: 'none',
-          cursor: 'pointer', textAlign: 'left', color: 'var(--text)',
-        }}
+        className="w-full flex items-center gap-2 px-3.5 py-2.5 bg-transparent border-none cursor-pointer text-left text-foreground"
       >
-        {open ? <ChevronDown size={14} style={{ color: 'var(--muted)' }} />
-              : <ChevronRight size={14} style={{ color: 'var(--muted)' }} />}
-        <FileText size={13} style={{ color: 'var(--muted)' }} />
-        <span style={{
-          fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
-          background: chip.bg, color: chip.color,
-        }}>{chip.label}</span>
-        <span style={{
-          fontSize: 12.5, fontFamily: 'var(--font-mono)',
-          color: 'var(--text)', flex: 1, minWidth: 0,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>{file.path}</span>
-        <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: ADD_COLOR }}>+{added}</span>
-        <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: DEL_COLOR }}>−{removed}</span>
+        {open ? <ChevronDown size={14} className="text-muted-foreground" />
+              : <ChevronRight size={14} className="text-muted-foreground" />}
+        <FileText size={13} className="text-muted-foreground" />
+        <span
+          className="text-2xs font-bold px-1.5 py-px rounded-sm"
+          style={{ background: chip.bg, color: chip.color }}
+        >{chip.label}</span>
+        <span className="text-sm font-mono text-foreground flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{file.path}</span>
+        <span className="text-xs font-mono text-green">+{added}</span>
+        <span className="text-xs font-mono text-red">−{removed}</span>
       </button>
 
       {open && (
-        <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+        <div className="border-t border-border bg-muted">
           {file.status === 'added'   && <WholeFileBlock text={file.newText} kind="add" />}
           {file.status === 'removed' && <WholeFileBlock text={file.oldText} kind="del" />}
           {file.status === 'modified' && (
@@ -182,9 +163,7 @@ const STATUS_CHIP: Record<FileChange['status'], { label: string; bg: string; col
 
 function EmptyDiff() {
   return (
-    <div style={{
-      padding: '14px 18px', fontSize: 12.5, color: 'var(--subtle)', textAlign: 'center',
-    }}>No differences</div>
+    <div className="px-4 py-3.5 text-sm text-muted-foreground text-center">No differences</div>
   );
 }
 
@@ -196,16 +175,13 @@ function WholeFileBlock({ text, kind }: { text: string; kind: 'add' | 'del' }) {
   const prefix = kind === 'add' ? '+' : '−';
   const width = String(lines.length).length;
   return (
-    <div style={{
-      fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.6,
-      maxHeight: 480, overflow: 'auto',
-    }}>
+    <div className="text-xs font-mono leading-relaxed max-h-[480px] overflow-auto">
       {lines.map((ln, i) => (
-        <div key={i} style={{ display: 'flex', background: bg, color }}>
+        <div key={i} className="flex" style={{ background: bg, color }}>
           <Gutter n={kind === 'add' ? null : i + 1} width={width} />
           <Gutter n={kind === 'add' ? i + 1 : null} width={width} />
-          <span style={{ width: 18, flexShrink: 0, textAlign: 'center', userSelect: 'none', opacity: 0.7 }}>{prefix}</span>
-          <span style={{ flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word', paddingRight: 12 }}>{ln || ' '}</span>
+          <span className="w-[18px] flex-shrink-0 text-center select-none opacity-70">{prefix}</span>
+          <span className="flex-1 whitespace-pre-wrap break-words pr-3">{ln || ' '}</span>
         </div>
       ))}
     </div>
@@ -224,18 +200,14 @@ function HunksView({ hunks: hs }: { hunks: DiffHunk[] }) {
   }, [hs]);
 
   return (
-    <div style={{
-      fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.6,
-      maxHeight: 480, overflow: 'auto',
-    }}>
+    <div className="text-xs font-mono leading-relaxed max-h-[480px] overflow-auto">
       {hs.map((h, hi) => (
         <React.Fragment key={hi}>
-          {hi > 0 && <div style={{ borderTop: '1px dashed var(--border)' }} />}
-          <div style={{
-            padding: '4px 12px', fontSize: 11.5, color: 'var(--muted)',
-            background: 'rgba(99,102,241,0.06)',
-            borderBottom: '1px solid var(--border)',
-          }}>
+          {hi > 0 && <div className="border-t border-dashed border-border" />}
+          <div
+            className="px-3 py-1 text-2xs text-muted-foreground border-b border-border"
+            style={{ background: 'rgba(99,102,241,0.06)' }}
+          >
             @@ -{h.oldStart},{h.oldLines} +{h.newStart},{h.newLines} @@
           </div>
           {h.lines.map((l, li) => {
@@ -243,11 +215,11 @@ function HunksView({ hunks: hs }: { hunks: DiffHunk[] }) {
             const color = l.type === 'add' ? ADD_COLOR : l.type === 'remove' ? DEL_COLOR : 'var(--text)';
             const prefix = l.type === 'add' ? '+' : l.type === 'remove' ? '−' : ' ';
             return (
-              <div key={li} style={{ display: 'flex', background: bg, color }}>
+              <div key={li} className="flex" style={{ background: bg, color }}>
                 <Gutter n={l.oldNo} width={gutterWidth} />
                 <Gutter n={l.newNo} width={gutterWidth} />
-                <span style={{ width: 18, flexShrink: 0, textAlign: 'center', userSelect: 'none', opacity: 0.7 }}>{prefix}</span>
-                <span style={{ flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word', paddingRight: 12 }}>
+                <span className="w-[18px] flex-shrink-0 text-center select-none opacity-70">{prefix}</span>
+                <span className="flex-1 whitespace-pre-wrap break-words pr-3">
                   {l.line || ' '}
                 </span>
               </div>
@@ -262,10 +234,9 @@ function HunksView({ hunks: hs }: { hunks: DiffHunk[] }) {
 /** Right-aligned fixed-width line-number cell. `null` renders as blank. */
 function Gutter({ n, width }: { n: number | null; width: number }) {
   return (
-    <span style={{
-      width: `${width + 2}ch`, flexShrink: 0, textAlign: 'right',
-      paddingRight: 8, color: 'var(--subtle)', userSelect: 'none',
-      borderRight: '1px solid var(--border)', opacity: n === null ? 0.3 : 1,
-    }}>{n ?? ''}</span>
+    <span
+      className="flex-shrink-0 text-right pr-2 text-muted-foreground select-none border-r border-border"
+      style={{ width: `${width + 2}ch`, opacity: n === null ? 0.3 : 1 }}
+    >{n ?? ''}</span>
   );
 }

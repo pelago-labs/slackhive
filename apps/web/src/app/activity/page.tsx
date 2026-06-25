@@ -18,6 +18,8 @@ import { TabSwitcher } from './_components/TabSwitcher';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
 import { ReplayButton } from './_components/ReplayButton';
 import { relativeTime } from '@/lib/time';
+import { cn } from '@/lib/utils';
+import { PageShell, PageHeader, EmptyState, AvatarStack } from '@/components/patterns';
 
 interface Task {
   id: string;
@@ -55,22 +57,6 @@ const COLUMNS: { key: Column; label: string; icon: React.ReactNode; accent: stri
   { key: 'recent',  label: 'Recent',  icon: <CheckCircle2 size={13} />,   accent: '#059669' },
   { key: 'errored', label: 'Errors',  icon: <AlertTriangle size={13} />,  accent: '#dc2626' },
 ];
-
-/** Initials from an agent/user name, max 2 chars. */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-/** Deterministic pastel color per agent for avatar stacks. */
-function agentColor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) & 0xffffffff;
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 55%, 55%)`;
-}
 
 export default function ActivityPage(): React.JSX.Element {
   // useSearchParams forces dynamic rendering — wrap in Suspense so the
@@ -187,28 +173,23 @@ function ActivityPageBody(): React.JSX.Element {
   const activeCount = lists.active.tasks.length;
 
   return (
-    <div className="fade-up" style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <ActivityIcon size={20} /> Activity
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Every task your agents worked on, live.
-          </p>
-        </div>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          fontSize: 12, fontWeight: 500, color: activeCount > 0 ? '#2563eb' : 'var(--muted)',
-        }}>
-          <span style={{
-            width: 7, height: 7, borderRadius: '50%',
-            background: activeCount > 0 ? '#2563eb' : 'var(--border-2)',
-            boxShadow: activeCount > 0 ? '0 0 0 3px rgba(37,99,235,0.15)' : 'none',
-          }} />
-          {activeCount > 0 ? `${activeCount} active` : 'Idle'}
-        </div>
-      </div>
+    <PageShell>
+      <PageHeader
+        title={<span className="flex items-center gap-2.5"><ActivityIcon size={20} /> Activity</span>}
+        subtitle="Every task your agents worked on, live."
+        action={
+          <div className={cn(
+            'inline-flex items-center gap-1.5 text-xs font-medium',
+            activeCount > 0 ? 'text-blue' : 'text-muted-foreground',
+          )}>
+            <span className={cn(
+              'h-[7px] w-[7px] rounded-full',
+              activeCount > 0 ? 'bg-blue shadow-[0_0_0_3px_rgba(37,99,235,0.15)]' : 'bg-border',
+            )} />
+            {activeCount > 0 ? `${activeCount} active` : 'Idle'}
+          </div>
+        }
+      />
 
       <TabSwitcher />
 
@@ -228,11 +209,7 @@ function ActivityPageBody(): React.JSX.Element {
       {/* Per-agent analytics (KPIs / tokens / tools / models) moved to the
           Observability page — Activity stays the task kanban. */}
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-        gap: 14,
-      }}>
+      <div className="grid grid-cols-3 gap-3.5">
         {COLUMNS.map(col => (
           <ColumnView
             key={col.key}
@@ -245,7 +222,7 @@ function ActivityPageBody(): React.JSX.Element {
           />
         ))}
       </div>
-    </div>
+    </PageShell>
   );
 }
 
@@ -260,28 +237,19 @@ function ColumnView(props: {
   const { column, tasks, hasMore, loaded, agentById, onLoadMore } = props;
 
   return (
-    <div style={{
-      background: `color-mix(in srgb, ${column.accent} 4%, var(--surface))`,
-      border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden',
-      display: 'flex', flexDirection: 'column',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: column.accent, flexShrink: 0 }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{column.label}</span>
-        <span style={{
-          fontSize: 11.5, fontWeight: 600, color: 'var(--muted)',
-          background: 'var(--surface-2)', borderRadius: 99, padding: '1px 8px',
-        }}>{tasks.length}{hasMore ? '+' : ''}</span>
+    <div
+      className="flex flex-col overflow-hidden rounded-xl border border-border"
+      style={{ background: `color-mix(in srgb, ${column.accent} 4%, var(--surface))` }}
+    >
+      <div className="flex items-center gap-2 px-3.5 py-3">
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: column.accent }} />
+        <span className="text-xs font-semibold text-foreground">{column.label}</span>
+        <span className="rounded-full bg-secondary px-2 py-px text-xs font-semibold text-muted-foreground">{tasks.length}{hasMore ? '+' : ''}</span>
       </div>
-      <div style={{ padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 120 }}>
-        {!loaded && <div style={{ padding: 20, color: 'var(--muted)', fontSize: 12, textAlign: 'center' }}>Loading…</div>}
+      <div className="flex min-h-[120px] flex-col gap-2 px-2.5 pb-2.5 pt-1">
+        {!loaded && <div className="p-5 text-center text-xs text-muted-foreground">Loading…</div>}
         {loaded && tasks.length === 0 && (
-          <div style={{
-            padding: 24, color: 'var(--subtle)', fontSize: 12, textAlign: 'center',
-            border: '1px dashed var(--border)', borderRadius: 8,
-          }}>
-            No tasks
-          </div>
+          <EmptyState title="No tasks" className="px-6 py-6" />
         )}
         {tasks.map(t => (
           <TaskCard
@@ -295,12 +263,7 @@ function ColumnView(props: {
         {hasMore && (
           <button
             onClick={onLoadMore}
-            style={{
-              marginTop: 4, padding: '8px 10px', fontSize: 12, fontWeight: 500,
-              color: 'var(--muted)', background: 'transparent',
-              border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-            }}
+            className="mt-1 cursor-pointer rounded-md border border-border bg-transparent px-2.5 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary"
           >
             Load more
           </button>
@@ -325,40 +288,38 @@ function TaskCard(props: {
   return (
     <Link
       href={href}
-      style={{
-        textDecoration: 'none', color: 'inherit',
-        display: 'block', padding: '11px 13px',
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, boxShadow: 'var(--shadow-sm)',
-        transition: 'box-shadow 0.12s, border-color 0.12s',
-      }}
-      onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-hover)'; el.style.borderColor = 'var(--border-2)'; }}
-      onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-sm)'; el.style.borderColor = 'var(--border)'; }}
+      className="block rounded-[10px] border border-border bg-card px-3 py-3 text-inherit no-underline shadow-sm transition-[box-shadow,border-color] duration-100 hover:border-input hover:shadow-lg"
     >
       {/* Top row: ref code + sensitive flag + time */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
-        <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--subtle)', letterSpacing: '0.01em' }}>{shortRef(task.id)}</span>
+      <div className="mb-[7px] flex items-center gap-1.5">
+        <span className="text-xs font-medium tracking-[0.01em] text-muted-foreground/80">{shortRef(task.id)}</span>
         {task.sensitive && (
-          <ShieldAlert size={12} style={{ color: '#b45309', flexShrink: 0 }} aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
+          <ShieldAlert size={12} className="shrink-0 text-amber" aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--subtle)', flexShrink: 0 }}>{relativeTime(task.lastActivityAt)}</span>
+        <span className="ml-auto shrink-0 text-2xs text-muted-foreground/80">{relativeTime(task.lastActivityAt)}</span>
       </div>
 
       {/* Title — up to two lines, like a Linear issue */}
-      <div style={{
-        fontSize: 13.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, letterSpacing: '-0.005em',
-        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-      }}>
+      <div
+        className="overflow-hidden text-sm font-semibold leading-snug text-foreground"
+        style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+      >
         {task.summary || '(empty message)'}
       </div>
 
       {/* Footer: avatars (assignee) + meta chips */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 11 }}>
-        {agentIds.length > 0 && <AvatarStack agentIds={agentIds} agentById={agentById} />}
-        {primaryAgentName && (
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{primaryAgentName}</span>
+      <div className="mt-3 flex items-center gap-2">
+        {agentIds.length > 0 && (
+          <AvatarStack
+            items={agentIds.map(id => ({ id, name: agentById.get(id)?.name ?? id.slice(0, 6) }))}
+            size={20}
+            max={3}
+          />
         )}
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        {primaryAgentName && (
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">{primaryAgentName}</span>
+        )}
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
           {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
           {!!task.feedbackDown && <Chip color="#dc2626"><ThumbsDown size={10} />{task.feedbackDown}</Chip>}
           <Chip>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</Chip>
@@ -379,47 +340,13 @@ function shortRef(id: string): string {
 /** Small rounded meta chip (Linear-style badge). */
 function Chip({ children, color }: { children: React.ReactNode; color?: string }): React.JSX.Element {
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 500,
-      color: color ?? 'var(--muted)', background: color ? `${color}14` : 'var(--surface-2)',
-      border: `1px solid ${color ? `${color}33` : 'var(--border)'}`, borderRadius: 6, padding: '1px 7px',
-    }}>{children}</span>
-  );
-}
-
-function AvatarStack(props: {
-  agentIds: string[];
-  agentById: Map<string, AgentLite>;
-}): React.JSX.Element {
-  const { agentIds, agentById } = props;
-  const visible = agentIds.slice(0, 3);
-  const extra = agentIds.length - visible.length;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center' }}>
-      {visible.map((id, i) => {
-        const a = agentById.get(id);
-        const label = a?.name ?? id.slice(0, 6);
-        return (
-          <div
-            key={id}
-            title={label}
-            style={{
-              width: 20, height: 20, borderRadius: '50%',
-              background: agentColor(id), color: 'white',
-              fontSize: 9, fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              marginLeft: i === 0 ? 0 : -6,
-              border: '2px solid var(--surface-2)',
-            }}
-          >
-            {initials(label)}
-          </div>
-        );
-      })}
-      {extra > 0 && (
-        <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--muted)' }}>+{extra}</span>
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 rounded-md border px-[7px] py-px text-2xs font-medium',
+        !color && 'border-border bg-secondary text-muted-foreground',
       )}
-    </div>
+      style={color ? { color, background: `${color}14`, borderColor: `${color}33` } : undefined}
+    >{children}</span>
   );
 }
 
@@ -438,7 +365,7 @@ function StatsStrip(props: { stats: StatsResponse | null; agentCount: number }):
   const total   = active + recent + errored;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+    <div className="mb-3.5 grid grid-cols-4 gap-2.5">
       <StatCard label="Active" value={active} color="#2563eb" pulse={active > 0}
                 sub={agentCount > 0 ? `${agentCount} agent${agentCount === 1 ? '' : 's'} working` : 'No agents in-flight'} />
       <StatCard label="Completed" value={recent} color="#059669" sub="Finished in window" />
@@ -452,13 +379,16 @@ function StatsStrip(props: { stats: StatsResponse | null; agentCount: number }):
 function StatCard(props: { label: string; value: number; color?: string; sub?: string; pulse?: boolean }): React.JSX.Element {
   const { label, value, color, sub, pulse } = props;
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-        {pulse && <span className="status-running" style={{ width: 6, height: 6, borderRadius: '50%', background: color ?? '#2563eb' }} />}
+    <div className="rounded-lg border border-border bg-card px-3.5 py-3">
+      <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        {pulse && <span className="status-running h-1.5 w-1.5 rounded-full" style={{ background: color ?? '#2563eb' }} />}
         {label}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: color ?? 'var(--text)', marginTop: 4, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 5 }}>{sub}</div>}
+      <div
+        className={cn('mt-1 text-2xl font-bold leading-none tabular-nums tracking-tight', !color && 'text-foreground')}
+        style={color ? { color } : undefined}
+      >{value}</div>
+      {sub && <div className="mt-1 text-2xs text-muted-foreground">{sub}</div>}
     </div>
   );
 }

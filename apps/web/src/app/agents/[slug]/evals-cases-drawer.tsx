@@ -29,6 +29,9 @@ import type {
 import { Loader2, Pencil, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import type { McpTool } from '@slackhive/shared';
 import { Portal } from '@/lib/portal';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 // ─── UI-facing check kinds ────────────────────────────────────────────────────
 
@@ -204,58 +207,20 @@ export function EvalsCasesDrawer({
 
   return (
     <Portal>
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 100,
-        }}
-      />
-      <aside
-        style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 580,
-          maxWidth: '92vw',
-          background: 'var(--surface)',
-          boxShadow: '-12px 0 40px rgba(0,0,0,0.18)',
-          zIndex: 101,
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <header
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '16px 22px',
-            borderBottom: '1px solid var(--border)',
-          }}
-        >
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{title}</span>
+      <div onClick={onClose} className="fixed inset-0 z-[100]" />
+      <aside className="fixed bottom-0 right-0 top-0 z-[101] flex w-[580px] max-w-[92vw] flex-col bg-card shadow-lg">
+        <header className="flex items-center justify-between border-b border-border px-5 py-4">
+          <span className="text-md font-semibold text-foreground">{title}</span>
           <button
             onClick={onClose}
             aria-label="Close"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--muted)',
-              cursor: 'pointer',
-              padding: '4px 8px',
-              borderRadius: 6,
-              lineHeight: 1,
-              display: 'inline-flex',
-            }}
+            className="inline-flex cursor-pointer rounded-md px-2 py-1 leading-none text-muted-foreground hover:bg-secondary"
           >
             <X size={18} />
           </button>
         </header>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
           {mode.kind === 'list' && (
             <ListView
               cases={cases}
@@ -343,119 +308,55 @@ function ListView({
 
   return (
     <>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          marginBottom: 14,
-        }}
-      >
+      <div className="mb-3.5 flex items-center justify-between gap-3">
         {inSelectionMode ? (
           <>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>
+            <div className="text-sm font-medium text-foreground">
               {selected.size} of {cases.length} selected
               {!allSelected && (
                 <button
                   onClick={onSelectAll}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--blue)',
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    padding: 0,
-                    marginLeft: 10,
-                    fontFamily: 'inherit',
-                  }}
+                  className="ml-2.5 cursor-pointer p-0 text-xs text-blue"
                 >
                   Select all
                 </button>
               )}
               <button
                 onClick={onClearSelection}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--muted)',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  padding: 0,
-                  marginLeft: 10,
-                  fontFamily: 'inherit',
-                }}
+                className="ml-2.5 cursor-pointer p-0 text-xs text-muted-foreground"
               >
                 Clear
               </button>
             </div>
-            <button
+            <Button
               onClick={onBulkDelete}
               disabled={bulkDeleting}
-              style={{
-                background: 'var(--red-soft-bg, #fef2f2)',
-                color: 'var(--red)',
-                border: '1px solid var(--red-soft-border, #fecaca)',
-                borderRadius: 6,
-                padding: '6px 12px',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: bulkDeleting ? 'not-allowed' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontFamily: 'inherit',
-                opacity: bulkDeleting ? 0.6 : 1,
-              }}
+              variant="destructive"
+              size="sm"
             >
               {bulkDeleting ? (
-                <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} />
+                <Loader2 size={13} className="animate-spin" />
               ) : (
                 <Trash2 size={13} />
               )}
               Delete selected
-            </button>
+            </Button>
           </>
         ) : (
           <>
-            <div style={{ fontSize: 12, color: 'var(--muted)', minWidth: 0 }}>
+            <div className="min-w-0 text-xs text-muted-foreground">
               {loading ? 'Loading…' : `${cases.length} cases · ${approvedCount} approved · ${proposedCount} proposed`}
             </div>
-            <button
-              onClick={onNew}
-              style={{
-                background: 'var(--accent)',
-                color: 'var(--accent-fg)',
-                border: 'none',
-                borderRadius: 6,
-                padding: '6px 12px',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontFamily: 'inherit',
-              }}
-            >
+            <Button onClick={onNew} size="sm">
               <Plus size={14} /> Add
-            </button>
+            </Button>
           </>
         )}
       </div>
 
       {cases.length === 0 && !loading && (
-        <div
-          style={{
-            border: '1px dashed var(--border-2)',
-            borderRadius: 10,
-            padding: '32px 16px',
-            textAlign: 'center',
-            color: 'var(--muted)',
-            fontSize: 13,
-          }}
-        >
-          <div style={{ fontWeight: 500, color: 'var(--text-2)', marginBottom: 4 }}>
+        <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+          <div className="mb-1 font-medium text-foreground">
             No test cases yet
           </div>
           Add your first case to start building a regression suite for this agent.
@@ -463,21 +364,17 @@ function ListView({
       )}
 
       {cases.length > 0 && (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 10 }}>
+        <div className="rounded-lg border border-border">
           {cases.map((c, idx) => (
             <div
               key={c.id}
               onClick={() => onEdit(c.id)}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '20px 1fr auto 28px 28px',
-                gap: 10,
-                alignItems: 'center',
-                padding: '10px 14px',
-                cursor: 'pointer',
-                borderBottom: idx < cases.length - 1 ? '1px solid var(--border)' : 'none',
-                background: selected.has(c.id) ? 'var(--surface-2)' : 'transparent',
-              }}
+              className={cn(
+                'grid cursor-pointer items-center gap-2.5 px-3.5 py-2.5',
+                idx < cases.length - 1 && 'border-b border-border',
+                selected.has(c.id) ? 'bg-secondary' : 'bg-transparent',
+              )}
+              style={{ gridTemplateColumns: '20px 1fr auto 28px 28px' }}
             >
               <input
                 type="checkbox"
@@ -485,20 +382,13 @@ function ListView({
                 onClick={(e) => e.stopPropagation()}
                 onChange={() => onToggleSelected(c.id)}
                 aria-label="Select case"
-                style={{ cursor: 'pointer', margin: 0 }}
+                className="m-0 cursor-pointer"
               />
-              <div style={{ overflow: 'hidden' }}>
-                <div
-                  style={{
-                    fontSize: 13,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+              <div className="overflow-hidden">
+                <div className="overflow-hidden text-ellipsis whitespace-nowrap text-sm text-foreground">
                   {c.question || '(empty question)'}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                <div className="mt-0.5 text-2xs text-muted-foreground">
                   {c.checks.length} check{c.checks.length === 1 ? '' : 's'} ·{' '}
                   {c.checks.map((ch) => UI_CHECK_LABEL[uiKindOf(ch)]).join(' + ')}
                 </div>
@@ -510,7 +400,7 @@ function ListView({
                   onEdit(c.id);
                 }}
                 aria-label="Edit"
-                style={iconBtnStyle}
+                className={iconBtnClass}
               >
                 <Pencil size={13} />
               </button>
@@ -520,7 +410,7 @@ function ListView({
                   onDelete(c.id);
                 }}
                 aria-label="Delete"
-                style={{ ...iconBtnStyle, color: 'var(--red)' }}
+                className={cn(iconBtnClass, 'text-red')}
               >
                 <Trash2 size={13} />
               </button>
@@ -529,7 +419,7 @@ function ListView({
         </div>
       )}
 
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 14, textAlign: 'center' }}>
+      <div className="mt-3.5 text-center text-2xs text-muted-foreground">
         Cases marked <strong>approved</strong> run when you click <em>Run regression</em>.{' '}
         Proposed cases are skipped until reviewed.
       </div>
@@ -541,32 +431,18 @@ function StatusPill({ status }: { status: 'approved' | 'proposed' }) {
   const isApproved = status === 'approved';
   return (
     <span
-      style={{
-        fontSize: 11,
-        fontWeight: 500,
-        padding: '2px 8px',
-        borderRadius: 10,
-        background: isApproved ? 'var(--green-soft-bg, #ecfdf5)' : 'var(--surface-2)',
-        color: isApproved ? 'var(--green)' : 'var(--muted)',
-        fontFamily: 'var(--font-mono)',
-      }}
+      className={cn(
+        'rounded-full px-2 py-0.5 font-mono text-2xs font-medium',
+        isApproved ? 'bg-green/10 text-green' : 'bg-secondary text-muted-foreground',
+      )}
     >
       {status}
     </span>
   );
 }
 
-const iconBtnStyle: React.CSSProperties = {
-  background: 'transparent',
-  border: 'none',
-  color: 'var(--muted)',
-  cursor: 'pointer',
-  padding: 4,
-  borderRadius: 4,
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};
+const iconBtnClass =
+  'inline-flex cursor-pointer items-center justify-center rounded p-1 text-muted-foreground';
 
 // ─── Form view ────────────────────────────────────────────────────────────────
 
@@ -700,62 +576,30 @@ function FormView({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="flex flex-col gap-4">
       {!existing && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 12,
-            padding: '10px 12px',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            background: 'var(--surface-2)',
-          }}
-        >
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-secondary px-3 py-2.5">
+          <div className="text-xs text-muted-foreground">
             Need a starting point? Auto-fill from this agent's context.
           </div>
-          <button
+          <Button
             onClick={autoFill}
             disabled={autoFilling}
-            style={{
-              background: 'var(--surface)',
-              color: 'var(--text)',
-              border: '1px solid var(--border-2)',
-              borderRadius: 6,
-              padding: '6px 10px',
-              fontSize: 12,
-              cursor: autoFilling ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              fontFamily: 'inherit',
-              whiteSpace: 'nowrap',
-              opacity: autoFilling ? 0.7 : 1,
-            }}
+            variant="outline"
+            size="sm"
+            className="whitespace-nowrap"
           >
             {autoFilling ? (
-              <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} />
+              <Loader2 size={13} className="animate-spin" />
             ) : (
               <Sparkles size={13} />
             )}
             {autoFilling ? 'Generating…' : 'Auto-fill'}
-          </button>
+          </Button>
         </div>
       )}
       {autoFillNote && !existing && (
-        <div
-          style={{
-            padding: '8px 12px',
-            background: 'var(--amber-soft-bg, #fffbeb)',
-            border: '1px solid var(--amber-soft-border, #fde68a)',
-            borderRadius: 6,
-            color: 'var(--amber)',
-            fontSize: 12,
-          }}
-        >
+        <div className="rounded-md border border-amber/40 bg-amber/10 px-3 py-2 text-xs text-amber">
           {autoFillNote}
         </div>
       )}
@@ -765,28 +609,19 @@ function FormView({
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="e.g. How many engaged sessions in May 2025?"
-          style={textareaStyle}
+          className={textareaClass}
         />
       </Field>
 
       <div>
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            color: 'var(--muted)',
-            marginBottom: 4,
-          }}
-        >
+        <div className="mb-1 text-2xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
           Checks
         </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+        <div className="mb-2.5 text-xs text-muted-foreground">
           The agent&apos;s response must satisfy ALL of these.
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="flex flex-col gap-2.5">
           {checks.map((check, idx) => (
             <CheckEditor
               key={idx}
@@ -801,22 +636,7 @@ function FormView({
 
         <button
           onClick={addCheck}
-          style={{
-            marginTop: 10,
-            background: 'transparent',
-            border: '1px dashed var(--border-2)',
-            color: 'var(--muted)',
-            cursor: 'pointer',
-            borderRadius: 6,
-            padding: '8px 12px',
-            fontSize: 13,
-            width: '100%',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            fontFamily: 'inherit',
-          }}
+          className="mt-2.5 inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
         >
           <Plus size={13} /> Add check
         </button>
@@ -826,7 +646,7 @@ function FormView({
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as 'approved' | 'proposed')}
-          style={selectStyle}
+          className={selectClass}
         >
           <option value="approved">approved — runs in regression suite</option>
           <option value="proposed">proposed — needs review before approval</option>
@@ -834,62 +654,35 @@ function FormView({
       </Field>
 
       {error && (
-        <div
-          style={{
-            padding: '10px 12px',
-            background: 'var(--red-soft-bg, #fef2f2)',
-            border: '1px solid var(--red-soft-border, #fecaca)',
-            borderRadius: 6,
-            color: 'var(--red)',
-            fontSize: 12,
-          }}
-        >
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
           {error}
         </div>
       )}
 
       <div
-        style={{
-          display: 'flex',
-          justifyContent: existing || autoFilledCaseId ? 'space-between' : 'flex-end',
-          alignItems: 'center',
-          paddingTop: 14,
-          borderTop: '1px solid var(--border)',
-          marginTop: 4,
-        }}
+        className={cn(
+          'mt-1 flex items-center border-t border-border pt-3.5',
+          existing || autoFilledCaseId ? 'justify-between' : 'justify-end',
+        )}
       >
         {(existing || autoFilledCaseId) && (
-          <button
+          <Button
             onClick={() => onArchive((existing?.id ?? autoFilledCaseId) as string)}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--red-soft-border, #fecaca)',
-              color: 'var(--red)',
-              cursor: 'pointer',
-              borderRadius: 6,
-              padding: '6px 12px',
-              fontSize: 13,
-              fontFamily: 'inherit',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
+            variant="outline"
+            size="sm"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 size={13} /> Delete
-          </button>
+          </Button>
         )}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onCancel} style={btnStyle}>
+        <div className="flex gap-2">
+          <Button onClick={onCancel} variant="outline" size="sm">
             Cancel
-          </button>
-          <button
-            onClick={save}
-            disabled={submitting}
-            style={{ ...btnStyle, background: 'var(--accent)', color: 'var(--accent-fg)', borderColor: 'var(--accent)', fontWeight: 500 }}
-          >
-            {submitting && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
+          </Button>
+          <Button onClick={save} disabled={submitting} size="sm">
+            {submitting && <Loader2 size={14} className="animate-spin" />}
             {existing ? 'Save changes' : 'Create case'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -914,19 +707,12 @@ function CheckEditor({
   const kind = uiKindOf(check);
 
   return (
-    <div
-      style={{
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        padding: 12,
-        background: 'var(--surface-2)',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+    <div className="rounded-lg border border-border bg-secondary p-3">
+      <div className="mb-2.5 flex items-center gap-2">
         <select
           value={kind}
           onChange={(e) => onChangeKind(e.target.value as UICheckKind)}
-          style={{ ...selectStyle, flex: 1, fontSize: 13 }}
+          className={cn(selectClass, 'flex-1 text-sm')}
         >
           {(Object.keys(UI_CHECK_LABEL) as UICheckKind[]).map((k) => (
             <option key={k} value={k}>
@@ -935,7 +721,7 @@ function CheckEditor({
           ))}
         </select>
         {onRemove && (
-          <button onClick={onRemove} aria-label="Remove check" style={iconBtnStyle}>
+          <button onClick={onRemove} aria-label="Remove check" className={iconBtnClass}>
             <X size={13} />
           </button>
         )}
@@ -1012,7 +798,7 @@ function SubstringEditor({
           )
         }
         placeholder={'session_duration_s > 10\nunique_pvid > 1'}
-        style={{ ...textareaStyle, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+        className={cn(textareaClass, 'font-mono text-xs')}
       />
     </Field>
   );
@@ -1066,7 +852,7 @@ function ToolCalledEditor({
 
   return (
     <Field label={label}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div className="flex flex-col gap-1.5">
         {entries.map((entry, i) => (
           <ToolEntryRow
             key={i}
@@ -1080,25 +866,12 @@ function ToolCalledEditor({
       <button
         type="button"
         onClick={addEntry}
-        style={{
-          marginTop: 8,
-          padding: '4px 10px',
-          fontSize: 12,
-          background: 'transparent',
-          border: '1px dashed var(--border-2)',
-          borderRadius: 6,
-          color: 'var(--muted)',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 4,
-        }}
+        className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-secondary"
       >
         <Plus size={12} /> Add tool
       </button>
       {mcps.length === 0 && (
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+        <div className="mt-1.5 text-2xs text-muted-foreground">
           No MCP servers linked — link one in the agent's Tools tab to use this check.
         </div>
       )}
@@ -1152,25 +925,16 @@ function ToolEntryRow({
   // Raw fallback: when the original value can't be parsed, just show a text input.
   if (entry.raw !== undefined) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div className="flex items-center gap-1.5">
         <input
           type="text"
           value={entry.raw}
           onChange={(e) => onChange({ serverName: null, tool: null, raw: e.target.value })}
           placeholder="mcp__server__tool"
-          style={{
-            flex: 1,
-            padding: '6px 10px',
-            border: '1px solid var(--border)',
-            borderRadius: 6,
-            fontSize: 12,
-            fontFamily: 'var(--font-mono)',
-            background: 'var(--surface)',
-            color: 'var(--text)',
-          }}
+          className="flex-1 rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-xs text-foreground"
         />
         {onRemove && (
-          <button type="button" onClick={onRemove} style={toolIconBtnStyle} aria-label="Remove">
+          <button type="button" onClick={onRemove} className={toolIconBtnClass} aria-label="Remove">
             <X size={14} />
           </button>
         )}
@@ -1179,13 +943,16 @@ function ToolEntryRow({
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr auto auto', gap: 6, alignItems: 'center' }}>
+    <div
+      className="grid items-center gap-1.5"
+      style={{ gridTemplateColumns: '1fr 1.4fr auto auto' }}
+    >
       <select
         value={entry.serverName ?? ''}
         onChange={(e) =>
           onChange({ serverName: e.target.value || null, tool: null })
         }
-        style={selectStyle}
+        className={selectClass}
       >
         <option value="">Pick MCP…</option>
         {mcps.map((m) => (
@@ -1199,7 +966,7 @@ function ToolEntryRow({
         value={entry.tool ?? ''}
         onChange={(e) => onChange({ ...entry, tool: e.target.value || null })}
         disabled={!entry.serverName || status === 'loading'}
-        style={toolSelectStyle}
+        className={toolSelectClass}
       >
         <option value="">
           {!entry.serverName
@@ -1226,19 +993,19 @@ function ToolEntryRow({
         type="button"
         onClick={refresh}
         disabled={!entry.serverName || status === 'loading'}
-        style={toolIconBtnStyle}
+        className={toolIconBtnClass}
         title="Refresh tool list"
         aria-label="Refresh tool list"
       >
         {status === 'loading' ? (
-          <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+          <Loader2 size={14} className="animate-spin" />
         ) : (
           <RefreshCw size={14} />
         )}
       </button>
 
       {onRemove && (
-        <button type="button" onClick={onRemove} style={toolIconBtnStyle} aria-label="Remove">
+        <button type="button" onClick={onRemove} className={toolIconBtnClass} aria-label="Remove">
           <X size={14} />
         </button>
       )}
@@ -1246,26 +1013,11 @@ function ToolEntryRow({
   );
 }
 
-const toolSelectStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  fontSize: 12,
-  fontFamily: 'inherit',
-  background: 'var(--surface)',
-  color: 'var(--text)',
-};
+const toolSelectClass =
+  'rounded-md border border-border bg-card px-2 py-1.5 text-xs text-foreground';
 
-const toolIconBtnStyle: React.CSSProperties = {
-  padding: '4px 6px',
-  background: 'transparent',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  color: 'var(--muted)',
-  cursor: 'pointer',
-  display: 'inline-flex',
-  alignItems: 'center',
-};
+const toolIconBtnClass =
+  'inline-flex cursor-pointer items-center rounded-md border border-border bg-transparent px-1.5 py-1 text-muted-foreground hover:bg-secondary';
 
 /**
  * Lazy fetcher + per-mount cache for an MCP's tool list. Keys by MCP id;
@@ -1337,7 +1089,7 @@ function LlmJudgeEditor({
             onChange({ ...check, rubric: e.target.value })
           }
           placeholder={'Grade whether the SQL answers the question. PASS if the joins,\nfilters, and aggregations match the groundtruth; FAIL if wrong\ntable or wrong filter; SUSPECT if approximately right.'}
-          style={textareaStyle}
+          className={textareaClass}
         />
       </Field>
       <Field label="Groundtruth (optional, gives the judge an anchor)">
@@ -1348,19 +1100,10 @@ function LlmJudgeEditor({
             onChange({ ...check, groundtruth: e.target.value || undefined })
           }
           placeholder={'SELECT COUNT(DISTINCT ...) FROM ...'}
-          style={{ ...textareaStyle, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+          className={cn(textareaClass, 'font-mono text-xs')}
         />
       </Field>
-      <div
-        style={{
-          fontSize: 11,
-          color: 'var(--amber)',
-          padding: '6px 10px',
-          background: 'var(--amber-soft-bg, #fffbeb)',
-          border: '1px solid var(--amber-soft-border, #fde68a)',
-          borderRadius: 6,
-        }}
-      >
+      <div className="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1.5 text-2xs text-amber">
         Cost ~$0.01–0.05 per case. Vague rubrics produce SUSPECT verdicts.
       </div>
     </>
@@ -1401,60 +1144,19 @@ function Field({
 }) {
   return (
     <div>
-      <label
-        style={{
-          display: 'block',
-          fontSize: 11,
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-          color: 'var(--muted)',
-          marginBottom: 5,
-        }}
-      >
+      <label className="mb-1.5 block text-2xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
         {label}
       </label>
       {children}
       {hint && (
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{hint}</div>
+        <div className="mt-1 text-2xs text-muted-foreground">{hint}</div>
       )}
     </div>
   );
 }
 
-const textareaStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  border: '1px solid var(--border-2)',
-  borderRadius: 6,
-  fontSize: 13,
-  fontFamily: 'inherit',
-  resize: 'vertical',
-  background: 'var(--surface)',
-  color: 'var(--text)',
-};
+const textareaClass =
+  'w-full resize-y rounded-md border border-border bg-card px-2.5 py-2 text-sm text-foreground';
 
-const selectStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '7px 10px',
-  border: '1px solid var(--border-2)',
-  borderRadius: 6,
-  fontSize: 13,
-  fontFamily: 'inherit',
-  background: 'var(--surface)',
-  color: 'var(--text)',
-};
-
-const btnStyle: React.CSSProperties = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border-2)',
-  borderRadius: 6,
-  padding: '6px 14px',
-  fontSize: 13,
-  cursor: 'pointer',
-  color: 'var(--text)',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  fontFamily: 'inherit',
-};
+const selectClass =
+  'w-full rounded-md border border-border bg-card px-2.5 py-1.5 text-sm text-foreground';

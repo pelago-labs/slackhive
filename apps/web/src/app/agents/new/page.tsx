@@ -19,6 +19,10 @@ import { useRouter } from 'next/navigation';
 import type { Agent, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared/personas';
 import { DEFAULT_AGENT_MODEL } from '@slackhive/shared/models';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -160,41 +164,34 @@ export default function NewAgentWizard() {
     } finally { setSubmitting(false); }
   };
 
-  const cardStyle: React.CSSProperties = {
-    background: 'var(--surface)', border: '1px solid var(--border)',
-    borderRadius: 16, padding: '24px 26px', boxShadow: 'var(--shadow-sm)',
-  };
+  const cardClass = 'rounded-lg border border-border bg-card px-6 py-6 shadow-sm';
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
+    <div className="flex min-h-screen flex-col bg-background">
       {/* Top bar */}
-      <div style={{
-        padding: '14px 24px', borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', gap: 10,
-        background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 10,
-      }}>
-        <a href="/" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-border bg-card px-6 py-3.5">
+        <a href="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground no-underline">
           <ArrowLeft size={14} /> Agents
         </a>
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '44px 24px 132px' }}>
-        <div style={{ maxWidth: 660, margin: '0 auto' }} className="fade-up">
+      <div className="flex-1 overflow-y-auto px-6 pb-32 pt-11">
+        <div className="fade-up mx-auto max-w-[660px]">
           {/* Hero */}
-          <div style={{ marginBottom: 26 }}>
-            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--text)' }}>Create a new agent</h1>
-            <p style={{ margin: '7px 0 0', fontSize: 14, color: 'var(--muted)', lineHeight: 1.6 }}>
+          <div className="mb-6">
+            <h1 className="m-0 text-2xl font-bold tracking-tight text-foreground">Create a new agent</h1>
+            <p className="mt-1.5 text-base leading-relaxed text-muted-foreground">
               Name it and shape its role. You&apos;ll connect Slack and add tools right after — it takes under a minute.
             </p>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={cardStyle}>
+          <div className="flex flex-col gap-4">
+            <div className={cardClass}>
               <Step1Identity state={state} update={update} bosses={bosses} />
             </div>
             {!state.isBoss && (
-              <div style={cardStyle}>
+              <div className={cardClass}>
                 <Step2Persona state={state} update={update} />
               </div>
             )}
@@ -203,30 +200,16 @@ export default function NewAgentWizard() {
       </div>
 
       {/* Sticky action bar */}
-      <div style={{
-        position: 'sticky', bottom: 0, borderTop: '1px solid var(--border)',
-        background: 'color-mix(in srgb, var(--surface) 92%, transparent)', backdropFilter: 'blur(8px)',
-        padding: '14px 24px',
-      }}>
-        <div style={{ maxWidth: 660, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontSize: 12.5, color: error ? '#dc2626' : 'var(--subtle)', lineHeight: 1.5, flex: 1, minWidth: 0 }}>
+      <div className="sticky bottom-0 border-t border-border bg-card/90 px-6 py-3.5 backdrop-blur">
+        <div className="mx-auto flex max-w-[660px] items-center gap-4">
+          <span className={cn('min-w-0 flex-1 text-xs leading-snug', error ? 'text-destructive' : 'text-muted-foreground')}>
             {error || 'Slack, tools, model & permissions are configured after creation.'}
           </span>
-          <button
+          <Button
             onClick={submit}
             disabled={submitting || !canCreate}
-            style={{
-              flexShrink: 0,
-              background: (submitting || !canCreate) ? 'var(--border)' : 'var(--accent)',
-              color: 'var(--accent-fg)', border: 'none', borderRadius: 10,
-              padding: '11px 22px', fontSize: 14, fontWeight: 600,
-              cursor: (submitting || !canCreate) ? 'not-allowed' : 'pointer',
-              fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s, transform 0.15s',
-              boxShadow: (submitting || !canCreate) ? 'none' : 'var(--shadow-sm)', letterSpacing: '-0.01em',
-            }}
-            onMouseEnter={e => { if (!submitting && canCreate) { (e.currentTarget as HTMLElement).style.opacity = '0.9'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; } }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
-          >{submitting ? 'Creating…' : 'Create agent'}</button>
+            className="shrink-0"
+          >{submitting ? 'Creating…' : 'Create agent'}</Button>
         </div>
       </div>
     </div>
@@ -265,12 +248,12 @@ function Step1Identity({ state, update, bosses }: {
       <StepHeader title="Identity" desc="The basics. You can rename it or change the role anytime." />
       <Field label="Agent name" value={state.name} placeholder="e.g. GILFOYLE"
         onChange={v => update({ name: v, slug: autoSlug(v) })}
-        hint={state.slug ? <>URL: <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>/agents/{state.slug}</code></> : undefined} />
+        hint={state.slug ? <>URL: <code className="font-mono text-2xs">/agents/{state.slug}</code></> : undefined} />
 
       {/* Role — two selectable cards */}
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>Role</label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div className="mb-3.5">
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Role</label>
+        <div className="grid grid-cols-2 gap-2.5">
           {[
             { boss: false, title: 'Specialist', desc: 'Does the work. Can report to a boss.' },
             { boss: true,  title: 'Boss',       desc: 'Orchestrates specialists. Brain auto-written.' },
@@ -279,20 +262,16 @@ function Step1Identity({ state, update, bosses }: {
             return (
               <button key={opt.title} type="button"
                 onClick={() => update({ isBoss: opt.boss, reportsToIds: [] })}
-                style={{
-                  textAlign: 'left', cursor: 'pointer', borderRadius: 10, padding: '12px 14px',
-                  border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                  background: active ? 'color-mix(in srgb, var(--accent) 8%, var(--surface))' : 'var(--surface)',
-                  fontFamily: 'var(--font-sans)', transition: 'border-color 0.12s, background 0.12s',
-                }}
-                onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
-                onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+                className={cn(
+                  'cursor-pointer rounded-md border-[1.5px] px-3.5 py-3 text-left transition-colors',
+                  active ? 'border-primary bg-primary/[0.08]' : 'border-border bg-card hover:border-input',
+                )}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 600, color: active ? 'var(--accent)' : 'var(--text)' }}>{opt.title}</span>
-                  {active && <Check size={13} style={{ color: 'var(--accent)' }} />}
+                <div className="mb-0.5 flex items-center gap-1.5">
+                  <span className={cn('text-sm font-semibold', active ? 'text-primary' : 'text-foreground')}>{opt.title}</span>
+                  {active && <Check size={13} className="text-primary" />}
                 </div>
-                <div style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.45 }}>{opt.desc}</div>
+                <div className="text-2xs leading-snug text-muted-foreground">{opt.desc}</div>
               </button>
             );
           })}
@@ -301,38 +280,33 @@ function Step1Identity({ state, update, bosses }: {
 
       {/* Reports to — multi-select boss agents (only shown for non-boss agents) */}
       {!state.isBoss && (
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
+        <div className="mb-3.5">
+          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
             Reports to
           </label>
           {bosses.length === 0 ? (
-            <div style={{
-              border: '1px dashed var(--border)', borderRadius: 8, padding: '12px 14px',
-              fontSize: 12.5, color: 'var(--subtle)',
-            }}>
+            <div className="rounded-md border border-dashed border-border px-3.5 py-3 text-xs text-muted-foreground">
               No boss agents yet — create a boss first, or mark this agent as a boss above.
             </div>
           ) : (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            <div className="overflow-hidden rounded-md border border-border">
               {bosses.map((boss, i) => (
-                <label key={boss.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                  cursor: 'pointer',
-                  borderBottom: i < bosses.length - 1 ? '1px solid var(--border)' : 'none',
-                  background: state.reportsToIds.includes(boss.id) ? 'rgba(59,130,246,0.06)' : 'transparent',
-                  transition: 'background 0.12s',
-                }}>
+                <label key={boss.id} className={cn(
+                  'flex cursor-pointer items-center gap-3 px-3.5 py-2.5 transition-colors',
+                  i < bosses.length - 1 && 'border-b border-border',
+                  state.reportsToIds.includes(boss.id) ? 'bg-blue/[0.06]' : 'bg-transparent',
+                )}>
                   <input type="checkbox"
                     checked={state.reportsToIds.includes(boss.id)}
                     onChange={() => toggleBoss(boss.id)}
-                    style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} />
-                  <span style={{ fontSize: 13, color: 'var(--text)' }}>{boss.name}</span>
+                    className="h-3.5 w-3.5 accent-primary" />
+                  <span className="text-sm text-foreground">{boss.name}</span>
                 </label>
               ))}
             </div>
           )}
           {state.reportsToIds.length > 0 && (
-            <p style={{ margin: '5px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+            <p className="mt-1.5 text-2xs text-muted-foreground">
               This agent will appear in the team registry of {state.reportsToIds.length} boss{state.reportsToIds.length > 1 ? 'es' : ''}.
             </p>
           )}
@@ -378,32 +352,23 @@ function ImportConfigPicker({ value, onChange }: {
   };
 
   return (
-    <div style={{
-      marginTop: 20, padding: '14px 16px', borderRadius: 10,
-      border: `1.5px dashed ${value ? '#8b5cf6' : 'var(--border-2)'}`,
-      background: value ? 'rgba(139,92,246,0.03)' : 'var(--surface)',
-      transition: 'all 0.2s',
-    }}>
+    <div className={cn(
+      'mt-5 rounded-md border-[1.5px] border-dashed px-4 py-3.5 transition-colors',
+      value ? 'border-[#8b5cf6] bg-[#8b5cf6]/[0.03]' : 'border-input bg-card',
+    )}>
       {!value ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>
+            <div className="mb-0.5 text-sm font-medium text-foreground">
               Import from existing config
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            <div className="text-xs text-muted-foreground">
               Load AGENTS.md + skills from a previously exported agent
             </div>
-            {error && <div style={{ fontSize: 11.5, color: 'var(--danger)', marginTop: 4 }}>{error}</div>}
+            {error && <div className="mt-1 text-2xs text-destructive">{error}</div>}
           </div>
-          <button type="button" onClick={() => ref.current?.click()} style={{
-            display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-            padding: '7px 14px', borderRadius: 7,
-            border: '1.5px solid var(--border-2)', background: 'var(--surface)',
-            fontSize: 12.5, fontWeight: 500, color: 'var(--muted)', cursor: 'pointer',
-            transition: 'all 0.15s',
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#8b5cf6'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+          <button type="button" onClick={() => ref.current?.click()}
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-[1.5px] border-input bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-[#8b5cf6] hover:text-foreground"
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
               <path d="M8 2v9M4 7l4 4 4-4M2 13h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
@@ -412,35 +377,30 @@ function ImportConfigPicker({ value, onChange }: {
           </button>
         </div>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-              background: 'rgba(139,92,246,0.1)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#8b5cf6]/10">
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                 <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L9 2z" stroke="#8b5cf6" strokeWidth="1.4" strokeLinejoin="round"/>
                 <path d="M9 2v4h4" stroke="#8b5cf6" strokeWidth="1.4" strokeLinejoin="round"/>
               </svg>
             </div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
+              <div className="text-sm font-medium text-foreground">
                 Config file loaded
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              <div className="text-2xs text-muted-foreground">
                 {value.skills.length} skill{value.skills.length !== 1 ? 's' : ''} · AGENTS.md included
                 {value.exportedAt && ` · ${new Date(value.exportedAt).toLocaleDateString()}`}
               </div>
             </div>
           </div>
-          <button type="button" onClick={() => { onChange(null); setError(''); }} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            fontSize: 11.5, color: 'var(--muted)', padding: '4px 8px', borderRadius: 5,
-          }}>Remove</button>
+          <button type="button" onClick={() => { onChange(null); setError(''); }}
+            className="cursor-pointer rounded-sm border-none bg-transparent px-2 py-1 text-2xs text-muted-foreground"
+          >Remove</button>
         </div>
       )}
-      <input ref={ref} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFile} />
+      <input ref={ref} type="file" accept=".json" className="hidden" onChange={handleFile} />
     </div>
   );
 }
@@ -483,34 +443,24 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
       <StepHeader title="Profile" desc="Pick a persona (system prompt + skills), start blank with a description, or import an exported config." />
 
       {/* Search + category chips */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ position: 'relative', marginBottom: 10 }}>
-          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
-          <input
+      <div className="mb-2.5">
+        <div className="relative mb-2.5">
+          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
             type="text" placeholder="Search personas…" value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{
-              width: '100%', boxSizing: 'border-box',
-              padding: '8px 10px 8px 30px', fontSize: 13,
-              background: 'var(--surface-2)', border: '1.5px solid var(--border)',
-              borderRadius: 'var(--radius)', color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none',
-            }}
-            onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-            onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+            className="h-auto bg-secondary py-2 pl-[30px] pr-2.5 text-sm"
           />
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div className="flex flex-wrap gap-1.5">
           {PERSONA_CATEGORY_LABELS.map(([val, label]) => {
             const active = category === val;
             return (
               <button key={val} onClick={() => setCategory(val)}
-                style={{
-                  padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: active ? 600 : 400,
-                  border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                  background: active ? 'rgba(59,130,246,0.1)' : 'transparent',
-                  color: active ? 'var(--accent)' : 'var(--muted)',
-                  cursor: 'pointer', fontFamily: 'var(--font-sans)', transition: 'all 0.12s',
-                }}
+                className={cn(
+                  'cursor-pointer rounded-full border px-3 py-1 text-xs transition-colors',
+                  active ? 'border-primary bg-blue/10 font-semibold text-primary' : 'border-border bg-transparent font-normal text-muted-foreground',
+                )}
               >{label}</button>
             );
           })}
@@ -518,39 +468,27 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
       </div>
 
       {/* Card grid */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-        gap: 8, maxHeight: 290, overflowY: 'auto', paddingRight: 2,
-      }}>
+      <div className="grid max-h-[290px] grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 overflow-y-auto pr-0.5">
         {/* Blank card — always first */}
         {(() => {
           const isBlank = selected === null;
           return (
             <div
               onClick={() => update({ selectedPersona: null, importPayload: null })}
-              style={{
-                padding: '11px 12px', borderRadius: 8, cursor: 'pointer',
-                border: `1.5px solid ${isBlank ? 'var(--border-2)' : 'var(--border)'}`,
-                background: isBlank ? 'var(--surface-2)' : 'transparent',
-                transition: 'border-color 0.12s, background 0.12s',
-                position: 'relative',
-              }}
-              onMouseEnter={e => { if (!isBlank) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
-              onMouseLeave={e => { if (!isBlank) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+              className={cn(
+                'relative cursor-pointer rounded-md border-[1.5px] px-3 py-3 transition-colors',
+                isBlank ? 'border-input bg-secondary' : 'border-border bg-transparent hover:border-input',
+              )}
             >
               {isBlank && (
-                <div style={{
-                  position: 'absolute', top: 6, right: 6,
-                  width: 16, height: 16, borderRadius: '50%',
-                  background: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
+                <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-muted-foreground">
                   <Check size={10} color="#fff" strokeWidth={3} />
                 </div>
               )}
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', color: 'var(--subtle)', textTransform: 'uppercase', marginBottom: 5 }}>generic</div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 3, lineHeight: 1.3 }}>Blank</div>
-              <div style={{ fontSize: 11, color: 'var(--subtle)', lineHeight: 1.4 }}>No persona, no skills — start from scratch</div>
-              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>0 skills</div>
+              <div className="mb-1.5 text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">generic</div>
+              <div className="mb-1 text-sm font-semibold leading-tight text-foreground">Blank</div>
+              <div className="text-2xs leading-snug text-muted-foreground">No persona, no skills — start from scratch</div>
+              <div className="mt-1.5 text-2xs text-muted-foreground">0 skills</div>
             </div>
           );
         })()}
@@ -560,36 +498,23 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
           return (
             <div key={p.id}
               onClick={() => update({ selectedPersona: isSelected ? null : p, importPayload: null })}
-              style={{
-                padding: '11px 12px', borderRadius: 8, cursor: 'pointer',
-                border: `1.5px solid ${isSelected ? catColor : 'var(--border)'}`,
-                background: isSelected ? `${catColor}12` : 'var(--surface-2)',
-                transition: 'border-color 0.12s, background 0.12s',
-                position: 'relative',
-              }}
-              onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
-              onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+              className={cn(
+                'relative cursor-pointer rounded-md border-[1.5px] px-3 py-3 transition-colors',
+                isSelected ? '' : 'border-border bg-secondary hover:border-input',
+              )}
+              style={isSelected ? { borderColor: catColor, background: `${catColor}12` } : undefined}
             >
               {isSelected && (
-                <div style={{
-                  position: 'absolute', top: 6, right: 6,
-                  width: 16, height: 16, borderRadius: '50%',
-                  background: catColor, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
+                <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full"
+                  style={{ background: catColor }}>
                   <Check size={10} color="#fff" strokeWidth={3} />
                 </div>
               )}
-              <div style={{
-                display: 'inline-block', marginBottom: 5,
-                fontSize: 10, fontWeight: 600, letterSpacing: '0.05em',
-                color: catColor, textTransform: 'uppercase',
-              }}>{p.category}</div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 3, lineHeight: 1.3 }}>{p.name}</div>
-              <div style={{
-                fontSize: 11, color: 'var(--subtle)', lineHeight: 1.4,
-                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-              }}>{p.cardDescription}</div>
-              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
+              <div className="mb-1.5 inline-block text-2xs font-semibold uppercase tracking-[0.05em]"
+                style={{ color: catColor }}>{p.category}</div>
+              <div className="mb-1 text-sm font-semibold leading-tight text-foreground">{p.name}</div>
+              <div className="overflow-hidden text-2xs leading-snug text-muted-foreground [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [display:-webkit-box]">{p.cardDescription}</div>
+              <div className="mt-1.5 text-2xs text-muted-foreground">
                 {p.skills.length} skills
               </div>
             </div>
@@ -597,11 +522,11 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
         })}
       </div>
 
-      <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--subtle)' }}>
+      <p className="mt-2 text-xs text-muted-foreground">
         {state.importPayload
-          ? <><span style={{ color: 'var(--text)', fontWeight: 500 }}>Imported config</span> — persona &amp; description come from the file</>
+          ? <><span className="font-medium text-foreground">Imported config</span> — persona &amp; description come from the file</>
           : selected
-            ? <><span style={{ color: 'var(--text)', fontWeight: 500 }}>{selected.name}</span> selected</>
+            ? <><span className="font-medium text-foreground">{selected.name}</span> selected</>
             : 'Blank selected — describe the agent below'}
       </p>
 
@@ -609,48 +534,32 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
           description/persona. Description is required so the agent has an identity
           AND so Coach bootstrap has a seed (see submit() — seed = description ?? persona). */}
       {selected === null && !state.importPayload && (
-        <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
+        <div className="mt-3.5 grid gap-3">
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
-              Description <span style={{ color: 'var(--accent)' }}>*</span>
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              Description <span className="text-primary">*</span>
             </label>
-            <textarea
+            <Textarea
               value={state.description}
               onChange={e => update({ description: e.target.value })}
               placeholder="What does this agent do in one sentence? (e.g. 'Daily team birthday reminders in #general')"
               rows={2}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '9px 11px', fontSize: 13, lineHeight: 1.5,
-                background: 'var(--surface-2)', border: '1.5px solid var(--border)',
-                borderRadius: 'var(--radius)', color: 'var(--text)',
-                fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+              className="resize-y bg-secondary text-sm leading-normal"
             />
-            <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+            <p className="mt-1 text-2xs text-muted-foreground">
               Used to seed the agent&apos;s AGENTS.md and kick off the Coach&apos;s first-turn draft.
             </p>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>
-              Persona <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>(optional)</span>
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              Persona <span className="font-normal text-muted-foreground">(optional)</span>
             </label>
-            <textarea
+            <Textarea
               value={state.persona}
               onChange={e => update({ persona: e.target.value })}
               placeholder="Tone / voice / how it should speak. Leave blank and the Coach will draft one."
               rows={2}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '9px 11px', fontSize: 13, lineHeight: 1.5,
-                background: 'var(--surface-2)', border: '1.5px solid var(--border)',
-                borderRadius: 'var(--radius)', color: 'var(--text)',
-                fontFamily: 'var(--font-sans)', outline: 'none', resize: 'vertical',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+              className="resize-y bg-secondary text-sm leading-normal"
             />
           </div>
         </div>
@@ -681,31 +590,27 @@ function TagInputWizard({ tags, onChange }: { tags: string[]; onChange: (t: stri
     if (e.key === 'Backspace' && !input && tags.length) remove(tags[tags.length - 1]);
   };
   return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6 }}>Tags <span style={{ fontWeight: 400 }}>(optional)</span></label>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', background: 'var(--surface)', minHeight: 38 }}>
+    <div className="mb-3.5">
+      <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Tags <span className="font-normal">(optional)</span></label>
+      <div className="flex min-h-[38px] flex-wrap items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5">
         {tags.map(tag => (
-          <span key={tag} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(59,130,246,0.12)', color: '#3b82f6', borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 500 }}>
+          <span key={tag} className="inline-flex items-center gap-1 rounded-md bg-blue/[0.12] px-2 py-0.5 text-xs font-medium text-blue">
             {tag}
-            <button onClick={() => remove(tag)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1, color: 'inherit', opacity: 0.7 }}>×</button>
+            <button onClick={() => remove(tag)} className="cursor-pointer border-none bg-transparent p-0 leading-none text-inherit opacity-70">×</button>
           </span>
         ))}
-        <div style={{ position: 'relative', flex: 1, minWidth: 80 }}>
+        <div className="relative min-w-[80px] flex-1">
           <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={onKey}
             onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 150)}
             placeholder={tags.length === 0 ? 'e.g. Engineering, Data...' : ''}
-            style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: 'var(--text)', width: '100%', padding: 0 }} />
+            className="w-full border-none bg-transparent p-0 text-sm text-foreground outline-none" />
           {focused && (input || suggestions.length > 0) && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 50, marginTop: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
+            <div className="absolute left-0 top-full z-50 mt-1 max-h-[200px] min-w-[180px] overflow-y-auto rounded-md border border-border bg-card shadow-md">
               {suggestions.map(s => (
-                <div key={s} onMouseDown={() => add(s)} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: 'var(--text)' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>{s}</div>
+                <div key={s} onMouseDown={() => add(s)} className="cursor-pointer px-3 py-2 text-sm text-foreground hover:bg-secondary">{s}</div>
               ))}
               {input.trim() && !tags.includes(input.trim()) && !suggestions.includes(input.trim()) && (
-                <div onMouseDown={() => add(input)} style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: '#3b82f6' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                <div onMouseDown={() => add(input)} className="cursor-pointer px-3 py-2 text-sm text-blue hover:bg-secondary">
                   Add &ldquo;{input.trim()}&rdquo;
                 </div>
               )}
@@ -719,11 +624,11 @@ function TagInputWizard({ tags, onChange }: { tags: string[]; onChange: (t: stri
 
 function StepHeader({ title, desc }: { title: string; desc: string }) {
   return (
-    <div style={{ marginBottom: 18 }}>
-      <h2 style={{ margin: '0 0 3px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+    <div className="mb-4">
+      <h2 className="m-0 mb-1 text-md font-bold tracking-tight text-foreground">
         {title}
       </h2>
-      <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{desc}</p>
+      <p className="m-0 text-xs leading-normal text-muted-foreground">{desc}</p>
     </div>
   );
 }
@@ -733,22 +638,13 @@ function Field({ label, value, onChange, placeholder, hint, type = 'text' }: {
   placeholder?: string; hint?: React.ReactNode; type?: string;
 }) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
+    <div className="mb-3.5">
+      <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
         {label}
       </label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        style={{
-          width: '100%', background: 'var(--surface-2)', border: '1.5px solid var(--border)',
-          borderRadius: 'var(--radius)', padding: '10px 14px', color: 'var(--text)',
-          fontSize: 14, fontFamily: 'var(--font-sans)', outline: 'none',
-          transition: 'border-color 0.15s',
-        }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-      />
-      {hint && <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--subtle)' }}>{hint}</p>}
+      <Input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        className="h-auto bg-secondary px-3.5 py-2.5 text-base" />
+      {hint && <p className="mt-1.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
-

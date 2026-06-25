@@ -19,6 +19,10 @@ import {
 } from '@slackhive/shared/models';
 import { Portal } from '@/lib/portal';
 import { useAuth } from '@/lib/auth-context';
+import { cn } from '@/lib/utils';
+import { PageShell } from '@/components/patterns';
+import { toast as sonnerToast } from 'sonner';
+import { Switch } from '@/components/ui/switch';
 import AiProviderSection from './AiProviderSection';
 
 type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'users';
@@ -69,33 +73,35 @@ export default function SettingsPage() {
   const active: SettingsSection = nav.some(n => n.id === section) ? section : 'general';
 
   return (
-    <div className="fade-up" style={{ padding: '36px 40px' }}>
+    <PageShell>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>
+      <div className="mb-6">
+        <h1 className="m-0 text-xl font-bold tracking-tight text-foreground">
           Settings
         </h1>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+        <p className="mt-1 text-sm text-muted-foreground">
           Configure platform branding, appearance, and access.
         </p>
       </div>
 
       {/* Side-nav + content */}
-      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <nav style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div className="flex flex-wrap items-start gap-7">
+        <nav className="flex w-[200px] flex-shrink-0 flex-col gap-0.5">
           {nav.map(n => (
-            <button key={n.id} onClick={() => setSection(n.id)} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 9, textAlign: 'left',
-              padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
-              fontFamily: 'var(--font-sans)', fontSize: 13,
-              background: active === n.id ? 'var(--surface-2)' : 'transparent',
-              color: active === n.id ? 'var(--text)' : 'var(--muted)',
-              fontWeight: active === n.id ? 600 : 400,
-            }}><n.Icon size={15} />{n.label}</button>
+            <button
+              key={n.id}
+              onClick={() => setSection(n.id)}
+              className={cn(
+                'inline-flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm',
+                active === n.id
+                  ? 'bg-secondary font-semibold text-foreground'
+                  : 'font-normal text-muted-foreground',
+              )}
+            ><n.Icon size={15} />{n.label}</button>
           ))}
         </nav>
 
-        <div style={{ flex: 1, minWidth: 0, maxWidth: 760 }}>
+        <div className="min-w-0 max-w-[760px] flex-1">
           {active === 'general' && <GeneralTab />}
           {active === 'ai'      && canManageUsers && <AITab />}
           {active === 'access'  && canManageUsers && <AccessControlSection />}
@@ -103,7 +109,7 @@ export default function SettingsPage() {
           {active === 'users'   && canManageUsers && <UsersTab />}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
 
@@ -117,7 +123,6 @@ function GeneralTab() {
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState('');
 
   useEffect(() => {
     fetch('/api/settings')
@@ -138,8 +143,7 @@ function GeneralTab() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value }),
       });
-      setToast(`Saved`);
-      setTimeout(() => setToast(''), 2000);
+      sonnerToast.success('Saved');
     } finally { setSaving(false); }
   }
 
@@ -152,22 +156,12 @@ function GeneralTab() {
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'logoUrl', value: logoUrl }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'dashboardTitle', value: dashboardTitle }) }),
       ]);
-      setToast('All settings saved');
-      setTimeout(() => setToast(''), 2000);
+      sonnerToast.success('All settings saved');
     } finally { setSaving(false); }
   }
 
   return (
     <>
-      {toast && (
-        <div style={{
-          position: 'fixed', top: 20, right: 20, zIndex: 999,
-          background: 'var(--accent)', color: 'var(--accent-fg)',
-          padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
-          boxShadow: 'var(--shadow-md)',
-        }}>{toast}</div>
-      )}
-
       <Section title="Branding">
         <Field label="App Name" hint="Displayed in the sidebar header and browser tab." maxLength={30}
           value={appName} onChange={setAppName} onBlur={() => save('appName', appName)} />
@@ -175,11 +169,11 @@ function GeneralTab() {
           value={tagline} onChange={setTagline} onBlur={() => save('tagline', tagline)} />
         <Field label="Logo URL" hint="URL to a square image (28×28). Leave empty for the default icon." maxLength={500}
           value={logoUrl} onChange={setLogoUrl} onBlur={() => save('logoUrl', logoUrl)} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>Preview:</div>
+        <div className="mt-1 flex items-center gap-3">
+          <div className="text-xs font-medium text-muted-foreground">Preview:</div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoUrl || '/logo.svg'} alt="Logo" style={{ width: 28, height: 28, borderRadius: 8, objectFit: 'cover' }} />
-          {!logoUrl && <span style={{ fontSize: 11, color: 'var(--subtle)', fontStyle: 'italic' }}>Using default logo</span>}
+          <img src={logoUrl || '/logo.svg'} alt="Logo" className="h-7 w-7 rounded-lg object-cover" />
+          {!logoUrl && <span className="text-2xs italic text-muted-foreground">Using default logo</span>}
         </div>
       </Section>
 
@@ -188,7 +182,7 @@ function GeneralTab() {
           value={dashboardTitle} onChange={setDashboardTitle} onBlur={() => save('dashboardTitle', dashboardTitle)} />
       </Section>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+      <div className="mt-2 flex justify-end">
         <PrimaryBtn onClick={saveAll} loading={saving}>Save All</PrimaryBtn>
       </div>
     </>
@@ -278,39 +272,29 @@ function AccessControlSection() {
 
   return (
     <Section title="Access Control">
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Open to Workspace</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <div className="mb-1 text-sm font-medium text-foreground">Open to Workspace</div>
+          <div className="text-xs leading-normal text-muted-foreground">
             {openToWorkspace
               ? <>Any Slack workspace member can message the bot — no account setup needed. Turn off to restrict access to specific imported users with a Trigger grant.</>
               : <>Only imported users with <strong>Trigger</strong> access can use the bot. Others get a message asking them to contact an admin. Import teammates and assign access below.</>
             }
           </div>
           {!openToWorkspace && (
-            <div style={{ fontSize: 12, marginTop: 8, padding: '7px 10px', background: 'rgba(234,179,8,0.08)', borderRadius: 6, borderLeft: '3px solid #ca8a04', color: 'var(--muted)', lineHeight: 1.5 }}>
-              <strong style={{ color: '#ca8a04' }}>Restricted mode active.</strong> Turn on to allow all workspace members to trigger agents again.
+            <div className="mt-2 rounded border-l-[3px] border-amber bg-amber/10 px-2.5 py-1.5 text-xs leading-normal text-muted-foreground">
+              <strong className="text-amber">Restricted mode active.</strong> Turn on to allow all workspace members to trigger agents again.
             </div>
           )}
         </div>
-        <button
-          onClick={() => {
-            const next = !openToWorkspace;
+        <Switch
+          className="mt-0.5 flex-shrink-0"
+          checked={openToWorkspace}
+          onCheckedChange={(next) => {
             if (!next && !window.confirm('Turning off Open to Workspace will immediately restrict bot access to only imported users with a Trigger grant. Anyone else will be blocked. Continue?')) return;
             save(next);
           }}
-          style={{
-            width: 44, height: 24, borderRadius: 12, border: 'none', flexShrink: 0, marginTop: 2,
-            background: openToWorkspace ? '#3b82f6' : 'var(--border-2)',
-            cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
-          }}
-        >
-          <div style={{
-            position: 'absolute', top: 3, left: openToWorkspace ? 23 : 3,
-            width: 18, height: 18, borderRadius: '50%', background: 'var(--surface)',
-            transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-          }} />
-        </button>
+        />
       </div>
     </Section>
   );
@@ -549,29 +533,17 @@ function UsersTab() {
   return (
     <>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div className="mb-4 flex items-center justify-between">
         <div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>Team members</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>{users.length + 1} member{users.length !== 0 ? 's' : ''}</div>
+          <div className="mb-0.5 text-base font-semibold text-foreground">Team members</div>
+          <div className="text-sm text-muted-foreground">{users.length + 1} member{users.length !== 0 ? 's' : ''}</div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={openImport} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--surface)', color: 'var(--text)',
-            padding: '9px 16px', borderRadius: 10,
-            fontSize: 13, fontWeight: 500, border: '1px solid var(--border)', cursor: 'pointer',
-            fontFamily: 'var(--font-sans)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-          }}>
+        <div className="flex gap-2">
+          <button onClick={openImport} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Import from Slack
           </button>
-          <button onClick={() => setShowForm(true)} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--accent)', color: 'var(--accent-fg)',
-            padding: '9px 16px', borderRadius: 10,
-            fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer',
-            fontFamily: 'var(--font-sans)', boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-          }}>
+          <button onClick={() => setShowForm(true)} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
               <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
             </svg>
@@ -581,8 +553,8 @@ function UsersTab() {
       </div>
 
       {/* Search */}
-      <div style={{ marginBottom: 14, position: 'relative' }}>
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }}>
+      <div className="relative mb-3.5">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
           <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
           <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
         </svg>
@@ -590,57 +562,48 @@ function UsersTab() {
           value={userSearch}
           onChange={e => setUserSearch(e.target.value)}
           placeholder="Search members..."
-          style={{
-            width: '100%', padding: '8px 12px 8px 30px', fontSize: 13,
-            border: '1px solid var(--border)', borderRadius: 10,
-            background: 'var(--surface)', color: 'var(--text)',
-            fontFamily: 'var(--font-sans)', outline: 'none', boxSizing: 'border-box',
-          }}
+          className="w-full rounded-lg border border-border bg-card py-2 pl-[30px] pr-3 text-sm text-foreground outline-none"
         />
       </div>
 
       {/* Table */}
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <div className="flex flex-col gap-px">
           {[1,2,3].map(i => (
-            <div key={i} style={{ height: 52, borderRadius: 8, background: 'var(--surface-2)', opacity: 0.5 }} />
+            <div key={i} className="h-[52px] rounded-lg bg-secondary opacity-50" />
           ))}
         </div>
       ) : (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="overflow-hidden rounded-xl border border-border">
+          <table className="w-full border-collapse">
             <thead>
-              <tr style={{ background: 'var(--surface-2)' }}>
-                <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Member</th>
-                <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Source</th>
-                <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Role</th>
-                <th style={{ padding: '10px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Agents</th>
-                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Actions</th>
+              <tr className="bg-secondary">
+                <th className="border-b border-border px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">Member</th>
+                <th className="border-b border-border px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">Source</th>
+                <th className="border-b border-border px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">Role</th>
+                <th className="border-b border-border px-4 py-2.5 text-center text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">Agents</th>
+                <th className="border-b border-border px-4 py-2.5 text-right text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
               {/* Superadmin row */}
-              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-                <td style={{ padding: '12px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{
-                      width: 32, height: 32, borderRadius: 8, background: 'var(--accent)', flexShrink: 0,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 12, fontWeight: 700, color: 'var(--accent-fg)',
-                    }}>A</div>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>admin</span>
+              <tr className="border-b border-border bg-card">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">A</div>
+                    <span className="text-sm font-semibold text-foreground">admin</span>
                   </div>
                 </td>
-                <td style={{ padding: '12px 16px' }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Environment variable</span>
+                <td className="px-4 py-3">
+                  <span className="text-xs text-muted-foreground">Environment variable</span>
                 </td>
-                <td style={{ padding: '12px 16px' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#d97706', background: 'rgba(217,119,6,0.1)', padding: '3px 8px', borderRadius: 6 }}>Owner</span>
+                <td className="px-4 py-3">
+                  <span className="rounded bg-amber/10 px-2 py-0.5 text-2xs font-bold uppercase tracking-[0.05em] text-amber">Owner</span>
                 </td>
-                <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>
+                <td className="px-4 py-3 text-center">
+                  <span className="text-xs text-muted-foreground">—</span>
                 </td>
-                <td style={{ padding: '12px 16px' }} />
+                <td className="px-4 py-3" />
               </tr>
 
               {filteredUsers.map((u, idx) => {
@@ -649,89 +612,68 @@ function UsersTab() {
                 const roleColor = u.role === 'admin' ? { color: '#2563eb', bg: 'rgba(37,99,235,0.08)' } : u.role === 'editor' ? { color: '#0f766e', bg: 'rgba(15,118,110,0.08)' } : { color: 'var(--muted)', bg: 'var(--surface-2)' };
                 const isLast = idx === filteredUsers.length - 1;
                 return (
-                  <tr key={u.id} style={{ borderBottom: isLast ? 'none' : '1px solid var(--border)', background: 'var(--surface)' }}>
-                    <td style={{ padding: '12px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{
-                          width: 32, height: 32, borderRadius: 8, background: avatarBg, flexShrink: 0,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 12, fontWeight: 700, color: '#fff',
-                        }}>{initials}</div>
+                  <tr key={u.id} className={cn('bg-card', !isLast && 'border-b border-border')}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
+                          style={{ background: avatarBg }}
+                        >{initials}</div>
                         <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{u.username}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{new Date(u.createdAt).toLocaleDateString()}</div>
+                          <div className="text-sm font-semibold text-foreground">{u.username}</div>
+                          <div className="mt-px text-2xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</div>
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: '12px 16px' }}>
+                    <td className="px-4 py-3">
                       {u.fromSlack ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
                           <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Slack_icon_2019.svg/3840px-Slack_icon_2019.svg.png" width="13" height="13" alt="Slack" />
                           Slack
                         </span>
                       ) : (
-                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Manual</span>
+                        <span className="text-xs text-muted-foreground">Manual</span>
                       )}
                     </td>
-                    <td style={{ padding: '12px 16px' }}>
+                    <td className="px-4 py-3">
                       <select
                         value={u.role}
                         disabled={updatingRole === u.id}
                         onChange={e => changeRole(u.id, e.target.value)}
-                        style={{
-                          fontSize: 12, fontWeight: 600, padding: '5px 8px', borderRadius: 7,
-                          border: '1px solid var(--border)', cursor: 'pointer',
-                          background: roleColor.bg, color: roleColor.color,
-                          fontFamily: 'var(--font-sans)', outline: 'none',
-                          opacity: updatingRole === u.id ? 0.5 : 1,
-                        }}
+                        className={cn('cursor-pointer rounded-md border border-border px-2 py-1 text-xs font-semibold outline-none', updatingRole === u.id && 'opacity-50')}
+                        style={{ background: roleColor.bg, color: roleColor.color }}
                       >
                         <option value="admin">Admin</option>
                         <option value="editor">Editor</option>
                         <option value="viewer">Viewer</option>
                       </select>
                     </td>
-                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                    <td className="px-4 py-3 text-center">
                       {(u.agentCount ?? 0) > 0 ? (
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          minWidth: 22, height: 22, borderRadius: 11,
-                          background: 'rgba(59,130,246,0.1)', color: '#3b82f6',
-                          fontSize: 11, fontWeight: 700, padding: '0 6px',
-                        }}>{u.agentCount}</span>
+                        <span className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-blue/10 px-1.5 text-2xs font-bold text-blue">{u.agentCount}</span>
                       ) : (
-                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1.5">
                         {(u.role === 'editor' || u.role === 'viewer') && (
-                          <button onClick={() => toggleExpand(u.id)} title="Agent Access" style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                            fontSize: 12, fontWeight: 500, padding: '6px 10px', borderRadius: 7,
-                            border: '1px solid var(--border)', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                            background: expandedUser === u.id ? 'rgba(59,130,246,0.08)' : 'var(--surface-2)',
-                            color: expandedUser === u.id ? '#3b82f6' : 'var(--muted)',
-                            whiteSpace: 'nowrap',
-                          }}>
+                          <button
+                            onClick={() => toggleExpand(u.id)}
+                            title="Agent Access"
+                            className={cn(
+                              'inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2.5 py-1.5 text-xs font-medium',
+                              expandedUser === u.id ? 'bg-blue/10 text-blue' : 'bg-secondary text-muted-foreground',
+                            )}
+                          >
                             <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/></svg>
                             Agent Access
                           </button>
                         )}
                         {isSuperadmin && !u.fromSlack && (
-                          <button onClick={() => openReset(u)} title="Reset password" style={{
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            width: 30, height: 30, borderRadius: 7, flexShrink: 0,
-                            background: 'var(--surface-2)', border: '1px solid var(--border)',
-                            color: 'var(--muted)', cursor: 'pointer',
-                          }}><KeyRound size={13} /></button>
+                          <button onClick={() => openReset(u)} title="Reset password" className="inline-flex h-[30px] w-[30px] flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground"><KeyRound size={13} /></button>
                         )}
-                        <button onClick={() => remove(u.id, u.username)} title="Remove member" style={{
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          width: 30, height: 30, borderRadius: 7, flexShrink: 0,
-                          background: 'var(--surface-2)', border: '1px solid var(--border)',
-                          color: '#dc2626', cursor: 'pointer', opacity: 0.7,
-                        }}>
+                        <button onClick={() => remove(u.id, u.username)} title="Remove member" className="inline-flex h-[30px] w-[30px] flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-secondary text-red opacity-70">
                           <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9h8l1-9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         </button>
                       </div>
@@ -742,7 +684,7 @@ function UsersTab() {
 
               {filteredUsers.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                  <td colSpan={5} className="px-6 py-10 text-center text-sm text-muted-foreground">
                     {userSearch ? 'No members match your search.' : 'No members yet. Add one or import from Slack.'}
                   </td>
                 </tr>
@@ -755,63 +697,50 @@ function UsersTab() {
       {/* Agent access side panel */}
       {accessUser && (
         <Portal>
-          <div onClick={() => setExpandedUser(null)} style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 9990,
-            backdropFilter: 'blur(1px)',
-          }} />
-          <div style={{
-            position: 'fixed', top: 0, right: 0, bottom: 0, width: 400,
-            background: 'var(--surface)', borderLeft: '1px solid var(--border)',
-            zIndex: 9991, display: 'flex', flexDirection: 'column',
-            boxShadow: '-8px 0 32px rgba(0,0,0,0.12)',
-          }}>
+          <div onClick={() => setExpandedUser(null)} className="fixed inset-0 z-[9990] bg-black/25 backdrop-blur-[1px]" />
+          <div className="fixed bottom-0 right-0 top-0 z-[9991] flex w-[400px] flex-col border-l border-border bg-card shadow-lg">
             {/* Panel header */}
-            <div style={{ padding: '24px 24px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 12,
-                  background: accessUser.role === 'admin' ? '#18181b' : accessUser.role === 'editor' ? '#0f766e' : '#6366f1',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 15, fontWeight: 700, color: '#fff', flexShrink: 0,
-                }}>{accessUser.username.slice(0, 2).toUpperCase()}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{accessUser.username}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1, textTransform: 'capitalize' }}>{accessUser.role}</div>
+            <div className="flex-shrink-0 border-b border-border px-6 pb-4 pt-6">
+              <div className="mb-1 flex items-center gap-3">
+                <div
+                  className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-base font-bold text-white"
+                  style={{ background: accessUser.role === 'admin' ? '#18181b' : accessUser.role === 'editor' ? '#0f766e' : '#6366f1' }}
+                >{accessUser.username.slice(0, 2).toUpperCase()}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="overflow-hidden text-ellipsis whitespace-nowrap text-md font-bold text-foreground">{accessUser.username}</div>
+                  <div className="mt-px text-xs capitalize text-muted-foreground">{accessUser.role}</div>
                 </div>
-                <button onClick={() => setExpandedUser(null)} style={{
-                  background: 'none', border: 'none', color: 'var(--muted)',
-                  fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: 4,
-                }}>&times;</button>
+                <button onClick={() => setExpandedUser(null)} className="cursor-pointer p-1 text-xl leading-none text-muted-foreground">&times;</button>
               </div>
               {/* Open-to-workspace hint */}
               {openToWorkspace && (
-                <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(59,130,246,0.08)', borderRadius: 6, borderLeft: '3px solid #3b82f6', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  <strong style={{ color: '#3b82f6' }}>Open to Workspace is on</strong> — any Slack workspace member can already trigger agents. Grants here control <strong>SlackHive dashboard access</strong> only (View / Edit). Existing grants are preserved and will apply automatically when you turn restriction on.
+                <div className="mt-2.5 rounded border-l-[3px] border-blue bg-blue/10 px-2.5 py-1.5 text-2xs leading-normal text-muted-foreground">
+                  <strong className="text-blue">Open to Workspace is on</strong> — any Slack workspace member can already trigger agents. Grants here control <strong>SlackHive dashboard access</strong> only (View / Edit). Existing grants are preserved and will apply automatically when you turn restriction on.
                 </div>
               )}
               {/* Legend */}
-              <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+              <div className="mt-3 flex flex-wrap gap-3">
                 {[
                   { label: 'None', color: 'var(--muted)', desc: 'No access' },
                   { label: 'Trigger', color: '#d97706', desc: 'Slack only' },
                   { label: 'View', color: '#0f766e', desc: '+ SlackHive' },
                   { label: 'Edit', color: '#3b82f6', desc: 'Full access' },
                 ].map(({ label, color, desc }) => (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-                    <span style={{ fontSize: 11, fontWeight: 600, color }}>{label}</span>
-                    <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{desc}</span>
+                  <div key={label} className="flex items-center gap-1.5">
+                    <div className="h-2 w-2 rounded-full" style={{ background: color }} />
+                    <span className="text-2xs font-semibold" style={{ color }}>{label}</span>
+                    <span className="text-2xs text-muted-foreground">{desc}</span>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Agent list */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-6 py-4">
               {loadingGrants === accessUser.id ? (
-                <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', marginTop: 40 }}>Loading…</div>
+                <div className="mt-10 text-center text-sm text-muted-foreground">Loading…</div>
               ) : agents.length === 0 ? (
-                <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', marginTop: 40 }}>No agents yet.</div>
+                <div className="mt-10 text-center text-sm text-muted-foreground">No agents yet.</div>
               ) : agents.map(a => {
                 const isOwner = ownerAgents[accessUser.id]?.has(a.id) ?? false;
                 const level = accessGrants[accessUser.id]?.[a.id] ?? 'none';
@@ -819,39 +748,31 @@ function UsersTab() {
                 const dotColor = level === 'edit' ? '#3b82f6' : level === 'view' ? '#0f766e' : level === 'trigger' ? '#d97706' : 'var(--border)';
 
                 return (
-                  <div key={a.id} style={{
-                    borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface-2)',
-                    padding: '14px 16px',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: isOwner ? 0 : 12 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-                        <div style={{ fontSize: 11, color: dotColor, fontWeight: 500, marginTop: 1 }}>
+                  <div key={a.id} className="rounded-xl border border-border bg-secondary px-4 py-3.5">
+                    <div className={cn('flex items-center gap-2.5', isOwner ? 'mb-0' : 'mb-3')}>
+                      <div className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: dotColor }} />
+                      <div className="min-w-0 flex-1">
+                        <div className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold text-foreground">{a.name}</div>
+                        <div className="mt-px text-2xs font-medium" style={{ color: dotColor }}>
                           {isOwner ? 'Owner' : level === 'none' ? 'No access' : level === 'trigger' ? 'Trigger only' : level === 'view' ? 'View + Slack' : 'Full edit'}
                         </div>
                       </div>
                       {isOwner && (
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6,
-                          color: '#d97706', background: 'rgba(217,119,6,0.1)',
-                        }}>Owner</span>
+                        <span className="rounded bg-amber/10 px-2 py-0.5 text-[10px] font-bold text-amber">Owner</span>
                       )}
                     </div>
                     {!isOwner && (
-                      <div style={{ display: 'flex', gap: 6 }}>
+                      <div className="flex gap-1.5">
                         {levels.map(lvl => {
                           const active = level === lvl;
                           const c = lvl === 'edit' ? '#3b82f6' : lvl === 'view' ? '#0f766e' : lvl === 'trigger' ? '#d97706' : 'var(--muted)';
                           return (
-                            <button key={lvl} onClick={() => setAccess(accessUser.id, a.id, lvl)} style={{
-                              flex: 1, padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                              border: `1px solid ${active ? c : 'var(--border)'}`,
-                              background: active ? `${c}18` : 'var(--surface)',
-                              color: active ? c : 'var(--subtle)',
-                              cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                              transition: 'all 0.12s',
-                            }}>
+                            <button
+                              key={lvl}
+                              onClick={() => setAccess(accessUser.id, a.id, lvl)}
+                              className={cn('flex-1 cursor-pointer rounded-lg border px-1 py-1.5 text-2xs font-semibold transition-all', !active && 'border-border bg-card text-muted-foreground')}
+                              style={active ? { borderColor: c, background: `${c}18`, color: c } : undefined}
+                            >
                               {lvl === 'none' ? 'None' : lvl === 'trigger' ? 'Trigger' : lvl === 'view' ? 'View' : 'Edit'}
                             </button>
                           );
@@ -869,47 +790,38 @@ function UsersTab() {
       {/* Create modal */}
       {showForm && (
         <Portal>
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
-          backdropFilter: 'blur(2px)',
-        }}>
-          <div style={{
-            background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)',
-            padding: 28, width: 380, boxShadow: 'var(--shadow-lg)',
-            display: 'flex', flexDirection: 'column', gap: 16,
-            maxHeight: '90vh', overflow: 'auto',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>New User</h3>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
+          <div className="flex max-h-[90vh] w-[380px] flex-col gap-4 overflow-auto rounded-xl border border-border bg-card p-7 shadow-lg">
+            <div className="flex items-center justify-between">
+              <h3 className="m-0 text-md font-semibold text-foreground">New User</h3>
               <button onClick={() => { setShowForm(false); setError(''); }}
-                style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>&times;</button>
+                className="cursor-pointer text-lg text-muted-foreground">&times;</button>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>Username</label>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Username</label>
               <input type="text" value={newUser.username} onChange={e => setNewUser(u => ({ ...u, username: e.target.value }))}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-sans)' }} />
+                className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none" />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>Password</label>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Password</label>
               <input type="password" value={newUser.password} onChange={e => setNewUser(u => ({ ...u, password: e.target.value }))}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-sans)' }} />
+                className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none" />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>Role</label>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Role</label>
               <select value={newUser.role} onChange={e => setNewUser(u => ({ ...u, role: e.target.value }))}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, outline: 'none', fontFamily: 'var(--font-sans)', background: 'var(--surface)' }}>
+                className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none">
                 <option value="viewer">Viewer — read-only access</option>
                 <option value="editor">Editor — create/edit agents, jobs, settings</option>
                 <option value="admin">Admin — full access including user management</option>
               </select>
             </div>
-            {error && <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '6px 10px', borderRadius: 6 }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            {error && <div className="rounded bg-red/10 px-2.5 py-1.5 text-xs text-red">{error}</div>}
+            <div className="flex justify-end gap-2">
               <button onClick={() => { setShowForm(false); setError(''); }}
-                style={{ padding: '8px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Cancel</button>
+                className="cursor-pointer rounded-md border border-border bg-card px-4 py-2 text-sm">Cancel</button>
               <button onClick={create} disabled={saving}
-                style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
+                className="cursor-pointer rounded-md bg-primary px-[18px] py-2 text-sm font-medium text-primary-foreground">
                 {saving ? 'Creating...' : 'Create User'}
               </button>
             </div>
@@ -921,26 +833,17 @@ function UsersTab() {
       {/* Import from Slack modal */}
       {importModal && (
         <Portal>
-        <div onClick={() => { if (!onboarding) setImportModal(false); }} style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
-          backdropFilter: 'blur(2px)',
-        }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)',
-            padding: 28, width: 460, boxShadow: 'var(--shadow-lg)',
-            display: 'flex', flexDirection: 'column', gap: 16,
-            maxHeight: '80vh',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Import from Slack</h3>
+        <div onClick={() => { if (!onboarding) setImportModal(false); }} className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
+          <div onClick={e => e.stopPropagation()} className="flex max-h-[80vh] w-[460px] flex-col gap-4 rounded-xl border border-border bg-card p-7 shadow-lg">
+            <div className="flex items-center justify-between">
+              <h3 className="m-0 text-md font-semibold text-foreground">Import from Slack</h3>
               <button onClick={() => setImportModal(false)} disabled={onboarding}
-                style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>&times;</button>
+                className="cursor-pointer text-lg text-muted-foreground">&times;</button>
             </div>
 
             {askToken && (
               <>
-                <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+                <p className="m-0 text-sm text-muted-foreground">
                   Enter a Slack bot token with <code>users:read</code> and <code>users:read.email</code> scopes.<br />
                   Find it in your Slack app → <strong>OAuth &amp; Permissions → Bot User OAuth Token</strong>.
                 </p>
@@ -951,23 +854,18 @@ function UsersTab() {
                   onChange={e => setTokenInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') submitToken(); }}
                   placeholder="xoxb-..."
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-mono, monospace)', background: 'var(--surface)' }}
+                  className="w-full rounded-md border border-border bg-card px-3 py-2.5 font-mono text-sm outline-none"
                 />
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <div className="flex justify-end gap-2">
                   <button onClick={() => setImportModal(false)}
-                    style={{ padding: '8px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Cancel</button>
-                  <button onClick={submitToken} disabled={!tokenInput.trim()} style={{
-                    padding: '8px 18px', borderRadius: 7, border: 'none',
-                    background: 'var(--accent)', color: 'var(--accent-fg)',
-                    fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                    opacity: tokenInput.trim() ? 1 : 0.5,
-                  }}>Continue</button>
+                    className="cursor-pointer rounded-md border border-border bg-card px-4 py-2 text-sm">Cancel</button>
+                  <button onClick={submitToken} disabled={!tokenInput.trim()} className={cn('cursor-pointer rounded-md bg-primary px-[18px] py-2 text-sm font-medium text-primary-foreground', !tokenInput.trim() && 'opacity-50')}>Continue</button>
                 </div>
               </>
             )}
 
-            {importLoading && <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Fetching workspace members…</p>}
-            {importError && <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '8px 12px', borderRadius: 6 }}>{importError}</div>}
+            {importLoading && <p className="m-0 text-sm text-muted-foreground">Fetching workspace members…</p>}
+            {importError && <div className="rounded bg-red/10 px-3 py-2 text-xs text-red">{importError}</div>}
 
             {!askToken && !importLoading && !importError && (
               <>
@@ -977,59 +875,54 @@ function UsersTab() {
                     placeholder="Search by name or email…"
                     value={importSearch}
                     onChange={e => setImportSearch(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-sans)', background: 'var(--surface)' }}
+                    className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none"
                   />
                 )}
                 {slackMembers.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 2px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 12, color: 'var(--muted)', userSelect: 'none' }}>
-                      <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ cursor: 'pointer' }} />
+                  <div className="flex items-center gap-2.5 px-0.5 py-1.5">
+                    <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+                      <input type="checkbox" checked={allSelected} onChange={toggleAll} className="cursor-pointer" />
                       Select all not onboarded ({notOnboarded.length})
                     </label>
-                    <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--subtle)' }}>{slackMembers.length} total · {slackMembers.filter(m => m.onboarded).length} onboarded</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{slackMembers.length} total · {slackMembers.filter(m => m.onboarded).length} onboarded</span>
                   </div>
                 )}
-                {slackMembers.length === 0 && <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>No members found in workspace.</p>}
+                {slackMembers.length === 0 && <p className="m-0 text-sm text-muted-foreground">No members found in workspace.</p>}
                 {filteredMembers.length > 0 && (
-                  <div style={{ overflowY: 'auto', maxHeight: 340, border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <div className="max-h-[340px] overflow-y-auto rounded-lg border border-border">
                     {filteredMembers.map((m, i) => (
-                      <div key={m.id} style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px',
-                        borderBottom: i < filteredMembers.length - 1 ? '1px solid var(--border)' : 'none',
-                        background: m.onboarded ? 'var(--surface-2)' : 'var(--surface)',
-                        opacity: m.onboarded ? 0.6 : 1,
-                      }}>
+                      <div
+                        key={m.id}
+                        className={cn(
+                          'flex items-center gap-2.5 px-3.5 py-2.5',
+                          i < filteredMembers.length - 1 && 'border-b border-border',
+                          m.onboarded ? 'bg-secondary opacity-60' : 'bg-card',
+                        )}
+                      >
                         <input
                           type="checkbox"
                           checked={selected.has(m.id)}
                           disabled={m.onboarded}
                           onChange={() => toggleSelect(m.id)}
-                          style={{ cursor: m.onboarded ? 'default' : 'pointer', flexShrink: 0 }}
+                          className={cn('flex-shrink-0', m.onboarded ? 'cursor-default' : 'cursor-pointer')}
                         />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
-                          {m.email && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{m.email}</div>}
+                        <div className="min-w-0 flex-1">
+                          <div className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium text-foreground">{m.name}</div>
+                          {m.email && <div className="text-2xs text-muted-foreground">{m.email}</div>}
                         </div>
                         {m.onboarded
-                          ? <span style={{ fontSize: 10, fontWeight: 600, color: '#059669', background: 'rgba(5,150,105,0.1)', padding: '2px 8px', borderRadius: 4, flexShrink: 0 }}>Onboarded</span>
+                          ? <span className="flex-shrink-0 rounded bg-green/10 px-2 py-0.5 text-[10px] font-semibold text-green">Onboarded</span>
                           : null}
                       </div>
                     ))}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
-                  <button onClick={() => { setTokenInput(''); setAskToken(true); setSlackMembers([]); setImportError(''); }} style={{
-                    background: 'none', border: 'none', fontSize: 12, color: 'var(--muted)', cursor: 'pointer', marginRight: 'auto', fontFamily: 'var(--font-sans)', textDecoration: 'underline',
-                  }}>Change token</button>
+                <div className="flex items-center justify-end gap-2">
+                  <button onClick={() => { setTokenInput(''); setAskToken(true); setSlackMembers([]); setImportError(''); }} className="mr-auto cursor-pointer text-xs text-muted-foreground underline">Change token</button>
                   <button onClick={() => setImportModal(false)} disabled={onboarding}
-                    style={{ padding: '8px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Close</button>
+                    className="cursor-pointer rounded-md border border-border bg-card px-4 py-2 text-sm">Close</button>
                   {selected.size > 0 && (
-                    <button onClick={onboardSelected} disabled={onboarding} style={{
-                      padding: '8px 18px', borderRadius: 7, border: 'none',
-                      background: 'var(--accent)', color: 'var(--accent-fg)',
-                      fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                      opacity: onboarding ? 0.6 : 1,
-                    }}>
+                    <button onClick={onboardSelected} disabled={onboarding} className={cn('cursor-pointer rounded-md bg-primary px-[18px] py-2 text-sm font-medium text-primary-foreground', onboarding && 'opacity-60')}>
                       {onboarding ? 'Onboarding…' : `Onboard Selected (${selected.size})`}
                     </button>
                   )}
@@ -1046,30 +939,22 @@ function UsersTab() {
         <Portal>
         <div
           onClick={closeReset}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
-            backdropFilter: 'blur(2px)',
-          }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)',
-              padding: 28, width: 380, boxShadow: 'var(--shadow-lg)',
-              display: 'flex', flexDirection: 'column', gap: 16,
-            }}
+            className="flex w-[380px] flex-col gap-4 rounded-xl border border-border bg-card p-7 shadow-lg"
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Reset password</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="m-0 text-md font-semibold text-foreground">Reset password</h3>
               <button onClick={closeReset} disabled={resetting}
-                style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>&times;</button>
+                className="cursor-pointer text-lg text-muted-foreground">&times;</button>
             </div>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-              Set a new password for <strong style={{ color: 'var(--text)' }}>{resetUser.username}</strong>. They&apos;ll need the new password on their next login.
+            <p className="m-0 text-sm text-muted-foreground">
+              Set a new password for <strong className="text-foreground">{resetUser.username}</strong>. They&apos;ll need the new password on their next login.
             </p>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>New password</label>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">New password</label>
               <input
                 type="password"
                 autoFocus
@@ -1078,16 +963,16 @@ function UsersTab() {
                 onChange={e => setResetPwd(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') submitReset(); }}
                 placeholder="Minimum 8 characters"
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-sans)' }}
+                className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none"
               />
             </div>
-            {resetError && <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '6px 10px', borderRadius: 6 }}>{resetError}</div>}
-            {resetSuccess && <div style={{ fontSize: 12, color: '#059669', background: 'rgba(5,150,105,0.08)', padding: '6px 10px', borderRadius: 6 }}>Password updated</div>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            {resetError && <div className="rounded bg-red/10 px-2.5 py-1.5 text-xs text-red">{resetError}</div>}
+            {resetSuccess && <div className="rounded bg-green/10 px-2.5 py-1.5 text-xs text-green">Password updated</div>}
+            <div className="flex justify-end gap-2">
               <button onClick={closeReset} disabled={resetting}
-                style={{ padding: '8px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Cancel</button>
+                className="cursor-pointer rounded-md border border-border bg-card px-4 py-2 text-sm">Cancel</button>
               <button onClick={submitReset} disabled={resetting || resetSuccess || !resetPwd}
-                style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)', opacity: (resetting || resetSuccess || !resetPwd) ? 0.6 : 1 }}>
+                className={cn('cursor-pointer rounded-md bg-primary px-[18px] py-2 text-sm font-medium text-primary-foreground', (resetting || resetSuccess || !resetPwd) && 'opacity-60')}>
                 {resetting ? 'Saving…' : 'Reset password'}
               </button>
             </div>
@@ -1142,86 +1027,74 @@ function AuthTab() {
     } finally { setSaving(false); }
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '9px 12px', borderRadius: 8,
-    border: '1px solid var(--border)', background: 'var(--surface)',
-    fontSize: 13, color: 'var(--text)', outline: 'none',
-    fontFamily: 'var(--font-sans)', boxSizing: 'border-box',
-  };
-  const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6,
-  };
+  const inputClass = 'w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none';
+  const labelClass = 'mb-1.5 block text-xs font-medium text-muted-foreground';
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: '0 0 4px' }}>Sign in with Slack</h2>
-      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 24px' }}>
+    <div className="max-w-[560px]">
+      <h2 className="m-0 mb-1 text-base font-semibold text-foreground">Sign in with Slack</h2>
+      <p className="m-0 mb-6 text-sm text-muted-foreground">
         Allow users to log in using their Slack account. Get these from{' '}
-        <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>api.slack.com/apps</a>
+        <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-primary">api.slack.com/apps</a>
         {' '}→ your app → Basic Information. Add user token scopes: <code>openid</code>, <code>profile</code>, <code>email</code>.
       </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="flex flex-col gap-4">
         <div>
-          <label style={labelStyle}>Redirect URI <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(add this in Slack → OAuth & Permissions)</span></label>
+          <label className={labelClass}>Redirect URI <span className="font-normal text-muted-foreground">(add this in Slack → OAuth & Permissions)</span></label>
           <input
-            style={{ ...inputStyle, color: 'var(--muted)', cursor: 'text' }}
+            className={cn(inputClass, 'cursor-text text-muted-foreground')}
             value={redirectUri}
             readOnly
             onFocus={e => e.currentTarget.select()}
           />
         </div>
         <div>
-          <label style={labelStyle}>Client ID</label>
+          <label className={labelClass}>Client ID</label>
           <input
-            style={inputStyle}
+            className={inputClass}
             value={clientId}
             onChange={e => setClientId(e.target.value)}
             placeholder="123456789012.123456789012"
           />
         </div>
         <div>
-          <label style={labelStyle}>Client Secret</label>
+          <label className={labelClass}>Client Secret</label>
           <input
-            style={inputStyle}
+            className={inputClass}
             type="password"
             value={clientSecret}
             onChange={e => setClientSecret(e.target.value)}
             placeholder="••••••••••••••••••••••••••••••••"
           />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-secondary px-4 py-3">
           <input
             type="checkbox"
             id="slack-login-open"
             checked={loginOpen}
             onChange={e => setLoginOpen(e.target.checked)}
-            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+            className="h-4 w-4 cursor-pointer accent-primary"
           />
-          <label htmlFor="slack-login-open" style={{ fontSize: 13, color: 'var(--text)', cursor: 'pointer', flex: 1 }}>
-            <strong style={{ fontWeight: 600 }}>Allow any workspace member to sign in</strong>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+          <label htmlFor="slack-login-open" className="flex-1 cursor-pointer text-sm text-foreground">
+            <strong className="font-semibold">Allow any workspace member to sign in</strong>
+            <div className="mt-0.5 text-xs text-muted-foreground">
               When off (default), only users imported via Settings → Users can log in with Slack.
             </div>
           </label>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="flex items-center gap-3">
           <button
             onClick={save}
             disabled={saving || !clientId || !clientSecret}
-            style={{
-              padding: '8px 18px', borderRadius: 8, border: 'none',
-              background: 'var(--accent)', color: 'var(--accent-fg)',
-              fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer',
-              fontFamily: 'var(--font-sans)',
-            }}
+            className={cn('rounded-lg bg-primary px-[18px] py-2 text-sm font-semibold text-primary-foreground', saving ? 'cursor-not-allowed' : 'cursor-pointer')}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
-          {toast && <span style={{ fontSize: 13, color: 'var(--success, #16a34a)' }}>{toast}</span>}
+          {toast && <span className="text-sm text-green">{toast}</span>}
         </div>
         {clientId && (
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+          <p className="m-0 text-xs text-muted-foreground">
             ✓ Sign in with Slack is enabled. Users will see the button on the login page.
           </p>
         )}
@@ -1236,9 +1109,9 @@ function AuthTab() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 22, paddingBottom: 22, borderBottom: '1px solid var(--border)' }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 14 }}>{title}</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{children}</div>
+    <div className="mb-[22px] border-b border-border pb-[22px]">
+      <div className="mb-3.5 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{title}</div>
+      <div className="flex flex-col gap-3">{children}</div>
     </div>
   );
 }
@@ -1249,26 +1122,22 @@ function Field({ label, value, onChange, onBlur, hint, maxLength }: {
   const overLimit = maxLength !== undefined && value.length > maxLength;
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-        <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>{label}</label>
+      <div className="mb-1.5 flex items-baseline justify-between">
+        <label className="text-xs font-medium text-muted-foreground">{label}</label>
         {maxLength !== undefined && (
-          <span style={{ fontSize: 10, color: overLimit ? 'var(--red)' : 'var(--subtle)', fontFamily: 'var(--font-mono)' }}>
+          <span className={cn('font-mono text-[10px]', overLimit ? 'text-red' : 'text-muted-foreground')}>
             {value.length}/{maxLength}
           </span>
         )}
       </div>
       <input type="text" value={value} maxLength={maxLength} onChange={e => onChange(e.target.value)}
-        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; onBlur?.(); }}
-        style={{
-          width: '100%', background: 'var(--surface)',
-          border: `1px solid ${overLimit ? 'var(--red)' : 'var(--border)'}`,
-          borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
-          transition: 'border-color 0.15s', boxSizing: 'border-box',
-        }}
-        onFocus={e => { if (!overLimit) e.currentTarget.style.borderColor = 'var(--accent)'; }}
+        onBlur={() => onBlur?.()}
+        className={cn(
+          'w-full rounded-md border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors',
+          overLimit ? 'border-red' : 'border-border focus:border-primary',
+        )}
       />
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p className="m-0 mt-1 text-2xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -1282,20 +1151,11 @@ function SelectField({ label, value, options, onChange, hint }: {
 }) {
   return (
     <div>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>{label}</label>
+      <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{label}</label>
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        style={{
-          width: '100%', background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
-          fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none',
-          transition: 'border-color 0.15s', boxSizing: 'border-box',
-          cursor: 'pointer',
-        }}
-        onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+        className="w-full cursor-pointer rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
       >
         {options.map(o => (
           <option key={o.value} value={o.value}>
@@ -1303,22 +1163,17 @@ function SelectField({ label, value, options, onChange, hint }: {
           </option>
         ))}
       </select>
-      {hint && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p className="m-0 mt-1 text-2xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
 function PrimaryBtn({ children, onClick, loading }: { children: React.ReactNode; onClick?: () => void; loading?: boolean }) {
   return (
-    <button onClick={onClick} disabled={loading} style={{
-      background: loading ? 'var(--border)' : 'var(--accent)',
-      color: 'var(--accent-fg)', border: 'none', borderRadius: 7,
-      padding: '8px 18px', fontSize: 13, fontWeight: 500,
-      cursor: loading ? 'not-allowed' : 'pointer',
-      fontFamily: 'var(--font-sans)', transition: 'opacity 0.15s',
-    }}
-      onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+    <button onClick={onClick} disabled={loading} className={cn(
+      'rounded-md px-[18px] py-2 text-sm font-medium text-primary-foreground transition-opacity',
+      loading ? 'cursor-not-allowed bg-border' : 'cursor-pointer bg-primary hover:opacity-85',
+    )}
     >{loading ? 'Saving...' : children}</button>
   );
 }

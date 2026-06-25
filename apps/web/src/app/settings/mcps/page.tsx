@@ -20,6 +20,14 @@ import { Plug, Library, Search, X, Check, Loader2, Plus, ListFilter, MoreHorizon
 import { Portal } from '@/lib/portal';
 import { parseMcpJson, serializeMcpJson } from '@/lib/mcp-json';
 import type { McpServerConfig } from '@slackhive/shared';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { PageShell } from '@/components/patterns';
+
+/** Shared field-control classes — inputs / textareas / selects in this page. */
+const CONTROL_CLASS = 'w-full rounded-md border border-input bg-secondary px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-ring placeholder:text-muted-foreground';
+/** Compact control used inside the env-var / header grid rows. */
+const SMALL_CONTROL_CLASS = 'rounded-md border border-input bg-secondary px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-ring placeholder:text-muted-foreground';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -541,49 +549,47 @@ export default function McpSettingsPage() {
 
   const detectedAvailable = cliMcps.filter(d => !servers.find(s => s.name === d.name));
 
-  const ghostBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--surface)', color: 'var(--text)', padding: '8px 15px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' };
-  const accentBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent)', color: 'var(--accent-fg)', padding: '8px 15px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' };
-  const selectStyle: React.CSSProperties = { padding: '8px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', outline: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' };
+  const selectClass = 'cursor-pointer rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-ring';
 
   return (
-    <div style={{ padding: '36px 40px' }} className="fade-up">
+    <PageShell>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>Settings</div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--text)' }}>
+          <div className="mb-1 text-xs text-muted-foreground">Settings</div>
+          <h1 className="m-0 text-xl font-semibold tracking-tight text-foreground">
             MCP Catalog
           </h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+          <p className="mt-1 text-sm text-muted-foreground">
             Discover, test, and manage MCP servers for your agents.
           </p>
         </div>
         {canEdit && !showForm && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={openLibrary} style={ghostBtnStyle}><Library size={14} /> Browse Library</button>
-            <button onClick={openAddForm} style={accentBtnStyle}><Plus size={15} /> Custom Server</button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={openLibrary}><Library size={14} /> Browse Library</Button>
+            <Button onClick={openAddForm}><Plus size={15} /> Custom Server</Button>
           </div>
         )}
       </div>
 
       {/* Toolbar — search · type filter · sort */}
       {!showForm && servers.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0 }}>
-            <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--subtle)', pointerEvents: 'none' }} />
+        <div className="mb-4 flex flex-wrap items-center gap-2.5">
+          <div className="relative min-w-0 flex-[1_1_260px]">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input type="text" placeholder="Search MCP servers…" value={serverSearch} onChange={e => setServerSearch(e.target.value)}
-              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px 8px 34px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', outline: 'none' }} />
+              className="w-full rounded-md border border-input bg-card py-2 pl-9 pr-3 text-sm text-foreground outline-none focus:border-ring placeholder:text-muted-foreground" />
           </div>
-          <div style={{ position: 'relative' }}>
-            <ListFilter size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--subtle)', pointerEvents: 'none' }} />
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as 'all' | 'stdio' | 'sse' | 'http')} style={{ ...selectStyle, paddingLeft: 32 }}>
+          <div className="relative">
+            <ListFilter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as 'all' | 'stdio' | 'sse' | 'http')} className={cn(selectClass, 'pl-8')}>
               <option value="all">All Types</option>
               <option value="stdio">STDIO</option>
               <option value="http">HTTP</option>
               <option value="sse">SSE</option>
             </select>
           </div>
-          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'newest' | 'oldest' | 'name')} style={selectStyle}>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'newest' | 'oldest' | 'name')} className={selectClass}>
             <option value="newest">Sort: Newest</option>
             <option value="oldest">Sort: Oldest</option>
             <option value="name">Sort: Name</option>
@@ -592,50 +598,35 @@ export default function McpSettingsPage() {
       )}
 
       {loading ? (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-          padding: '48px 0', color: 'var(--muted)', fontSize: 13,
-          border: '1px solid var(--border)', borderRadius: 12,
-        }}>
-          <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+        <div className="flex items-center justify-center gap-2.5 rounded-xl border border-border py-12 text-sm text-muted-foreground">
+          <Loader2 size={16} className="animate-spin" />
           Loading tools…
         </div>
       ) : servers.length === 0 && !showForm ? (
-        <div style={{
-          border: '1px dashed var(--border)', borderRadius: 12, padding: '48px',
-          textAlign: 'center', color: 'var(--subtle)',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Plug size={28} style={{ color: 'var(--border-2)' }} /></div>
-          <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No MCP servers yet</p>
-          <p style={{ margin: '0 0 16px', fontSize: 13 }}>Add tools like GitHub, Notion, Figma, and 50+ more from the library.</p>
-          {canEdit && <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-            <button onClick={openLibrary} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
-              padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-            }}><Library size={14} /> Browse Library</button>
-            <button onClick={openAddForm} style={{
-              background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 8,
-              padding: '8px 16px', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>Add Custom</button>
+        <div className="rounded-xl border border-dashed border-border p-12 text-center text-muted-foreground">
+          <div className="mb-2.5 flex justify-center"><Plug size={28} className="text-border" /></div>
+          <p className="mb-1 text-md font-medium text-muted-foreground">No MCP servers yet</p>
+          <p className="mb-4 text-sm">Add tools like GitHub, Notion, Figma, and 50+ more from the library.</p>
+          {canEdit && <div className="flex justify-center gap-2">
+            <Button onClick={openLibrary}><Library size={14} /> Browse Library</Button>
+            <Button variant="outline" onClick={openAddForm}>Add Custom</Button>
           </div>}
         </div>
       ) : !showForm && (
         <>
           {/* Installed section */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>
-              Installed Servers <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>· {visibleServers.length}</span>
+          <div className="mb-3">
+            <div className="text-sm font-semibold text-foreground">
+              Installed Servers <span className="font-medium text-muted-foreground">· {visibleServers.length}</span>
             </div>
-            <p style={{ margin: '3px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>These servers are available to all agents in your workspace.</p>
+            <p className="mt-1 text-xs text-muted-foreground">These servers are available to all agents in your workspace.</p>
           </div>
           {visibleServers.length === 0 ? (
-            <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '28px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, marginBottom: 24 }}>
+            <div className="mb-6 rounded-xl border border-dashed border-border p-7 text-center text-sm text-muted-foreground">
               No servers match your filters.
             </div>
           ) : (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', marginBottom: 24, background: 'var(--surface)' }}>
+            <div className="mb-6 overflow-hidden rounded-xl border border-border bg-card">
               {visibleServers.map((server, i, arr) => (
                 <ServerRow
                   key={server.id} server={server}
@@ -657,39 +648,36 @@ export default function McpSettingsPage() {
 
       {/* Detected from Claude Code CLI — Claude backend only */}
       {isClaudeBackend && detectedAvailable.length > 0 && !showForm && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>
-              Discovered from Claude Code <span style={{ color: 'var(--subtle)', fontWeight: 500 }}>· {detectedAvailable.length}</span>
+        <div className="mt-2">
+          <div className="mb-3">
+            <div className="text-sm font-semibold text-foreground">
+              Discovered from Claude Code <span className="font-medium text-muted-foreground">· {detectedAvailable.length}</span>
             </div>
-            <p style={{ margin: '3px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>These servers were detected in your environment. Add to the catalog to use them with agents.</p>
+            <p className="mt-1 text-xs text-muted-foreground">These servers were detected in your environment. Add to the catalog to use them with agents.</p>
           </div>
-          <div style={{ border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', background: 'var(--surface)' }}>
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
             {detectedAvailable.map((d, i, arr) => {
               const tpl = MCP_TEMPLATES.find(t => t.id === d.name || t.name.toLowerCase() === d.name.toLowerCase());
               const TypeIcon = d.type === 'http' ? Globe : d.type === 'sse' ? Radio : Terminal;
               return (
-                <div key={d.name} style={{
-                  display: 'flex', alignItems: 'center', gap: 13, padding: '13px 16px',
-                  borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
-                }}>
-                  <span style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 9, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+                <div key={d.name} className={cn('flex items-center gap-3 px-4 py-3', i < arr.length - 1 && 'border-b border-border')}>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-foreground">
                     {tpl?.logo ? (
-                      <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
-                        alt="" width={18} height={18} style={{ borderRadius: 3, opacity: 0.8 }}
+                      <img className="icon-adaptive rounded-sm opacity-80" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
+                        alt="" width={18} height={18}
                         onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                     ) : <TypeIcon size={17} />}
                   </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{d.name}</span>
-                      <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '1px 6px', borderRadius: 5 }}>{String(d.type).toUpperCase()}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-foreground">{d.name}</span>
+                      <span className="rounded-md border border-border bg-secondary px-1.5 py-px font-mono text-2xs font-semibold tracking-wide text-muted-foreground">{String(d.type).toUpperCase()}</span>
                     </div>
-                    <p style={{ margin: '2px 0 0', fontSize: 11.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.url || d.command}</p>
+                    <p className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">{d.url || d.command}</p>
                   </div>
-                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)', flexShrink: 0 }}>CLI</span>
+                  <span className="shrink-0 rounded bg-blue/10 px-1.5 py-0.5 text-2xs font-semibold text-blue">CLI</span>
                   {canEdit && (
-                    <button onClick={async () => {
+                    <Button size="sm" onClick={async () => {
                       const config = d.url ? { url: d.url } : { command: d.command, args: [] };
                       await fetch('/api/mcps', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -697,7 +685,7 @@ export default function McpSettingsPage() {
                       });
                       setCliMcps(prev => prev.filter(m => m.name !== d.name));
                       await load();
-                    }} style={{ ...accentBtnStyle, fontSize: 12, padding: '6px 12px' }}>Add to Catalog</button>
+                    }}>Add to Catalog</Button>
                   )}
                 </div>
               );
@@ -708,10 +696,10 @@ export default function McpSettingsPage() {
 
       {/* Footer */}
       {!showForm && !loading && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 28, fontSize: 12.5, color: 'var(--muted)' }}>
-          <Info size={14} style={{ color: 'var(--subtle)' }} />
+        <div className="mt-7 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+          <Info size={14} className="text-muted-foreground" />
           Learn more about MCP servers and how to integrate them with your agents.
-          <a href="https://slackhive.mintlify.app" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--text)', fontWeight: 500, textDecoration: 'none' }}>
+          <a href="https://slackhive.mintlify.app" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-foreground no-underline">
             View Documentation <ExternalLink size={12} />
           </a>
         </div>
@@ -719,47 +707,30 @@ export default function McpSettingsPage() {
 
       {/* Add/Edit form */}
       {showForm && (
-        <div ref={formRef} style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 14, padding: '28px', marginTop: 4,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
+        <div ref={formRef} className="mt-1 rounded-xl border border-border bg-card p-7">
+          <div className="mb-5 flex items-center justify-between">
+            <h2 className="m-0 text-md font-semibold text-foreground">
               {editingId ? 'Edit Server' : 'Add MCP Server'}
             </h2>
-            <button onClick={resetForm} style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--muted)', fontSize: 18, fontFamily: 'var(--font-sans)',
-            }}>×</button>
+            <button onClick={resetForm} className="text-lg text-muted-foreground hover:text-foreground">×</button>
           </div>
 
           {error && (
-            <div style={{
-              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
-              borderRadius: 7, padding: '9px 13px', marginBottom: 16,
-              fontSize: 13, color: '#f87171',
-            }}>{error}</div>
+            <div className="mb-4 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
           )}
 
           {form.uiType !== 'typescript' && (
-            <div style={{
-              display: 'flex', gap: 0, borderBottom: '1px solid var(--border)',
-              marginBottom: 20,
-            }}>
+            <div className="mb-5 flex border-b border-border">
               {([
                 { id: 'json', label: 'JSON', active: jsonMode },
                 { id: 'form', label: 'Form', active: !jsonMode },
               ] as const).map(tab => (
                 <button key={tab.id} type="button"
                   onClick={() => { if (tab.active) return; toggleMode(); }}
-                  style={{
-                    padding: '8px 16px', fontSize: 13, fontWeight: 500,
-                    background: 'transparent', border: 'none',
-                    borderBottom: `2px solid ${tab.active ? 'var(--accent)' : 'transparent'}`,
-                    color: tab.active ? 'var(--text)' : 'var(--muted)',
-                    cursor: tab.active ? 'default' : 'pointer',
-                    fontFamily: 'var(--font-sans)', marginBottom: -1,
-                  }}>{tab.label}</button>
+                  className={cn(
+                    '-mb-px border-b-2 px-4 py-2 text-sm font-medium',
+                    tab.active ? 'cursor-default border-primary text-foreground' : 'cursor-pointer border-transparent text-muted-foreground',
+                  )}>{tab.label}</button>
               ))}
             </div>
           )}
@@ -767,22 +738,22 @@ export default function McpSettingsPage() {
           <form onSubmit={handleSubmit}>
             {jsonMode ? (
               <>
-                <FField label="Config JSON *" style={{ marginBottom: 6 }}
-                  hint={<>Paste a Cursor / Claude Desktop / VS Code config. Use <code style={{ fontFamily: 'var(--font-mono)', background: 'rgba(99,102,241,0.12)', padding: '1px 4px', borderRadius: 3 }}>{'${env:NAME}'}</code> for secrets — pulled from your <a href="/settings/env-vars" style={{ color: 'var(--accent)', textDecoration: 'none' }}>env vars</a> at runtime.</>}>
+                <FField label="Config JSON *" className="mb-1.5"
+                  hint={<>Paste a Cursor / Claude Desktop / VS Code config. Use <code className="rounded-sm bg-primary/15 px-1 py-px font-mono">{'${env:NAME}'}</code> for secrets — pulled from your <a href="/settings/env-vars" className="text-primary no-underline">env vars</a> at runtime.</>}>
                   <textarea value={jsonInput} onChange={e => setJsonInput(e.target.value)}
                     rows={Math.max(10, Math.min(24, (jsonInput.match(/\n/g)?.length ?? 0) + 2))}
-                    required spellCheck={false} {...inputStyle('var(--font-mono)')} />
+                    required spellCheck={false} {...inputStyle(true)} />
                 </FField>
-                <div style={{ fontSize: 12, marginBottom: 14, minHeight: 18 }}>
+                <div className="mb-3.5 min-h-[18px] text-xs">
                   {jsonParse && jsonParse.ok ? (
-                    <span style={{ color: 'var(--accent)' }}>
+                    <span className="text-primary">
                       ✓ Valid config{jsonParse.name ? ` for "${jsonParse.name}"` : ''}
                       {jsonParse.warnings.length > 0 && (
-                        <span style={{ color: 'var(--muted)', marginLeft: 8 }}>· {jsonParse.warnings.join(' ')}</span>
+                        <span className="ml-2 text-muted-foreground">· {jsonParse.warnings.join(' ')}</span>
                       )}
                     </span>
                   ) : jsonParse && !jsonParse.ok ? (
-                    <span style={{ color: '#f87171' }}>
+                    <span className="text-destructive">
                       ⚠ {jsonParse.error}{jsonParse.line ? ` (line ${jsonParse.line})` : ''}
                     </span>
                   ) : null}
@@ -796,14 +767,11 @@ export default function McpSettingsPage() {
                   const known = new Set(envVarKeys);
                   const missing = refNames.filter(n => !known.has(n));
                   return (
-                    <div style={{
-                      background: 'var(--surface-2)', border: '1px solid var(--border)',
-                      borderRadius: 8, padding: '10px 12px', marginBottom: 14,
-                    }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    <div className="mb-3.5 rounded-md border border-border bg-secondary px-3 py-2.5">
+                      <div className="mb-1.5 text-2xs font-semibold uppercase tracking-[0.03em] text-muted-foreground">
                         Env vars referenced
                       </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <div className="flex flex-wrap gap-1.5">
                         {refNames.map(name => {
                           const found = known.has(name);
                           const clickable = !found;
@@ -811,15 +779,11 @@ export default function McpSettingsPage() {
                             <span key={name}
                               onClick={clickable ? () => setEnvInline({ key: name, value: '', saving: false }) : undefined}
                               title={clickable ? 'Click to add value' : 'Found in env vars'}
-                              style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 5,
-                                padding: '3px 8px', borderRadius: 5, fontSize: 12,
-                                fontFamily: 'var(--font-mono)',
-                                background: found ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                                color: found ? '#22c55e' : '#f87171',
-                                border: `1px solid ${found ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                                cursor: clickable ? 'pointer' : 'default',
-                              }}>
+                              className={cn(
+                                'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-xs',
+                                found ? 'border-green/25 bg-green/10 text-green' : 'border-destructive/25 bg-destructive/10 text-destructive',
+                                clickable ? 'cursor-pointer' : 'cursor-default',
+                              )}>
                               {found ? <Check size={11} /> : <X size={11} />}
                               {name}
                             </span>
@@ -827,8 +791,8 @@ export default function McpSettingsPage() {
                         })}
                       </div>
                       {envInline && missing.includes(envInline.key) && (
-                        <div style={{ marginTop: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--muted)', flexShrink: 0 }}>
+                        <div className="mt-2.5 flex items-center gap-1.5">
+                          <span className="shrink-0 font-mono text-xs text-muted-foreground">
                             {envInline.key} =
                           </span>
                           <input autoFocus type="password"
@@ -836,27 +800,14 @@ export default function McpSettingsPage() {
                             onChange={e => setEnvInline({ ...envInline, value: e.target.value })}
                             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveMissingEnvVar(); } }}
                             placeholder="secret value"
-                            {...inputStyle('var(--font-mono)')} />
-                          <button type="button" onClick={saveMissingEnvVar}
-                            disabled={envInline.saving || !envInline.value}
-                            style={{
-                              background: 'var(--accent)', color: 'var(--accent-fg)',
-                              border: 'none', borderRadius: 6, padding: '6px 12px',
-                              fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                              fontFamily: 'var(--font-sans)', flexShrink: 0,
-                              opacity: (envInline.saving || !envInline.value) ? 0.5 : 1,
-                            }}>{envInline.saving ? 'Saving…' : 'Save'}</button>
-                          <button type="button" onClick={() => setEnvInline(null)}
-                            style={{
-                              background: 'transparent', color: 'var(--muted)',
-                              border: '1px solid var(--border)', borderRadius: 6,
-                              padding: '6px 10px', fontSize: 12, cursor: 'pointer',
-                              fontFamily: 'var(--font-sans)', flexShrink: 0,
-                            }}>Cancel</button>
+                            {...inputStyle(true)} />
+                          <Button type="button" size="sm" className="shrink-0" onClick={saveMissingEnvVar}
+                            disabled={envInline.saving || !envInline.value}>{envInline.saving ? 'Saving…' : 'Save'}</Button>
+                          <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => setEnvInline(null)}>Cancel</Button>
                         </div>
                       )}
                       {missing.length > 0 && !envInline && (
-                        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
+                        <div className="mt-2 text-xs text-muted-foreground">
                           Click a red chip to set its value.
                         </div>
                       )}
@@ -865,25 +816,25 @@ export default function McpSettingsPage() {
                 })()}
                 {/* Bare-shape paste: no `mcpServers` wrapper → prompt for a name rather than erroring at save. */}
                 {jsonParse && jsonParse.ok && jsonParse.name === null && (
-                  <FField label="Name *" required style={{ marginBottom: 14 }}
+                  <FField label="Name *" required className="mb-3.5"
                     hint="Your JSON has no `mcpServers` wrapper — give the server a name here.">
                     <input value={form.name} onChange={e => f('name', e.target.value)}
                       placeholder="redshift-mcp" required {...inputStyle()} />
                   </FField>
                 )}
-                <FField label="Description *" required style={{ marginBottom: 14 }}>
+                <FField label="Description *" required className="mb-3.5">
                   <input value={form.description} onChange={e => f('description', e.target.value)}
                     placeholder="What does this MCP server provide?" required {...inputStyle()} />
                 </FField>
               </>
             ) : (
               <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+            <div className="mb-3.5 grid grid-cols-2 gap-3.5">
               <FField label="Name *" required>
                 <input value={form.name} onChange={e => f('name', e.target.value)} placeholder="redshift-mcp"
                   required {...inputStyle()} />
-                <small style={{ color: 'var(--subtle)', fontSize: 11, marginTop: 3, display: 'block' }}>
-                  Tool pattern: <code style={{ fontFamily: 'var(--font-mono)' }}>mcp__name__tool</code>
+                <small className="mt-1 block text-2xs text-muted-foreground">
+                  Tool pattern: <code className="font-mono">mcp__name__tool</code>
                 </small>
               </FField>
               <FField label="Transport Type">
@@ -896,7 +847,7 @@ export default function McpSettingsPage() {
               </FField>
             </div>
 
-            <FField label="Description" style={{ marginBottom: 14 }}>
+            <FField label="Description" className="mb-3.5">
               <input value={form.description} onChange={e => f('description', e.target.value)}
                 placeholder="What does this MCP server provide?" {...inputStyle()} />
             </FField>
@@ -904,13 +855,13 @@ export default function McpSettingsPage() {
             {/* stdio fields */}
             {form.uiType === 'stdio' && (
               <>
-                <FField label="Command *" style={{ marginBottom: 14 }}>
+                <FField label="Command *" className="mb-3.5">
                   <input value={form.command} onChange={e => f('command', e.target.value)}
-                    placeholder="node" required {...inputStyle('var(--font-mono)')} />
+                    placeholder="node" required {...inputStyle(true)} />
                 </FField>
-                <FField label="Arguments" hint="JSON array or comma-separated. JSON preserves commas inside args." style={{ marginBottom: 14 }}>
+                <FField label="Arguments" hint="JSON array or comma-separated. JSON preserves commas inside args." className="mb-3.5">
                   <input value={form.args} onChange={e => f('args', e.target.value)}
-                    placeholder='["-y", "@pkg/name"] or -y, @pkg/name' {...inputStyle('var(--font-mono)')} />
+                    placeholder='["-y", "@pkg/name"] or -y, @pkg/name' {...inputStyle(true)} />
                 </FField>
                 <EnvEntriesEditor entries={form.envEntries} envVarKeys={envVarKeys}
                   onAdd={addEnvEntry} onRemove={removeEnvEntry} onUpdate={updateEnvEntry} />
@@ -920,10 +871,10 @@ export default function McpSettingsPage() {
             {/* TypeScript inline script */}
             {form.uiType === 'typescript' && (
               <>
-                <FField label="TypeScript Source *" style={{ marginBottom: 14 }}
+                <FField label="TypeScript Source *" className="mb-3.5"
                   hint="The runner saves this to disk and executes it with tsx. Must implement the MCP stdio protocol.">
                   <textarea value={form.tsSource} onChange={e => f('tsSource', e.target.value)}
-                    rows={14} required {...inputStyle('var(--font-mono)')} />
+                    rows={14} required {...inputStyle(true)} />
                 </FField>
                 <EnvEntriesEditor entries={form.envEntries} envVarKeys={envVarKeys}
                   onAdd={addEnvEntry} onRemove={removeEnvEntry} onUpdate={updateEnvEntry} />
@@ -933,9 +884,9 @@ export default function McpSettingsPage() {
             {/* SSE / HTTP fields */}
             {(form.uiType === 'sse' || form.uiType === 'http') && (
               <>
-                <FField label="URL *" style={{ marginBottom: 14 }}>
+                <FField label="URL *" className="mb-3.5">
                   <input value={form.url} onChange={e => f('url', e.target.value)}
-                    placeholder="https://mcp.example.com/sse" required type="url" {...inputStyle('var(--font-mono)')} />
+                    placeholder="https://mcp.example.com/sse" required type="url" {...inputStyle(true)} />
                 </FField>
                 <HeaderEntriesEditor
                   entries={form.headerEntries} envVarKeys={envVarKeys}
@@ -947,10 +898,10 @@ export default function McpSettingsPage() {
               </>
             )}
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 20 }}>
+            <label className="mb-5 flex cursor-pointer items-center gap-2.5">
               <input type="checkbox" checked={form.enabled} onChange={e => f('enabled', e.target.checked)}
-                style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} />
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                className="h-3.5 w-3.5 accent-primary" />
+              <span className="text-sm text-muted-foreground">
                 Enabled — available for agents to use
               </span>
             </label>
@@ -960,19 +911,9 @@ export default function McpSettingsPage() {
               const bareWithoutName = !!(jsonMode && jsonParse && jsonParse.ok && jsonParse.name === null && !form.name.trim());
               const submitDisabled = saving || jsonInvalid || bareWithoutName;
               return (
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button type="submit" disabled={submitDisabled} style={{
-                background: submitDisabled ? 'var(--border)' : 'var(--accent)',
-                color: 'var(--accent-fg)', border: 'none', borderRadius: 7,
-                padding: '9px 22px', fontSize: 13, fontWeight: 500,
-                cursor: submitDisabled ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
-                transition: 'opacity 0.15s',
-              }}>{saving ? 'Saving…' : editingId ? 'Update Server' : 'Add Server'}</button>
-              <button type="button" onClick={resetForm} style={{
-                background: 'transparent', color: 'var(--muted)',
-                border: '1px solid var(--border)', borderRadius: 7,
-                padding: '9px 22px', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              }}>Cancel</button>
+            <div className="flex gap-2.5">
+              <Button type="submit" disabled={submitDisabled}>{saving ? 'Saving…' : editingId ? 'Update Server' : 'Add Server'}</Button>
+              <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button>
             </div>
               );
             })()}
@@ -982,62 +923,38 @@ export default function McpSettingsPage() {
 
       {/* ─── Template Library Modal ─────────────────────────────────────────── */}
       {showLibrary && (
-        <Portal><div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '40px 20px',
-        }}>
-          <div style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-          }} onClick={() => { setShowLibrary(false); setSelectedTemplate(null); }} />
-          <div style={{
-            position: 'relative', background: 'var(--bg)', borderRadius: 16,
-            width: '100%', maxWidth: 720, height: '100%', maxHeight: '100%',
-            display: 'flex', flexDirection: 'column',
-            border: '1px solid var(--border)', boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
-          }}>
+        <Portal><div className="fixed inset-0 z-[1000] flex items-center justify-center p-10">
+          <div className="fixed inset-0 bg-black/50" onClick={() => { setShowLibrary(false); setSelectedTemplate(null); }} />
+          <div className="relative flex h-full max-h-full w-full max-w-[720px] flex-col rounded-2xl border border-border bg-background shadow-lg">
             {/* Modal header */}
-            <div style={{
-              padding: '20px 24px 16px', borderBottom: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
+            <div className="flex items-center justify-between border-b border-border px-6 pb-4 pt-5">
               <div>
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>
+                <h2 className="m-0 text-lg font-semibold text-foreground">
                   MCP Server Library
                 </h2>
-                <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {templates.length} pre-configured servers — click to add
                 </p>
               </div>
-              <button onClick={() => { setShowLibrary(false); setSelectedTemplate(null); }} style={{
-                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4,
-              }}><X size={18} /></button>
+              <button onClick={() => { setShowLibrary(false); setSelectedTemplate(null); }} className="p-1 text-muted-foreground hover:text-foreground"><X size={18} /></button>
             </div>
 
             {/* Search + category filter */}
-            <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+            <div className="flex items-center gap-2.5 border-b border-border px-6 py-3">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Search servers..."
                   value={templateSearch}
                   onChange={e => setTemplateSearch(e.target.value)}
-                  style={{
-                    width: '100%', padding: '7px 10px 7px 30px', borderRadius: 8,
-                    border: '1px solid var(--border)', background: 'var(--surface-2)',
-                    fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-sans)', outline: 'none',
-                  }}
+                  className="w-full rounded-md border border-input bg-secondary py-1.5 pl-8 pr-2.5 text-sm text-foreground outline-none focus:border-ring placeholder:text-muted-foreground"
                 />
               </div>
               <select
                 value={selectedCategory ?? ''}
                 onChange={e => setSelectedCategory(e.target.value || null)}
-                style={{
-                  padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)',
-                  background: 'var(--surface-2)', fontSize: 12, color: 'var(--text)',
-                  fontFamily: 'var(--font-sans)', cursor: 'pointer',
-                }}
+                className="cursor-pointer rounded-md border border-input bg-secondary px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-ring"
               >
                 <option value="">All Categories</option>
                 {Object.entries(categories).map(([key, cat]) => (
@@ -1047,55 +964,42 @@ export default function McpSettingsPage() {
             </div>
 
             {/* Template list */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 24px 24px' }}>
+            <div className="flex-1 overflow-y-auto px-6 pb-6 pt-2">
               {selectedTemplate ? (
                 /* Configuration step */
-                <div style={{ padding: '16px 0' }}>
-                  <button onClick={() => { setSelectedTemplate(null); setTemplateEnvValues({}); }} style={{
-                    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
-                    fontSize: 12, padding: 0, marginBottom: 12, fontFamily: 'var(--font-sans)',
-                  }}>&larr; Back to library</button>
+                <div className="py-4">
+                  <button onClick={() => { setSelectedTemplate(null); setTemplateEnvValues({}); }} className="mb-3 text-xs text-muted-foreground hover:text-foreground">&larr; Back to library</button>
 
                   {/* Header */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                    {selectedTemplate.logo && <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${selectedTemplate.logo}.svg`} alt="" width={22} height={22} style={{ borderRadius: 3, opacity: 0.8 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
-                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>{selectedTemplate.name}</h3>
-                    {selectedTemplate.auth === 'oauth' && <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)' }}>OAuth</span>}
-                    {selectedTemplate.auth === 'none' && <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'var(--surface-2)', color: 'var(--subtle)' }}>No auth</span>}
+                  <div className="mb-1 flex items-center gap-2.5">
+                    {selectedTemplate.logo && <img className="icon-adaptive rounded-sm opacity-80" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${selectedTemplate.logo}.svg`} alt="" width={22} height={22} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
+                    <h3 className="m-0 text-md font-semibold text-foreground">{selectedTemplate.name}</h3>
+                    {selectedTemplate.auth === 'oauth' && <span className="rounded bg-blue/10 px-1.5 py-0.5 text-2xs font-semibold text-blue">OAuth</span>}
+                    {selectedTemplate.auth === 'none' && <span className="rounded bg-secondary px-1.5 py-0.5 text-2xs font-semibold text-muted-foreground">No auth</span>}
                   </div>
-                  <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--muted)' }}>{selectedTemplate.description}</p>
+                  <p className="mb-4 text-sm text-muted-foreground">{selectedTemplate.description}</p>
 
                   {/* Docs link */}
                   {selectedTemplate.docsUrl && (
-                    <a href={selectedTemplate.docsUrl} target="_blank" rel="noopener noreferrer" style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12,
-                      color: 'var(--blue)', textDecoration: 'none', marginBottom: 16,
-                    }}>Setup guide &rarr;</a>
+                    <a href={selectedTemplate.docsUrl} target="_blank" rel="noopener noreferrer" className="mb-4 inline-flex items-center gap-1.5 text-xs text-blue no-underline">Setup guide &rarr;</a>
                   )}
 
                   {/* OAuth flow */}
                   {selectedTemplate.auth === 'oauth' && (
-                    <div style={{
-                      background: 'var(--surface-2)', border: '1px solid var(--border)',
-                      borderRadius: 10, padding: '16px 18px', marginBottom: 16,
-                    }}>
+                    <div className="mb-4 rounded-lg border border-border bg-secondary px-4 py-4">
                       <OAuthConnectSection template={selectedTemplate} />
 
                       {/* Paste token */}
                       <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}>
-                          Paste access token <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>(optional if already authenticated via CLI)</span>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                          Paste access token <span className="font-normal text-muted-foreground">(optional if already authenticated via CLI)</span>
                         </label>
                         <input
                           type="password"
                           placeholder="Paste token after authorizing..."
                           value={templateEnvValues['__oauth_token'] || ''}
                           onChange={e => setTemplateEnvValues(prev => ({ ...prev, __oauth_token: e.target.value }))}
-                          style={{
-                            width: '100%', padding: '8px 12px', borderRadius: 8,
-                            border: '1px solid var(--border)', background: 'var(--surface)',
-                            fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)',
-                          }}
+                          className="w-full rounded-md border border-input bg-card px-3 py-2 font-mono text-sm text-foreground outline-none focus:border-ring placeholder:text-muted-foreground"
                         />
                       </div>
                     </div>
@@ -1103,22 +1007,18 @@ export default function McpSettingsPage() {
 
                   {/* Env var fields (for auth: 'env' templates) */}
                   {selectedTemplate.auth !== 'oauth' && selectedTemplate.envKeys.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+                    <div className="mb-4 flex flex-col gap-3">
                       {selectedTemplate.envKeys.map((env: any) => (
                         <div key={env.key}>
-                          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 4 }}>
-                            {env.label} {env.required && <span style={{ color: '#ef4444' }}>*</span>}
+                          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                            {env.label} {env.required && <span className="text-destructive">*</span>}
                           </label>
                           <input
                             type={env.key.toLowerCase().includes('password') || env.key.toLowerCase().includes('secret') || env.key.toLowerCase().includes('token') || env.key.toLowerCase().includes('key') ? 'password' : 'text'}
                             placeholder={env.placeholder || env.key}
                             value={templateEnvValues[env.key] || ''}
                             onChange={e => setTemplateEnvValues(prev => ({ ...prev, [env.key]: e.target.value }))}
-                            style={{
-                              width: '100%', padding: '8px 12px', borderRadius: 8,
-                              border: '1px solid var(--border)', background: 'var(--surface-2)',
-                              fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)',
-                            }}
+                            className="w-full rounded-md border border-input bg-secondary px-3 py-2 font-mono text-sm text-foreground outline-none focus:border-ring placeholder:text-muted-foreground"
                           />
                         </div>
                       ))}
@@ -1127,30 +1027,24 @@ export default function McpSettingsPage() {
 
                   {/* No auth — just add */}
                   {selectedTemplate.auth === 'none' && selectedTemplate.envKeys.length === 0 && (
-                    <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '0 0 12px' }}>
+                    <p className="mb-3 text-xs text-muted-foreground">
                       No configuration needed — this tool runs locally.
                     </p>
                   )}
 
                   {/* Add button */}
-                  <button
+                  <Button
                     onClick={() => installTemplate(selectedTemplate)}
                     disabled={installingTemplate === selectedTemplate.id}
-                    style={{
-                      background: 'var(--accent)', color: 'var(--accent-fg)',
-                      border: 'none', borderRadius: 8, padding: '9px 24px', fontSize: 13,
-                      fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                      display: 'inline-flex', alignItems: 'center', gap: 6,
-                    }}
                   >
                     {installingTemplate === selectedTemplate.id
-                      ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Installing...</>
+                      ? <><Loader2 size={14} className="animate-spin" /> Installing...</>
                       : 'Add to Catalog'}
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 /* Template grid */
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, paddingTop: 8 }}>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2.5 pt-2">
                   {filteredTemplates.map(t => {
                     const isInstalled = installedIds.has(t.id);
                     const isDetected = detectedNames.has(t.id) || detectedNames.has(t.name.toLowerCase());
@@ -1160,25 +1054,18 @@ export default function McpSettingsPage() {
                         key={t.id}
                         onClick={() => !isInstalled && installTemplate(t)}
                         disabled={isInstalled || isInstalling}
-                        style={{
-                          display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px',
-                          background: isInstalled ? 'var(--surface-2)' : 'var(--surface)',
-                          border: '1px solid var(--border)', borderRadius: 10,
-                          cursor: isInstalled ? 'default' : 'pointer', textAlign: 'left',
-                          fontFamily: 'var(--font-sans)', transition: 'border-color 0.15s, box-shadow 0.15s',
-                          opacity: isInstalled ? 0.6 : 1,
-                        }}
-                        onMouseEnter={e => { if (!isInstalled) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 1px var(--accent)'; } }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
+                        className={cn(
+                          'flex items-start gap-2.5 rounded-lg border border-border p-3 text-left transition-colors',
+                          isInstalled ? 'cursor-default bg-secondary opacity-60' : 'cursor-pointer bg-card hover:border-primary hover:ring-1 hover:ring-primary',
+                        )}
                       >
-                        <span style={{ width: 24, height: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center">
                           {t.logo ? (
                             <img
-                              className="icon-adaptive"
+                              className="icon-adaptive rounded-sm opacity-80"
                               src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${t.logo}.svg`}
                               alt={t.name}
                               width={20} height={20}
-                              style={{ borderRadius: 3, opacity: 0.8 }}
                               onError={e => {
                                 const el = e.target as HTMLImageElement;
                                 el.style.display = 'none';
@@ -1186,38 +1073,33 @@ export default function McpSettingsPage() {
                               }}
                             />
                           ) : null}
-                          <span style={{
-                            display: t.logo ? 'none' : 'flex',
-                            width: 24, height: 24, borderRadius: 6,
-                            background: 'var(--border)', color: 'var(--muted)',
-                            alignItems: 'center', justifyContent: 'center',
-                            fontSize: 12, fontWeight: 700,
-                          }}>{t.name.charAt(0)}</span>
+                          <span
+                            className="h-6 w-6 items-center justify-center rounded-md bg-border text-xs font-bold text-muted-foreground"
+                            style={{ display: t.logo ? 'none' : 'flex' }}
+                          >{t.name.charAt(0)}</span>
                         </span>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
                             {t.name}
-                            {isInstalled && <Check size={13} style={{ color: 'var(--success, #22c55e)' }} />}
-                            {!isInstalled && isDetected && isClaudeBackend && <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 3, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)' }}>CLI</span>}
+                            {isInstalled && <Check size={13} className="text-green" />}
+                            {!isInstalled && isDetected && isClaudeBackend && <span className="rounded bg-blue/10 px-1 py-px text-[9px] font-semibold text-blue">CLI</span>}
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
+                          <div className="mt-0.5 overflow-hidden text-ellipsis text-2xs leading-snug text-muted-foreground [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [display:-webkit-box]">
                             {t.description}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                            <span style={{
-                              fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
-                              background: t.official ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
-                              color: t.official ? 'var(--green)' : '#d97706',
-                              textTransform: 'uppercase', letterSpacing: '0.04em',
-                            }}>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <span className={cn(
+                              'rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em]',
+                              t.official ? 'bg-green/10 text-green' : 'bg-amber/10 text-amber',
+                            )}>
                               {t.official ? '✓ Official' : 'Community'}
                             </span>
-                            <span style={{ fontSize: 10, color: 'var(--subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            <span className="text-2xs uppercase tracking-[0.05em] text-muted-foreground">
                               {t.auth === 'oauth' ? 'OAuth' : t.transport === 'http' ? 'Remote' : 'Local'}
                             </span>
                             {t.docsUrl && (
                               <a href={t.docsUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                                style={{ fontSize: 10, color: 'var(--blue)', textDecoration: 'none' }}>Docs</a>
+                                className="text-2xs text-blue no-underline">Docs</a>
                             )}
                           </div>
                         </div>
@@ -1227,7 +1109,7 @@ export default function McpSettingsPage() {
                 </div>
               )}
               {filteredTemplates.length === 0 && !selectedTemplate && (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: 13 }}>
+                <div className="py-10 text-center text-sm text-muted-foreground">
                   No servers match your search.
                 </div>
               )}
@@ -1235,7 +1117,7 @@ export default function McpSettingsPage() {
           </div>
         </div></Portal>
       )}
-    </div>
+    </PageShell>
   );
 }
 
@@ -1251,55 +1133,38 @@ function EnvEntriesEditor({
   onUpdate: (i: number, patch: Partial<EnvEntry>) => void;
 }) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>Environment Variables</label>
-        <button type="button" onClick={onAdd} style={{
-          background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-          color: 'var(--muted)', fontSize: 11, padding: '2px 10px', cursor: 'pointer',
-          fontFamily: 'var(--font-sans)',
-        }}>+ Add</button>
+    <div className="mb-3.5">
+      <div className="mb-1.5 flex items-center justify-between">
+        <label className="text-xs font-medium text-muted-foreground">Environment Variables</label>
+        <button type="button" onClick={onAdd} className="rounded-md border border-border px-2.5 py-0.5 text-2xs text-muted-foreground hover:bg-accent">+ Add</button>
       </div>
 
-      <p style={{
-        fontSize: 12, color: 'var(--muted)', margin: '0 0 8px',
-        padding: '7px 10px', borderRadius: 6,
-        background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)',
-        lineHeight: 1.5,
-      }}>
-        Use <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, background: 'rgba(99,102,241,0.12)', padding: '1px 5px', borderRadius: 3 }}>{'${env:MY_SECRET}'}</code> in your config to reference a secret from your{' '}
-        <a href="/settings/env-vars" style={{ color: 'var(--accent)', textDecoration: 'none' }}>env vars</a>.
+      <p className="mb-2 rounded-md border border-primary/20 bg-primary/[0.07] px-2.5 py-1.5 text-xs leading-relaxed text-muted-foreground">
+        Use <code className="rounded-sm bg-primary/15 px-1 py-px font-mono text-2xs">{'${env:MY_SECRET}'}</code> in your config to reference a secret from your{' '}
+        <a href="/settings/env-vars" className="text-primary no-underline">env vars</a>.
         {' '}Raw values here are injected directly into the subprocess — store API keys in env vars instead.
       </p>
 
       {entries.length === 0 ? (
-        <p style={{ fontSize: 12, color: 'var(--subtle)', margin: 0, fontStyle: 'italic' }}>
+        <p className="m-0 text-xs italic text-muted-foreground">
           No env vars — click + Add to inject variables into the subprocess.
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="flex flex-col gap-1.5">
           {entries.map((entry, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto', gap: 6, alignItems: 'center' }}>
+            <div key={i} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-1.5">
               {/* Key */}
               <input
                 value={entry.key}
                 onChange={e => onUpdate(i, { key: e.target.value })}
                 placeholder="KEY_NAME"
-                style={{
-                  background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                  padding: '6px 9px', color: 'var(--text)', fontSize: 12.5,
-                  fontFamily: 'var(--font-mono)', outline: 'none',
-                }}
+                className={SMALL_CONTROL_CLASS}
               />
               {/* Mode toggle */}
               <select
                 value={entry.mode}
                 onChange={e => onUpdate(i, { mode: e.target.value as 'value' | 'ref', val: '' })}
-                style={{
-                  background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                  padding: '6px 8px', color: 'var(--muted)', fontSize: 11.5,
-                  fontFamily: 'var(--font-sans)', cursor: 'pointer', outline: 'none',
-                }}
+                className={cn(SMALL_CONTROL_CLASS, 'cursor-pointer font-sans text-muted-foreground')}
               >
                 <option value="value">Custom value</option>
                 <option value="ref">From env vars</option>
@@ -1311,21 +1176,13 @@ function EnvEntriesEditor({
                   value={entry.val}
                   onChange={e => onUpdate(i, { val: e.target.value })}
                   placeholder={entry.val === '********' ? 'Current value hidden' : 'Enter value'}
-                  style={{
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                    padding: '6px 9px', color: 'var(--text)', fontSize: 12.5,
-                    fontFamily: 'var(--font-mono)', outline: 'none',
-                  }}
+                  className={SMALL_CONTROL_CLASS}
                 />
               ) : (
                 <select
                   value={entry.val}
                   onChange={e => onUpdate(i, { val: e.target.value })}
-                  style={{
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                    padding: '6px 9px', color: entry.val ? 'var(--text)' : 'var(--subtle)', fontSize: 12.5,
-                    fontFamily: 'var(--font-mono)', outline: 'none', cursor: 'pointer',
-                  }}
+                  className={cn(SMALL_CONTROL_CLASS, 'cursor-pointer', !entry.val && 'text-muted-foreground')}
                 >
                   <option value="">— pick env var —</option>
                   {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
@@ -1334,10 +1191,7 @@ function EnvEntriesEditor({
                 </select>
               )}
               {/* Remove */}
-              <button type="button" onClick={() => onRemove(i)} style={{
-                background: 'none', border: 'none', color: '#ef4444', fontSize: 14,
-                cursor: 'pointer', padding: '4px 6px', lineHeight: 1,
-              }}>×</button>
+              <button type="button" onClick={() => onRemove(i)} className="px-1.5 py-1 leading-none text-destructive hover:opacity-80">×</button>
             </div>
           ))}
         </div>
@@ -1358,45 +1212,33 @@ function HeaderEntriesEditor({
   onUpdate: (i: number, patch: Partial<HeaderEntry>) => void;
 }) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>Headers</label>
-        <button type="button" onClick={onAdd} style={{
-          background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-          color: 'var(--muted)', fontSize: 11, padding: '2px 10px', cursor: 'pointer',
-          fontFamily: 'var(--font-sans)',
-        }}>+ Add</button>
+    <div className="mb-3.5">
+      <div className="mb-1.5 flex items-center justify-between">
+        <label className="text-xs font-medium text-muted-foreground">Headers</label>
+        <button type="button" onClick={onAdd} className="rounded-md border border-border px-2.5 py-0.5 text-2xs text-muted-foreground hover:bg-accent">+ Add</button>
       </div>
 
       {entries.length === 0 ? (
-        <p style={{ fontSize: 12, color: 'var(--subtle)', margin: 0, fontStyle: 'italic' }}>
+        <p className="m-0 text-xs italic text-muted-foreground">
           No headers — click + Add to include HTTP headers (e.g. Authorization).
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="flex flex-col gap-1.5">
           {entries.map((entry, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto', gap: 6, alignItems: 'center' }}>
+            <div key={i} className="flex flex-col gap-1">
+              <div className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-1.5">
                 {/* Header name */}
                 <input
                   value={entry.name}
                   onChange={e => onUpdate(i, { name: e.target.value })}
                   placeholder="Authorization"
-                  style={{
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                    padding: '6px 9px', color: 'var(--text)', fontSize: 12.5,
-                    fontFamily: 'var(--font-mono)', outline: 'none',
-                  }}
+                  className={SMALL_CONTROL_CLASS}
                 />
                 {/* Mode toggle */}
                 <select
                   value={entry.mode}
                   onChange={e => onUpdate(i, { mode: e.target.value as 'value' | 'ref', val: '', prefix: '' })}
-                  style={{
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                    padding: '6px 8px', color: 'var(--muted)', fontSize: 11.5,
-                    fontFamily: 'var(--font-sans)', cursor: 'pointer', outline: 'none',
-                  }}
+                  className={cn(SMALL_CONTROL_CLASS, 'cursor-pointer font-sans text-muted-foreground')}
                 >
                   <option value="value">Static value</option>
                   <option value="ref">From env var</option>
@@ -1407,21 +1249,13 @@ function HeaderEntriesEditor({
                     value={entry.val}
                     onChange={e => onUpdate(i, { val: e.target.value })}
                     placeholder={entry.name.toLowerCase() === 'authorization' ? 'Bearer sk-...' : 'value'}
-                    style={{
-                      background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                      padding: '6px 9px', color: 'var(--text)', fontSize: 12.5,
-                      fontFamily: 'var(--font-mono)', outline: 'none',
-                    }}
+                    className={SMALL_CONTROL_CLASS}
                   />
                 ) : (
                   <select
                     value={entry.val}
                     onChange={e => onUpdate(i, { val: e.target.value })}
-                    style={{
-                      background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                      padding: '6px 9px', color: entry.val ? 'var(--text)' : 'var(--subtle)', fontSize: 12.5,
-                      fontFamily: 'var(--font-mono)', outline: 'none', cursor: 'pointer',
-                    }}
+                    className={cn(SMALL_CONTROL_CLASS, 'cursor-pointer', !entry.val && 'text-muted-foreground')}
                   >
                     <option value="">— pick env var —</option>
                     {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
@@ -1430,26 +1264,19 @@ function HeaderEntriesEditor({
                   </select>
                 )}
                 {/* Remove */}
-                <button type="button" onClick={() => onRemove(i)} style={{
-                  background: 'none', border: 'none', color: '#ef4444', fontSize: 14,
-                  cursor: 'pointer', padding: '4px 6px', lineHeight: 1,
-                }}>×</button>
+                <button type="button" onClick={() => onRemove(i)} className="px-1.5 py-1 leading-none text-destructive hover:opacity-80">×</button>
               </div>
               {/* Optional prefix for env var mode */}
               {entry.mode === 'ref' && (
-                <div style={{ paddingLeft: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 11, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>Prefix (optional):</span>
+                <div className="flex items-center gap-1.5 pl-0.5">
+                  <span className="whitespace-nowrap text-2xs text-muted-foreground">Prefix (optional):</span>
                   <input
                     value={entry.prefix}
                     onChange={e => onUpdate(i, { prefix: e.target.value })}
                     placeholder='e.g. "Bearer "'
-                    style={{
-                      background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                      padding: '4px 9px', color: 'var(--text)', fontSize: 12,
-                      fontFamily: 'var(--font-mono)', outline: 'none', width: 180,
-                    }}
+                    className={cn(SMALL_CONTROL_CLASS, 'w-[180px]')}
                   />
-                  <span style={{ fontSize: 11, color: 'var(--subtle)' }}>+ value of env var</span>
+                  <span className="text-2xs text-muted-foreground">+ value of env var</span>
                 </div>
               )}
             </div>
@@ -1488,71 +1315,61 @@ function ServerRow({
   const envCount = Object.keys((cfg.env as object) ?? {}).length + Object.keys((cfg.envRefs as object) ?? {}).length;
   const TypeIcon = server.type === 'http' ? Globe : server.type === 'sse' ? Radio : Terminal;
 
-  const badgeStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '1px 6px', borderRadius: 5, whiteSpace: 'nowrap', lineHeight: 1.5 };
+  const badgeClass = 'whitespace-nowrap rounded-md border border-border bg-secondary px-1.5 py-px font-mono text-2xs font-semibold leading-normal tracking-[0.03em] text-muted-foreground';
 
   return (
-    <div style={{
-      borderBottom: isLast ? 'none' : '1px solid var(--border)',
-      opacity: server.enabled ? 1 : 0.6,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 13, padding: '14px 16px' }}>
+    <div className={cn(!isLast && 'border-b border-border')} style={{ opacity: server.enabled ? 1 : 0.6 }}>
+      <div className="flex items-start gap-3 px-4 py-3.5">
         {/* Avatar — template logo or transport icon */}
-        <span style={{ width: 42, height: 42, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-foreground">
           {tpl?.logo ? (
-            <img className="icon-adaptive" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
-              alt="" width={20} height={20} style={{ borderRadius: 3, opacity: 0.85 }}
+            <img className="icon-adaptive rounded-sm opacity-90" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
+              alt="" width={20} height={20}
               onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
           ) : <TypeIcon size={19} />}
         </span>
 
         {/* Info */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{server.name}</span>
-            <span style={badgeStyle}>MCP</span>
-            <span style={badgeStyle}>{isTs ? 'TS' : server.type.toUpperCase()}</span>
-            {envCount > 0 && <span style={badgeStyle}>{envCount} env var{envCount !== 1 ? 's' : ''}</span>}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-base font-semibold text-foreground">{server.name}</span>
+            <span className={badgeClass}>MCP</span>
+            <span className={badgeClass}>{isTs ? 'TS' : server.type.toUpperCase()}</span>
+            {envCount > 0 && <span className={badgeClass}>{envCount} env var{envCount !== 1 ? 's' : ''}</span>}
           </div>
           {server.description && (
-            <p style={{ margin: '6px 0 0', fontSize: 12.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{server.description}</p>
+            <p className="mt-1.5 truncate text-xs text-muted-foreground">{server.description}</p>
           )}
-          <p style={{
-            margin: '4px 0 0', fontSize: 11.5, color: 'var(--subtle)',
-            fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>{preview}</p>
-          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-            Added by <span style={{ fontWeight: 500 }}>{server.createdBy}</span>
+          <p className="mt-1 truncate font-mono text-2xs text-muted-foreground">{preview}</p>
+          <p className="mt-1 text-2xs text-muted-foreground">
+            Added by <span className="font-medium">{server.createdBy}</span>
           </p>
         </div>
 
         {/* Actions + status */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', position: 'relative' }}>
-            <ActionBtn onClick={onTest} color="var(--muted)" disabled={false}>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="relative flex items-center gap-1.5">
+            <ActionBtn onClick={onTest} disabled={false}>
               {testResult === 'testing' ? 'Testing…' : 'Test'}
             </ActionBtn>
-            {canEdit && <ActionBtn onClick={onEdit} color="var(--text)" disabled={!canMutate}>Edit</ActionBtn>}
+            {canEdit && <ActionBtn onClick={onEdit} tone="foreground" disabled={!canMutate}>Edit</ActionBtn>}
             {canEdit && (
               <>
-                <button onClick={() => setMenuOpen(o => !o)} disabled={!canMutate} style={{
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 28,
-                  borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)',
-                  color: 'var(--muted)', cursor: canMutate ? 'pointer' : 'not-allowed', opacity: canMutate ? 1 : 0.5,
-                }}><MoreHorizontal size={15} /></button>
+                <button onClick={() => setMenuOpen(o => !o)} disabled={!canMutate} className="inline-flex h-7 w-[30px] items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"><MoreHorizontal size={15} /></button>
                 {menuOpen && (
                   <>
-                    <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
-                    <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 21, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: 5, minWidth: 150 }}>
-                      <button onClick={() => { setMenuOpen(false); onToggle(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', fontSize: 12.5, color: 'var(--text)', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Power size={13} /> {server.enabled ? 'Disable' : 'Enable'}</button>
-                      <button onClick={() => { setMenuOpen(false); onDelete(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', fontSize: 12.5, color: 'var(--red)', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Trash2 size={13} /> Delete</button>
+                    <div onClick={() => setMenuOpen(false)} className="fixed inset-0 z-20" />
+                    <div className="absolute right-0 top-full z-[21] mt-1.5 min-w-[150px] rounded-lg border border-border bg-card p-1.5 shadow-md">
+                      <button onClick={() => { setMenuOpen(false); onToggle(); }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-foreground hover:bg-accent"><Power size={13} /> {server.enabled ? 'Disable' : 'Enable'}</button>
+                      <button onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-red hover:bg-accent"><Trash2 size={13} /> Delete</button>
                     </div>
                   </>
                 )}
               </>
             )}
           </div>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: server.enabled ? 600 : 400, color: server.enabled ? 'var(--green)' : 'var(--subtle)' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: server.enabled ? 'var(--green)' : 'var(--subtle)' }} />
+          <span className={cn('inline-flex items-center gap-1.5 text-2xs', server.enabled ? 'font-semibold text-green' : 'text-muted-foreground')}>
+            <span className={cn('h-1.5 w-1.5 rounded-full', server.enabled ? 'bg-green' : 'bg-muted-foreground')} />
             {server.enabled ? 'Enabled' : 'Disabled'}
           </span>
         </div>
@@ -1560,31 +1377,20 @@ function ServerRow({
 
       {/* Test result banner */}
       {testResult && testResult !== 'testing' && (
-        <div style={{
-          margin: '0 16px 10px', padding: '8px 12px', borderRadius: 7, fontSize: 12,
-          background: testResult.ok ? 'rgba(5,150,105,0.08)' : 'rgba(239,68,68,0.08)',
-          border: `1px solid ${testResult.ok ? 'rgba(5,150,105,0.25)' : 'rgba(239,68,68,0.25)'}`,
-          color: testResult.ok ? '#059669' : '#ef4444',
-          position: 'relative', paddingRight: 28,
-        }}>
+        <div className={cn(
+          'relative mx-4 mb-2.5 rounded-md border px-3 py-2 pr-7 text-xs',
+          testResult.ok ? 'border-green/25 bg-green/[0.08] text-green' : 'border-destructive/25 bg-destructive/[0.08] text-destructive',
+        )}>
           {testResult.ok ? '✓ ' : '✗ '}{testResult.ok ? testResult.message : testResult.error}
           {testResult.ok && testResult.tools && testResult.tools.length > 0 && (
-            <div style={{
-              marginTop: 6, fontSize: 11.5, color: 'var(--subtle)',
-              fontFamily: 'var(--font-mono)', lineHeight: 1.5, wordBreak: 'break-all',
-            }}>
+            <div className="mt-1.5 break-all font-mono text-2xs leading-relaxed text-muted-foreground">
               {testResult.tools.join(', ')}
             </div>
           )}
           <button
             onClick={onDismissTest}
             aria-label="Dismiss test result"
-            style={{
-              position: 'absolute', top: 4, right: 6,
-              width: 20, height: 20, padding: 0,
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              color: 'inherit', opacity: 0.6, fontSize: 14, lineHeight: 1,
-            }}
+            className="absolute right-1.5 top-1 h-5 w-5 p-0 leading-none text-inherit opacity-60 hover:opacity-100"
           >×</button>
         </div>
       )}
@@ -1618,14 +1424,14 @@ function OAuthConnectSection({ template }: { template: any }) {
   }, [template.id]);
 
   if (checking) {
-    return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Checking connection method...</p>;
+    return <p className="text-xs text-muted-foreground">Checking connection method...</p>;
   }
 
   if (oauthSupported) {
     // Provider supports OAuth — show Connect button
     return (
-      <div style={{ marginBottom: 14 }}>
-        <button
+      <div className="mb-3.5">
+        <Button
           onClick={() => {
             fetch('/api/oauth/start', {
               method: 'POST',
@@ -1635,14 +1441,8 @@ function OAuthConnectSection({ template }: { template: any }) {
               .then(r => r.json())
               .then(data => { if (data.authUrl) window.open(data.authUrl, '_blank'); });
           }}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--accent)', color: 'var(--accent-fg)',
-            border: 'none', borderRadius: 7, padding: '8px 16px',
-            fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}
-        >Connect {template.name}</button>
-        <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '6px 0 0' }}>
+        >Connect {template.name}</Button>
+        <p className="mt-1.5 text-2xs text-muted-foreground">
           Opens {template.name} authorization page. After approving, you&apos;ll be redirected back.
         </p>
       </div>
@@ -1651,68 +1451,49 @@ function OAuthConnectSection({ template }: { template: any }) {
 
   // No OAuth discovery — show CLI command
   return (
-    <div style={{ marginBottom: 14 }}>
-      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+    <div className="mb-3.5">
+      <p className="mb-2 text-xs text-muted-foreground">
         Authenticate via Claude Code CLI:
       </p>
-      <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 6, padding: '8px 12px',
-        fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-      }}>
-        <code style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>claude mcp add --transport http {template.id} {template.url}</code>
-        <button onClick={() => navigator.clipboard.writeText(`claude mcp add --transport http ${template.id} ${template.url}`)} style={{
-          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', fontSize: 11, fontFamily: 'var(--font-sans)', flexShrink: 0,
-        }}>Copy</button>
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 font-mono text-2xs text-muted-foreground">
+        <code className="truncate">claude mcp add --transport http {template.id} {template.url}</code>
+        <button onClick={() => navigator.clipboard.writeText(`claude mcp add --transport http ${template.id} ${template.url}`)} className="shrink-0 font-sans text-2xs text-muted-foreground hover:text-foreground">Copy</button>
       </div>
-      <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '6px 0 0', lineHeight: 1.5 }}>
+      <p className="mt-1.5 text-2xs leading-relaxed text-muted-foreground">
         Run in terminal, authorize in browser, then paste token below or add directly.
       </p>
     </div>
   );
 }
 
-function FField({ label, hint, children, style: s, required: req }: {
+function FField({ label, hint, children, className, required: req }: {
   label: string; hint?: React.ReactNode; children: React.ReactNode;
-  style?: React.CSSProperties; required?: boolean;
+  className?: string; required?: boolean;
 }) {
   return (
-    <div style={s}>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
-        {label}{req && <span style={{ color: '#ef4444', marginLeft: 2 }}>*</span>}
+    <div className={className}>
+      <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+        {label}{req && <span className="ml-0.5 text-destructive">*</span>}
       </label>
       {children}
-      {hint && <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--subtle)' }}>{hint}</p>}
+      {hint && <p className="mt-1 text-2xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
-function inputStyle(fontFamily = 'var(--font-sans)'): React.HTMLAttributes<HTMLElement> & { style: React.CSSProperties } {
+function inputStyle(mono = false): { className: string } {
   return {
-    style: {
-      width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)',
-      borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
-      fontSize: 13, fontFamily, outline: 'none', resize: 'vertical' as const,
-      transition: 'border-color 0.15s',
-    } as React.CSSProperties,
-    onFocus: (e: React.FocusEvent<HTMLElement>) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'),
-    onBlur:  (e: React.FocusEvent<HTMLElement>) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'),
+    className: cn(CONTROL_CLASS, 'resize-y', mono && 'font-mono'),
   };
 }
 
-function ActionBtn({ children, onClick, color, disabled }: {
-  children: React.ReactNode; onClick: () => void; color?: string; disabled?: boolean;
+function ActionBtn({ children, onClick, tone = 'muted', disabled }: {
+  children: React.ReactNode; onClick: () => void; tone?: 'muted' | 'foreground'; disabled?: boolean;
 }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{
-      background: 'none', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
-      opacity: disabled ? 0.4 : 1,
-      fontSize: 12, color: color ?? 'var(--muted)', fontFamily: 'var(--font-sans)',
-      padding: '3px 8px', borderRadius: 5, transition: 'background 0.12s, color 0.12s',
-    }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-    >{children}</button>
+    <button onClick={onClick} disabled={disabled} className={cn(
+      'rounded-md px-2 py-0.5 text-xs transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40',
+      tone === 'foreground' ? 'text-foreground' : 'text-muted-foreground',
+    )}>{children}</button>
   );
 }

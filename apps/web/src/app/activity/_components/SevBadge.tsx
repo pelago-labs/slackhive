@@ -15,9 +15,11 @@ export const SEV_COLOR: Record<Severity, string> = {
 /** Uppercase severity pill tinted by {@link SEV_COLOR}. */
 export function SevBadge({ s }: { s: Severity }): React.JSX.Element {
   return (
-    <span style={{
-      fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
-      padding: '2px 6px', borderRadius: 6, background: `${SEV_COLOR[s]}1a`, color: SEV_COLOR[s],
-    }}>{s}</span>
+    <span
+      className="text-2xs font-bold uppercase tracking-[0.04em] px-1.5 py-0.5 rounded-md"
+      style={{ background: `${SEV_COLOR[s]}1a`, color: SEV_COLOR[s] }}
+    >
+      {s}
+    </span>
   );
 }

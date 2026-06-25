@@ -11,6 +11,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { KeyRound } from 'lucide-react';
+import { PageShell, PageHeader, EmptyState } from '@/components/patterns';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 interface EnvVarRow { key: string; description?: string; createdBy: string; updatedAt: string; }
 
@@ -67,177 +70,121 @@ export default function EnvVarsPage() {
 
   const canModify = (v: EnvVarRow) => canManageUsers || v.createdBy === username;
 
-  const inputSt: React.CSSProperties = {
-    width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)',
-    borderRadius: 7, padding: '8px 11px', color: 'var(--text)',
-    fontSize: 13, fontFamily: 'var(--font-sans)', outline: 'none', boxSizing: 'border-box',
-    transition: 'border-color 0.15s',
-  };
-
   return (
-    <div style={{ padding: '32px 36px', maxWidth: 860 }} className="fade-up">
+    <PageShell maxWidth={860}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>Settings</div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--text)' }}>
-            Env Vars
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Named secrets for MCP servers — values are write-only, never shown after saving
-          </p>
-        </div>
-        {canEdit && !showForm && (
-          <button onClick={() => setShowForm(true)} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--accent)', color: 'var(--accent-fg)',
-            padding: '8px 16px', borderRadius: 8, border: 'none',
-            fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-          >
-            <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span>
-            Add Env Var
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title={
+          <span className="flex flex-col gap-1">
+            <span className="text-xs font-normal text-muted-foreground">Settings</span>
+            <span className="text-2xl font-semibold tracking-tight">Env Vars</span>
+          </span>
+        }
+        subtitle="Named secrets for MCP servers — values are write-only, never shown after saving"
+        action={canEdit && !showForm
+          ? <Button onClick={() => setShowForm(true)}><span className="-mt-px text-md leading-none">+</span>Add Env Var</Button>
+          : undefined}
+      />
 
       {/* Add/Edit form */}
       {showForm && (
-        <div style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 14, padding: 28, marginBottom: 20,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
+        <div className="mb-5 rounded-lg border border-border bg-card p-7">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="m-0 text-md font-semibold text-foreground">
               {editKey ? `Edit ${editKey}` : 'New Env Var'}
             </h2>
-            <button onClick={resetForm} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>×</button>
+            <button onClick={resetForm} className="cursor-pointer border-none bg-transparent text-lg text-muted-foreground">×</button>
           </div>
-          {error && <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '8px 12px', borderRadius: 6, marginBottom: 14 }}>{error}</div>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {error && <div className="mb-3.5 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
+          <div className="flex flex-col gap-3.5">
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
-                Key {!editKey && '*'} {editKey && <span style={{ fontWeight: 400, color: 'var(--subtle)' }}>(cannot be changed)</span>}
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Key {!editKey && '*'} {editKey && <span className="font-normal text-muted-foreground/70">(cannot be changed)</span>}
               </label>
-              <input
+              <Input
                 value={form.key}
                 onChange={e => setForm(f => ({ ...f, key: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') }))}
                 placeholder="REDSHIFT_DATABASE_URL"
                 readOnly={!!editKey}
-                style={{
-                  ...inputSt,
-                  fontFamily: 'var(--font-mono)',
-                  ...(editKey && { background: 'var(--surface-2)', color: 'var(--muted)', cursor: 'not-allowed' }),
-                }}
-                onFocus={e => { if (!editKey) e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+                className={editKey
+                  ? 'cursor-not-allowed bg-muted font-mono text-muted-foreground'
+                  : 'font-mono'}
               />
-              {!editKey && <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--subtle)' }}>Uppercase letters, digits, underscores</p>}
+              {!editKey && <p className="m-0 mt-1 text-2xs text-muted-foreground/70">Uppercase letters, digits, underscores</p>}
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
-                Value {editKey ? <span style={{ fontWeight: 400, color: 'var(--green)' }}>✓ value saved · enter new to replace</span> : '*'}
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Value {editKey ? <span className="font-normal text-green">✓ value saved · enter new to replace</span> : '*'}
               </label>
-              <input
+              <Input
                 type="password"
                 value={form.value}
                 onChange={e => setForm(f => ({ ...f, value: e.target.value }))}
                 placeholder={editKey ? 'Enter new value to replace existing' : 'Enter secret value'}
-                style={{ ...inputSt, fontFamily: 'var(--font-mono)' }}
-                onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+                className="font-mono"
               />
-              {editKey && <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--subtle)' }}>For security, the existing value is not shown. Leave blank to keep it unchanged.</p>}
+              {editKey && <p className="m-0 mt-1 text-2xs text-muted-foreground/70">For security, the existing value is not shown. Leave blank to keep it unchanged.</p>}
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>Description</label>
-              <input
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Description</label>
+              <Input
                 value={form.description}
                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                 placeholder="What is this secret used for?"
-                style={inputSt}
-                onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
               />
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-            <button onClick={save} disabled={saving} style={{
-              background: saving ? 'var(--border)' : 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
-              borderRadius: 7, padding: '9px 22px', fontSize: 13, fontWeight: 500,
-              cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
-            }}>{saving ? 'Saving…' : editKey ? 'Update' : 'Save'}</button>
-            <button onClick={resetForm} style={{
-              background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)',
-              borderRadius: 7, padding: '9px 22px', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>Cancel</button>
+          <div className="mt-5 flex gap-2.5">
+            <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : editKey ? 'Update' : 'Save'}</Button>
+            <Button variant="outline" onClick={resetForm}>Cancel</Button>
           </div>
         </div>
       )}
 
       {/* Search */}
       {vars.length > 0 && (
-        <input
+        <Input
           type="text"
           placeholder="Search env vars…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            width: '100%', boxSizing: 'border-box', marginBottom: 12,
-            padding: '8px 12px', fontSize: 13, borderRadius: 8,
-            border: '1px solid var(--border)', background: 'var(--surface-2)',
-            color: 'var(--text)', outline: 'none', fontFamily: 'var(--font-sans)',
-          }}
+          className="mb-3"
         />
       )}
 
       {/* List */}
       {loading ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        <div className="text-sm text-muted-foreground">Loading…</div>
       ) : vars.length === 0 && !showForm ? (
-        <div style={{
-          border: '1px dashed var(--border)', borderRadius: 12, padding: '48px',
-          textAlign: 'center', color: 'var(--subtle)',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><KeyRound size={28} style={{ color: 'var(--border-2)' }} /></div>
-          <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 500, color: 'var(--muted)' }}>No env vars yet</p>
-          <p style={{ margin: '0 0 16px', fontSize: 13 }}>
-            Add secrets here and reference them in MCP configs instead of pasting raw values.
-          </p>
-          {canEdit && (
-            <button onClick={() => setShowForm(true)} style={{
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8,
-              padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>Add First Env Var</button>
+        <EmptyState
+          icon={<KeyRound size={28} className="text-border" />}
+          title="No env vars yet"
+          hint="Add secrets here and reference them in MCP configs instead of pasting raw values."
+          action={canEdit && (
+            <Button onClick={() => setShowForm(true)}>Add First Env Var</Button>
           )}
-        </div>
+        />
       ) : (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+        <div className="overflow-hidden rounded-lg border border-border">
           {vars.filter(v => !search || v.key.toLowerCase().includes(search.toLowerCase()) || (v.description ?? '').toLowerCase().includes(search.toLowerCase())).map((v, i, arr) => (
-            <div key={v.key} style={{
-              display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px',
-              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
-              transition: 'background 0.12s',
-            }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+            <div
+              key={v.key}
+              className={`flex items-center gap-3.5 px-4 py-3 transition-colors hover:bg-secondary ${i < arr.length - 1 ? 'border-b border-border' : ''}`}
             >
-              <code style={{ fontSize: 12.5, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text)', flexShrink: 0 }}>{v.key}</code>
-              <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)', fontStyle: v.description ? 'normal' : 'italic' }}>
+              <code className="shrink-0 font-mono text-xs font-semibold text-foreground">{v.key}</code>
+              <span className={`flex-1 text-xs text-muted-foreground ${v.description ? '' : 'italic'}`}>
                 {v.description ?? 'No description'}
               </span>
-              <span style={{ fontSize: 11, color: 'var(--subtle)', flexShrink: 0 }}>
-                Added by <span style={{ fontWeight: 500 }}>{v.createdBy}</span>
-                <span style={{ marginLeft: 6 }}>· {new Date(v.updatedAt).toLocaleDateString()}</span>
+              <span className="shrink-0 text-2xs text-muted-foreground/70">
+                Added by <span className="font-medium">{v.createdBy}</span>
+                <span className="ml-1.5">· {new Date(v.updatedAt).toLocaleDateString()}</span>
               </span>
-              {canModify(v) && <button onClick={() => startEdit(v)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', padding: '3px 8px', borderRadius: 5 }}>Edit</button>}
-              {canModify(v) && <button onClick={() => remove(v.key)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', padding: '3px 8px', borderRadius: 5 }}>Delete</button>}
+              {canModify(v) && <button onClick={() => startEdit(v)} className="cursor-pointer rounded-sm border-none bg-transparent px-2 py-0.5 text-xs text-primary">Edit</button>}
+              {canModify(v) && <button onClick={() => remove(v.key)} className="cursor-pointer rounded-sm border-none bg-transparent px-2 py-0.5 text-xs text-red">Delete</button>}
             </div>
           ))}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

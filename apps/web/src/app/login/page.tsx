@@ -8,6 +8,9 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 function LoginForm() {
   const [username, setUsername] = useState('');
@@ -60,126 +63,76 @@ function LoginForm() {
   };
 
   return (
-    <div style={{
-      width: '100vw', minHeight: '100vh',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'var(--bg)',
-    }}>
-      <div style={{
-        width: 360, background: 'var(--surface)', borderRadius: 14,
-        border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)',
-        padding: '36px 32px',
-      }}>
+    <div className="flex min-h-screen w-screen items-center justify-center bg-background">
+      <div className="w-[360px] rounded-lg border border-border bg-card px-8 py-9 shadow-lg">
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+        <div className="mb-7 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="SlackHive" style={{
-            width: 44, height: 44, borderRadius: 12, margin: '0 auto 14px', display: 'block',
-          }} />
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+          <img src="/logo.svg" alt="SlackHive" className="mx-auto mb-3.5 block h-11 w-11 rounded-xl" />
+          <h1 className="text-xl font-bold tracking-tight text-foreground">
             SlackHive
           </h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+          <p className="mt-1 text-sm text-muted-foreground">
             Sign in to continue
           </p>
         </div>
 
         {slackEnabled && (
-          <div style={{ marginBottom: 20 }}>
+          <div className="mb-5">
             <a
               href="/api/auth/slack/authorize"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                width: '100%', padding: '10px', borderRadius: 8, boxSizing: 'border-box',
-                border: '1px solid var(--border)', background: 'var(--surface)',
-                color: 'var(--text)', fontSize: 14, fontWeight: 600,
-                textDecoration: 'none', cursor: 'pointer',
-                transition: 'border-color 0.15s',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+              className="flex w-full items-center justify-center gap-2.5 rounded-md border border-border bg-card px-2.5 py-2.5 text-base font-semibold text-foreground no-underline transition-colors hover:border-primary"
             >
               <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Slack_icon_2019.svg/3840px-Slack_icon_2019.svg.png" width="18" height="18" alt="Slack" />
               Sign in with Slack
             </a>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 18 }}>
-              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>or</span>
-              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            <div className="mt-4 flex items-center gap-2.5">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <div className="h-px flex-1 bg-border" />
             </div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
+            <Label className="mb-1.5 block text-xs text-muted-foreground">
               Username
-            </label>
-            <input
+            </Label>
+            <Input
               type="text"
               value={username}
               onChange={e => setUsername(e.target.value)}
               autoFocus
               autoComplete="username"
-              style={{
-                width: '100%', padding: '9px 12px', borderRadius: 8,
-                border: '1px solid var(--border)', background: 'var(--surface)',
-                fontSize: 14, color: 'var(--text)', outline: 'none',
-                fontFamily: 'var(--font-sans)',
-                transition: 'border-color 0.15s',
-                boxSizing: 'border-box',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
             />
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 }}>
+            <Label className="mb-1.5 block text-xs text-muted-foreground">
               Password
-            </label>
-            <input
+            </Label>
+            <Input
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               autoComplete="current-password"
-              style={{
-                width: '100%', padding: '9px 12px', borderRadius: 8,
-                border: '1px solid var(--border)', background: 'var(--surface)',
-                fontSize: 14, color: 'var(--text)', outline: 'none',
-                fontFamily: 'var(--font-sans)',
-                transition: 'border-color 0.15s',
-                boxSizing: 'border-box',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
             />
           </div>
 
           {error && (
-            <div style={{
-              fontSize: 13, color: '#dc2626', background: 'rgba(220,38,38,0.06)',
-              padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(220,38,38,0.15)',
-            }}>
+            <div className="rounded-md border border-destructive/15 bg-destructive/[0.06] px-3 py-2 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={loading || !username || !password}
-            style={{
-              width: '100%', padding: '10px', borderRadius: 8, border: 'none',
-              background: loading ? 'var(--border-2)' : 'var(--accent)',
-              color: 'var(--accent-fg)', fontSize: 14, fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontFamily: 'var(--font-sans)',
-              transition: 'opacity 0.15s',
-              marginTop: 4,
-            }}
+            className="mt-1 w-full"
           >
             {loading ? 'Signing in...' : 'Sign in'}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

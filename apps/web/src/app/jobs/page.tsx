@@ -13,6 +13,20 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Portal } from '@/lib/portal';
 import { Hash, MessageSquare, CalendarClock } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { PageShell, PageHeader, EmptyState } from '@/components/patterns';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 
 interface JobRun {
   id: string;
@@ -72,6 +86,18 @@ function cronToHuman(cron: string): string {
  * @returns {JSX.Element}
  */
 interface AgentOption { id: string; name: string; slug: string; isBoss: boolean; }
+
+/** Maps a run/last-run status to the semantic dot background + text color. */
+function statusDotClass(status?: string): string {
+  return status === 'error' ? 'bg-red'
+    : status === 'success' ? 'bg-green'
+    : 'bg-blue';
+}
+function statusTextClass(status?: string): string {
+  return status === 'success' ? 'text-green'
+    : status === 'error' ? 'text-red'
+    : 'text-blue';
+}
 
 export default function JobsPage() {
   const { canEdit } = useAuth();
@@ -141,56 +167,35 @@ export default function JobsPage() {
   const openCreate = () => { setEditingJob(null); setShowForm(true); };
 
   return (
-    <div className="fade-up" style={{ padding: '36px 40px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-            Scheduled Jobs
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Recurring tasks executed by any agent on a cron schedule.
-          </p>
-        </div>
-        {canEdit && (
-          <button onClick={openCreate} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'var(--accent)', color: 'var(--accent-fg)',
-            padding: '7px 14px', borderRadius: 8,
-            fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer',
-            fontFamily: 'var(--font-sans)',
-          }}>
+    <PageShell>
+      <PageHeader
+        title="Scheduled Jobs"
+        subtitle="Recurring tasks executed by any agent on a cron schedule."
+        action={canEdit && (
+          <Button onClick={openCreate} size="sm" className="gap-1.5">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
               <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
             </svg>
             New Job
-          </button>
+          </Button>
         )}
-      </div>
+      />
 
       {/* Job list */}
       {loading ? (
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading...</p>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : jobs.length === 0 ? (
-        <div style={{
-          textAlign: 'center', padding: '60px 20px',
-          border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><CalendarClock size={32} style={{ color: 'var(--border-2)' }} /></div>
-          <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>No scheduled jobs</p>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', maxWidth: 300, marginInline: 'auto' }}>
-            {canEdit ? 'Create a recurring task for the boss agent to execute on a schedule.' : 'No jobs have been configured yet.'}
-          </p>
-        </div>
+        <EmptyState
+          icon={<CalendarClock size={32} />}
+          title="No scheduled jobs"
+          hint={canEdit ? 'Create a recurring task for the boss agent to execute on a schedule.' : 'No jobs have been configured yet.'}
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-3">
           {jobs.map(job => (
-            <div key={job.id} style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 12, boxShadow: 'var(--shadow-sm)', overflow: 'hidden',
-            }}>
+            <div key={job.id} className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
               {/* Job row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
+              <div className="flex items-center gap-3.5 px-5 py-4">
                 {/* Status indicator */}
                 <div title={
                   !job.enabled ? 'Paused'
@@ -198,80 +203,65 @@ export default function JobsPage() {
                   : job.lastRun?.status === 'success' ? 'Last run succeeded'
                   : job.lastRun?.status === 'running' ? 'Running now'
                   : 'Scheduled — waiting for first run'
-                } style={{
-                  width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                  background: !job.enabled ? 'var(--border-2)'
-                    : job.lastRun?.status === 'error' ? '#dc2626'
-                    : job.lastRun?.status === 'success' ? '#059669'
-                    : job.lastRun?.status === 'running' ? '#2563eb'
-                    : '#d97706',
-                }} />
+                } className={cn(
+                  'h-2 w-2 shrink-0 rounded-full',
+                  !job.enabled ? 'bg-muted-foreground'
+                    : job.lastRun?.status === 'error' ? 'bg-red'
+                    : job.lastRun?.status === 'success' ? 'bg-green'
+                    : job.lastRun?.status === 'running' ? 'bg-blue'
+                    : 'bg-amber',
+                )} />
 
                 {/* Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{job.name}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-semibold text-foreground">{job.name}</span>
                     {!job.enabled && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, color: 'var(--subtle)',
-                        background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4,
-                        textTransform: 'uppercase', letterSpacing: '0.04em',
-                      }}>Paused</span>
+                      <span className="rounded-sm bg-secondary px-1.5 py-px text-2xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">Paused</span>
                     )}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-muted-foreground">
                     <span>{cronToHuman(job.cronSchedule)}</span>
                     {job.agentId && (() => {
                       const a = agents.find(x => x.id === job.agentId);
                       return a ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: a.isBoss ? 'var(--accent)' : 'var(--muted)', display: 'inline-block' }} />
+                        <span className="inline-flex items-center gap-1">
+                          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', a.isBoss ? 'bg-primary' : 'bg-muted-foreground')} />
                           {a.name}
                         </span>
                       ) : null;
                     })()}
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                    <span className="inline-flex items-center gap-1">
                       {job.targetType === 'dm' ? <MessageSquare size={11} /> : <Hash size={11} />}
-                      {job.targetType === 'dm' ? 'DM' : 'Channel'}: <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{job.targetId}</code>
+                      {job.targetType === 'dm' ? 'DM' : 'Channel'}: <code className="font-mono text-2xs">{job.targetId}</code>
                     </span>
                     {job.createdBy && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                        by <strong style={{ fontWeight: 600, color: 'var(--text)' }}>{job.createdBy}</strong>
+                      <span className="inline-flex items-center gap-1">
+                        by <strong className="font-semibold text-foreground">{job.createdBy}</strong>
                       </span>
                     )}
                   </div>
                 </div>
 
                 {/* Last run */}
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div className="shrink-0 text-right">
                   {job.lastRun ? (
                     <>
-                      <div style={{
-                        fontSize: 11, fontWeight: 600,
-                        color: job.lastRun.status === 'success' ? '#059669'
-                          : job.lastRun.status === 'error' ? '#dc2626'
-                          : '#2563eb',
-                        textTransform: 'uppercase',
-                      }}>{job.lastRun.status}</div>
-                      <div style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                      <div className={cn('text-2xs font-semibold uppercase', statusTextClass(job.lastRun.status))}>{job.lastRun.status}</div>
+                      <div className="text-2xs text-muted-foreground">
                         {new Date(job.lastRun.startedAt).toLocaleString()}
                       </div>
                     </>
                   ) : (
-                    <div style={{ fontSize: 11, color: 'var(--subtle)' }}>Never run</div>
+                    <div className="text-2xs text-muted-foreground">Never run</div>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <div className="flex shrink-0 gap-1.5">
                   {/* History toggle */}
-                  <button onClick={() => toggleRuns(job.id)} title="Run history" style={{
-                    background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                    width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    cursor: 'pointer', color: 'var(--muted)', transition: 'color 0.12s, border-color 0.12s',
-                  }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+                  <button onClick={() => toggleRuns(job.id)} title="Run history"
+                    className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-input hover:text-foreground"
                   >
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                       <path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -280,11 +270,9 @@ export default function JobsPage() {
                   {canEdit && (
                     <>
                       {/* Run now (manual test trigger) */}
-                      <button onClick={() => runNow(job)} disabled={runningNow.has(job.id)} title="Run now (manual test)" style={{
-                        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                        width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        cursor: runningNow.has(job.id) ? 'default' : 'pointer', color: 'var(--text)', opacity: runningNow.has(job.id) ? 0.5 : 1,
-                      }}>
+                      <button onClick={() => runNow(job)} disabled={runningNow.has(job.id)} title="Run now (manual test)"
+                        className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border text-foreground disabled:cursor-default disabled:opacity-50"
+                      >
                         {runningNow.has(job.id) ? (
                           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ animation: 'spin 0.8s linear infinite' }}><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.6" strokeDasharray="28" strokeDashoffset="10" strokeLinecap="round"/></svg>
                         ) : (
@@ -292,30 +280,26 @@ export default function JobsPage() {
                         )}
                       </button>
                       {/* Toggle enabled */}
-                      <button onClick={() => toggleEnabled(job)} title={job.enabled ? 'Pause' : 'Enable'} style={{
-                        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                        width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        cursor: 'pointer', color: job.enabled ? '#059669' : 'var(--subtle)',
-                        transition: 'color 0.12s',
-                      }}>
+                      <button onClick={() => toggleEnabled(job)} title={job.enabled ? 'Pause' : 'Enable'}
+                        className={cn(
+                          'flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border transition-colors',
+                          job.enabled ? 'text-green' : 'text-muted-foreground',
+                        )}
+                      >
                         {job.enabled ? (
                           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 3v10M10 3v10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                         ) : (
                           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>
                         )}
                       </button>
-                      <button onClick={() => openEdit(job)} title="Edit" style={{
-                        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                        width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        cursor: 'pointer', color: 'var(--muted)',
-                      }}>
+                      <button onClick={() => openEdit(job)} title="Edit"
+                        className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border text-muted-foreground"
+                      >
                         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>
                       </button>
-                      <button onClick={() => deleteJob(job)} title="Delete" style={{
-                        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                        width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        cursor: 'pointer', color: '#dc2626', opacity: 0.6,
-                      }}>
+                      <button onClick={() => deleteJob(job)} title="Delete"
+                        className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border text-red opacity-60 hover:opacity-100"
+                      >
                         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V2h4v2M5 4v9h6V4" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg>
                       </button>
                     </>
@@ -324,56 +308,37 @@ export default function JobsPage() {
               </div>
 
               {/* Prompt preview */}
-              <div style={{
-                padding: '0 20px 14px', fontSize: 12, color: 'var(--muted)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                <span style={{ color: 'var(--subtle)', fontSize: 11 }}>Prompt:</span> {job.prompt}
+              <div className="overflow-hidden text-ellipsis whitespace-nowrap px-5 pb-3.5 text-xs text-muted-foreground">
+                <span className="text-2xs text-muted-foreground">Prompt:</span> {job.prompt}
               </div>
 
               {/* Run history (expanded) */}
               {expandedRuns.has(job.id) && (
-                <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
-                  <div style={{ padding: '10px 20px', fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                <div className="border-t border-border bg-secondary">
+                  <div className="px-5 py-2.5 text-2xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                     Run History
                   </div>
                   {(runs[job.id] ?? []).length === 0 ? (
-                    <div style={{ padding: '12px 20px', fontSize: 12, color: 'var(--subtle)' }}>No runs yet</div>
+                    <div className="px-5 py-3 text-xs text-muted-foreground">No runs yet</div>
                   ) : (
                     (runs[job.id] ?? []).slice(0, 10).map(run => (
-                      <div key={run.id} style={{
-                        display: 'flex', alignItems: 'flex-start', gap: 10,
-                        padding: '10px 20px', borderTop: '1px solid var(--border)',
-                        fontSize: 12,
-                      }}>
-                        <div style={{
-                          width: 6, height: 6, borderRadius: '50%', marginTop: 5, flexShrink: 0,
-                          background: run.status === 'success' ? '#059669' : run.status === 'error' ? '#dc2626' : '#2563eb',
-                        }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', gap: 10, color: 'var(--muted)' }}>
-                            <span style={{
-                              fontWeight: 600, textTransform: 'uppercase',
-                              color: run.status === 'success' ? '#059669' : run.status === 'error' ? '#dc2626' : '#2563eb',
-                            }}>{run.status}</span>
+                      <div key={run.id} className="flex items-start gap-2.5 border-t border-border px-5 py-2.5 text-xs">
+                        <div className={cn('mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full', statusDotClass(run.status))} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex gap-2.5 text-muted-foreground">
+                            <span className={cn('font-semibold uppercase', statusTextClass(run.status))}>{run.status}</span>
                             <span>{new Date(run.startedAt).toLocaleString()}</span>
                             {run.finishedAt && (
-                              <span style={{ color: 'var(--subtle)' }}>
+                              <span className="text-muted-foreground">
                                 ({Math.round((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s)
                               </span>
                             )}
                           </div>
                           {run.output && (
-                            <pre style={{
-                              margin: '4px 0 0', fontSize: 11, color: 'var(--text)',
-                              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                              fontFamily: 'var(--font-mono)', maxHeight: 100, overflow: 'auto',
-                              background: 'var(--surface)', padding: '6px 8px', borderRadius: 6,
-                              border: '1px solid var(--border)',
-                            }}>{run.output.slice(0, 500)}</pre>
+                            <pre className="mt-1 max-h-[100px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-card px-2 py-1.5 font-mono text-2xs text-foreground">{run.output.slice(0, 500)}</pre>
                           )}
                           {run.error && (
-                            <div style={{ margin: '4px 0 0', fontSize: 11, color: '#dc2626' }}>
+                            <div className="mt-1 text-2xs text-red">
                               {run.error}
                             </div>
                           )}
@@ -397,7 +362,7 @@ export default function JobsPage() {
           onSaved={() => { setShowForm(false); setEditingJob(null); load(); }}
         />
       )}
-    </div>
+    </PageShell>
   );
 }
 
@@ -444,125 +409,105 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
 
   return (
     <Portal>
-    <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      background: 'rgba(0,0,0,0.4)',
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-      zIndex: 9999, padding: '40px 16px',
-      overflowY: 'auto',
-      backdropFilter: 'blur(2px)',
-    }}>
-      <div style={{
-        background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)',
-        padding: 28, width: 480, maxWidth: '100%', boxShadow: 'var(--shadow-lg)',
-        display: 'flex', flexDirection: 'column', gap: 16,
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
+    <div className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-10 backdrop-blur-[2px]">
+      <div className="flex w-[480px] max-w-full shrink-0 flex-col gap-4 rounded-xl border border-border bg-card p-7 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h3 className="m-0 text-md font-semibold text-foreground">
             {isEdit ? 'Edit Job' : 'New Scheduled Job'}
           </h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>&times;</button>
+          <button onClick={onClose} className="border-none bg-transparent text-lg text-muted-foreground">&times;</button>
         </div>
 
         {/* Agent */}
         <div>
-          <label style={labelStyle}>Agent</label>
-          <select value={agentId} onChange={e => setAgentId(e.target.value)} style={inputStyle}>
-            {agents.length === 0 && <option value="">No agents available</option>}
-            {agents.map(a => (
-              <option key={a.id} value={a.id}>{a.name}{a.isBoss ? ' (Boss)' : ''}</option>
-            ))}
-          </select>
-          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+          <Label className={labelClass}>Agent</Label>
+          <Select value={agentId} onValueChange={setAgentId}>
+            <SelectTrigger>
+              <SelectValue placeholder="No agents available" />
+            </SelectTrigger>
+            <SelectContent>
+              {agents.map(a => (
+                <SelectItem key={a.id} value={a.id}>{a.name}{a.isBoss ? ' (Boss)' : ''}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="mt-1 text-2xs text-muted-foreground">
             The agent that will receive and execute this prompt.
           </p>
         </div>
 
         {/* Name */}
         <div>
-          <label style={labelStyle}>Name</label>
-          <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Daily Booking Report"
-            style={inputStyle} />
+          <Label className={labelClass}>Name</Label>
+          <Input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Daily Booking Report" />
         </div>
 
         {/* Prompt */}
         <div>
-          <label style={labelStyle}>Prompt</label>
-          <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
+          <Label className={labelClass}>Prompt</Label>
+          <Textarea value={prompt} onChange={e => setPrompt(e.target.value)}
             placeholder="What should this agent do? e.g. Generate a summary of yesterday's bookings with key metrics"
-            rows={3} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-sans)' }} />
-          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
+            rows={3} className="resize-y" />
+          <p className="mt-1 text-2xs text-muted-foreground">
             Sent to the agent on each scheduled run.
           </p>
         </div>
 
         {/* Schedule */}
         <div>
-          <label style={labelStyle}>Schedule</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          <Label className={labelClass}>Schedule</Label>
+          <div className="mb-2 flex flex-wrap gap-1.5">
             {PRESETS.map(p => (
               <button key={p.cron} onClick={() => setCronSchedule(p.cron)}
-                style={{
-                  padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
-                  border: cronSchedule === p.cron ? '1px solid var(--accent)' : '1px solid var(--border)',
-                  background: cronSchedule === p.cron ? 'var(--surface-2)' : '#fff',
-                  color: cronSchedule === p.cron ? 'var(--text)' : 'var(--muted)',
-                  cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                }}>{p.label}</button>
+                className={cn(
+                  'rounded-md border px-2.5 py-1 text-2xs font-medium',
+                  cronSchedule === p.cron
+                    ? 'border-primary bg-secondary text-foreground'
+                    : 'border-border bg-card text-muted-foreground',
+                )}>{p.label}</button>
             ))}
           </div>
-          <input type="text" value={cronSchedule} onChange={e => setCronSchedule(e.target.value)}
-            placeholder="0 8 * * *" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
-          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' }}>
-            Cron expression: minute hour day month weekday — <span style={{ color: 'var(--text)' }}>{cronToHuman(cronSchedule)}</span>
+          <Input type="text" value={cronSchedule} onChange={e => setCronSchedule(e.target.value)}
+            placeholder="0 8 * * *" className="font-mono" />
+          <p className="mt-1 text-2xs text-muted-foreground">
+            Cron expression: minute hour day month weekday — <span className="text-foreground">{cronToHuman(cronSchedule)}</span>
           </p>
         </div>
 
         {/* Target */}
         <div>
-          <label style={labelStyle}>Deliver to</label>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <Label className={labelClass}>Deliver to</Label>
+          <div className="mb-2 flex gap-2">
             {(['channel', 'dm'] as const).map(t => (
-              <label key={t} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                border: targetType === t ? '1px solid var(--accent)' : '1px solid var(--border)',
-                borderRadius: 7, cursor: 'pointer', fontSize: 13,
-                background: targetType === t ? 'var(--surface-2)' : '#fff',
-                color: targetType === t ? 'var(--text)' : 'var(--muted)',
-              }}>
-                <input type="radio" name="targetType" checked={targetType === t} onChange={() => setTargetType(t)} style={{ display: 'none' }} />
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <label key={t} className={cn(
+                'flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm',
+                targetType === t
+                  ? 'border-primary bg-secondary text-foreground'
+                  : 'border-border bg-card text-muted-foreground',
+              )}>
+                <input type="radio" name="targetType" checked={targetType === t} onChange={() => setTargetType(t)} className="hidden" />
+                <span className="inline-flex items-center gap-1">
                   {t === 'channel' ? <Hash size={13} /> : <MessageSquare size={13} />}
                   {t === 'channel' ? 'Channel' : 'DM'}
                 </span>
               </label>
             ))}
           </div>
-          <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)}
-            placeholder={targetType === 'channel' ? 'Channel ID (e.g. C0ANTCQ918U)' : 'User ID (e.g. U095GQAM6PL)'}
-            style={inputStyle} />
+          <Input type="text" value={targetId} onChange={e => setTargetId(e.target.value)}
+            placeholder={targetType === 'channel' ? 'Channel ID (e.g. C0ANTCQ918U)' : 'User ID (e.g. U095GQAM6PL)'} />
         </div>
 
         {/* Enabled */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-          <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)}
-            style={{ accentColor: 'var(--accent)', width: 14, height: 14 }} />
-          <span style={{ fontSize: 13, color: 'var(--text)' }}>Enabled</span>
+        <label className="flex cursor-pointer items-center gap-2">
+          <Checkbox checked={enabled} onCheckedChange={v => setEnabled(v === true)} />
+          <span className="text-sm text-foreground">Enabled</span>
         </label>
 
-        {error && <div style={{ fontSize: 12, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '6px 10px', borderRadius: 6 }}>{error}</div>}
+        {error && <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">{error}</div>}
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{
-            padding: '8px 16px', borderRadius: 7, border: '1px solid var(--border)',
-            background: 'var(--surface)', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{
-            padding: '8px 18px', borderRadius: 7, border: 'none',
-            background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 13, fontWeight: 500,
-            cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}>{saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}</button>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Job'}</Button>
         </div>
       </div>
     </div>
@@ -570,13 +515,4 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '8px 12px', borderRadius: 7,
-  border: '1px solid var(--border)', fontSize: 13, outline: 'none',
-  boxSizing: 'border-box' as const, fontFamily: 'var(--font-sans)',
-  color: 'var(--text)',
-};
+const labelClass = 'mb-1.5 block text-xs font-medium text-muted-foreground';
