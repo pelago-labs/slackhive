@@ -10,11 +10,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, createContext } from 'react';
+import { useEffect, useRef, useState, createContext } from 'react';
 import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
-import { LayoutDashboard, Activity as ActivityIcon, LineChart, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut } from 'lucide-react';
+import { LayoutDashboard, Activity as ActivityIcon, LineChart, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WhatsNew } from './_components/WhatsNew';
 
@@ -32,7 +32,23 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activeTaskCount, setActiveTaskCount] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
+  const toggleCollapsed = () => setCollapsed(c => {
+    const next = !c;
+    try { localStorage.setItem('slackhive-sidebar-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+    return next;
+  });
   const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  // Close the profile menu on outside click / Escape (it's not portaled, so a
+  // backdrop div would be trapped under the sidebar's stacking context).
+  useEffect(() => {
+    if (!profileOpen) return;
+    const onDown = (e: MouseEvent) => { if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setProfileOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [profileOpen]);
   const [isMobile, setIsMobile] = useState(false);
   const [branding, setBranding] = useState({ appName: 'SlackHive', tagline: 'AI agent teams on Slack', logoUrl: '' });
   const { username, role, canEdit, logout } = useAuth();
@@ -43,6 +59,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
     const check = () => setIsMobile(window.innerWidth <= 768);
     check();
     window.addEventListener('resize', check);
+    try { if (localStorage.getItem('slackhive-sidebar-collapsed') === '1') setCollapsed(true); } catch { /* ignore */ }
     return () => window.removeEventListener('resize', check);
   }, []);
 
@@ -204,8 +221,23 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         </div>
         </div>
 
-        {/* ── Footer — Profile ──────────────────────────────────────────── */}
-        <div className={cn('relative border-t border-border', collapsed ? 'px-2 py-3' : 'p-3')}>
+        {/* ── Footer — collapse toggle + profile ────────────────────────── */}
+        <div ref={profileRef} className={cn('relative border-t border-border', collapsed ? 'px-2 py-3' : 'p-3')}>
+          {/* Collapse / expand (desktop only — mobile uses the overlay drawer) */}
+          {!isMobile && (
+            <button
+              onClick={toggleCollapsed}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              className={cn(
+                'mb-1 flex w-full items-center gap-2.5 rounded-md text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+                collapsed ? 'justify-center py-2' : 'justify-start px-2.5 py-2',
+              )}
+            >
+              {collapsed ? <PanelLeftOpen size={16} strokeWidth={1.75} className="shrink-0" /> : <PanelLeftClose size={16} strokeWidth={1.75} className="shrink-0" />}
+              {!collapsed && 'Collapse'}
+            </button>
+          )}
           {/* Profile row — click to toggle popup */}
           <button
             onClick={() => setProfileOpen(p => !p)}

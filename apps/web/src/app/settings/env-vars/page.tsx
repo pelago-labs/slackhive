@@ -71,7 +71,7 @@ export default function EnvVarsPage() {
   const canModify = (v: EnvVarRow) => canManageUsers || v.createdBy === username;
 
   return (
-    <PageShell maxWidth={860}>
+    <PageShell>
       {/* Header */}
       <PageHeader
         title={

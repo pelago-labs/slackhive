@@ -1702,15 +1702,19 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         {/* Sub-nav tab bar + one-line description (the active tab IS the heading —
             no duplicate H2, which reclaims the wasted band of vertical space). */}
         <div className="flex flex-col gap-2">
-          <nav className="inline-flex w-fit shrink-0 flex-row gap-0.5 rounded-xl border border-border bg-card p-1.5 shadow-sm">
+          {/* Segmented control — visually distinct from the underline page tabs
+              above: a muted track with a raised card pill for the active section. */}
+          <nav className="inline-flex w-fit shrink-0 flex-row items-center gap-1 rounded-lg bg-muted p-1">
             {([
               { id: 'system' as const, label: 'System Prompt', Icon: FileText },
               { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
               { id: 'memory' as const, label: 'Memory', Icon: Database },
             ]).map(s => (
               <button key={s.id} onClick={() => setSection(s.id)} className={cn(
-                'inline-flex cursor-pointer items-center gap-[9px] rounded-[9px] px-3 py-[9px] text-left text-sm transition-colors',
-                section === s.id ? 'bg-secondary font-semibold text-foreground' : 'bg-transparent font-medium text-muted-foreground hover:text-foreground',
+                'inline-flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-all',
+                section === s.id
+                  ? 'bg-card font-medium text-foreground shadow-sm'
+                  : 'font-medium text-muted-foreground hover:text-foreground',
               )}><s.Icon size={15} />{s.label}</button>
             ))}
           </nav>
