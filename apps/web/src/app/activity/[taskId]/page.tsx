@@ -132,7 +132,11 @@ export default function TaskTracePage(): React.JSX.Element {
     <Shell>
       {/* Title + description (the Back button above handles navigation) */}
       <div className="mt-4">
-        <h1 className="m-0 text-xl font-semibold leading-tight tracking-normal text-foreground">
+        <h1
+          className="m-0 max-w-[920px] overflow-hidden break-words text-lg font-semibold leading-6 tracking-normal text-foreground"
+          title={task.summary || '(empty opening message)'}
+          style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+        >
           {task.summary || '(empty opening message)'}
         </h1>
         <div className="mt-2 text-sm text-muted-foreground">
@@ -179,7 +183,7 @@ export default function TaskTracePage(): React.JSX.Element {
             <div className="flex flex-col gap-2.5">
               {turns.length === 0 && <Empty>No activity recorded yet.</Empty>}
               {turns.length > 0 && visibleTurns.length === 0 && <Empty>No turns match this filter.</Empty>}
-              {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} isLastTurn={i === turns.length - 1} taskId={task.id} highlightSpanId={highlightSpanId} />)}
+              {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} isLastTurn={i === turns.length - 1} taskId={task.id} highlightSpanId={highlightSpanId} taskInitiator={initiator} />)}
             </div>
           </div>
         </div>
@@ -374,7 +378,7 @@ function StackBars(props: { title: string; data: { label: string; input: number;
 }
 
 // ── Turn ────────────────────────────────────────────────────────────────────
-function TurnCard({ turn, index, isLast, isLastTurn, taskId, highlightSpanId }: { turn: TraceTurn; index: number; isLast?: boolean; isLastTurn?: boolean; taskId: string; highlightSpanId?: string | null }): React.JSX.Element {
+function TurnCard({ turn, index, isLast, isLastTurn, taskId, highlightSpanId, taskInitiator }: { turn: TraceTurn; index: number; isLast?: boolean; isLastTurn?: boolean; taskId: string; highlightSpanId?: string | null; taskInitiator?: string }): React.JSX.Element {
   const nodes = buildNodes(turn);
   const containsHighlight = !!highlightSpanId && nodes.some(n => n.key === highlightSpanId);
   // Expand the most recent (last visible) turn by default; also a deep-linked turn,
@@ -393,7 +397,7 @@ function TurnCard({ turn, index, isLast, isLastTurn, taskId, highlightSpanId }: 
   // Author line — who sent / whose idea.
   const author = turn.initiatorKind === 'agent'
     ? (turn.delegatedByAgentName ? `via @${turn.delegatedByAgentName}` : 'from agent')
-    : `from @${turn.initiatorHandle || 'user'}`;
+    : `from @${turn.initiatorHandle || taskInitiator || 'user'}`;
 
   const running = turn.status === 'in_progress';
   return (
@@ -422,7 +426,15 @@ function TurnCard({ turn, index, isLast, isLastTurn, taskId, highlightSpanId }: 
               {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             </span>
           </div>
-          {turn.messagePreview && <div className="mt-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-relaxed text-muted-foreground">{turn.messagePreview}</div>}
+          {turn.messagePreview && (
+            <div
+              className="mt-1.5 overflow-hidden break-words text-xs leading-5 text-muted-foreground"
+              title={turn.messagePreview}
+              style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+            >
+              {turn.messagePreview}
+            </div>
+          )}
           {isLastTurn && turn.status === 'error' && (
             <div className="mt-2" onClick={e => e.stopPropagation()}>
               <ReplayButton taskId={taskId} activityId={turn.activityId} variant="labeled" />
