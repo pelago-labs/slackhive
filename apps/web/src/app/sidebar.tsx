@@ -50,7 +50,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [profileOpen]);
   const [isMobile, setIsMobile] = useState(false);
-  const [branding, setBranding] = useState({ appName: 'SlackHive', tagline: 'AI agent teams on Slack', logoUrl: '' });
+  const [branding, setBranding] = useState({ appName: 'SlackHive', logoUrl: '' });
   const { username, role, canEdit, logout } = useAuth();
   const { theme, toggle: toggleTheme } = useTheme();
   const w = isMobile ? 0 : (collapsed ? W_CLOSED : W_OPEN);
@@ -68,7 +68,6 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
     fetch('/api/settings').then(r => r.json()).then((s: Record<string, string>) => {
       setBranding(prev => ({
         appName: s.appName || prev.appName,
-        tagline: s.tagline || prev.tagline,
         logoUrl: s.logoUrl ?? prev.logoUrl,
       }));
     }).catch(() => {});
@@ -108,22 +107,22 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         {/* ── Brand + collapse toggle (top-right) ───────────────────────── */}
         <div className={cn('flex min-h-[56px] items-center border-b border-border', collapsed ? 'justify-center py-3.5' : 'gap-2.5 px-5 pb-3.5 pt-[18px]')}>
           {collapsed ? (
+            // Collapsed: show the logo; reveal the expand toggle on hover.
             <button
               onClick={toggleCollapsed}
               title="Expand sidebar"
               aria-label="Expand sidebar"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              className="group relative flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-secondary"
             >
-              <PanelLeft size={18} strokeWidth={2} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={branding.logoUrl || '/logo.svg'} alt="Logo" className="h-7 w-7 rounded-md object-cover transition-opacity group-hover:opacity-0" />
+              <PanelLeft size={18} strokeWidth={2} className="absolute text-foreground opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
           ) : (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={branding.logoUrl || '/logo.svg'} alt="Logo" className="h-7 w-7 shrink-0 rounded-md object-cover" />
-              <div className="min-w-0 flex-1">
-                <div className="whitespace-nowrap text-base font-semibold tracking-tight text-foreground">{branding.appName}</div>
-                <div className="-mt-px whitespace-nowrap text-2xs text-muted-foreground">{branding.tagline}</div>
-              </div>
+              <div className="min-w-0 flex-1 whitespace-nowrap text-base font-semibold tracking-tight text-foreground">{branding.appName}</div>
               {!isMobile && (
                 <button
                   onClick={toggleCollapsed}

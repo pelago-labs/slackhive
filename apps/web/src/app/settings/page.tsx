@@ -44,7 +44,6 @@ interface AgentBasic {
 
 const DEFAULTS: Record<string, string> = {
   appName: 'SlackHive',
-  tagline: 'AI agent teams on Slack',
   logoUrl: '',
   dashboardTitle: 'Welcome to SlackHive',
   [COACH_MODEL_SETTING_KEY]: DEFAULT_COACH_MODEL,
@@ -119,7 +118,6 @@ export default function SettingsPage() {
 
 function GeneralTab() {
   const [appName, setAppName] = useState(DEFAULTS.appName);
-  const [tagline, setTagline] = useState(DEFAULTS.tagline);
   const [logoUrl, setLogoUrl] = useState(DEFAULTS.logoUrl);
   const [dashboardTitle, setDashboardTitle] = useState(DEFAULTS.dashboardTitle);
   const [saving, setSaving] = useState(false);
@@ -129,7 +127,6 @@ function GeneralTab() {
       .then(r => r.json())
       .then((s: Record<string, string>) => {
         if (s.appName) setAppName(s.appName);
-        if (s.tagline) setTagline(s.tagline);
         if (s.logoUrl !== undefined && s.logoUrl !== '') setLogoUrl(s.logoUrl);
         if (s.dashboardTitle) setDashboardTitle(s.dashboardTitle);
       })
@@ -152,7 +149,6 @@ function GeneralTab() {
     try {
       await Promise.all([
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'appName', value: appName }) }),
-        fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'tagline', value: tagline }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'logoUrl', value: logoUrl }) }),
         fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'dashboardTitle', value: dashboardTitle }) }),
       ]);
@@ -165,8 +161,6 @@ function GeneralTab() {
       <Section title="Branding">
         <Field label="App Name" hint="Displayed in the sidebar header and browser tab." maxLength={30}
           value={appName} onChange={setAppName} onBlur={() => save('appName', appName)} />
-        <Field label="Tagline" hint="Short description shown below the app name." maxLength={60}
-          value={tagline} onChange={setTagline} onBlur={() => save('tagline', tagline)} />
         <Field label="Logo URL" hint="URL to a square image (28×28). Leave empty for the default icon." maxLength={500}
           value={logoUrl} onChange={setLogoUrl} onBlur={() => save('logoUrl', logoUrl)} />
         <div className="mt-1 flex items-center gap-3">
