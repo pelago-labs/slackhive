@@ -14,7 +14,6 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert, RotateCcw, Loader2 } from 'lucide-react';
-import { useAuth } from '@/lib/auth-context';
 import { TabSwitcher } from './_components/TabSwitcher';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
 import { relativeTime } from '@/lib/time';
@@ -321,18 +320,25 @@ function TaskCard(props: {
   const primaryAgent = agentIds[0] ?? task.initialAgentId;
   const primaryAgentName = primaryAgent ? agentById.get(primaryAgent)?.name : undefined;
   const href = `/activity/${encodeURIComponent(task.id)}`;
-  // Replay is an admin-only action (the route is guardAdmin); don't show the
-  // control to editors/viewers who'd only get a guaranteed failure.
-  const { role } = useAuth();
-  const canReplay = role === 'admin' || role === 'superadmin';
+  // No role gate here: the replay route (guardAdmin) actually allows editor+ (it
+  // blocks only viewers), and viewers can't load this board at all — so anyone who
+  // can see an errored card can replay it.
   const [replaying, setReplaying] = useState(false);
   const [replayDone, setReplayDone] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  // One auto-dismiss timer per card; cleared before re-arming and on unmount so a
+  // stale timer can't wipe a newer toast (or fire after unmount).
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  const flash = (msg: string, ok: boolean) => {
+    setToast({ msg, ok });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
+  };
 
   async function handleReplay(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (replaying) return;
     setReplaying(true);
     try {
       const res = await fetch(`/api/activity/${encodeURIComponent(task.id)}/replay`, {
@@ -340,19 +346,13 @@ function TaskCard(props: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      if (res.ok) {
-        setReplayDone(true);
-        setToast({ msg: 'Replay queued', ok: true });
-        // Re-enable after the toast so a still-errored task can be retried.
-        setTimeout(() => { setToast(null); setReplayDone(false); }, 3000);
-      } else {
-        setToast({ msg: res.status === 403 ? 'Not allowed' : 'Failed to replay', ok: false });
-        setTimeout(() => setToast(null), 3000);
-      }
+      // Latch on success ('Queued') — the route isn't idempotent, so we must NOT
+      // re-enable the button against the same still-errored card (would double-queue).
+      if (res.ok) { setReplayDone(true); flash('Replay queued', true); }
+      else flash('Failed to replay', false);
     } catch {
       // Thrown fetch (runner unreachable / network drop) — surface it, don't swallow.
-      setToast({ msg: 'Failed to replay', ok: false });
-      setTimeout(() => setToast(null), 3000);
+      flash('Failed to replay', false);
     } finally {
       setReplaying(false);
     }
@@ -398,7 +398,7 @@ function TaskCard(props: {
           {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
           {!!task.feedbackDown && <Chip color="#dc2626"><ThumbsDown size={10} />{task.feedbackDown}</Chip>}
           <Chip>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</Chip>
-          {isErrored && canReplay && (
+          {isErrored && (
             <button
               onClick={handleReplay}
               disabled={replaying || replayDone}
