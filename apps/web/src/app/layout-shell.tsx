@@ -9,10 +9,10 @@
  * @module web/app/layout-shell
  */
 
-import { useContext, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Menu } from 'lucide-react';
-import { Sidebar, SidebarContext } from './sidebar';
+import { Sidebar } from './sidebar';
 import { BackendBanner } from './backend-banner';
 import { AuthProvider } from '@/lib/auth-context';
 import { ThemeProvider } from '@/lib/theme-context';
@@ -66,10 +66,11 @@ function ResponsiveLayout({ children }: { children: React.ReactNode }) {
 }
 
 function Main({ children, isMobile, onHamburger }: { children: React.ReactNode; isMobile: boolean; onHamburger: () => void }) {
-  const { width } = useContext(SidebarContext);
+  // Margin follows the same --sidebar-w var (set pre-paint) so content doesn't
+  // flash/slide on a collapsed reload.
   return (
     <main style={{
-      marginLeft: isMobile ? 0 : width,
+      marginLeft: isMobile ? 0 : 'var(--sidebar-w)',
       transition: 'margin-left 0.25s cubic-bezier(0.16,1,0.3,1)',
     }}>
       {/* Mobile hamburger */}

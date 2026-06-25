@@ -170,6 +170,11 @@ input, textarea, select {
    (Inter) everywhere so inputs/buttons match the rest of the UI. */
 input, textarea, select, button, option { font-family: inherit; }
 
+/* Sidebar width — driven by a pre-paint <head> script setting [data-sidebar] so a
+   collapsed sidebar paints collapsed on first load (no open→collapse flash). */
+:root { --sidebar-w: 240px; }
+[data-sidebar="collapsed"] { --sidebar-w: 56px; }
+
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 /* Default border color = the theme hairline, so bare `border`/`border-t` utilities

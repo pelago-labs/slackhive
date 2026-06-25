@@ -38,6 +38,8 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
   const toggleCollapsed = () => setCollapsed(c => {
     const next = !c;
     try { localStorage.setItem('slackhive-sidebar-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+    // Drive the CSS var (--sidebar-w) so the aside width + main margin update in sync.
+    if (typeof document !== 'undefined') document.documentElement.setAttribute('data-sidebar', next ? 'collapsed' : 'expanded');
     return next;
   });
   const [profileOpen, setProfileOpen] = useState(false);
@@ -108,7 +110,9 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
           isMobile && mobileOpen && 'shadow-lg',
         )}
         style={{
-          width: isMobile ? W_OPEN : (collapsed ? W_CLOSED : W_OPEN),
+          // Desktop width comes from the CSS var (set pre-paint) so a collapsed
+          // reload paints collapsed immediately; mobile is always full-width (slides).
+          width: isMobile ? W_OPEN : 'var(--sidebar-w)',
           left: isMobile ? (mobileOpen ? 0 : -W_OPEN) : 0,
           transition: !mounted ? 'none' : (isMobile ? 'left 0.25s cubic-bezier(0.16,1,0.3,1)' : 'width 0.2s cubic-bezier(0.16,1,0.3,1)'),
         }}
@@ -280,8 +284,10 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
           {profileOpen && (
             <div
               className={cn(
-                'absolute z-[60] overflow-hidden rounded-lg border border-border bg-card shadow-lg',
-                collapsed ? 'bottom-[60px] left-2 right-2 min-w-[160px]' : 'bottom-16 left-3 right-3',
+                'z-[60] overflow-hidden rounded-lg border border-border bg-card shadow-lg',
+                // Collapsed: fixed flyout to the RIGHT of the rail so it escapes the
+                // sidebar's overflow-hidden clip (which was cutting the text off).
+                collapsed ? 'fixed bottom-3 left-[58px] w-56' : 'absolute bottom-16 left-3 right-3',
               )}
             >
               {collapsed && (
