@@ -176,6 +176,10 @@ input, textarea, select, button, option { font-family: inherit; }
    collapsed sidebar paints collapsed on first load (no open→collapse flash). */
 :root { --sidebar-w: 240px; }
 [data-sidebar="collapsed"] { --sidebar-w: 56px; }
+/* On mobile the sidebar is an off-canvas overlay (JS sets isMobile post-mount),
+   so the desktop width var must not apply pre-mount — otherwise a persisted
+   collapsed state pushes content in by 56px for a frame on phone reloads. */
+@media (max-width: 768px) { :root, [data-sidebar="collapsed"] { --sidebar-w: 0px; } }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }

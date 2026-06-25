@@ -57,8 +57,11 @@ describe('resumeSessionFor', () => {
     expect(resumeSessionFor('claude', 'codex', 'codex-thread')).toBeUndefined();
   });
 
-  it('resumes when the session has no recorded backend (pre-tag / first turn)', () => {
+  it('treats an untagged (pre-fix) session as the default backend', () => {
+    // Default backend is 'claude' — a legacy session resumes on claude…
     expect(resumeSessionFor('claude', undefined, 'sess-2')).toBe('sess-2');
+    // …but is dropped if the active backend was switched away from the default.
+    expect(resumeSessionFor('codex', undefined, 'legacy-claude-uuid')).toBeUndefined();
   });
 
   it('returns undefined when there is no session id', () => {

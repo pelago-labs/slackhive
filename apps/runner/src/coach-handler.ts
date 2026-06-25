@@ -314,7 +314,11 @@ export function resumeSessionFor(
   sdkSessionId: string | undefined,
 ): string | undefined {
   if (!sdkSessionId) return undefined;
-  if (sessionBackend && sessionBackend !== activeBackend) return undefined;
+  // Sessions persisted before this fix carry no backend tag. They were almost
+  // certainly minted on the default backend, so assume that — otherwise a legacy
+  // session would still resume a foreign id after a switch (the bug we're fixing).
+  const effective = sessionBackend ?? DEFAULT_AGENT_BACKEND;
+  if (effective !== activeBackend) return undefined;
   return sdkSessionId;
 }
 

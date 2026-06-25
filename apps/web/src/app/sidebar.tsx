@@ -47,7 +47,14 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
   // transition off for that first commit so there's no animation on load either.
   const [mounted, setMounted] = useState(false);
   useIsoLayoutEffect(() => {
-    try { if (localStorage.getItem('slackhive-sidebar-collapsed') === '1') setCollapsed(true); } catch { /* ignore */ }
+    try {
+      if (localStorage.getItem('slackhive-sidebar-collapsed') === '1') {
+        setCollapsed(true);
+        // Keep the attribute (which drives --sidebar-w) in sync in case the
+        // pre-paint <head> script was blocked (CSP) and didn't set it.
+        document.documentElement.setAttribute('data-sidebar', 'collapsed');
+      }
+    } catch { /* ignore */ }
   }, []);
   useEffect(() => { setMounted(true); }, []);
   const profileRef = useRef<HTMLDivElement>(null);

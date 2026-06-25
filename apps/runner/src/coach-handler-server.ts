@@ -115,7 +115,10 @@ export async function handleCoachStream(
     };
 
     await saveCoachSession(agentId, {
-      sdkSessionId: result.sdkSessionId ?? prior.sdkSessionId,
+      // Only carry the prior id forward if this turn ran on the SAME backend.
+      // After a switch the prior id is foreign to result.backend — pairing them
+      // would make the next turn resume a foreign session (the bug we fixed).
+      sdkSessionId: result.sdkSessionId ?? (result.backend === prior.backend ? prior.sdkSessionId : undefined),
       backend: result.backend,
       messages: [...priorMessages, userMsg, assistantMsg].slice(-50),
     });
