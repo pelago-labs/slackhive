@@ -251,10 +251,7 @@ function Bars({ rows, max }: { rows: { label: string; value: number; sub: string
 function TokensChart({ data }: { data: { date: string; input: number; output: number }[] }): React.JSX.Element {
   const [hover, setHover] = useState<number | null>(null);
   const totals = data.map(d => d.input + d.output);
-  const totalAll = totals.reduce((a, b) => a + b, 0);
   const max = Math.max(1, ...totals);
-  const avg = totalAll / Math.max(1, totals.length);
-  const peakIndex = totals.findIndex(v => v === max);
   const h = hover != null ? data[hover] : null;
   const fmtDay = (iso: string) => {
     const [, m, day] = iso.split('-');
@@ -271,12 +268,6 @@ function TokensChart({ data }: { data: { date: string; input: number; output: nu
   const hoverPoint = hover == null ? null : points[hover];
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-4">
-        <MiniMetric label="Total" value={formatTokens(totalAll)} sub="window usage" />
-        <MiniMetric label="Average/day" value={formatTokens(avg)} sub={`${data.length} days`} />
-        <MiniMetric label="Peak day" value={formatTokens(max)} sub={peakIndex >= 0 ? fmtDay(data[peakIndex].date) : '—'} />
-        <MiniMetric label="Range" value={`${fmtDay(data[0].date)}–${fmtDay(data[data.length - 1].date)}`} sub="selected window" />
-      </div>
       <div className="mb-2 flex h-5 items-center gap-2 text-xs">
         {h ? (
           <>

@@ -12,7 +12,21 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Portal } from '@/lib/portal';
-import { Hash, MessageSquare, CalendarClock } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
+  Hash,
+  History,
+  MessageSquare,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Power,
+  Trash2,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PageShell, PageHeader, EmptyState } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
@@ -168,14 +182,13 @@ export default function JobsPage() {
 
   return (
     <PageShell>
+      <div className="max-w-[1180px]">
       <PageHeader
         title="Scheduled Jobs"
         subtitle="Recurring tasks executed by any agent on a cron schedule."
         action={canEdit && (
           <Button onClick={openCreate} size="sm" className="gap-1.5">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-            </svg>
+            <Plus size={14} />
             New Job
           </Button>
         )}
@@ -191,36 +204,69 @@ export default function JobsPage() {
           hint={canEdit ? 'Create a recurring task for the boss agent to execute on a schedule.' : 'No jobs have been configured yet.'}
         />
       ) : (
-        <div className="flex flex-col gap-3">
+        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/45 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                <CalendarClock size={16} />
+              </span>
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  Configured schedules
+                  <span className="rounded-md border border-border bg-card px-1.5 py-px text-2xs font-medium text-muted-foreground">
+                    {jobs.length}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Recurring prompts with delivery targets and run history.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-green" />
+                {jobs.filter(j => j.enabled).length} active
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                {jobs.filter(j => !j.enabled).length} paused
+              </span>
+            </div>
+          </div>
+          <div className="divide-y divide-border">
           {jobs.map(job => (
-            <div key={job.id} className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+            <div key={job.id} className="overflow-hidden bg-card transition-colors hover:bg-secondary/35">
               {/* Job row */}
-              <div className="flex items-center gap-3.5 px-5 py-4">
+              <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_190px_auto] lg:items-start">
                 {/* Status indicator */}
-                <div title={
-                  !job.enabled ? 'Paused'
-                  : job.lastRun?.status === 'error' ? 'Last run errored'
-                  : job.lastRun?.status === 'success' ? 'Last run succeeded'
-                  : job.lastRun?.status === 'running' ? 'Running now'
-                  : 'Scheduled — waiting for first run'
-                } className={cn(
-                  'h-2 w-2 shrink-0 rounded-full',
-                  !job.enabled ? 'bg-muted-foreground'
-                    : job.lastRun?.status === 'error' ? 'bg-red'
-                    : job.lastRun?.status === 'success' ? 'bg-green'
-                    : job.lastRun?.status === 'running' ? 'bg-blue'
-                    : 'bg-amber',
-                )} />
+                <div className="flex min-w-0 items-start gap-3">
+                  <div title={
+                    !job.enabled ? 'Paused'
+                    : job.lastRun?.status === 'error' ? 'Last run errored'
+                    : job.lastRun?.status === 'success' ? 'Last run succeeded'
+                    : job.lastRun?.status === 'running' ? 'Running now'
+                    : 'Scheduled — waiting for first run'
+                  } className={cn(
+                    'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                    !job.enabled ? 'bg-muted-foreground'
+                      : job.lastRun?.status === 'error' ? 'bg-red'
+                      : job.lastRun?.status === 'success' ? 'bg-green'
+                      : job.lastRun?.status === 'running' ? 'bg-blue'
+                      : 'bg-amber',
+                  )} />
 
-                {/* Info */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base font-semibold text-foreground">{job.name}</span>
+                  {/* Info */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-foreground">{job.name}</span>
+                      <span className="rounded-md border border-border bg-secondary px-1.5 py-px font-mono text-2xs font-semibold text-muted-foreground">
+                        {job.cronSchedule}
+                      </span>
                     {!job.enabled && (
-                      <span className="rounded-sm bg-secondary px-1.5 py-px text-2xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">Paused</span>
+                        <span className="rounded-md bg-secondary px-1.5 py-px text-2xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">Paused</span>
                     )}
                   </div>
-                  <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span>{cronToHuman(job.cronSchedule)}</span>
                     {job.agentId && (() => {
                       const a = agents.find(x => x.id === job.agentId);
@@ -240,76 +286,73 @@ export default function JobsPage() {
                         by <strong className="font-semibold text-foreground">{job.createdBy}</strong>
                       </span>
                     )}
+                    </div>
                   </div>
                 </div>
 
                 {/* Last run */}
-                <div className="shrink-0 text-right">
+                <div className="shrink-0 text-left lg:text-right">
                   {job.lastRun ? (
                     <>
-                      <div className={cn('text-2xs font-semibold uppercase', statusTextClass(job.lastRun.status))}>{job.lastRun.status}</div>
-                      <div className="text-2xs text-muted-foreground">
+                      <div className={cn('inline-flex items-center gap-1.5 text-2xs font-semibold uppercase', statusTextClass(job.lastRun.status))}>
+                        {job.lastRun.status === 'success' ? <CheckCircle2 size={12} /> : job.lastRun.status === 'error' ? <AlertCircle size={12} /> : <Clock3 size={12} />}
+                        {job.lastRun.status}
+                      </div>
+                      <div className="mt-1 text-2xs text-muted-foreground">
                         {new Date(job.lastRun.startedAt).toLocaleString()}
                       </div>
                     </>
                   ) : (
-                    <div className="text-2xs text-muted-foreground">Never run</div>
+                    <div className="inline-flex items-center gap-1.5 text-2xs text-muted-foreground">
+                      <Clock3 size={12} />
+                      Never run
+                    </div>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div className="flex shrink-0 gap-1.5">
+                <div className="flex shrink-0 justify-start gap-1.5 lg:justify-end">
                   {/* History toggle */}
                   <button onClick={() => toggleRuns(job.id)} title="Run history"
                     className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-input hover:text-foreground"
                   >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                      <path d="M2 3h12M2 7h12M2 11h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                    </svg>
+                    <History size={14} />
                   </button>
                   {canEdit && (
                     <>
                       {/* Run now (manual test trigger) */}
-                      <button onClick={() => runNow(job)} disabled={runningNow.has(job.id)} title="Run now (manual test)"
-                        className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border text-foreground disabled:cursor-default disabled:opacity-50"
+                      <button onClick={() => runNow(job)} disabled={runningNow.has(job.id)} title="Run now"
+                        className="inline-flex h-[30px] items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground disabled:cursor-default disabled:opacity-50"
                       >
                         {runningNow.has(job.id) ? (
                           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ animation: 'spin 0.8s linear infinite' }}><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.6" strokeDasharray="28" strokeDashoffset="10" strokeLinecap="round"/></svg>
                         ) : (
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.4" stroke="currentColor" strokeWidth="1.2"/><path d="M6.5 5.4l4 2.6-4 2.6V5.4z" fill="currentColor"/></svg>
+                          <Play size={14} />
                         )}
+                        Run
                       </button>
                       {/* Toggle enabled */}
-                      <button onClick={() => toggleEnabled(job)} title={job.enabled ? 'Pause' : 'Enable'}
+                      <button onClick={() => toggleEnabled(job)} title={job.enabled ? 'Pause schedule' : 'Enable schedule'}
                         className={cn(
                           'flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border transition-colors',
-                          job.enabled ? 'text-green' : 'text-muted-foreground',
+                          job.enabled ? 'text-green' : 'text-muted-foreground hover:text-foreground',
                         )}
                       >
-                        {job.enabled ? (
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 3v10M10 3v10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-                        ) : (
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>
-                        )}
+                        {job.enabled ? <Pause size={14} /> : <Power size={14} />}
                       </button>
                       <button onClick={() => openEdit(job)} title="Edit"
                         className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border text-muted-foreground"
                       >
-                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>
+                        <Pencil size={13} />
                       </button>
                       <button onClick={() => deleteJob(job)} title="Delete"
                         className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-border text-red opacity-60 hover:opacity-100"
                       >
-                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V2h4v2M5 4v9h6V4" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg>
+                        <Trash2 size={13} />
                       </button>
                     </>
                   )}
                 </div>
-              </div>
-
-              {/* Prompt preview */}
-              <div className="overflow-hidden text-ellipsis whitespace-nowrap px-5 pb-3.5 text-xs text-muted-foreground">
-                <span className="text-2xs text-muted-foreground">Prompt:</span> {job.prompt}
               </div>
 
               {/* Run history (expanded) */}
@@ -350,7 +393,8 @@ export default function JobsPage() {
               )}
             </div>
           ))}
-        </div>
+          </div>
+        </section>
       )}
 
       {/* Create/edit modal */}
@@ -362,6 +406,7 @@ export default function JobsPage() {
           onSaved={() => { setShowForm(false); setEditingJob(null); load(); }}
         />
       )}
+      </div>
     </PageShell>
   );
 }

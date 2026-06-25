@@ -549,15 +549,16 @@ export default function McpSettingsPage() {
 
   const detectedAvailable = cliMcps.filter(d => !servers.find(s => s.name === d.name));
 
-  const selectClass = 'cursor-pointer rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-ring';
+  const selectClass = 'h-9 cursor-pointer rounded-md border border-input bg-card px-3 text-sm text-foreground outline-none focus:border-ring';
 
   return (
     <PageShell>
+      <div className="max-w-[1180px]">
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-1 text-xs text-muted-foreground">Settings</div>
-          <h1 className="m-0 text-xl font-semibold tracking-tight text-foreground">
+          <h1 className="m-0 text-xl font-semibold tracking-normal text-foreground">
             MCP Catalog
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -574,11 +575,11 @@ export default function McpSettingsPage() {
 
       {/* Toolbar — search · type filter · sort */}
       {!showForm && servers.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2.5">
+        <div className="mb-3 flex flex-wrap items-center gap-2.5">
           <div className="relative min-w-0 flex-[1_1_260px]">
             <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input type="text" placeholder="Search MCP servers…" value={serverSearch} onChange={e => setServerSearch(e.target.value)}
-              className="w-full rounded-md border border-input bg-card py-2 pl-9 pr-3 text-sm text-foreground outline-none focus:border-ring placeholder:text-muted-foreground" />
+              className="h-9 w-full rounded-md border border-input bg-card pl-9 pr-3 text-sm text-foreground outline-none focus:border-ring placeholder:text-muted-foreground" />
           </div>
           <div className="relative">
             <ListFilter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -615,34 +616,54 @@ export default function McpSettingsPage() {
       ) : !showForm && (
         <>
           {/* Installed section */}
-          <div className="mb-3">
-            <div className="text-sm font-semibold text-foreground">
-              Installed Servers <span className="font-medium text-muted-foreground">· {visibleServers.length}</span>
+          <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/45 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                  <Plug size={16} />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    Installed servers
+                    <span className="rounded-md border border-border bg-card px-1.5 py-px text-2xs font-medium text-muted-foreground">
+                      {visibleServers.length}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Shared tools available to agents in this workspace.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green" />
+                  {servers.filter(s => s.enabled).length} enabled
+                </span>
+              </div>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">These servers are available to all agents in your workspace.</p>
-          </div>
-          {visibleServers.length === 0 ? (
-            <div className="mb-6 rounded-xl border border-dashed border-border p-7 text-center text-sm text-muted-foreground">
-              No servers match your filters.
-            </div>
-          ) : (
-            <div className="mb-6 overflow-hidden rounded-xl border border-border bg-card">
-              {visibleServers.map((server, i, arr) => (
-                <ServerRow
-                  key={server.id} server={server}
-                  isLast={i === arr.length - 1}
-                  onEdit={() => handleEdit(server)}
-                  onDelete={() => handleDelete(server.id)}
-                  onToggle={() => handleToggle(server)}
-                  onTest={() => handleTest(server)}
-                  onDismissTest={() => setTestResults(prev => { const n = { ...prev }; delete n[server.id]; return n; })}
-                  testResult={testResults[server.id]}
-                  canEdit={canEdit}
-                  canMutate={canEdit && (role === 'admin' || role === 'superadmin' || server.createdBy === username)}
-                />
-              ))}
-            </div>
-          )}
+            {visibleServers.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                No servers match your filters.
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {visibleServers.map((server, i, arr) => (
+                  <ServerRow
+                    key={server.id} server={server}
+                    isLast={i === arr.length - 1}
+                    onEdit={() => handleEdit(server)}
+                    onDelete={() => handleDelete(server.id)}
+                    onToggle={() => handleToggle(server)}
+                    onTest={() => handleTest(server)}
+                    onDismissTest={() => setTestResults(prev => { const n = { ...prev }; delete n[server.id]; return n; })}
+                    testResult={testResults[server.id]}
+                    canEdit={canEdit}
+                    canMutate={canEdit && (role === 'admin' || role === 'superadmin' || server.createdBy === username)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
         </>
       )}
 
@@ -920,6 +941,7 @@ export default function McpSettingsPage() {
           </form>
         </div>
       )}
+      </div>
 
       {/* ─── Template Library Modal ─────────────────────────────────────────── */}
       {showLibrary && (
@@ -1318,37 +1340,48 @@ function ServerRow({
   const badgeClass = 'whitespace-nowrap rounded-md border border-border bg-secondary px-1.5 py-px font-mono text-2xs font-semibold leading-normal tracking-[0.03em] text-muted-foreground';
 
   return (
-    <div className={cn(!isLast && 'border-b border-border')} style={{ opacity: server.enabled ? 1 : 0.6 }}>
-      <div className="flex items-start gap-3 px-4 py-3.5">
+    <div className={cn('bg-card transition-colors hover:bg-secondary/35', isLast && 'rounded-b-xl')} style={{ opacity: server.enabled ? 1 : 0.6 }}>
+      <div className="grid gap-3 px-4 py-3.5 md:grid-cols-[minmax(0,1fr)_auto]">
         {/* Avatar — template logo or transport icon */}
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-foreground">
-          {tpl?.logo ? (
-            <img className="icon-adaptive rounded-sm opacity-90" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
-              alt="" width={20} height={20}
-              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          ) : <TypeIcon size={19} />}
-        </span>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
+            {tpl?.logo ? (
+              <img className="icon-adaptive rounded-sm opacity-90" src={`https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/${tpl.logo}.svg`}
+                alt="" width={18} height={18}
+                onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            ) : <TypeIcon size={17} />}
+          </span>
 
-        {/* Info */}
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-base font-semibold text-foreground">{server.name}</span>
-            <span className={badgeClass}>MCP</span>
-            <span className={badgeClass}>{isTs ? 'TS' : server.type.toUpperCase()}</span>
-            {envCount > 0 && <span className={badgeClass}>{envCount} env var{envCount !== 1 ? 's' : ''}</span>}
+          {/* Info */}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-foreground">{server.name}</span>
+              <span className={badgeClass}>{isTs ? 'TS' : server.type.toUpperCase()}</span>
+              {envCount > 0 && <span className={badgeClass}>{envCount} env var{envCount !== 1 ? 's' : ''}</span>}
+              <span className={cn('inline-flex items-center gap-1.5 rounded-md px-1.5 py-px text-2xs font-medium', server.enabled ? 'bg-green/10 text-green' : 'bg-secondary text-muted-foreground')}>
+                <span className={cn('h-1.5 w-1.5 rounded-full', server.enabled ? 'bg-green' : 'bg-muted-foreground')} />
+                {server.enabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+            {server.description && (
+              <p className="mt-1 truncate text-xs text-muted-foreground">{server.description}</p>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-muted-foreground">
+              <span>
+                Added by <span className="font-medium text-foreground">{server.createdBy}</span>
+              </span>
+              {preview && (
+                <span className="hidden max-w-[360px] truncate font-mono md:inline" title={preview}>
+                  {server.type === 'stdio' ? 'Local process' : 'Remote endpoint'}
+                </span>
+              )}
+            </div>
           </div>
-          {server.description && (
-            <p className="mt-1.5 truncate text-xs text-muted-foreground">{server.description}</p>
-          )}
-          <p className="mt-1 truncate font-mono text-2xs text-muted-foreground">{preview}</p>
-          <p className="mt-1 text-2xs text-muted-foreground">
-            Added by <span className="font-medium">{server.createdBy}</span>
-          </p>
         </div>
 
         {/* Actions + status */}
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <div className="relative flex items-center gap-1.5">
+        <div className="flex shrink-0 items-start justify-end gap-1.5">
+          <div className="relative flex items-center gap-1.5 pt-0.5">
             <ActionBtn onClick={onTest} disabled={false}>
               {testResult === 'testing' ? 'Testing…' : 'Test'}
             </ActionBtn>
@@ -1368,10 +1401,6 @@ function ServerRow({
               </>
             )}
           </div>
-          <span className={cn('inline-flex items-center gap-1.5 text-2xs', server.enabled ? 'font-semibold text-green' : 'text-muted-foreground')}>
-            <span className={cn('h-1.5 w-1.5 rounded-full', server.enabled ? 'bg-green' : 'bg-muted-foreground')} />
-            {server.enabled ? 'Enabled' : 'Disabled'}
-          </span>
         </div>
       </div>
 

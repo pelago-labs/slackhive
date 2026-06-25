@@ -132,7 +132,7 @@ export default function TaskTracePage(): React.JSX.Element {
     <Shell>
       {/* Title + description (the Back button above handles navigation) */}
       <div className="mt-4">
-        <h1 className="m-0 text-xl font-bold leading-tight tracking-tight text-foreground">
+        <h1 className="m-0 text-xl font-semibold leading-tight tracking-normal text-foreground">
           {task.summary || '(empty opening message)'}
         </h1>
         <div className="mt-2 text-sm text-muted-foreground">
@@ -148,10 +148,10 @@ export default function TaskTracePage(): React.JSX.Element {
           {flows.length > 0 && (
             <div className="mt-[18px]">
               <SectionLabel>Sensitive data flows</SectionLabel>
-              <div className="overflow-hidden rounded-xl border border-border bg-card">
+              <div className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
                 {flows.map((f, i) => (
                   <a key={f.id} href={`#span-${f.sinkSpanId}`}
-                    className={cn('flex items-center gap-2.5 px-3.5 py-2.5 text-inherit no-underline', i !== 0 && 'border-t border-border')}>
+                    className={cn('flex items-center gap-2.5 px-3.5 py-2.5 text-inherit no-underline transition-colors hover:bg-secondary', i !== 0 && 'border-t border-border')}>
                     <span className="shrink-0 rounded-md px-1.5 py-0.5 text-2xs font-bold uppercase tracking-[0.04em]" style={{ background: `${SEV_COLOR[f.severity]}1a`, color: SEV_COLOR[f.severity] }}>{f.severity}</span>
                     <span className="shrink-0 text-xs font-semibold text-foreground">{f.label}</span>
                     <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
@@ -167,7 +167,7 @@ export default function TaskTracePage(): React.JSX.Element {
 
           <div className="mt-[18px]">
             <div className="flex items-center justify-between px-1 pb-2">
-              <SectionLabel>Activity</SectionLabel>
+              <SectionLabel>Trace</SectionLabel>
               {(upTurns > 0 || downTurns > 0) && (
                 <div className="inline-flex gap-1">
                   <FbChip label="All" active={fbFilter === 'all'} onClick={() => setFbFilter('all')} />

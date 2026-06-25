@@ -283,7 +283,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
                 <div
                   style={{ background: showSlackImage ? undefined : palette.bg, color: palette.fg }}
                   className={cn(
-                    'flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border text-md font-bold',
+                    'flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border text-md font-bold',
                     showSlackImage && 'bg-muted',
                   )}
                 >
@@ -295,7 +295,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
                       width={44}
                       height={44}
                       onError={() => setAvatarImgFailed(true)}
-                      className="block h-full w-full object-cover"
+                      className="block h-full w-full rounded-full object-cover"
                     />
                   ) : (
                     agent.name.charAt(0).toUpperCase()
@@ -305,7 +305,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
             })()}
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="m-0 text-lg font-semibold tracking-tight text-foreground">
+                <h1 className="m-0 text-lg font-semibold tracking-normal text-foreground">
                   {agent.name}
                 </h1>
                 {agent.isBoss && (
@@ -455,6 +455,35 @@ function MarkdownView({ children }: { children: string }) {
   );
 }
 
+const PROMPT_MD_VIEW: Record<string, (p: any) => React.ReactElement> = {
+  h1: (p) => <h1 className="mb-4 mt-0 text-2xl font-semibold leading-tight text-foreground" {...p} />,
+  h2: (p) => <h2 className="mb-2.5 mt-8 text-base font-semibold leading-snug text-foreground" {...p} />,
+  h3: (p) => <h3 className="mb-2 mt-5 text-sm font-semibold leading-snug text-foreground" {...p} />,
+  p:  (p) => <p className="mb-4 leading-7 text-muted-foreground" {...p} />,
+  ul: (p) => <ul className="mb-4 pl-6 leading-7" {...p} />,
+  ol: (p) => <ol className="mb-4 pl-6 leading-7" {...p} />,
+  li: (p) => <li className="my-1 text-muted-foreground" {...p} />,
+  a:  (p) => <a className="text-primary underline" target="_blank" rel="noreferrer" {...p} />,
+  strong: (p) => <strong className="font-semibold text-foreground" {...p} />,
+  em: (p) => <em className="text-foreground" {...p} />,
+  code: ({ inline, children, ...rest }: any) => inline
+    ? <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.92em] text-foreground" {...rest}>{children}</code>
+    : <code className="font-mono text-xs" {...rest}>{children}</code>,
+  pre: (p) => <pre className="mb-5 overflow-auto rounded-md border border-border bg-muted px-4 py-3.5 text-xs leading-6" {...p} />,
+  blockquote: (p) => <blockquote className="mb-4 border-l-[3px] border-border py-1 pl-4 text-muted-foreground" {...p} />,
+  table: (p) => <table className="mb-5 w-full border-collapse text-xs" {...p} />,
+  th: (p) => <th className="border border-border bg-muted px-2.5 py-1.5 text-left" {...p} />,
+  td: (p) => <td className="border border-border px-2.5 py-1.5" {...p} />,
+  hr: () => <hr className="my-6 border-none border-t border-border" />,
+};
+function PromptMarkdownView({ children }: { children: string }) {
+  return (
+    <div className="mx-auto max-w-[920px] break-words text-sm text-foreground">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={PROMPT_MD_VIEW as never}>{children || '_Nothing here yet._'}</ReactMarkdown>
+    </div>
+  );
+}
+
 /** Card wrapper used across the Overview for a cohesive SaaS look. */
 /** A small info icon that reveals a help tooltip on hover/focus. */
 function InfoTip({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -472,19 +501,20 @@ function InfoTip({ children }: { children: React.ReactNode }): React.JSX.Element
   );
 }
 
-function Card({ title, children, fill, grow }: { title?: string; children: React.ReactNode; fill?: boolean; grow?: boolean }) {
+function Card({ title, children, fill, grow, className }: { title?: string; children: React.ReactNode; fill?: boolean; grow?: boolean; className?: string }) {
   // `fill` stretches to the parent's height (e.g. a stretched flex column);
   // `grow` makes the card flex-grow to absorb leftover space in a flex column
   // so the last card's bottom lines up with a taller sibling column.
   const stretch = fill || grow;
   return (
     <div className={cn(
-      'rounded-xl border border-border bg-card px-5 py-5 shadow-sm',
+      'rounded-lg border border-border bg-card px-5 py-5 shadow-card',
       grow && 'min-h-0 flex-1',
       stretch && 'flex flex-col',
       fill && !grow && 'h-full',
+      className,
     )}>
-      {title && <div className="mb-4 text-sm font-semibold text-foreground">{title}</div>}
+      {title && <div className="mb-4 flex items-center justify-between border-b border-border pb-3 text-sm font-semibold text-foreground">{title}</div>}
       <div className={cn('flex flex-col gap-3.5', stretch && 'flex-1')}>{children}</div>
     </div>
   );
@@ -500,6 +530,27 @@ function MetaRow({ icon, label, children, mono }: { icon: React.ReactNode; label
         'ml-auto max-w-[170px] min-w-0 truncate text-right text-xs font-medium text-foreground',
         mono && 'font-mono',
       )}>{children}</span>
+    </div>
+  );
+}
+
+function RailSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="border-t border-border pt-4 first:border-t-0 first:pt-0">
+      <div className="mb-2.5 text-2xs font-bold uppercase tracking-[0.07em] text-muted-foreground">{title}</div>
+      <div className="flex flex-col gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function RailMetric({ label, value, tone, icon }: { label: string; value: string; tone?: string; icon?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        {icon && <span className="shrink-0 text-muted-foreground">{icon}</span>}
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="shrink-0 text-right text-xs font-semibold text-foreground" style={tone ? { color: tone } : undefined}>{value}</div>
     </div>
   );
 }
@@ -619,218 +670,211 @@ function OverviewTab({ agent, onUpdate, canEdit, allAgents, onConnectSlack, onVi
   const fmtTokens = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n);
 
   return (
-    <div className="fade-up flex max-w-[1100px] flex-col gap-5">
-      <div className="flex flex-wrap items-stretch gap-5">
-      {/* Identity (main) */}
-      <div className="min-w-0 flex-[1_1_520px]">
-        <Card title="Identity" fill>
-          {/* Connection — Slack status pinned to the top of the identity card. */}
-          <div className="flex items-center gap-2.5 rounded-lg border border-border bg-muted px-3 py-2.5">
+    <div className="fade-up w-full max-w-[1480px]">
+      <div className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-card shadow-card">
+          <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             <div className={cn(
-              'flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-md border border-border',
-              slackConfigured ? 'bg-green/15 text-green' : 'bg-card text-muted-foreground',
-            )}><Slack size={15} /></div>
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border',
+              slackConfigured ? 'bg-green/15 text-green' : 'bg-muted text-muted-foreground',
+            )}><Slack size={17} /></div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className={cn('h-[7px] w-[7px] shrink-0 rounded-full', slackConfigured ? 'bg-green' : 'bg-amber')} />
-                <span className="text-sm font-semibold text-foreground">{slackConfigured ? 'Connected to Slack' : 'Not connected'}</span>
+                <span className="text-sm font-semibold text-foreground">{slackConfigured ? 'Connected to Slack' : 'Slack not connected'}</span>
               </div>
               <div className="mt-0.5 truncate text-2xs text-muted-foreground">
                 {slackConfigured
                   ? (slackInfo ? <>{slackInfo.teamName} · {slackInfo.displayName} <span className="font-mono">@{slackInfo.handle}</span></> : 'Credentials configured')
-                  : 'Not receiving Slack messages yet'}
+                  : 'Connect Slack when this agent is ready to answer from a workspace channel.'}
               </div>
             </div>
             {(canEdit || slackConfigured) && (
               <button onClick={onConnectSlack} className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium',
+                'inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium shadow-sm',
                 slackConfigured ? 'border border-border bg-card text-foreground' : 'bg-primary text-primary-foreground',
-              )}>{slackConfigured ? 'Manage' : <><Plug size={13} /> Connect Slack</>}</button>
+              )}>{slackConfigured ? 'Manage Slack' : <><Plug size={13} /> Connect Slack</>}</button>
             )}
           </div>
 
-          <Grid2>
-            <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
-              hint="Internal agent name." />
-            <SelectField label="Model" value={form.model} options={modelOptions}
-              onChange={v => setForm(f => ({ ...f, model: v }))}
-              hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
-          </Grid2>
-          <TextArea label="Description" value={form.description}
-            onChange={v => setForm(f => ({ ...f, description: v }))}
-            hint="Short summary — used by boss agents for delegation." rows={2} readOnly={!canEdit} />
-          <TagInput tags={form.tags} onChange={tags => setForm(f => ({ ...f, tags }))}
-            allTags={allAgents.flatMap(a => a.tags ?? [])} readOnly={!canEdit} />
-          <TextArea label="Persona" value={form.persona}
-            onChange={v => setForm(f => ({ ...f, persona: v }))}
-            hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={6} readOnly={!canEdit} />
-
-          {/* Role & Hierarchy — part of the agent's identity. Boss agents
-              orchestrate others; non-bosses can report to one or more bosses. */}
-          <div className="border-t border-border pt-3.5">
-            <div className="flex items-center justify-between">
+          <div className="px-5 py-5">
+            <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <div className="mb-0.5 text-sm font-medium text-foreground">Boss Agent</div>
-                <div className="text-2xs text-muted-foreground">Orchestrates other agents &amp; delegates tasks</div>
+                <div className="text-base font-semibold text-foreground">Identity</div>
+                <div className="mt-1 max-w-2xl text-sm text-muted-foreground">How this agent appears to teammates and how other agents decide when to delegate to it.</div>
               </div>
-              <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} className={cn(
-                'relative h-6 w-11 shrink-0 rounded-full border-none transition-colors',
-                form.isBoss ? 'bg-amber' : 'bg-border',
-                canEdit ? 'cursor-pointer' : 'cursor-default',
-              )}>
-                <div className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-card shadow-sm transition-[left]" style={{ left: form.isBoss ? 23 : 3 }} />
-              </button>
-            </div>
-            {!form.isBoss && (() => {
-              const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
-              if (!bosses.length) return null;
-              return (
-                <div className="mt-3.5">
-                  <div className="mb-1.5 text-2xs font-medium text-foreground">Reports to</div>
-                  <div className="flex flex-col gap-1.5">
-                    {bosses.map(boss => {
-                      const checked = form.reportsTo.includes(boss.id);
-                      return (
-                        <label key={boss.id} className={cn(
-                          'flex items-center gap-2 rounded-md border px-2.5 py-1.5',
-                          checked ? 'border-amber/30 bg-amber/[0.04]' : 'border-border bg-card',
-                          canEdit ? 'cursor-pointer' : 'cursor-default',
-                        )}>
-                          <input type="checkbox" checked={checked} disabled={!canEdit}
-                            onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
-                            className="h-3.5 w-3.5 accent-amber" />
-                          <span className="truncate text-xs font-medium text-foreground">{boss.name}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
+              {canEdit && (
+                <div className="flex shrink-0 items-center gap-3">
+                  {msg && <span className={cn('text-xs', msg === 'Saved' ? 'text-green' : 'text-muted-foreground')}>{msg}</span>}
+                  <PrimaryBtn onClick={save} loading={saving}>Save changes</PrimaryBtn>
                 </div>
+              )}
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Field label="Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} readOnly={!canEdit}
+                hint="Internal agent name." />
+              <SelectField label="Model" value={form.model} options={modelOptions}
+                onChange={v => setForm(f => ({ ...f, model: v }))}
+                hint="Model this agent runs on (options follow the active backend)." readOnly={!canEdit} />
+            </div>
+            <div className="mt-4">
+              <TextArea label="Description" value={form.description}
+                onChange={v => setForm(f => ({ ...f, description: v }))}
+                hint="Short summary — used by boss agents for delegation." rows={2} readOnly={!canEdit} />
+            </div>
+            <div className="mt-4">
+              <TagInput tags={form.tags} onChange={tags => setForm(f => ({ ...f, tags }))}
+                allTags={allAgents.flatMap(a => a.tags ?? [])} readOnly={!canEdit} />
+            </div>
+            <div className="mt-4">
+              <TextArea label="Persona" value={form.persona}
+                onChange={v => setForm(f => ({ ...f, persona: v }))}
+                hint="Who is this agent? This becomes the identity shown in Instructions → Skills." rows={7} readOnly={!canEdit} />
+            </div>
+
+            <div className="mt-5 border-t border-border pt-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="mb-0.5 text-sm font-medium text-foreground">Boss Agent</div>
+                  <div className="text-2xs text-muted-foreground">Orchestrates other agents and delegates tasks.</div>
+                </div>
+                <button disabled={!canEdit} onClick={() => setForm(f => ({ ...f, isBoss: !f.isBoss }))} className={cn(
+                  'relative h-6 w-11 shrink-0 rounded-full border-none transition-colors',
+                  form.isBoss ? 'bg-amber' : 'bg-border',
+                  canEdit ? 'cursor-pointer' : 'cursor-default',
+                )}>
+                  <div className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-card shadow-sm transition-[left]" style={{ left: form.isBoss ? 23 : 3 }} />
+                </button>
+              </div>
+              {!form.isBoss && (() => {
+                const bosses = allAgents.filter(a => a.isBoss && a.id !== agent.id);
+                if (!bosses.length) return null;
+                return (
+                  <div className="mt-3.5">
+                    <div className="mb-1.5 text-2xs font-medium text-foreground">Reports to</div>
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      {bosses.map(boss => {
+                        const checked = form.reportsTo.includes(boss.id);
+                        return (
+                          <label key={boss.id} className={cn(
+                            'flex items-center gap-2 rounded-md border px-2.5 py-1.5',
+                            checked ? 'border-amber/30 bg-amber/[0.04]' : 'border-border bg-card',
+                            canEdit ? 'cursor-pointer' : 'cursor-default',
+                          )}>
+                            <input type="checkbox" checked={checked} disabled={!canEdit}
+                              onChange={() => setForm(f => ({ ...f, reportsTo: checked ? f.reportsTo.filter(id => id !== boss.id) : [...f.reportsTo, boss.id] }))}
+                              className="h-3.5 w-3.5 accent-amber" />
+                            <span className="truncate text-xs font-medium text-foreground">{boss.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </section>
+
+        <aside className="flex h-full flex-col rounded-lg border border-border bg-card px-4 py-4 shadow-card">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold text-foreground">Agent signal</div>
+              <div className="mt-0.5 text-2xs text-muted-foreground">Live quality, usage, and configuration.</div>
+            </div>
+            <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} className="inline-flex items-center gap-1 text-xs font-medium text-foreground no-underline">
+              Activity <ArrowRight size={12} />
+            </Link>
+          </div>
+
+          <div className="flex flex-1 flex-col gap-4">
+            {(() => {
+              const f = feedback;
+              const has = !!(f && f.total > 0);
+              const score = f?.scorePercent ?? 0;
+              const up = f?.up ?? 0, down = f?.down ?? 0;
+              const tier = feedbackTier(score, has);
+              return (
+                <RailSection title="Satisfaction">
+                  <button onClick={onViewFeedback} className="flex w-full cursor-pointer items-center gap-3 border-none bg-transparent p-0 text-left">
+                    <div className={cn('text-2xl font-semibold leading-none tracking-normal', !has && 'text-muted-foreground')} style={has ? { color: tier.color } : undefined}>{has ? `${score}%` : '—'}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-medium text-foreground">{has ? tier.label : 'No ratings yet'}</div>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        {has ? (
+                          <>
+                            <span className="inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground"><ThumbsUp size={10} className="text-green" /> {up}</span>
+                            <span className="inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground"><ThumbsDown size={10} className="text-red" /> {down}</span>
+                          </>
+                        ) : (
+                          <span className="text-2xs text-muted-foreground">Slack feedback appears here.</span>
+                        )}
+                      </div>
+                    </div>
+                    <ArrowRight size={13} className="text-muted-foreground" />
+                  </button>
+                  {has && (
+                    <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="bg-green" style={{ width: `${score}%` }} />
+                      <div className="bg-red opacity-55" style={{ width: `${100 - score}%` }} />
+                    </div>
+                  )}
+                </RailSection>
               );
             })()}
-          </div>
 
-          {canEdit && (
-            <div className="mt-auto flex items-center gap-3 border-t border-border pt-3.5">
-              {msg && <span className={cn('text-xs', msg === 'Saved' ? 'text-green' : 'text-muted-foreground')}>{msg}</span>}
-              <div className="ml-auto">
-                <PrimaryBtn onClick={save} loading={saving}>Save changes</PrimaryBtn>
+            <RailSection title="Quality">
+              {(() => {
+                const tier = evalTier(evalHealth);
+                const run = evalRun;
+                const ranTotal = run ? run.passCount + run.failCount + run.suspectCount + run.infraCount : 0;
+                const ran = run && run.status === 'done' && ranTotal > 0;
+                const rate = ran ? Math.round((run!.passCount / ranTotal) * 100) : 0;
+                const rateColor = !ran ? 'var(--muted)' : rate >= 80 ? '#16a34a' : rate >= 50 ? '#d97706' : '#dc2626';
+                return (
+                  <>
+                    <button onClick={onViewEvals} title="Open Evals" className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent py-1 text-left">
+                      <tier.Icon size={13} style={{ color: tier.color, flexShrink: 0 }} />
+                      <span className="text-xs text-muted-foreground">Health</span>
+                      <span className="ml-auto text-xs font-semibold" style={{ color: tier.color }}>{tier.label}</span>
+                    </button>
+                    <button onClick={onViewEvals} title="Open Evals" className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent py-1 text-left">
+                      <ClipboardCheck size={13} style={{ color: rateColor }} className="shrink-0" />
+                      <span className="text-xs text-muted-foreground">Regression</span>
+                      <span className="ml-auto text-xs font-semibold" style={{ color: rateColor }}>{ran ? `${rate}%` : 'No runs'}</span>
+                    </button>
+                  </>
+                );
+              })()}
+            </RailSection>
+
+            <RailSection title="Composition">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <RailMetric label="Skills" value={num(counts?.skills)} />
+                <RailMetric label="Tools" value={num(counts?.tools)} />
+                <RailMetric label="Memories" value={num(counts?.memories)} />
+                <RailMetric label="Wiki" value={num(counts?.wiki)} />
+                <RailMetric label="Audiences" value={num(counts?.audiences)} />
               </div>
-            </div>
-          )}
-        </Card>
-      </div>
+            </RailSection>
 
-      {/* Details (aside) — metrics + meta */}
-      <aside className="flex max-w-full flex-[0_0_300px] flex-col gap-5">
-        {/* Satisfaction KPI — clean metric card; click → Settings → Feedback. */}
-        {(() => {
-          const f = feedback;
-          const has = !!(f && f.total > 0);
-          const score = f?.scorePercent ?? 0;
-          const up = f?.up ?? 0, down = f?.down ?? 0;
-          const tier = feedbackTier(score, has);
-          return (
-            <button onClick={onViewFeedback} className="metric-clickable flex w-full flex-col gap-3 rounded-xl border border-border bg-card px-4 py-4 text-left shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Satisfaction</span>
-                <ArrowRight size={14} className="text-muted-foreground" />
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span className={cn('text-3xl font-bold leading-none tracking-tight', !has && 'text-muted-foreground')} style={has ? { color: tier.color } : undefined}>{has ? `${score}%` : '—'}</span>
-                <span className="text-xs text-muted-foreground">{has ? `${tier.label} · last 30 days` : 'No ratings yet'}</span>
-              </div>
-              {has ? (
-                <>
-                  <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="bg-green" style={{ width: `${score}%` }} />
-                    <div className="bg-red opacity-55" style={{ width: `${100 - score}%` }} />
-                  </div>
-                  <div className="flex items-center gap-3.5 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1"><ThumbsUp size={13} className="text-green" /> {up}</span>
-                    <span className="inline-flex items-center gap-1"><ThumbsDown size={13} className="text-red" /> {down}</span>
-                    <span className="ml-auto text-muted-foreground">{f!.total} rating{f!.total !== 1 ? 's' : ''}</span>
-                  </div>
-                </>
-              ) : (
-                <div className="text-xs text-muted-foreground">Ratings from Slack replies appear here.</div>
-              )}
-            </button>
-          );
-        })()}
+            <RailSection title="Activity">
+              <RailMetric icon={<MessageSquare size={13} />} label="Queries 30d" value={usage ? String(usage.queries30d) : '—'} />
+              <RailMetric icon={<Layers size={13} />} label="Input tokens" value={usage ? fmtTokens(usage.inputTokens) : '—'} />
+              <RailMetric icon={<Layers size={13} />} label="Output tokens" value={usage ? fmtTokens(usage.outputTokens) : '—'} />
+              <RailMetric icon={<UserCircle size={13} />} label="Power user 7d" value={usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'} />
+            </RailSection>
 
-        <Card title="Details" grow>
-          {/* Counts — wrapping stat chips */}
-          <div className="flex flex-wrap gap-2">
-            {[
-              { v: num(counts?.skills), l: 'Skills' },
-              { v: num(counts?.memories), l: 'Memories' },
-              { v: num(counts?.tools), l: 'Tools' },
-              { v: num(counts?.wiki), l: 'Wiki' },
-              { v: num(counts?.audiences), l: 'Audiences' },
-            ].map(s => (
-              <span key={s.l} className="inline-flex items-baseline gap-1 rounded-full border border-border bg-muted px-2.5 py-1">
-                <span className="text-sm font-bold text-foreground">{s.v}</span>
-                <span className="text-2xs text-muted-foreground">{s.l}</span>
-              </span>
-            ))}
+            <RailSection title="Configuration">
+              <RailMetric icon={<Briefcase size={13} />} label="Role" value={agent.isBoss ? 'Boss' : 'Standard'} />
+              <RailMetric icon={<MessageSquare size={13} />} label="Verbose" value={agent.verbose ? 'On' : 'Off'} />
+              <RailMetric icon={<UserCircle size={13} />} label="Owner" value={agent.createdBy} />
+              <RailMetric icon={<Calendar size={13} />} label="Created" value={fmtDate(agent.createdAt)} />
+              <RailMetric icon={<Clock size={13} />} label="Updated" value={fmtDate(agent.updatedAt)} />
+            </RailSection>
           </div>
-
-          <MetaGroupLabel>Configuration</MetaGroupLabel>
-          <div className="flex flex-col">
-            <MetaRow icon={<Briefcase size={13} />} label="Role">{agent.isBoss ? 'Boss' : 'Standard'}</MetaRow>
-            <MetaRow icon={<MessageSquare size={13} />} label="Verbose">{agent.verbose ? 'On' : 'Off'}</MetaRow>
-            <MetaRow icon={<UserCircle size={13} />} label="Owner">{agent.createdBy}</MetaRow>
-            <MetaRow icon={<Calendar size={13} />} label="Created">{fmtDate(agent.createdAt)}</MetaRow>
-            <MetaRow icon={<Clock size={13} />} label="Updated">{fmtDate(agent.updatedAt)}</MetaRow>
-          </div>
-
-          <MetaGroupLabel>Activity</MetaGroupLabel>
-          <div className="flex flex-col">
-            <MetaRow icon={<MessageSquare size={13} />} label="Queries (30d)">{usage ? String(usage.queries30d) : '—'}</MetaRow>
-            <MetaRow icon={<Layers size={13} />} label="Tokens">{usage ? `${fmtTokens(usage.inputTokens)} in · ${fmtTokens(usage.outputTokens)} out` : '—'}</MetaRow>
-            <MetaRow icon={<UserCircle size={13} />} label="Power user (7d)">{usage ? (usage.powerUser7d ? `@${usage.powerUser7d.handle}` : 'None') : '—'}</MetaRow>
-          </div>
-
-          {/* Evals — healthcheck + last regression run as two rows; click → Settings → Evals. */}
-          <MetaGroupLabel>Quality</MetaGroupLabel>
-          {(() => {
-            const tier = evalTier(evalHealth);
-            const run = evalRun;
-            // Only show a pass-rate for a FINISHED run; total counts every verdict
-            // (pass/fail/suspect/infra) so the denominator is the real case count.
-            const ranTotal = run ? run.passCount + run.failCount + run.suspectCount + run.infraCount : 0;
-            const ran = run && run.status === 'done' && ranTotal > 0;
-            const rate = ran ? Math.round((run!.passCount / ranTotal) * 100) : 0;
-            const rateColor = !ran ? 'var(--muted)' : rate >= 80 ? '#16a34a' : rate >= 50 ? '#d97706' : '#dc2626';
-            const rowBtn = 'flex w-full cursor-pointer items-center gap-2 border-none bg-transparent py-1 text-left';
-            return (
-              <div className="flex flex-col">
-                <button onClick={onViewEvals} title="Open Evals" className={rowBtn}>
-                  <tier.Icon size={13} style={{ color: tier.color, flexShrink: 0 }} />
-                  <span className="text-xs text-muted-foreground">Health</span>
-                  <span className="ml-auto inline-flex items-center gap-1.5">
-                    <span className="text-xs font-semibold" style={{ color: tier.color }}>{tier.label}</span>
-                    <ArrowRight size={12} className="text-muted-foreground" />
-                  </span>
-                </button>
-                <button onClick={onViewEvals} title="Open Evals" className={rowBtn}>
-                  <ClipboardCheck size={13} style={{ color: rateColor }} className="shrink-0" />
-                  <span className="text-xs text-muted-foreground">Regression</span>
-                  <span className="ml-auto inline-flex items-center gap-1.5">
-                    <span className="text-xs font-semibold" style={{ color: rateColor }}>{ran ? `${rate}%` : 'No runs'}</span>
-                    {ran && <span className="text-2xs text-muted-foreground">· {run!.passCount}/{ranTotal}</span>}
-                    <ArrowRight size={12} className="text-muted-foreground" />
-                  </span>
-                </button>
-              </div>
-            );
-          })()}
-
-          <Link href={`/activity?agent=${encodeURIComponent(agent.id)}`} className="mt-auto flex items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground no-underline">
-            View full activity <ArrowRight size={13} />
-          </Link>
-        </Card>
-      </aside>
+        </aside>
       </div>
     </div>
   );
@@ -850,18 +894,25 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
   const setSection = onSection;
 
   return (
-    <div className="fade-up flex flex-wrap items-start gap-7">
-      <div className="flex w-[170px] shrink-0 flex-col gap-0.5">
+    <div className="fade-up grid w-full max-w-[1480px] items-start gap-6 xl:grid-cols-[220px_minmax(0,980px)]">
+      <div className="rounded-lg border border-border bg-card p-2 shadow-card xl:sticky xl:top-4">
+        <div className="px-2.5 pb-2 pt-1.5">
+          <div className="text-sm font-semibold text-foreground">Settings</div>
+          <div className="mt-0.5 text-2xs text-muted-foreground">Agent configuration and operational controls.</div>
+        </div>
         {sections.map(s => (
           <button key={s.id} onClick={() => setSection(s.id)} className={cn(
-            'cursor-pointer rounded-md border-none bg-transparent px-3 py-2 text-left text-sm',
+            'flex w-full cursor-pointer items-center justify-between rounded-md border-none bg-transparent px-2.5 py-2 text-left text-sm',
             section === s.id
-              ? cn('bg-muted font-medium', s.id === 'danger' ? 'text-destructive' : 'text-foreground')
+              ? cn('bg-muted font-medium shadow-sm', s.id === 'danger' ? 'text-destructive' : 'text-foreground')
               : 'font-normal text-muted-foreground',
-          )}>{s.label}</button>
+          )}>
+            <span>{s.label}</span>
+            {section === s.id && <ChevronRight size={13} className="text-muted-foreground" />}
+          </button>
         ))}
       </div>
-      <div className="min-w-[320px] flex-1">
+      <div className="min-w-0">
         {section === 'general' && <GeneralSettingsSection agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
         {section === 'slack'   && <SlackSettingsSection   agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
         {section === 'evals'   && <EvalsPanel agent={agent} onAskCoach={onAskCoach} onOpenCoach={onOpenCoach} />}
@@ -897,7 +948,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
     } finally { setSaving(false); setTimeout(() => setMsg(''), 3000); }
   };
   return (
-    <div className="flex max-w-[620px] flex-col gap-5">
+    <div className="flex max-w-[980px] flex-col gap-5">
       <Card title="Behavior">
         <div className="flex items-center justify-between">
           <div>
@@ -927,7 +978,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
           <div className="mb-2 text-xs text-muted-foreground">
             How this agent&apos;s tool I/O and replies are scanned for PII, secrets, and exfiltration flows.
           </div>
-          <div className="flex gap-2">
+          <div className="grid gap-2 lg:grid-cols-3">
             {([
               ['off', 'Off', 'No scanning'],
               ['deterministic', 'Deterministic', 'Regex / pattern rules'],
@@ -1002,7 +1053,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
         {form.enforcementRedaction && form.sensitivityCheck !== 'off' && (
           <div className="mt-3">
             <div className="mb-1.5 text-xs font-medium text-foreground">What to redact</div>
-            <div className="flex gap-2">
+            <div className="grid gap-2 lg:grid-cols-3">
               {([
                 ['secrets', 'Secrets only', 'Keys, tokens, cards, SSNs'],
                 ['pii', 'Secrets + PII', 'Also emails & phone numbers'],
@@ -1097,7 +1148,7 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
   const slackConfigured = !!(agent.slackBotToken || agent.slackAppToken || agent.slackSigningSecret);
 
   return (
-    <div className="flex max-w-[620px] flex-col gap-5">
+    <div className="flex max-w-[980px] flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2.5">
         {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
         <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
@@ -1189,7 +1240,7 @@ function DangerSection({ agent, canDelete }: { agent: Agent; canDelete: boolean 
   };
   if (!canDelete) return <div className="text-sm text-muted-foreground">You don&apos;t have permission to delete this agent.</div>;
   return (
-    <div className="max-w-[620px]">
+    <div className="max-w-[980px]">
       <div className="mb-4 text-2xs font-bold uppercase tracking-[0.08em] text-destructive">Danger Zone</div>
       <div className="flex items-center justify-between rounded-md border border-destructive/30 bg-muted px-4 py-3.5">
         <div>
@@ -1287,10 +1338,10 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
   const GREEN = '#16a34a', RED = '#dc2626';
 
   return (
-    <div className="fade-up flex max-w-[760px] flex-col gap-5">
+    <div className="fade-up flex max-w-[980px] flex-col gap-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-xl font-semibold tracking-[-0.01em]">Feedback</div>
+          <div className="text-xl font-semibold tracking-normal">Feedback</div>
           <div className="mt-1 text-sm text-muted-foreground">Ratings users gave this agent&apos;s replies in Slack.</div>
         </div>
         {windowUI}
@@ -1299,36 +1350,37 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
       {loading ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : total === 0 ? (
-        <div className="rounded-[14px] border border-dashed border-border px-5 py-12 text-center text-sm leading-relaxed text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border px-5 py-12 text-center text-sm leading-relaxed text-muted-foreground">
           {win === 'all'
             ? <>No ratings yet. When this agent replies in Slack, a feedback prompt lets users rate it — results show up here.</>
             : <>No ratings in the {FB_WINDOW_LABEL[win]}. Try a wider range.</>}
         </div>
       ) : (
         <>
-          {/* Summary card — score, label, satisfaction bar, and stat tiles. */}
-          <div className="rounded-2xl border border-border bg-card p-[22px] shadow-sm">
+          <div className="rounded-lg border border-border bg-card p-5 shadow-card">
             <div className="flex flex-wrap items-center justify-between gap-5">
               <div>
                 <div className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Satisfaction</div>
                 <div className="mt-1.5 flex items-baseline gap-2.5">
-                  <span className="text-[40px] font-bold leading-none tracking-[-0.02em]" style={{ color: tier.color }}>{score}%</span>
-                  <span className="rounded-md px-2 py-0.5 text-xs font-bold" style={{ color: tier.color, background: `color-mix(in srgb, ${tier.color} 12%, transparent)` }}>{tier.label}</span>
+                  <span className="text-[40px] font-semibold leading-none tracking-normal" style={{ color: tier.color }}>{score}%</span>
+                  <span className="rounded-md px-2 py-0.5 text-xs font-semibold" style={{ color: tier.color, background: `color-mix(in srgb, ${tier.color} 12%, transparent)` }}>{tier.label}</span>
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">{total} rating{total !== 1 ? 's' : ''} · {FB_WINDOW_LABEL[win]}</div>
               </div>
-              <div className="flex gap-2.5">
-                {[{ icon: <ThumbsUp size={16} className="text-green" />, n: up, label: 'Helpful', c: GREEN },
-                  { icon: <ThumbsDown size={16} className="text-red" />, n: down, label: 'Not helpful', c: RED }].map((s, i) => (
-                  <div key={i} className="min-w-24 rounded-xl border border-border bg-secondary px-3.5 py-3">
-                    <div className="flex items-center gap-[7px]">{s.icon}<span className="text-xl font-bold leading-none text-foreground">{s.n}</span></div>
-                    <div className="mt-[5px] text-2xs text-muted-foreground">{s.label}</div>
-                  </div>
-                ))}
+              <div className="flex gap-2">
+                <button onClick={() => setSent('up')} className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium',
+                  sent === 'up' ? 'border-green/30 bg-green/10 text-green' : 'border-border bg-secondary text-muted-foreground',
+                )}><ThumbsUp size={14} /> {up}</button>
+                <button onClick={() => setSent('down')} className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium',
+                  sent === 'down' ? 'border-red/30 bg-red/10 text-red' : 'border-border bg-secondary text-muted-foreground',
+                )}><ThumbsDown size={14} /> {down}</button>
               </div>
             </div>
-            <div className="mt-[18px] flex h-1.5 overflow-hidden rounded-full" style={{ background: `color-mix(in srgb, ${RED} 22%, var(--surface-2))` }}>
+            <div className="mt-4 flex h-1.5 overflow-hidden rounded-full bg-muted">
               <div className="bg-green" style={{ width: `${score}%` }} />
+              <div className="bg-red opacity-55" style={{ width: `${100 - score}%` }} />
             </div>
           </div>
 
@@ -1343,7 +1395,7 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
                 No {sent === 'up' ? 'positive' : sent === 'down' ? 'negative' : ''} ratings in this range.
               </div>
             ) : (
-              <div className="overflow-hidden rounded-[14px] border border-border bg-card">
+              <div className="overflow-hidden rounded-lg border border-border bg-card">
                 {list.map((rt, i) => {
                   const c = rt.sentiment === 'up' ? GREEN : RED;
                   const handle = rt.raterHandle || 'Anonymous';
@@ -1697,41 +1749,32 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         />
       )}
 
-      {/* ── Top sub-nav + content ──────────────────────────────────────── */}
-      <div className="flex flex-col gap-4">
-        {/* Sub-nav tab bar + one-line description (the active tab IS the heading —
-            no duplicate H2, which reclaims the wasted band of vertical space). */}
-        <div className="flex flex-col gap-2">
-          {/* Segmented control — visually distinct from the underline page tabs
-              above: a muted track with a raised card pill for the active section. */}
-          <nav className="inline-flex w-fit shrink-0 flex-row items-center gap-1 rounded-lg bg-muted p-1">
-            {([
-              { id: 'system' as const, label: 'System Prompt', Icon: FileText },
-              { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
-              { id: 'memory' as const, label: 'Memory', Icon: Database },
-            ]).map(s => (
-              <button key={s.id} onClick={() => setSection(s.id)} className={cn(
-                'inline-flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-all',
-                section === s.id
-                  ? 'bg-card font-medium text-foreground shadow-sm'
-                  : 'font-medium text-muted-foreground hover:text-foreground',
-              )}><s.Icon size={15} />{s.label}</button>
-            ))}
-          </nav>
-          <p className="max-w-[640px] px-0.5 text-xs leading-normal text-muted-foreground">
-            {section === 'system'
-              ? (agent.isBoss
-                  ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
-                  : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
-              : section === 'skills'
-              ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
-              : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
-            {importError && <span className="ml-2 text-red">{importError}</span>}
-          </p>
-        </div>
+      <div className="grid w-full max-w-[1480px] items-start gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="rounded-lg border border-border bg-card p-2 shadow-card xl:sticky xl:top-4">
+          <div className="px-2.5 pb-2 pt-1.5">
+            <div className="text-sm font-semibold text-foreground">Instruction surfaces</div>
+            <div className="mt-0.5 text-2xs text-muted-foreground">Prompt, capabilities, and remembered context.</div>
+          </div>
+          {([
+            { id: 'system' as const, label: 'System Prompt', Icon: FileText, sub: agent.isBoss ? 'Generated roster prompt' : 'Core behavior and rules' },
+            { id: 'skills' as const, label: 'Skills', Icon: Sparkles, sub: 'On-demand workflows' },
+            { id: 'memory' as const, label: 'Memory', Icon: Database, sub: 'Learned facts' },
+          ]).map(s => (
+            <button key={s.id} onClick={() => setSection(s.id)} className={cn(
+              'flex w-full cursor-pointer items-start gap-2.5 rounded-md border-none bg-transparent px-2.5 py-2.5 text-left transition-colors',
+              section === s.id ? 'bg-muted text-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+            )}>
+              <s.Icon size={15} className="mt-0.5 shrink-0" />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{s.label}</span>
+                <span className="mt-0.5 block text-2xs text-muted-foreground">{s.sub}</span>
+              </span>
+            </button>
+          ))}
+          {importError && <div className="mt-2 rounded-md border border-red/25 bg-red/10 px-2.5 py-2 text-2xs text-red">{importError}</div>}
+        </aside>
 
-        {/* Content column */}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0">
           {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} updatedAt={agent.updatedAt} />}
           {section === 'skills' && <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />}
           {section === 'memory' && <MemorySection agentId={agent.id} canEdit={canEdit} />}
@@ -1801,63 +1844,59 @@ function ClaudeMdSection({ agentId, canEdit, updatedAt }: { agentId: string; can
   };
 
   if (loading) return <p className="text-base text-muted-foreground">Loading...</p>;
+  const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+  const updatedLabel = updatedAt ? new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never';
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      {/* Slim toolbar — Last updated / save status (left) · Save + Edit/Preview (right) */}
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-2xs text-muted-foreground">
-          {msg
-            ? <span className={msg.startsWith('Error') ? 'text-red' : 'text-green'}>{msg}</span>
-            : (updatedAt ? `Last updated ${new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '')}
-        </span>
+    <section className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="m-0 text-base font-semibold tracking-normal text-foreground">System Prompt</h2>
+            {dirty && <span className="rounded border border-amber/30 bg-amber/10 px-1.5 py-0.5 text-2xs font-medium text-amber">Unsaved</span>}
+            {msg && <span className={cn('text-2xs font-medium', msg.startsWith('Error') ? 'text-red' : 'text-green')}>{msg}</span>}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-muted-foreground">
+            <span>Updated {updatedLabel}</span>
+            <span>{wordCount.toLocaleString()} words</span>
+            <span>{content.length.toLocaleString()} characters</span>
+          </div>
+        </div>
+
         <div className="flex shrink-0 items-center gap-2">
           {canEdit && view === 'edit' && dirty && (
             <button onClick={save} disabled={saving} className={cn(
-              'rounded-md bg-primary px-3.5 py-[5px] text-xs font-medium text-primary-foreground',
+              'rounded-md bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground',
               saving ? 'cursor-not-allowed' : 'cursor-pointer',
-            )}>{saving ? 'Saving…' : 'Save'}</button>
+            )}>{saving ? 'Saving...' : 'Save'}</button>
           )}
-          <div className="inline-flex gap-0.5 rounded-[9px] border border-border bg-secondary p-[3px]">
+          <div className="inline-flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
             {(['edit', 'preview'] as const).map(v => (
               <button key={v} onClick={() => setView(v)} className={cn(
-                'cursor-pointer rounded-md px-3.5 py-1 text-xs',
-                view === v ? 'bg-card font-semibold text-foreground shadow-sm' : 'bg-transparent font-normal text-muted-foreground',
+                'cursor-pointer rounded px-3 py-1.5 text-xs transition-colors',
+                view === v ? 'bg-card font-semibold text-foreground shadow-sm' : 'bg-transparent font-medium text-muted-foreground hover:text-foreground',
               )}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
             ))}
           </div>
         </div>
       </div>
 
-      {view === 'edit' ? (
-        <textarea
-          value={content}
-          onChange={e => { setContent(e.target.value); setDirty(true); }}
-          readOnly={!canEdit}
-          placeholder="Write the agent's core instructions here — rules, workflows, response style..."
-          className="box-border block max-h-[72vh] min-h-[440px] w-full resize-y border-none bg-card px-4 py-3.5 font-mono text-xs leading-[1.7] text-foreground outline-none"
-        />
-      ) : (
-        <div className="box-border max-h-[72vh] min-h-[440px] overflow-auto px-[18px] py-3.5">
-          <MarkdownView>{content}</MarkdownView>
-        </div>
-      )}
-
-      {/* Footer metadata */}
-      {!loading && (
-        <div className="flex flex-wrap gap-8 border-t border-border bg-secondary px-4 py-[11px]">
-          {[
-            ['Characters', content.length.toLocaleString()],
-            ['Words', content.trim() ? content.trim().split(/\s+/).length.toLocaleString() : '0'],
-          ].map(([l, v]) => (
-            <div key={l}>
-              <div className="mb-[3px] text-2xs uppercase tracking-[0.05em] text-muted-foreground">{l}</div>
-              <div className="text-xs font-medium text-foreground">{v}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+      <div className="bg-muted/35">
+        {view === 'edit' ? (
+          <textarea
+            value={content}
+            onChange={e => { setContent(e.target.value); setDirty(true); }}
+            readOnly={!canEdit}
+            placeholder="Write the agent's core instructions here — rules, workflows, response style..."
+            className="box-border block h-[68vh] min-h-[540px] w-full resize-none border-none bg-card px-5 py-5 font-mono text-[13px] leading-7 text-foreground outline-none"
+          />
+        ) : (
+          <div className="box-border h-[68vh] min-h-[540px] overflow-auto px-6 py-8">
+            <PromptMarkdownView>{content}</PromptMarkdownView>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -2952,10 +2991,10 @@ function CopyLogsBtn({ lines }: { lines: ParsedLog[] }) {
   };
   return (
     <button onClick={copy} disabled={lines.length === 0} className={cn(
-      'cursor-pointer border-none bg-transparent text-2xs',
-      copied ? 'text-green' : 'text-muted-foreground',
-      lines.length ? 'opacity-100' : 'cursor-default opacity-40',
-    )}>{copied ? 'Copied!' : 'Copy'}</button>
+      'inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium',
+      copied ? 'bg-green/10 text-green' : 'bg-card text-muted-foreground hover:text-foreground',
+      lines.length ? 'cursor-pointer opacity-100' : 'cursor-default opacity-40',
+    )}>{copied ? <Check size={13} /> : <Copy size={13} />}{copied ? 'Copied' : 'Copy'}</button>
   );
 }
 
@@ -2974,50 +3013,46 @@ function LogRow({ log }: { log: ParsedLog }) {
       className="cursor-pointer border-b border-border transition-colors"
       style={{
         background: hovered ? 'var(--surface-2)' : (expanded ? 'var(--surface-2)' : m.rowBg),
-        borderLeft: `3px solid ${expanded ? m.border : 'transparent'}`,
       }}
     >
-      {/* Compact single row */}
-      <div className="flex min-h-[28px] items-center gap-2.5 px-2.5 py-1">
-        <span className="min-w-[68px] shrink-0 text-2xs tabular-nums text-muted-foreground">
+      <div className="grid min-h-[34px] grid-cols-[78px_54px_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-1.5">
+        <span className="text-2xs tabular-nums text-muted-foreground">
           {log.time}
         </span>
         <span style={{ border: `1px solid ${m.border}`, background: m.bg, color: m.color }}
-          className="min-w-[34px] shrink-0 rounded-sm px-1.5 py-px text-center text-[9.5px] font-bold tracking-[0.06em]">{m.label}</span>
-        <span style={{ color: msgColor }} className="flex-1 truncate text-2xs">
+          className="rounded px-1.5 py-0.5 text-center text-[9.5px] font-bold tracking-[0.06em]">{m.label}</span>
+        <span style={{ color: msgColor }} className="min-w-0 truncate text-xs">
           {log.message}
         </span>
-        {!expanded && hasFields && (
-          <span className="flex shrink-0 gap-1">
-            {Object.keys(log.fields).slice(0, 3).map(k => (
-              <span key={k} className="rounded-sm border border-border bg-muted px-1 text-[9.5px] text-muted-foreground">{k}</span>
-            ))}
-            {Object.keys(log.fields).length > 3 && <span className="text-[9.5px] text-muted-foreground">+{Object.keys(log.fields).length - 3}</span>}
-          </span>
-        )}
-        <span className="shrink-0 text-[9px] text-muted-foreground transition-transform" style={{ transform: expanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+        <span className="flex min-w-0 shrink-0 items-center gap-1.5">
+          {!expanded && hasFields && (
+            <span className="hidden shrink-0 gap-1 md:flex">
+              {Object.keys(log.fields).slice(0, 3).map(k => (
+                <span key={k} className="rounded border border-border bg-muted px-1.5 py-0.5 text-[9.5px] text-muted-foreground">{k}</span>
+              ))}
+              {Object.keys(log.fields).length > 3 && <span className="text-[9.5px] text-muted-foreground">+{Object.keys(log.fields).length - 3}</span>}
+            </span>
+          )}
+          <ChevronRight size={13} className="text-muted-foreground transition-transform" style={{ transform: expanded ? 'rotate(90deg)' : 'none' }} />
+        </span>
       </div>
 
-      {/* Expanded detail */}
       {expanded && (
-        <div className="border-t border-border bg-muted py-2 pl-[92px] pr-3.5 pb-3">
-          {log.message.includes('\n') && (
-            <pre className="mb-2.5 mt-0 whitespace-pre-wrap break-words text-2xs text-foreground">{log.message}</pre>
-          )}
+        <div className="border-t border-border bg-muted px-3 py-3">
           {hasFields && (
-            <div className="mb-2 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+            <div className="mb-3 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1.5 rounded-md border border-border bg-card px-3 py-2">
               {Object.entries(log.fields).map(([k, v]) => (
                 <>
-                  <span key={`k-${k}`} className="text-2xs font-medium text-primary">{k}</span>
-                  <span key={`v-${k}`} className="break-all text-2xs text-muted-foreground">{v}</span>
+                  <span key={`k-${k}`} className="text-2xs font-medium text-muted-foreground">{k}</span>
+                  <span key={`v-${k}`} className="break-all font-mono text-2xs text-foreground">{v}</span>
                 </>
               ))}
             </div>
           )}
           {log.raw && (
             <>
-              <div className="mb-1 mt-2 text-[10px] text-muted-foreground">Raw</div>
-              <pre className="m-0 max-h-[180px] overflow-auto whitespace-pre-wrap break-all rounded-sm border border-border bg-muted px-2.5 py-2 text-2xs text-muted-foreground">{log.raw}</pre>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Raw event</div>
+              <pre className="m-0 max-h-[220px] overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-card px-3 py-2.5 font-mono text-2xs leading-relaxed text-muted-foreground">{log.raw}</pre>
             </>
           )}
         </div>
@@ -3068,65 +3103,98 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
   });
 
   return (
-    <div className="fade-up">
-      {/* Toolbar */}
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1">
-          <div className={cn('h-1.5 w-1.5 rounded-full', connected ? 'status-running bg-green' : 'bg-border')} />
-          <span className="text-2xs text-muted-foreground">{connected ? 'Live' : 'Disconnected'}</span>
+    <div className="fade-up max-w-[1480px]">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border',
+            connected ? 'border-green/20 bg-green/10 text-green' : 'border-border bg-muted text-muted-foreground',
+          )}>
+            <Terminal size={18} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="m-0 text-lg font-semibold tracking-normal text-foreground">Live Logs</h2>
+              <span className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs font-medium',
+                connected ? 'border-green/20 bg-green/10 text-green' : 'border-border bg-muted text-muted-foreground',
+              )}>
+                <span className={cn('h-1.5 w-1.5 rounded-full', connected ? 'status-running bg-green' : 'bg-border')} />
+                {connected ? 'Live' : 'Disconnected'}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">Streaming runner output for this agent. Click a row to inspect structured fields.</p>
+          </div>
         </div>
-        <div className="mx-0.5 h-3.5 w-px bg-border" />
-        {/* Level filters with counts */}
-        {(['all', ...LEVEL_ORDER] as LogLevel[]).map(lvl => {
+        <div className="flex items-center gap-2">
+          <CopyLogsBtn lines={visibleLines} />
+          <button onClick={() => setLines([])} className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+            <Trash2 size={13} /> Clear
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(130px,1fr))]">
+        {(['all', 'error', 'warn', 'info', 'debug'] as LogLevel[]).map(lvl => {
           const m = LOG_META[lvl];
           const active = levelFilter === lvl;
           return (
             <button key={lvl} onClick={() => setLevelFilter(lvl)}
-              style={active ? { borderColor: m.border, background: m.bg, color: m.color } : undefined}
               className={cn(
-                'flex cursor-pointer items-center gap-1 rounded-sm border px-2 py-0.5 text-2xs',
-                active ? 'font-bold' : 'border-border bg-transparent font-normal text-muted-foreground',
-              )}>
-              {m.label}
-              {counts[lvl] > 0 && <span className="text-[9.5px] opacity-75">{counts[lvl]}</span>}
+                'rounded-lg border bg-card px-3.5 py-3 text-left shadow-card transition-colors',
+                active ? 'border-current' : 'border-border hover:bg-secondary',
+              )}
+              style={active ? { color: m.color, background: m.bg } : undefined}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-2xs font-semibold uppercase tracking-[0.06em]" style={{ color: active ? m.color : 'var(--muted)' }}>{m.label}</span>
+                <Radio size={13} style={{ color: active ? m.color : 'var(--subtle)' }} />
+              </div>
+              <div className="mt-1 text-xl font-semibold leading-none text-foreground">{counts[lvl]}</div>
             </button>
           );
         })}
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter logs…"
-          className="w-[180px] rounded-sm border border-border bg-transparent px-2.5 py-0.5 font-mono text-2xs text-foreground outline-none" />
-        <div className="ml-auto flex gap-1.5">
-          <CopyLogsBtn lines={visibleLines} />
-          <button onClick={() => setLines([])} className="cursor-pointer border-none bg-transparent text-2xs text-muted-foreground">Clear</button>
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-lg border border-border bg-card shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="relative w-full sm:w-[360px]">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search message or fields..."
+              className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 font-mono text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+          </div>
+          <div className="flex items-center gap-3 text-2xs text-muted-foreground">
+            <span>{visibleLines.length}{visibleLines.length !== lines.length ? ` / ${lines.length}` : ''} line{visibleLines.length !== 1 ? 's' : ''}</span>
+            {!autoScroll && (
+              <button onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
+                className="cursor-pointer border-none bg-transparent text-xs font-medium text-primary">
+                Jump to latest
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-[78px_54px_minmax(0,1fr)_auto] gap-2.5 border-b border-border bg-muted/55 px-3 py-2 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <span>Time</span>
+          <span>Level</span>
+          <span>Event</span>
+          <span />
+        </div>
+
+        <div ref={containerRef} onScroll={e => {
+          const el = e.currentTarget;
+          setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 40);
+        }} className="h-[560px] overflow-auto">
+          {visibleLines.length === 0 ? (
+            <div className="px-5 py-16 text-center text-sm text-muted-foreground">
+              {lines.length === 0 ? 'Waiting for log lines...' : 'No matching lines.'}
+            </div>
+          ) : (
+            visibleLines.map((log, i) => <LogRow key={i} log={log} />)
+          )}
+          <div ref={bottomRef} />
         </div>
       </div>
-
-      {/* Log pane */}
-      <div ref={containerRef} onScroll={e => {
-        const el = e.currentTarget;
-        setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 40);
-      }} className="h-[520px] overflow-auto rounded-md border border-border bg-card font-mono">
-        {visibleLines.length === 0 ? (
-          <div className="px-5 py-10 text-center text-xs text-muted-foreground">
-            {lines.length === 0 ? 'Waiting for log lines…' : 'No matching lines.'}
-          </div>
-        ) : (
-          visibleLines.map((log, i) => <LogRow key={i} log={log} />)
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="mt-1 flex justify-between px-0.5">
-        <span className="text-2xs text-muted-foreground">
-          {visibleLines.length}{visibleLines.length !== lines.length ? ` / ${lines.length}` : ''} line{visibleLines.length !== 1 ? 's' : ''}
-        </span>
-        {!autoScroll && (
-          <button onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
-            className="cursor-pointer border-none bg-transparent text-2xs text-primary">
-            ↓ Jump to latest
-          </button>
-        )}
-      </div>
-
     </div>
   );
 }

@@ -237,17 +237,14 @@ function nodeVisuals(node: NodeData) {
  * content (args / result / reasoning) in the right-hand detail drawer. */
 export function NodeRow({ node, maxMs, highlight, isLast }: { node: NodeData; maxMs: number; highlight?: boolean; isLast?: boolean }): React.JSX.Element {
   const has = node.sections.length > 0 || !!node.sensitive;
-  const detail = useContext(NodeDetailCtx);
-  const isOpen = detail.openKey === node.key;
+  const [isOpen, setIsOpen] = useState(!!node.defaultOpen || !!highlight);
   const rowRef = useRef<HTMLDivElement>(null);
   const [flash, setFlash] = useState(!!highlight);
   // Deep-linked span: scroll it into view, flash it, and open its drawer once.
-  const opener = useRef(detail.open);
-  opener.current = detail.open;
   useEffect(() => {
     if (!highlight) return;
     rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (has) opener.current(node);
+    if (has) setIsOpen(true);
     const t = setTimeout(() => setFlash(false), 2600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for the highlighted span
@@ -260,7 +257,7 @@ export function NodeRow({ node, maxMs, highlight, isLast }: { node: NodeData; ma
 
   return (
     <div id={`span-${node.key}`} ref={rowRef} className={cn('rounded-lg scroll-mt-20 transition-[box-shadow,background] duration-[400ms]', flash && 'shadow-[0_0_0_2px_var(--accent)] bg-secondary')}>
-      <div className={cn('trace-node flex items-center gap-2 rounded-md py-1 pl-0 pr-2 min-h-[30px]', has ? 'cursor-pointer' : 'cursor-default', isOpen && 'bg-secondary')} onClick={() => has && detail.open(node)}>
+      <div className={cn('trace-node flex items-center gap-2 rounded-md py-1 pl-0 pr-2 min-h-[30px]', has ? 'cursor-pointer' : 'cursor-default', isOpen && 'bg-secondary')} onClick={() => has && setIsOpen(o => !o)}>
         {/* Tree pipe connector linking the rows into a single-level chain. */}
         <span aria-hidden className="relative self-stretch w-4 shrink-0">
           <span className="absolute left-2 top-0 w-px bg-border" style={{ bottom: isLast ? 'calc(50% - 0.5px)' : 0 }} />
@@ -287,6 +284,14 @@ export function NodeRow({ node, maxMs, highlight, isLast }: { node: NodeData; ma
         </div>
         <span className={cn(META, 'min-w-[50px] text-right')} title={hasDur && !(node.durationMs && node.durationMs > 0) ? 'Instant / not reported by backend' : undefined}>{durText}</span>
       </div>
+      {isOpen && has && (
+        <div className="ml-10 mr-2 mb-2 rounded-lg border border-border bg-card px-3 py-3 shadow-sm">
+          {node.error && (
+            <div className="mb-2.5 whitespace-pre-wrap break-words text-xs text-red">{node.error}</div>
+          )}
+          <NodeDetailBody node={node} />
+        </div>
+      )}
     </div>
   );
 }
