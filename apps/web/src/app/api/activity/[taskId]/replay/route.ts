@@ -24,25 +24,24 @@ export async function POST(
   if (denied) return denied;
 
   const { taskId } = await params;
-  // activityId is optional — omit to replay the last error activity on the task.
+  // activityId is optional. Either way, ONLY the last turn is replayable (and only
+  // if it errored) — replaying an older error mid-session is unsafe since the
+  // conversation already moved on. A provided activityId must BE the last turn.
   const body = await req.json().catch(() => null) as { activityId?: string } | null;
 
   const details = await getTaskWithDetails(taskId);
   if (!details) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
 
-  let activityId = body?.activityId;
-  if (activityId) {
-    const activity = details.activities.find(a => a.id === activityId);
-    if (!activity) return NextResponse.json({ error: 'Activity not found' }, { status: 404 });
-    if (activity.status !== 'error') {
-      return NextResponse.json({ error: 'Only error activities can be replayed' }, { status: 400 });
-    }
-  } else {
-    // Find the last error activity (most recent first).
-    const errored = [...details.activities].reverse().find(a => a.status === 'error');
-    if (!errored) return NextResponse.json({ error: 'No error activity found on this task' }, { status: 400 });
-    activityId = errored.id;
+  // activities are chronological (oldest first) → the last one is the latest turn.
+  const last = details.activities[details.activities.length - 1];
+  if (!last) return NextResponse.json({ error: 'No activity on this task' }, { status: 400 });
+  if (last.status !== 'error') {
+    return NextResponse.json({ error: 'Only the last turn can be replayed, and it is not an error' }, { status: 400 });
   }
+  if (body?.activityId && body.activityId !== last.id) {
+    return NextResponse.json({ error: 'Only the last turn can be replayed' }, { status: 400 });
+  }
+  const activityId = last.id;
 
   const upstream = await fetch(`${runnerBase()}/replay-activity`, {
     method: 'POST',

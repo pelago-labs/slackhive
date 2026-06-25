@@ -179,7 +179,7 @@ export default function TaskTracePage(): React.JSX.Element {
             <div className="flex flex-col gap-2.5">
               {turns.length === 0 && <Empty>No activity recorded yet.</Empty>}
               {turns.length > 0 && visibleTurns.length === 0 && <Empty>No turns match this filter.</Empty>}
-              {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} taskId={task.id} highlightSpanId={highlightSpanId} />)}
+              {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} isLastTurn={i === turns.length - 1} taskId={task.id} highlightSpanId={highlightSpanId} />)}
             </div>
           </div>
         </div>
@@ -374,7 +374,7 @@ function StackBars(props: { title: string; data: { label: string; input: number;
 }
 
 // ── Turn ────────────────────────────────────────────────────────────────────
-function TurnCard({ turn, index, isLast, taskId, highlightSpanId }: { turn: TraceTurn; index: number; isLast?: boolean; taskId: string; highlightSpanId?: string | null }): React.JSX.Element {
+function TurnCard({ turn, index, isLast, isLastTurn, taskId, highlightSpanId }: { turn: TraceTurn; index: number; isLast?: boolean; isLastTurn?: boolean; taskId: string; highlightSpanId?: string | null }): React.JSX.Element {
   const nodes = buildNodes(turn);
   const containsHighlight = !!highlightSpanId && nodes.some(n => n.key === highlightSpanId);
   // Expand the most recent (last visible) turn by default; also a deep-linked turn,
@@ -423,7 +423,7 @@ function TurnCard({ turn, index, isLast, taskId, highlightSpanId }: { turn: Trac
             </span>
           </div>
           {turn.messagePreview && <div className="mt-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-relaxed text-muted-foreground">{turn.messagePreview}</div>}
-          {turn.status === 'error' && (
+          {isLastTurn && turn.status === 'error' && (
             <div className="mt-2" onClick={e => e.stopPropagation()}>
               <ReplayButton taskId={taskId} activityId={turn.activityId} variant="labeled" />
             </div>
