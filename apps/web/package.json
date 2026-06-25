@@ -19,6 +19,7 @@
     "@notionhq/client": "^5.0.0",
     "@slackhive/shared": "*",
     "bcryptjs": "^2.4.3",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.0",
     "lucide-react": "^0.469.0",
@@ -29,6 +30,7 @@
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.6.0",
+    "tailwindcss-animate": "^1.0.7",
     "vite": "^6.4.3"
   },
   "devDependencies": {

@@ -38,6 +38,53 @@
   --red-soft-border: #fecaca;
   --amber-soft-bg: #fffbeb;
   --amber-soft-border: #fde68a;
+
+  /* ── shadcn token contract (HSL channels) — Light ──────────────────────────
+     Backs the Tailwind color map via hsl(var(--sd-*)). This is the "neutral"
+     ramp, which is exactly our existing palette. Kept under `--sd-*` so the
+     legacy hex tokens above stay intact for un-migrated inline styles. */
+  --sd-background: 0 0% 98%;          /* --bg */
+  --sd-foreground: 0 0% 3.9%;         /* --text */
+  --sd-card: 0 0% 100%;               /* --surface */
+  --sd-card-foreground: 0 0% 3.9%;
+  --sd-popover: 0 0% 100%;
+  --sd-popover-foreground: 0 0% 3.9%;
+  --sd-primary: 0 0% 9%;              /* --accent (brand) */
+  --sd-primary-foreground: 0 0% 98%;
+  --sd-secondary: 0 0% 96.1%;         /* --surface-2 */
+  --sd-secondary-foreground: 0 0% 9%;
+  --sd-muted: 0 0% 96.1%;
+  --sd-muted-foreground: 0 0% 45.1%;  /* --muted text */
+  --sd-accent: 0 0% 96.1%;            /* subtle hover bg = --surface-2 */
+  --sd-accent-foreground: 0 0% 9%;
+  --sd-destructive: 0 65% 51%;        /* desaturated red */
+  --sd-destructive-foreground: 0 0% 98%;
+  --sd-border: 0 0% 89.8%;            /* --border */
+  --sd-input: 0 0% 89.8%;
+  --sd-ring: 0 0% 45.1%;              /* calm focus ring */
+
+  /* ── Type scale (semantic, baked tracking/line-height lives in tailwind) ──── */
+  --text-2xs: 11px;
+  --text-xs:  12px;
+  --text-sm:  13px;
+  --text-base: 14px;
+  --text-md:  16px;
+  --text-lg:  18px;
+  --text-xl:  20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+
+  /* ── Space scale (strict 4px grid) ─────────────────────────────────────────
+     Tailwind's default spacing already enforces this grid (1=4 … 12=48);
+     these vars exist for any inline holdouts during migration. */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+  /* Desaturated semantic palette (calmer than Tailwind 500/600). */
+  --blue:  #3257c5;
+  --green: #14855f;
+  --red:   #cc3333;
+  --amber: #c2790b;
 }
 
 /* ─── Design Tokens — Dark ───────────────────────────────────────────────────── */
@@ -69,6 +116,33 @@
   --red-soft-border: rgba(239,68,68,0.25);
   --amber-soft-bg: rgba(245,158,11,0.1);
   --amber-soft-border: rgba(245,158,11,0.25);
+
+  /* ── shadcn token contract (HSL channels) — Dark ──────────────────────────── */
+  --sd-background: 0 0% 3.9%;         /* --bg #0a0a0a */
+  --sd-foreground: 0 0% 96.1%;        /* --text */
+  --sd-card: 0 0% 7.8%;               /* --surface #141414 */
+  --sd-card-foreground: 0 0% 96.1%;
+  --sd-popover: 0 0% 7.8%;
+  --sd-popover-foreground: 0 0% 96.1%;
+  --sd-primary: 0 0% 96.1%;           /* --accent (near-white) */
+  --sd-primary-foreground: 0 0% 9%;
+  --sd-secondary: 0 0% 11%;           /* --surface-2 #1c1c1c */
+  --sd-secondary-foreground: 0 0% 96.1%;
+  --sd-muted: 0 0% 11%;
+  --sd-muted-foreground: 0 0% 63.9%;  /* --muted text */
+  --sd-accent: 0 0% 11%;
+  --sd-accent-foreground: 0 0% 96.1%;
+  --sd-destructive: 0 58% 48%;        /* desaturated red */
+  --sd-destructive-foreground: 0 0% 96.1%;
+  --sd-border: 0 0% 16.5%;            /* --border #2a2a2a */
+  --sd-input: 0 0% 16.5%;
+  --sd-ring: 0 0% 63.9%;
+
+  /* Desaturated semantic palette — dark. */
+  --blue:  #5b7fd4;
+  --green: #2fa37a;
+  --red:   #e05656;
+  --amber: #e0a13a;
 }
 
 /* ─── Form elements — inherit theme ─────────────────────────────────────────── */
