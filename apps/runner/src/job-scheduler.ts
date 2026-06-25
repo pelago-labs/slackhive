@@ -16,6 +16,7 @@
 
 import cron from 'node-cron';
 import type { ScheduledJob, PlatformAdapter } from '@slackhive/shared';
+import { JOB_SILENT_SENTINEL, parseJobSentinel } from '@slackhive/shared';
 import { getAllEnabledJobs, getScheduledJobById, failOrphanedJobRuns, insertJobRun, updateJobRun } from './db';
 import type { AgentBackend } from '@slackhive/shared';
 import { logger } from './logger';
@@ -24,6 +25,26 @@ import { logger } from './logger';
 interface RunningAgent {
   adapter: PlatformAdapter;
   backend: AgentBackend;
+}
+
+/**
+ * Instruction appended to a suppressible job's prompt. Asks the agent to reply
+ * with the sentinel + a one-line reason when the skip condition is true. The
+ * underscore in the token keeps it from colliding with natural prose ("no update").
+ */
+export function notificationGate(skipWhen: string): string {
+  return `\n\n---\n[Notification gate: after completing the task above, evaluate whether this condition is TRUE: "${skipWhen.trim()}". `
+    + `If it is TRUE (nothing worth notifying), your ENTIRE reply must be exactly \`${JOB_SILENT_SENTINEL}: <one short sentence explaining why>\` and nothing else. `
+    + `If it is FALSE, reply normally with your full report and do not mention this gate.]`;
+}
+
+/**
+ * True when the agent signalled "nothing to report" via the {@link JOB_SILENT_SENTINEL}.
+ * Delegates to the shared parser (one source of truth with the web run-history view),
+ * which tolerates markdown-wrapped sentinels and an optional trailing reason.
+ */
+export function isSilent(output: string): boolean {
+  return parseJobSentinel(output).silent;
 }
 
 /**
@@ -155,6 +176,13 @@ export class JobScheduler {
     let anchorTs: string | undefined;
     let anchorConsumed = false;
 
+    // A job with a `skipWhen` condition may end up posting nothing. We therefore
+    // must NOT pre-post the "running…" anchor for it — deleting an anchor after the
+    // fact wouldn't help (Slack already pinged the channel), defeating the whole
+    // "don't notify" intent. Suppressible jobs skip the anchor and use the legacy
+    // "first payload becomes the thread parent" path on the runs that do post.
+    const suppressible = !!job.skipWhen?.trim();
+
     try {
       // Record the run INSIDE the try: it's a DB write, and the finally below is
       // the only place `running` is cleared. If it ran outside the try and threw
@@ -182,22 +210,32 @@ export class JobScheduler {
       // the headline table on success, or a failure line on error — so it never
       // sits stuck. Best-effort: on failure we fall back to the legacy behavior
       // where the first output payload becomes the thread parent.
-      try {
-        anchorTs = await agent.adapter.postMessage(targetChannelId, `*${job.name}* · ⏳ _running…_`);
-      } catch (err) {
-        logger.warn('Job anchor post failed; falling back to inline thread parent', {
-          jobId: job.id, error: (err as Error).message,
-        });
-        anchorTs = undefined;
+      if (!suppressible) {
+        try {
+          anchorTs = await agent.adapter.postMessage(targetChannelId, `*${job.name}* · ⏳ _running…_`);
+        } catch (err) {
+          logger.warn('Job anchor post failed; falling back to inline thread parent', {
+            jobId: job.id, error: (err as Error).message,
+          });
+          anchorTs = undefined;
+        }
       }
 
       // Inject a [Sender: ...] header mirroring the interactive message path so
       // skills can read the channel/thread (e.g. to upload attachments into the
       // job's own thread). Inert for prompt-only jobs that ignore it.
+      //
+      // Suppressible jobs have no pre-posted anchor (see above), so the `thread`
+      // segment is omitted: a skill that posts mid-run targets the channel
+      // top-level rather than a thread. This is an accepted trade-off of the
+      // "don't pre-announce" behavior — the thread can't exist before we know the
+      // run won't be suppressed. Any final output still threads correctly after the
+      // run via the legacy "first payload is the parent" path below.
       const senderHeader = `[Sender: Scheduled Job: ${job.name} (job:${job.id}) · channel ${targetChannelId}`
         + (anchorTs ? ` · thread ${anchorTs}` : '')
         + `]\n\n`;
-      const headedPrompt = senderHeader + job.prompt;
+      const headedPrompt = senderHeader + job.prompt
+        + (suppressible ? notificationGate(job.skipWhen as string) : '');
 
       // Stream the query and post the turn's final deliverable. The backend's
       // `result` is the canonical final answer (on Codex it's the joined
@@ -225,6 +263,18 @@ export class JobScheduler {
       let output = resultText || lastMessage;
       if (!output) {
         output = '_Job completed with no output._';
+      }
+
+      // Suppressed run: the agent signalled (via the NO_UPDATE sentinel) that the
+      // job's skip condition holds. Post nothing, but record the full reply — incl.
+      // the agent's one-line reason — so the run history shows WHY it was skipped
+      // for debugging. No anchor was posted, so there's nothing to clean up.
+      if (suppressible && isSilent(output)) {
+        await updateJobRun(runId, 'success', output.slice(0, 2000), null, false);
+        logger.info('Job run skipped — condition met', {
+          jobId: job.id, runId, reason: output.slice(0, 200),
+        });
+        return;
       }
 
       // Render the output into one payload per table. We want the headline
@@ -291,6 +341,19 @@ export class JobScheduler {
           );
         } catch (postErr) {
           logger.warn('Failed to update anchor to failure state', {
+            jobId: job.id, error: (postErr as Error).message,
+          });
+        }
+      } else if (targetChannelId && suppressible && !anchorConsumed) {
+        // Suppressible jobs pre-post no anchor (so a silent run never pings the
+        // channel), which means a failure would otherwise be invisible in-channel —
+        // the job would look like it simply kept meeting its skip condition while
+        // actually being broken for days. An error is NOT "no change"; surface it
+        // with a fresh failure line so a broken job gets noticed. Best-effort.
+        try {
+          await agent.adapter.postMessage(targetChannelId, `*${job.name}* · ⚠️ _did not complete_`);
+        } catch (postErr) {
+          logger.warn('Failed to post suppressible-job failure notice', {
             jobId: job.id, error: (postErr as Error).message,
           });
         }

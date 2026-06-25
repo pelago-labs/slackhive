@@ -1573,6 +1573,7 @@ function rowToJob(row: Record<string, unknown>): ScheduledJob {
     targetType: row.target_type as 'channel' | 'dm',
     targetId: row.target_id as string,
     enabled: row.enabled as boolean,
+    skipWhen: (row.skip_when as string) || undefined,
     createdBy: (row.created_by as string) ?? 'system',
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -1591,6 +1592,7 @@ function rowToJobRun(row: Record<string, unknown>): JobRun {
     status: row.status as 'running' | 'success' | 'error',
     output: (row.output as string) ?? undefined,
     error: (row.error as string) ?? undefined,
+    posted: row.posted !== false && row.posted !== 0,
   };
 }
 
@@ -1616,7 +1618,7 @@ export async function getAllJobs(agentIds?: string[] | null): Promise<Array<Sche
     const r = await adapter.query(`
       SELECT j.*,
              lr.id AS lr_id, lr.started_at AS lr_started_at, lr.finished_at AS lr_finished_at,
-             lr.status AS lr_status, lr.output AS lr_output, lr.error AS lr_error
+             lr.status AS lr_status, lr.output AS lr_output, lr.error AS lr_error, lr.posted AS lr_posted
       FROM scheduled_jobs j
       LEFT JOIN job_runs lr ON lr.id = (
         SELECT jr.id FROM job_runs jr WHERE jr.job_id = j.id ORDER BY jr.started_at DESC LIMIT 1
@@ -1629,7 +1631,7 @@ export async function getAllJobs(agentIds?: string[] | null): Promise<Array<Sche
       lastRun: row.lr_id ? {
         id: row.lr_id as string, jobId: row.id as string,
         startedAt: row.lr_started_at as Date, finishedAt: (row.lr_finished_at as Date | null) ?? undefined,
-        status: row.lr_status as JobRun['status'], output: (row.lr_output as string | null) ?? undefined, error: (row.lr_error as string | null) ?? undefined,
+        status: row.lr_status as JobRun['status'], output: (row.lr_output as string | null) ?? undefined, error: (row.lr_error as string | null) ?? undefined, posted: row.lr_posted !== false && row.lr_posted !== 0,
       } : undefined,
     }));
   }
@@ -1638,7 +1640,7 @@ export async function getAllJobs(agentIds?: string[] | null): Promise<Array<Sche
   const r = await adapter.query(`
     SELECT j.*,
            lr.id AS lr_id, lr.started_at AS lr_started_at, lr.finished_at AS lr_finished_at,
-           lr.status AS lr_status, lr.output AS lr_output, lr.error AS lr_error
+           lr.status AS lr_status, lr.output AS lr_output, lr.error AS lr_error, lr.posted AS lr_posted
     FROM scheduled_jobs j
     LEFT JOIN LATERAL (
       SELECT * FROM job_runs WHERE job_id = j.id ORDER BY started_at DESC LIMIT 1
@@ -1651,7 +1653,7 @@ export async function getAllJobs(agentIds?: string[] | null): Promise<Array<Sche
     lastRun: row.lr_id ? {
       id: row.lr_id as string, jobId: row.id as string,
       startedAt: row.lr_started_at as Date, finishedAt: (row.lr_finished_at as Date | null) ?? undefined,
-      status: row.lr_status as JobRun['status'], output: (row.lr_output as string | null) ?? undefined, error: (row.lr_error as string | null) ?? undefined,
+      status: row.lr_status as JobRun['status'], output: (row.lr_output as string | null) ?? undefined, error: (row.lr_error as string | null) ?? undefined, posted: row.lr_posted !== false && row.lr_posted !== 0,
     } : undefined,
   }));
 }
@@ -1676,9 +1678,9 @@ export async function getJobById(id: string): Promise<ScheduledJob | null> {
 export async function createJob(req: CreateJobRequest): Promise<ScheduledJob> {
   const id = randomUUID();
   const r = await (await db()).query(
-    `INSERT INTO scheduled_jobs (id, agent_id, name, prompt, cron_schedule, target_type, target_id, enabled, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [id, req.agentId, req.name, req.prompt, req.cronSchedule, req.targetType ?? 'channel', req.targetId, req.enabled ?? true, req.createdBy ?? 'system']
+    `INSERT INTO scheduled_jobs (id, agent_id, name, prompt, cron_schedule, target_type, target_id, enabled, skip_when, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [id, req.agentId, req.name, req.prompt, req.cronSchedule, req.targetType ?? 'channel', req.targetId, req.enabled ?? true, req.skipWhen?.trim() || null, req.createdBy ?? 'system']
   );
   return rowToJob(r.rows[0]);
 }
@@ -1701,6 +1703,7 @@ export async function updateJob(id: string, req: UpdateJobRequest): Promise<Sche
   if (req.targetType !== undefined) { sets.push(`target_type = $${i++}`); vals.push(req.targetType); }
   if (req.targetId !== undefined) { sets.push(`target_id = $${i++}`); vals.push(req.targetId); }
   if (req.enabled !== undefined) { sets.push(`enabled = $${i++}`); vals.push(req.enabled); }
+  if (req.skipWhen !== undefined) { sets.push(`skip_when = $${i++}`); vals.push(req.skipWhen?.trim() || null); }
   if (!sets.length) return getJobById(id);
   sets.push(`updated_at = now()`);
   vals.push(id);

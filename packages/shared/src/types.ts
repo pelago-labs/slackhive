@@ -980,6 +980,13 @@ export interface ScheduledJob {
   /** Slack channel ID or user ID to deliver results to. */
   targetId: string;
   enabled: boolean;
+  /**
+   * Optional plain-English condition for skipping the notification. When set,
+   * the runner injects it plus a NO_UPDATE sentinel instruction into the prompt;
+   * if the agent decides the condition holds it replies NO_UPDATE and the run
+   * posts nothing. Empty/undefined → always post (default behavior).
+   */
+  skipWhen?: string;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -998,6 +1005,8 @@ export interface JobRun {
   output?: string;
   /** Error message if the job failed. */
   error?: string;
+  /** False when the run completed but was intentionally not posted (skipWhen matched). */
+  posted: boolean;
 }
 
 /**
@@ -1011,6 +1020,7 @@ export interface CreateJobRequest {
   targetType?: JobTargetType;
   targetId: string;
   enabled?: boolean;
+  skipWhen?: string;
   createdBy?: string;
 }
 
@@ -1025,6 +1035,45 @@ export interface UpdateJobRequest {
   targetType?: JobTargetType;
   targetId?: string;
   enabled?: boolean;
+  skipWhen?: string;
+}
+
+/**
+ * Sentinel an agent emits when a job's `skipWhen` condition holds — i.e. there is
+ * nothing worth notifying about. The runner suppresses the post and records the run
+ * as skipped; the web run-history view shows the reason. Defined here (not in either
+ * app) so the runner's detector and the web parser share ONE source of truth — the
+ * token and its format can't drift between packages.
+ */
+export const JOB_SILENT_SENTINEL = 'NO_UPDATE';
+
+/**
+ * Parse an agent's job reply for the {@link JOB_SILENT_SENTINEL}.
+ *
+ * Returns `{ silent: true, reason }` when the reply is the sentinel (optionally
+ * markdown-wrapped, with an optional trailing reason), else `{ silent: false }`.
+ *
+ * Robustness notes (each guards a real failure mode):
+ *  - Leading markdown wrappers (`` ` ``, `*`, `_`, `>`, `~`) and whitespace are
+ *    stripped, and trailing wrappers after the token are tolerated — so italic
+ *    `_NO_UPDATE_` and bold `**NO_UPDATE**` are recognised (a plain `\b` would
+ *    fail on the trailing `_`).
+ *  - A negative lookahead `(?![A-Za-z0-9])` (not `\b`, which treats `_` as a word
+ *    char) ensures `NO_UPDATED` and similar longer words do NOT match, while the
+ *    underscore-wrapped form still does.
+ *  - The reason is collapsed to a single trimmed line so a multi-line reply renders
+ *    cleanly in the run-history debug view.
+ */
+export function parseJobSentinel(output: string | null | undefined): { silent: boolean; reason: string } {
+  if (!output) return { silent: false, reason: '' };
+  const re = new RegExp(
+    `^[\\s\`*_>~]*${JOB_SILENT_SENTINEL}(?![A-Za-z0-9])[\\s\`*_>~]*(?:[:\\-—.]+\\s*)?([\\s\\S]*)$`,
+    'i',
+  );
+  const m = re.exec(output.trim());
+  if (!m) return { silent: false, reason: '' };
+  const reason = m[1].split(/\r?\n/).map(s => s.trim()).filter(Boolean).join(' ').trim();
+  return { silent: true, reason };
 }
 
 // =============================================================================

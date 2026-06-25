@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { parseJobSentinel } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { Portal } from '@/lib/portal';
 import {
@@ -20,6 +21,7 @@ import {
   Hash,
   History,
   MessageSquare,
+  BellOff,
   Pause,
   Pencil,
   Play,
@@ -50,6 +52,8 @@ interface JobRun {
   status: 'running' | 'success' | 'error';
   output?: string;
   error?: string;
+  /** False when the run completed but was intentionally not posted (skipWhen matched). */
+  posted?: boolean;
 }
 
 interface Job {
@@ -61,6 +65,8 @@ interface Job {
   targetType: 'channel' | 'dm';
   targetId: string;
   enabled: boolean;
+  /** Optional plain-English condition; when set, runs that meet it post nothing. */
+  skipWhen?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -95,23 +101,24 @@ function cronToHuman(cron: string): string {
 }
 
 /**
+ * Visual treatment (label + dot/badge color) for a run's terminal state. A
+ * successful run that wasn't posted (skipWhen condition met) shows as amber
+ * "skipped". One source of truth so the last-run badge and the run-history rows
+ * can't drift apart.
+ */
+function runStatusView(status: JobRun['status'], posted?: boolean): { label: string; text: string; dot: string } {
+  if (status === 'success' && posted === false) return { label: 'skipped', text: 'text-amber', dot: 'bg-amber' };
+  if (status === 'success') return { label: 'success', text: 'text-green', dot: 'bg-green' };
+  if (status === 'error') return { label: 'error', text: 'text-red', dot: 'bg-red' };
+  return { label: status, text: 'text-blue', dot: 'bg-blue' }; // running
+}
+
+/**
  * Scheduled jobs management page.
  *
  * @returns {JSX.Element}
  */
 interface AgentOption { id: string; name: string; slug: string; isBoss: boolean; }
-
-/** Maps a run/last-run status to the semantic dot background + text color. */
-function statusDotClass(status?: string): string {
-  return status === 'error' ? 'bg-red'
-    : status === 'success' ? 'bg-green'
-    : 'bg-blue';
-}
-function statusTextClass(status?: string): string {
-  return status === 'success' ? 'text-green'
-    : status === 'error' ? 'text-red'
-    : 'text-blue';
-}
 
 export default function JobsPage() {
   const { canEdit } = useAuth();
@@ -242,18 +249,19 @@ export default function JobsPage() {
                 <div className="flex min-w-0 items-start gap-3">
                   <div title={
                     !job.enabled ? 'Paused'
-                    : job.lastRun?.status === 'error' ? 'Last run errored'
-                    : job.lastRun?.status === 'success' ? 'Last run succeeded'
-                    : job.lastRun?.status === 'running' ? 'Running now'
+                    : !job.lastRun ? 'Scheduled — waiting for first run'
+                    : job.lastRun.status === 'error' ? 'Last run errored'
+                    : (job.lastRun.status === 'success' && job.lastRun.posted === false) ? 'Last run skipped (condition met)'
+                    : job.lastRun.status === 'success' ? 'Last run succeeded'
+                    : job.lastRun.status === 'running' ? 'Running now'
                     : 'Scheduled — waiting for first run'
                   } className={cn(
                     'mt-1.5 h-2 w-2 shrink-0 rounded-full',
                     !job.enabled ? 'bg-muted-foreground'
-                      : job.lastRun?.status === 'error' ? 'bg-red'
-                      : job.lastRun?.status === 'success' ? 'bg-green'
-                      : job.lastRun?.status === 'running' ? 'bg-blue'
-                      : 'bg-amber',
+                      : !job.lastRun ? 'bg-amber'
+                      : runStatusView(job.lastRun.status, job.lastRun.posted).dot,
                   )} />
+
 
                   {/* Info */}
                   <div className="min-w-0 flex-1">
@@ -292,17 +300,20 @@ export default function JobsPage() {
 
                 {/* Last run */}
                 <div className="shrink-0 text-left lg:text-right">
-                  {job.lastRun ? (
+                  {job.lastRun ? (() => {
+                    const view = runStatusView(job.lastRun.status, job.lastRun.posted);
+                    return (
                     <>
-                      <div className={cn('inline-flex items-center gap-1.5 text-2xs font-semibold uppercase', statusTextClass(job.lastRun.status))}>
-                        {job.lastRun.status === 'success' ? <CheckCircle2 size={12} /> : job.lastRun.status === 'error' ? <AlertCircle size={12} /> : <Clock3 size={12} />}
-                        {job.lastRun.status}
+                      <div className={cn('inline-flex items-center gap-1.5 text-2xs font-semibold uppercase', view.text)}>
+                        {view.label === 'skipped' ? <BellOff size={12} /> : job.lastRun.status === 'success' ? <CheckCircle2 size={12} /> : job.lastRun.status === 'error' ? <AlertCircle size={12} /> : <Clock3 size={12} />}
+                        {view.label}
                       </div>
                       <div className="mt-1 text-2xs text-muted-foreground">
                         {new Date(job.lastRun.startedAt).toLocaleString()}
                       </div>
                     </>
-                  ) : (
+                    );
+                  })() : (
                     <div className="inline-flex items-center gap-1.5 text-2xs text-muted-foreground">
                       <Clock3 size={12} />
                       Never run
@@ -364,12 +375,17 @@ export default function JobsPage() {
                   {(runs[job.id] ?? []).length === 0 ? (
                     <div className="px-5 py-3 text-xs text-muted-foreground">No runs yet</div>
                   ) : (
-                    (runs[job.id] ?? []).slice(0, 10).map(run => (
+                    (runs[job.id] ?? []).slice(0, 10).map(run => {
+                      // A successful run that was intentionally not posted (skipWhen matched).
+                      const skipped = run.status === 'success' && run.posted === false;
+                      const view = runStatusView(run.status, run.posted);
+                      const reason = skipped ? parseJobSentinel(run.output).reason : '';
+                      return (
                       <div key={run.id} className="flex items-start gap-2.5 border-t border-border px-5 py-2.5 text-xs">
-                        <div className={cn('mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full', statusDotClass(run.status))} />
+                        <div className={cn('mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full', view.dot)} />
                         <div className="min-w-0 flex-1">
                           <div className="flex gap-2.5 text-muted-foreground">
-                            <span className={cn('font-semibold uppercase', statusTextClass(run.status))}>{run.status}</span>
+                            <span className={cn('font-semibold uppercase', view.text)}>{view.label}</span>
                             <span>{new Date(run.startedAt).toLocaleString()}</span>
                             {run.finishedAt && (
                               <span className="text-muted-foreground">
@@ -377,7 +393,12 @@ export default function JobsPage() {
                               </span>
                             )}
                           </div>
-                          {run.output && (
+                          {skipped ? (
+                            <div className="mt-1 text-2xs text-muted-foreground">
+                              <span className="italic">Notification skipped.</span>
+                              {reason && <span className="text-foreground"> {reason}</span>}
+                            </div>
+                          ) : run.output && (
                             <pre className="mt-1 max-h-[100px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-card px-2 py-1.5 font-mono text-2xs text-foreground">{run.output.slice(0, 500)}</pre>
                           )}
                           {run.error && (
@@ -387,7 +408,8 @@ export default function JobsPage() {
                           )}
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}
@@ -426,6 +448,7 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
   const [targetType, setTargetType] = useState<'channel' | 'dm'>(job?.targetType ?? 'channel');
   const [targetId, setTargetId] = useState(job?.targetId ?? '');
   const [enabled, setEnabled] = useState(job?.enabled ?? true);
+  const [skipWhen, setSkipWhen] = useState(job?.skipWhen ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -437,7 +460,7 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
     setSaving(true);
     setError('');
     try {
-      const body = { agentId, name, prompt, cronSchedule, targetType, targetId, enabled };
+      const body = { agentId, name, prompt, cronSchedule, targetType, targetId, enabled, skipWhen };
       const r = isEdit
         ? await fetch(`/api/jobs/${job!.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await fetch('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -540,6 +563,17 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
           </div>
           <Input type="text" value={targetId} onChange={e => setTargetId(e.target.value)}
             placeholder={targetType === 'channel' ? 'Channel ID (e.g. C0ANTCQ918U)' : 'User ID (e.g. U095GQAM6PL)'} />
+        </div>
+
+        {/* Skip notification condition (optional) */}
+        <div>
+          <Label className={labelClass}>Skip notification when… <span className="font-normal text-muted-foreground">(optional)</span></Label>
+          <Textarea value={skipWhen} onChange={e => setSkipWhen(e.target.value)} rows={2}
+            placeholder="e.g. there are no fraud cases to report (the report is empty)" />
+          <div className="mt-1 text-2xs text-muted-foreground">
+            Leave blank to always post. If set, the agent stays silent (no message) on runs where this condition holds.
+            Phrase it so it can be judged from this run alone — the agent has no memory of previous runs.
+          </div>
         </div>
 
         {/* Enabled */}
