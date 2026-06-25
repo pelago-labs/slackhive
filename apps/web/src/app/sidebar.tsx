@@ -10,13 +10,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState, createContext } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, createContext } from 'react';
 import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 import { LayoutDashboard, Activity as ActivityIcon, LineChart, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut, PanelLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WhatsNew } from './_components/WhatsNew';
+
+// Run before paint on the client (avoid the SSR no-op warning on the server).
+const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 const STATUS_DOT: Record<string, string> = {
   running: 'var(--green)', stopped: 'var(--border-2)', error: 'var(--red)', stale: 'var(--amber)',
@@ -38,6 +41,14 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
     return next;
   });
   const [profileOpen, setProfileOpen] = useState(false);
+  // Read the persisted collapsed state BEFORE first paint so a collapsed sidebar
+  // doesn't flash open then animate shut on reload. `mounted` keeps the width
+  // transition off for that first commit so there's no animation on load either.
+  const [mounted, setMounted] = useState(false);
+  useIsoLayoutEffect(() => {
+    try { if (localStorage.getItem('slackhive-sidebar-collapsed') === '1') setCollapsed(true); } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { setMounted(true); }, []);
   const profileRef = useRef<HTMLDivElement>(null);
   // Close the profile menu on outside click / Escape (it's not portaled, so a
   // backdrop div would be trapped under the sidebar's stacking context).
@@ -59,7 +70,6 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
     const check = () => setIsMobile(window.innerWidth <= 768);
     check();
     window.addEventListener('resize', check);
-    try { if (localStorage.getItem('slackhive-sidebar-collapsed') === '1') setCollapsed(true); } catch { /* ignore */ }
     return () => window.removeEventListener('resize', check);
   }, []);
 
@@ -100,7 +110,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         style={{
           width: isMobile ? W_OPEN : (collapsed ? W_CLOSED : W_OPEN),
           left: isMobile ? (mobileOpen ? 0 : -W_OPEN) : 0,
-          transition: isMobile ? 'left 0.25s cubic-bezier(0.16,1,0.3,1)' : 'width 0.2s cubic-bezier(0.16,1,0.3,1)',
+          transition: !mounted ? 'none' : (isMobile ? 'left 0.25s cubic-bezier(0.16,1,0.3,1)' : 'width 0.2s cubic-bezier(0.16,1,0.3,1)'),
         }}
       >
 
@@ -122,7 +132,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={branding.logoUrl || '/logo.svg'} alt="Logo" className="h-7 w-7 shrink-0 rounded-md object-cover" />
-              <div className="min-w-0 flex-1 whitespace-nowrap text-base font-semibold tracking-tight text-foreground">{branding.appName}</div>
+              <div className="min-w-0 flex-1 whitespace-nowrap text-md font-semibold tracking-tight text-foreground">{branding.appName}</div>
               {!isMobile && (
                 <button
                   onClick={toggleCollapsed}
