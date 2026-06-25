@@ -4,39 +4,40 @@
 
 /* ─── Design Tokens — Light ──────────────────────────────────────────────────── */
 :root, [data-theme="light"] {
-  --bg:        #fafafa;
+  --bg:        #f7f8fa;
   --surface:   #ffffff;
-  --surface-2: #f5f5f5;
-  --surface-3: #ebebeb;
-  --border:    #e5e5e5;
-  --border-2:  #d4d4d4;
-  --accent:    #171717;
-  --accent-2:  #404040;
+  --surface-2: #f2f4f7;
+  --surface-3: #e8ebef;
+  --border:    #dfe3e8;
+  --border-2:  #c8ced6;
+  --accent:    #111827;
+  --accent-2:  #374151;
   --accent-fg: #ffffff;
-  --blue:      #2563eb;
-  --green:     #059669;
-  --red:       #dc2626;
-  --amber:     #d97706;
-  --text:      #0a0a0a;
-  --text-2:    #262626;
-  --muted:     #737373;
-  --subtle:    #a3a3a3;
-  --text-tertiary: #b8b8b8;   /* dimmest ink — timestamps / de-emphasised meta */
+  --blue:      #3157c9;
+  --green:     #087f5b;
+  --red:       #c92a2a;
+  --amber:     #b7791f;
+  --text:      #111827;
+  --text-2:    #273244;
+  --muted:     #667085;
+  --subtle:    #98a2b3;
+  --text-tertiary: #b8c0cc;   /* dimmest ink — timestamps / de-emphasised meta */
   --font-sans: var(--font-inter), 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: var(--font-jb-mono), 'JetBrains Mono', ui-monospace, monospace;
   /* Linear-style: depth from surface + hairline, not heavy drop shadows. Cards
      stay near-flat (border does the work); only floating overlays get real lift. */
-  --shadow-sm:    0 1px 1px rgba(0,0,0,0.03);
-  --shadow-md:    0 2px 6px rgba(0,0,0,0.05);
-  --shadow-lg:    0 8px 28px rgba(0,0,0,0.07);
-  --shadow-card:  rgba(0,0,0,0.03) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 1px 3px;
-  --shadow-hover: rgba(0,0,0,0.06) 0px 3px 10px;
-  --shadow-modal: 0 16px 48px rgba(0,0,0,0.14);
-  --radius:       10px;
+  --shadow-sm:    0 1px 2px rgba(16,24,40,0.04);
+  --shadow-md:    0 2px 8px rgba(16,24,40,0.06);
+  --shadow-lg:    0 12px 32px rgba(16,24,40,0.10);
+  --shadow-card:  0 1px 2px rgba(16,24,40,0.04), 0 0 0 1px rgba(16,24,40,0.02);
+  --shadow-hover: 0 8px 20px rgba(16,24,40,0.08);
+  --shadow-modal: 0 20px 56px rgba(16,24,40,0.18);
+  --shadow-focus: 0 0 0 3px rgba(49,87,201,0.14);
+  --radius:       8px;
   --radius-sm:    6px;
-  --radius-md:    14px;
-  --radius-lg:    20px;
-  --radius-xl:    28px;
+  --radius-md:    8px;
+  --radius-lg:    12px;
+  --radius-xl:    16px;
   --red-soft-bg:  #fef2f2;
   --red-soft-border: #fecaca;
   --amber-soft-bg: #fffbeb;
@@ -46,25 +47,25 @@
      Backs the Tailwind color map via hsl(var(--sd-*)). This is the "neutral"
      ramp, which is exactly our existing palette. Kept under `--sd-*` so the
      legacy hex tokens above stay intact for un-migrated inline styles. */
-  --sd-background: 0 0% 98%;          /* --bg */
-  --sd-foreground: 0 0% 3.9%;         /* --text */
+  --sd-background: 220 23% 97%;       /* --bg */
+  --sd-foreground: 221 39% 11%;       /* --text */
   --sd-card: 0 0% 100%;               /* --surface */
-  --sd-card-foreground: 0 0% 3.9%;
+  --sd-card-foreground: 221 39% 11%;
   --sd-popover: 0 0% 100%;
-  --sd-popover-foreground: 0 0% 3.9%;
-  --sd-primary: 0 0% 9%;              /* --accent (brand) */
+  --sd-popover-foreground: 221 39% 11%;
+  --sd-primary: 221 39% 11%;          /* --accent (brand) */
   --sd-primary-foreground: 0 0% 98%;
-  --sd-secondary: 0 0% 96.1%;         /* --surface-2 */
-  --sd-secondary-foreground: 0 0% 9%;
-  --sd-muted: 0 0% 96.1%;
-  --sd-muted-foreground: 0 0% 45.1%;  /* --muted text */
-  --sd-accent: 0 0% 96.1%;            /* subtle hover bg = --surface-2 */
-  --sd-accent-foreground: 0 0% 9%;
-  --sd-destructive: 0 65% 51%;        /* desaturated red */
+  --sd-secondary: 220 20% 96%;        /* --surface-2 */
+  --sd-secondary-foreground: 221 39% 11%;
+  --sd-muted: 220 20% 96%;
+  --sd-muted-foreground: 220 12% 40%; /* --muted text */
+  --sd-accent: 220 20% 96%;           /* subtle hover bg = --surface-2 */
+  --sd-accent-foreground: 221 39% 11%;
+  --sd-destructive: 0 65% 48%;        /* desaturated red */
   --sd-destructive-foreground: 0 0% 98%;
-  --sd-border: 0 0% 89.8%;            /* --border */
-  --sd-input: 0 0% 89.8%;
-  --sd-ring: 0 0% 45.1%;              /* calm focus ring */
+  --sd-border: 214 17% 89%;           /* --border */
+  --sd-input: 214 17% 89%;
+  --sd-ring: 226 61% 49%;             /* calm focus ring */
 
   /* ── Type scale (semantic, baked tracking/line-height lives in tailwind) ──── */
   --text-2xs: 11px;
@@ -86,10 +87,10 @@
   /* Desaturated semantic palette (calmer than Tailwind 500/600). Defined as HSL
      channels so the Tailwind aliases can take `/ <alpha-value>` (bg-blue/10 etc);
      the hex var() forms are derived for inline-style use. */
-  --blue-hsl:  225 56% 48%;
-  --green-hsl: 160 74% 30%;
-  --red-hsl:   0 60% 50%;
-  --amber-hsl: 36 89% 40%;
+  --blue-hsl:  226 61% 49%;
+  --green-hsl: 160 88% 26%;
+  --red-hsl:   0 65% 48%;
+  --amber-hsl: 37 71% 42%;
   --blue:  hsl(var(--blue-hsl));
   --green: hsl(var(--green-hsl));
   --red:   hsl(var(--red-hsl));
@@ -98,61 +99,62 @@
 
 /* ─── Design Tokens — Dark ───────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --bg:        #0a0a0a;
-  --surface:   #141414;
-  --surface-2: #1c1c1c;
-  --surface-3: #262626;
-  --border:    #2a2a2a;
-  --border-2:  #3a3a3a;
-  --accent:    #f5f5f5;
-  --accent-2:  #d4d4d4;
+  --bg:        #0b0d12;
+  --surface:   #11141b;
+  --surface-2: #181c25;
+  --surface-3: #222836;
+  --border:    #252b36;
+  --border-2:  #374151;
+  --accent:    #f8fafc;
+  --accent-2:  #d7dde7;
   --accent-fg: #0a0a0a;
-  --blue:      #3b82f6;
-  --green:     #10b981;
-  --red:       #ef4444;
-  --amber:     #f59e0b;
-  --text:      #f5f5f5;
-  --text-2:    #e5e5e5;
-  --muted:     #a3a3a3;
-  --subtle:    #737373;
-  --text-tertiary: #5c5c5c;   /* dimmest ink — timestamps / de-emphasised meta */
-  --shadow-sm:    0 1px 1px rgba(0,0,0,0.15);
-  --shadow-md:    0 2px 6px rgba(0,0,0,0.2);
-  --shadow-lg:    0 8px 28px rgba(0,0,0,0.3);
-  --shadow-card:  rgba(255,255,255,0.04) 0px 0px 0px 1px, rgba(0,0,0,0.18) 0px 1px 3px;
-  --shadow-hover: rgba(0,0,0,0.28) 0px 3px 10px;
-  --shadow-modal: 0 16px 48px rgba(0,0,0,0.45);
+  --blue:      #7292f6;
+  --green:     #35c08c;
+  --red:       #ff6b6b;
+  --amber:     #f6bd4b;
+  --text:      #f4f7fb;
+  --text-2:    #dce3ee;
+  --muted:     #9aa4b2;
+  --subtle:    #697386;
+  --text-tertiary: #4f5868;   /* dimmest ink — timestamps / de-emphasised meta */
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.28);
+  --shadow-md:    0 2px 10px rgba(0,0,0,0.32);
+  --shadow-lg:    0 14px 40px rgba(0,0,0,0.42);
+  --shadow-card:  0 1px 2px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.02);
+  --shadow-hover: 0 10px 28px rgba(0,0,0,0.36);
+  --shadow-modal: 0 24px 64px rgba(0,0,0,0.55);
+  --shadow-focus: 0 0 0 3px rgba(114,146,246,0.22);
   --red-soft-bg:  rgba(239,68,68,0.1);
   --red-soft-border: rgba(239,68,68,0.25);
   --amber-soft-bg: rgba(245,158,11,0.1);
   --amber-soft-border: rgba(245,158,11,0.25);
 
   /* ── shadcn token contract (HSL channels) — Dark ──────────────────────────── */
-  --sd-background: 0 0% 3.9%;         /* --bg #0a0a0a */
-  --sd-foreground: 0 0% 96.1%;        /* --text */
-  --sd-card: 0 0% 7.8%;               /* --surface #141414 */
-  --sd-card-foreground: 0 0% 96.1%;
-  --sd-popover: 0 0% 7.8%;
-  --sd-popover-foreground: 0 0% 96.1%;
-  --sd-primary: 0 0% 96.1%;           /* --accent (near-white) */
-  --sd-primary-foreground: 0 0% 9%;
-  --sd-secondary: 0 0% 11%;           /* --surface-2 #1c1c1c */
-  --sd-secondary-foreground: 0 0% 96.1%;
-  --sd-muted: 0 0% 11%;
-  --sd-muted-foreground: 0 0% 63.9%;  /* --muted text */
-  --sd-accent: 0 0% 11%;
-  --sd-accent-foreground: 0 0% 96.1%;
-  --sd-destructive: 0 58% 48%;        /* desaturated red */
-  --sd-destructive-foreground: 0 0% 96.1%;
-  --sd-border: 0 0% 16.5%;            /* --border #2a2a2a */
-  --sd-input: 0 0% 16.5%;
-  --sd-ring: 0 0% 63.9%;
+  --sd-background: 222 24% 6%;        /* --bg */
+  --sd-foreground: 210 45% 97%;       /* --text */
+  --sd-card: 222 23% 9%;              /* --surface */
+  --sd-card-foreground: 210 45% 97%;
+  --sd-popover: 222 23% 9%;
+  --sd-popover-foreground: 210 45% 97%;
+  --sd-primary: 210 45% 97%;          /* --accent (near-white) */
+  --sd-primary-foreground: 221 39% 11%;
+  --sd-secondary: 221 21% 12%;        /* --surface-2 */
+  --sd-secondary-foreground: 210 45% 97%;
+  --sd-muted: 221 21% 12%;
+  --sd-muted-foreground: 218 14% 65%; /* --muted text */
+  --sd-accent: 221 21% 12%;
+  --sd-accent-foreground: 210 45% 97%;
+  --sd-destructive: 0 100% 71%;       /* desaturated red */
+  --sd-destructive-foreground: 221 39% 11%;
+  --sd-border: 218 19% 18%;           /* --border */
+  --sd-input: 218 19% 18%;
+  --sd-ring: 226 87% 71%;
 
   /* Desaturated semantic palette — dark. */
-  --blue-hsl:  222 58% 59%;
-  --green-hsl: 159 55% 41%;
-  --red-hsl:   0 69% 61%;
-  --amber-hsl: 37 73% 55%;
+  --blue-hsl:  226 87% 71%;
+  --green-hsl: 157 54% 48%;
+  --red-hsl:   0 100% 71%;
+  --amber-hsl: 39 90% 63%;
   --blue:  hsl(var(--blue-hsl));
   --green: hsl(var(--green-hsl));
   --red:   hsl(var(--red-hsl));
@@ -189,10 +191,21 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'cv11', 'ss01';
   text-rendering: optimizeLegibility;
+}
+
+a, button, input, textarea, select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: var(--shadow-focus);
 }
 
 ::selection { background: rgba(23,23,23,0.12); }
@@ -243,13 +256,13 @@ body {
 }
 
 /* ─── UI kit (components/ui.tsx) ─────────────────────────────────────────────── */
-.ui-card { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+.ui-card { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s, background-color 0.15s; }
 .ui-card-hover { cursor: pointer; }
 /* !important so the hover border/shadow win over the inline base border/boxShadow
    that cards set (inline styles otherwise beat class :hover rules). */
 .ui-card-hover:hover {
   border-color: var(--border-2) !important;
-  box-shadow: var(--shadow-md) !important;
+  box-shadow: var(--shadow-hover) !important;
   transform: translateY(-1px);
 }
 

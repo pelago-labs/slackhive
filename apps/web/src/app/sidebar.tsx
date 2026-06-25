@@ -16,7 +16,6 @@ import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
 import { LayoutDashboard, Activity as ActivityIcon, LineChart, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut, PanelLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { WhatsNew } from './_components/WhatsNew';
 
 // Run before paint on the client (avoid the SSR no-op warning on the server).
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -237,9 +236,8 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         <div className="shrink-0 border-t border-border px-3 py-2">
 
           {!collapsed && (
-            <div className="flex items-center justify-between px-1 pb-1 pl-2.5">
+            <div className="px-1 pb-1 pl-2.5">
               <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">Workspace</span>
-              <WhatsNew />
             </div>
           )}
 

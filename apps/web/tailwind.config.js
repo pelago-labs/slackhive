@@ -75,19 +75,17 @@ module.exports = {
         mono: ['var(--font-jb-mono)', 'JetBrains Mono', 'ui-monospace', 'monospace'],
       },
       fontSize: {
-        // Type scale (11/12/13/14/16/18/20/24/30) with Linear-style negative tracking
-        // baked in: the bigger the text, the tighter — and headings get tighter line
-        // height too. tuple = [size, { lineHeight, letterSpacing }]. Uppercase labels
-        // still override tracking via explicit `tracking-[…]` classes.
+        // Type scale (11/12/13/14/16/18/20/24/30). Keep tracking neutral so
+        // dense operational screens stay crisp and predictable.
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],                               // 11 — captions/labels
         xs:    ['0.75rem',   { lineHeight: '1rem' }],                               // 12
         sm:    ['0.8125rem', { lineHeight: '1.25rem' }],                            // 13 — body-small
-        base:  ['0.875rem',  { lineHeight: '1.5rem', letterSpacing: '-0.006em' }],  // 14 — body
-        md:    ['1rem',      { lineHeight: '1.5rem', letterSpacing: '-0.011em' }],  // 16 — subtitle
-        lg:    ['1.125rem',  { lineHeight: '1.5rem', letterSpacing: '-0.014em' }],  // 18
-        xl:    ['1.25rem',   { lineHeight: '1.625rem', letterSpacing: '-0.017em' }],// 20
-        '2xl': ['1.5rem',    { lineHeight: '1.75rem', letterSpacing: '-0.02em' }],  // 24 — h2
-        '3xl': ['1.875rem',  { lineHeight: '2rem', letterSpacing: '-0.024em' }],    // 30 — h1
+        base:  ['0.875rem',  { lineHeight: '1.5rem', letterSpacing: '0' }],         // 14 — body
+        md:    ['1rem',      { lineHeight: '1.5rem', letterSpacing: '0' }],         // 16 — subtitle
+        lg:    ['1.125rem',  { lineHeight: '1.5rem', letterSpacing: '0' }],         // 18
+        xl:    ['1.25rem',   { lineHeight: '1.625rem', letterSpacing: '0' }],       // 20
+        '2xl': ['1.5rem',    { lineHeight: '1.75rem', letterSpacing: '0' }],        // 24 — h2
+        '3xl': ['1.875rem',  { lineHeight: '2rem', letterSpacing: '0' }],           // 30 — h1
       },
       boxShadow: {
         sm: 'var(--shadow-sm)',
