@@ -288,6 +288,7 @@ function TaskCard(props: {
   const primaryAgent = agentIds[0] ?? task.initialAgentId;
   const primaryAgentName = primaryAgent ? agentById.get(primaryAgent)?.name : undefined;
   const href = `/activity/${encodeURIComponent(task.id)}`;
+  const initiator = displayInitiator(task);
 
   return (
     <Link
@@ -300,7 +301,6 @@ function TaskCard(props: {
         {task.sensitive && (
           <ShieldAlert size={12} className="shrink-0 text-amber" aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
         )}
-        <InitiatorBadge task={task} />
         <span className="ml-auto shrink-0 text-2xs text-muted-foreground/80">{relativeTime(task.lastActivityAt)}</span>
       </div>
 
@@ -314,7 +314,16 @@ function TaskCard(props: {
 
       {/* Footer: compact metadata chips */}
       <div className="mt-2.5 flex items-center gap-1.5">
-        {primaryAgentName && <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded-md bg-muted px-1.5 py-px text-2xs font-medium text-muted-foreground">{primaryAgentName}</span>}
+        <div className="flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+          <UserRound size={11} className="shrink-0" />
+          <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{initiator}</span>
+          {primaryAgentName && (
+            <>
+              <span className="shrink-0 text-border">·</span>
+              <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{primaryAgentName}</span>
+            </>
+          )}
+        </div>
         <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
           {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
           {!!task.feedbackDown && <Chip color="#dc2626"><ThumbsDown size={10} />{task.feedbackDown}</Chip>}
@@ -326,26 +335,10 @@ function TaskCard(props: {
   );
 }
 
-function InitiatorBadge({ task }: { task: Task }): React.JSX.Element {
-  const label = task.initiatorHandle
-    ? `@${task.initiatorHandle}`
-    : task.initiatorUserId
-      ? task.initiatorUserId
-      : 'Unknown';
-  const initials = task.initiatorHandle
-    ? task.initiatorHandle.slice(0, 2).toUpperCase()
-    : task.initiatorUserId
-      ? task.initiatorUserId.slice(0, 2).toUpperCase()
-      : '';
-
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-secondary px-1.5 py-px text-2xs text-muted-foreground">
-      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-border bg-card text-[8px] font-semibold text-muted-foreground">
-        {initials || <UserRound size={10} />}
-      </span>
-      <span className="max-w-[92px] overflow-hidden text-ellipsis whitespace-nowrap font-medium text-muted-foreground">{label}</span>
-    </span>
-  );
+function displayInitiator(task: Task): string {
+  if (task.initiatorHandle) return task.initiatorHandle.replace(/^@/, '');
+  if (task.initiatorUserId) return task.initiatorUserId;
+  return 'Unknown user';
 }
 
 /** Linear-style short, stable, human-readable ref from the (ugly) task id. Cosmetic. */
