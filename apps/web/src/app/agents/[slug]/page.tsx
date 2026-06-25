@@ -1697,18 +1697,18 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
         />
       )}
 
-      {/* ── Left rail + content ────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-start gap-6">
-        {/* Sub-nav rail */}
-        <nav className="flex w-[188px] shrink-0 flex-col gap-0.5 rounded-[14px] border border-border bg-card p-1.5 shadow-sm">
+      {/* ── Top sub-nav + content ──────────────────────────────────────── */}
+      <div className="flex flex-col gap-4">
+        {/* Sub-nav tab bar */}
+        <nav className="inline-flex w-fit shrink-0 flex-row gap-0.5 rounded-xl border border-border bg-card p-1.5 shadow-sm">
           {([
             { id: 'system' as const, label: 'System Prompt', Icon: FileText },
             { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
             { id: 'memory' as const, label: 'Memory', Icon: Database },
           ]).map(s => (
             <button key={s.id} onClick={() => setSection(s.id)} className={cn(
-              'inline-flex cursor-pointer items-center gap-[9px] rounded-[9px] px-3 py-[9px] text-left text-sm',
-              section === s.id ? 'bg-secondary font-semibold text-foreground' : 'bg-transparent font-medium text-muted-foreground',
+              'inline-flex cursor-pointer items-center gap-[9px] rounded-[9px] px-3 py-[9px] text-left text-sm transition-colors',
+              section === s.id ? 'bg-secondary font-semibold text-foreground' : 'bg-transparent font-medium text-muted-foreground hover:text-foreground',
             )}><s.Icon size={15} />{s.label}</button>
           ))}
         </nav>
@@ -2097,14 +2097,8 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                     {regenerating && (
                       <span
                         aria-label="Regenerating"
-                        className="shrink-0"
-                        style={{
-                          width: 8, height: 8,
-                          border: '1.5px solid var(--border-2)',
-                          borderTopColor: 'var(--text)',
-                          borderRadius: '50%',
-                          animation: 'spin 0.8s linear infinite',
-                        }}
+                        className="h-2 w-2 shrink-0 rounded-full border-[1.5px] border-border border-t-foreground"
+                        style={{ animation: 'spin 0.8s linear infinite' }}
                       />
                     )}
                     desc
@@ -2184,14 +2178,8 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
               <div className="pointer-events-none absolute inset-x-0 bottom-8 top-6 flex items-center justify-center gap-2.5 rounded-md bg-black/35 text-sm font-medium text-foreground backdrop-blur-[2px]">
                 <span
                   aria-label="Regenerating"
-                  className="shrink-0"
-                  style={{
-                    width: 14, height: 14,
-                    border: '2px solid var(--border-2)',
-                    borderTopColor: 'var(--text)',
-                    borderRadius: '50%',
-                    animation: 'spin 0.8s linear infinite',
-                  }}
+                  className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-border border-t-foreground"
+                  style={{ animation: 'spin 0.8s linear infinite' }}
                 />
                 Regenerating with AI…
               </div>
@@ -2373,7 +2361,7 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading tools…
+          <Loader2 size={14} className="animate-spin" /> Loading tools…
         </div>
       ) : loadError ? (
         <div className="rounded-xl bg-destructive/10 px-5 py-4 text-sm text-destructive">
@@ -3627,8 +3615,7 @@ function PersonaLibraryModal({
                                 <input type="checkbox"
                                   checked={skillSel.has(skill.filename)}
                                   onChange={() => onToggleSkill(skill.filename)}
-                                  className="h-[13px] w-[13px] shrink-0 cursor-pointer"
-                                  style={{ accentColor: 'var(--accent)' }}
+                                  className="h-[13px] w-[13px] shrink-0 cursor-pointer accent-primary"
                                 />
                                 <span className="shrink-0 font-mono text-xs text-muted-foreground">{skill.category}/</span>
                                 <span className="flex-1 font-mono text-xs text-foreground">{skill.filename}</span>
@@ -3670,7 +3657,7 @@ function PersonaLibraryModal({
                     No personas match your search.
                   </div>
                 ) : (
-                  <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+                  <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
                     {filteredPersonas.map(p => (
                       <button key={p.id} onClick={() => onSelectPersona(p)}
                         className="flex min-w-0 cursor-pointer flex-col items-start gap-[7px] rounded-lg border border-border bg-card p-3 text-left shadow-sm transition-all hover:border-primary hover:shadow-md"
@@ -3683,8 +3670,7 @@ function PersonaLibraryModal({
                         <span className="text-sm font-semibold leading-tight text-foreground">
                           {p.name}
                         </span>
-                        <p className="m-0 overflow-hidden text-xs leading-snug text-muted-foreground"
-                          style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>{p.cardDescription}</p>
+                        <p className="m-0 line-clamp-2 overflow-hidden text-xs leading-snug text-muted-foreground">{p.cardDescription}</p>
                         <div className="flex w-full min-w-0 items-center justify-between gap-1">
                           <span className="min-w-0 flex-shrink overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-border bg-secondary px-1.5 py-px text-2xs text-muted-foreground">{p.tags[0]}</span>
                           {p.skills.length > 0 && (
@@ -3995,35 +3981,33 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   const goNewer = () => { if (selIndex > 0) setSelectedId(snapshots[selIndex - 1].id); };
   const goOlder = () => { if (selIndex >= 0 && selIndex < snapshots.length - 1) setSelectedId(snapshots[selIndex + 1].id); };
 
-  const ghostBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--font-sans)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' };
-  const primaryBtnStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 8, border: 'none', color: 'var(--accent-fg)', fontFamily: 'var(--font-sans)' };
+  const ghostBtnClass = 'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 py-[7px] text-xs font-medium text-foreground';
+  const primaryBtnClass = 'inline-flex items-center gap-1.5 rounded-lg border-none px-3.5 py-[7px] text-xs font-semibold text-primary-foreground';
   const pagerBtnStyle = (disabled: boolean): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, fontFamily: 'var(--font-sans)', border: '1px solid var(--border)', background: 'var(--surface)', color: disabled ? 'var(--subtle)' : 'var(--text)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 });
 
   // Compare target is always live current state — restore preview is current-only.
   const currentAsSnapshot: AgentSnapshot | null = liveSnapshot;
 
   if (loading) return (
-    <div style={{ display: 'flex', gap: 20, minHeight: 500 }}>
-      <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <div style={{ width: 70, height: 13, borderRadius: 5, background: 'var(--surface-2)' }} />
-          <div style={{ width: 110, height: 30, borderRadius: 8, background: 'var(--surface-2)' }} />
+    <div className="flex min-h-[500px] gap-5">
+      <div className="flex w-[280px] shrink-0 flex-col gap-2">
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="h-[13px] w-[70px] rounded-[5px] bg-secondary" />
+          <div className="h-[30px] w-[110px] rounded-lg bg-secondary" />
         </div>
         {[1, 2, 3, 4].map(i => (
-          <div key={i} style={{
-            background: 'var(--surface)', borderRadius: 'var(--radius)', padding: '14px 16px',
-            boxShadow: 'var(--shadow-card)', opacity: 1 - (i - 1) * 0.2,
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <div style={{ width: 70, height: 18, borderRadius: 6, background: 'var(--surface-2)' }} />
-              <div style={{ width: 50, height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
+          <div key={i} className="rounded-md bg-card px-4 py-3.5 shadow"
+            style={{ opacity: 1 - (i - 1) * 0.2 }}>
+            <div className="mb-2.5 flex items-center justify-between">
+              <div className="h-[18px] w-[70px] rounded-md bg-secondary" />
+              <div className="h-[11px] w-[50px] rounded-sm bg-secondary" />
             </div>
-            <div style={{ width: '55%', height: 11, borderRadius: 4, background: 'var(--surface-2)' }} />
+            <div className="h-[11px] w-[55%] rounded-sm bg-secondary" />
           </div>
         ))}
       </div>
-      <div style={{ flex: 1, background: 'var(--surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ fontSize: 13, color: 'var(--subtle)' }}>Loading history…</div>
+      <div className="flex flex-1 items-center justify-center rounded-lg bg-card shadow">
+        <div className="text-sm text-muted-foreground">Loading history…</div>
       </div>
     </div>
   );
@@ -4031,53 +4015,54 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
   return (
     <div className="fade-up">
       {/* ── Section header ─────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
-        <div style={{ display: 'flex', gap: 13, alignItems: 'flex-start' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}><History size={19} /></div>
+      <div className="mb-[22px] flex flex-wrap items-start justify-between gap-3.5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-secondary text-foreground"><History size={19} /></div>
           <div>
-            <h2 style={{ margin: '0 0 3px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>History</h2>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 520 }}>View and compare snapshots of this agent's configuration over time.</p>
+            <h2 className="mb-[3px] text-xl font-semibold tracking-[-0.01em] text-foreground">History</h2>
+            <p className="max-w-[520px] text-sm leading-normal text-muted-foreground">View and compare snapshots of this agent's configuration over time.</p>
           </div>
         </div>
-        {msg && <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>{msg}</span>}
+        {msg && <span className="self-center text-xs text-muted-foreground">{msg}</span>}
       </div>
 
-      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+      <div className="flex items-start gap-5">
         {/* ── Left: snapshot timeline ──────────────────────────────────── */}
-        <div style={{ width: 300, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '13px 15px', borderBottom: '1px solid var(--border)' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase' }}>
+        <div className="w-[300px] shrink-0 overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="flex items-center justify-between gap-2.5 border-b border-border px-[15px] py-[13px]">
+            <span className="inline-flex items-center gap-[7px] text-xs font-bold uppercase tracking-[0.07em] text-muted-foreground">
               <History size={13} /> {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
             </span>
             {canEdit && (
-              <button onClick={handleCreateManual} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '6px 11px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Plus size={13} /> Snapshot</button>
+              <button onClick={handleCreateManual} className="inline-flex cursor-pointer items-center gap-[5px] rounded-lg border-none bg-primary px-[11px] py-1.5 text-xs font-semibold text-primary-foreground"><Plus size={13} /> Snapshot</button>
             )}
           </div>
 
           {snapshots.length === 0 ? (
-            <div style={{ padding: '32px 20px', textAlign: 'center' }}>
-              <Camera size={22} style={{ color: 'var(--border-2)' }} />
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: '10px 0 6px' }}>No snapshots yet</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>Snapshots are saved automatically when you change skills, tools, or capabilities.</div>
+            <div className="px-5 py-8 text-center">
+              <Camera size={22} className="text-border" />
+              <div className="my-1.5 mt-2.5 text-sm font-semibold text-foreground">No snapshots yet</div>
+              <div className="text-xs leading-relaxed text-muted-foreground">Snapshots are saved automatically when you change skills, tools, or capabilities.</div>
             </div>
           ) : (
-            <div style={{ position: 'relative', padding: '14px 15px' }}>
-              <div style={{ position: 'absolute', left: 20, top: 22, bottom: 22, width: 2, background: 'var(--border)' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <div className="relative px-[15px] py-3.5">
+              <div className="absolute bottom-[22px] left-5 top-[22px] w-0.5 bg-border" />
+              <div className="flex flex-col gap-[9px]">
                 {snapshots.map((snap, i) => {
                   const isSel = snap.id === selectedId;
                   return (
-                    <div key={snap.id} onClick={() => setSelectedId(snap.id)} style={{ position: 'relative', paddingLeft: 20, cursor: 'pointer' }}>
-                      <span style={{ position: 'absolute', left: 0, top: 15, width: 12, height: 12, borderRadius: '50%', background: isSel ? 'var(--accent)' : 'var(--surface)', border: `2px solid ${isSel ? 'var(--accent)' : 'var(--border-2)'}`, boxShadow: '0 0 0 3px var(--surface)', zIndex: 1 }} />
-                      <div style={{ border: `1px solid ${isSel ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 11, background: isSel ? 'var(--surface-2)' : 'var(--surface)', padding: '10px 12px', transition: 'border-color .15s, background .15s' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{TRIGGER_LABELS[snap.trigger] ?? snap.trigger}</span>
-                          {i === 0 && <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--accent-fg)', background: 'var(--accent)', borderRadius: 5, padding: '1px 6px', textTransform: 'uppercase' }}>Latest</span>}
-                          <ChevronRight size={14} style={{ color: 'var(--subtle)', marginLeft: 'auto', flexShrink: 0 }} />
+                    <div key={snap.id} onClick={() => setSelectedId(snap.id)} className="relative cursor-pointer pl-5">
+                      <span className="absolute left-0 top-[15px] z-[1] h-3 w-3 rounded-full shadow-[0_0_0_3px_var(--surface)]"
+                        style={{ background: isSel ? 'var(--accent)' : 'var(--surface)', border: `2px solid ${isSel ? 'var(--accent)' : 'var(--border-2)'}` }} />
+                      <div className={cn('rounded-xl border px-3 py-2.5 transition-colors', isSel ? 'border-primary bg-secondary' : 'border-border bg-card')}>
+                        <div className="flex items-center gap-[7px]">
+                          <span className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold text-foreground">{TRIGGER_LABELS[snap.trigger] ?? snap.trigger}</span>
+                          {i === 0 && <span className="rounded-[5px] bg-primary px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.04em] text-primary-foreground">Latest</span>}
+                          <ChevronRight size={14} className="ml-auto shrink-0 text-muted-foreground" />
                         </div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{fmt(snap.createdAt)}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 1 }}>by {snap.createdBy}</div>
-                        {snap.label && <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{snap.label}</div>}
+                        <div className="mt-1 text-2xs text-muted-foreground">{fmt(snap.createdAt)}</div>
+                        <div className="mt-px text-2xs text-muted-foreground">by {snap.createdBy}</div>
+                        {snap.label && <div className="mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap text-2xs italic text-muted-foreground">{snap.label}</div>}
                       </div>
                     </div>
                   );
@@ -4088,18 +4073,18 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
         </div>
 
         {/* ── Right: detail ────────────────────────────────────────────── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="min-w-0 flex-1">
           {loadingDetail ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ height: 36, borderRadius: 10, background: 'var(--surface-2)' }} />
-              <div style={{ height: 84, borderRadius: 12, background: 'var(--surface-2)' }} />
-              {[160, 120].map((h, i) => <div key={i} style={{ height: h, borderRadius: 12, background: 'var(--surface-2)', opacity: 1 - i * 0.3 }} />)}
+            <div className="flex flex-col gap-4">
+              <div className="h-9 rounded-lg bg-secondary" />
+              <div className="h-[84px] rounded-xl bg-secondary" />
+              {[160, 120].map((h, i) => <div key={i} className="rounded-xl bg-secondary" style={{ height: h, opacity: 1 - i * 0.3 }} />)}
             </div>
           ) : !fullSnapshot ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 360, border: '1px dashed var(--border)', borderRadius: 16, gap: 10, padding: 40 }}>
-              <History size={30} style={{ color: 'var(--border-2)' }} />
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Select a snapshot</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>Pick a snapshot on the left to see what changed and restore it if needed.</div>
+            <div className="flex min-h-[360px] flex-col items-center justify-center gap-2.5 rounded-2xl border border-dashed border-border p-10">
+              <History size={30} className="text-border" />
+              <div className="text-base font-semibold text-foreground">Select a snapshot</div>
+              <div className="max-w-[280px] text-center text-sm leading-relaxed text-muted-foreground">Pick a snapshot on the left to see what changed and restore it if needed.</div>
             </div>
           ) : (() => {
             // Restore-preview frame: current = OLD side, snapshot = NEW side.
@@ -4124,12 +4109,12 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             const hasOther = hasPermChanges || hasMcpChanges || hasChannelChanges;
 
             const Stat = ({ icon, color, value, label, sub }: { icon: React.ReactNode; color: string; value: number; label: string; sub: string }) => (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}>{icon}</div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1.1 }}>{value}</div>
-                  <div style={{ fontSize: 11, color: 'var(--subtle)' }}>{sub}</div>
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5">
+                <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px]" style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}>{icon}</div>
+                <div className="min-w-0">
+                  <div className="text-2xs text-muted-foreground">{label}</div>
+                  <div className="text-xl font-bold leading-tight text-foreground">{value}</div>
+                  <div className="text-xs text-muted-foreground">{sub}</div>
                 </div>
               </div>
             );
@@ -4137,31 +4122,31 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
             const shortId = fullSnapshot.id.length > 13 ? `${fullSnapshot.id.slice(0, 8)}…` : fullSnapshot.id;
 
             return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="flex flex-col gap-4">
                 {/* Detail header */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', minWidth: 0 }}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-[9px]">
                     <TriggerBadge trigger={fullSnapshot.trigger} />
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{fmt(fullSnapshot.createdAt)}</span>
-                    <span style={{ fontSize: 12, color: 'var(--subtle)' }}>· by {fullSnapshot.createdBy}</span>
-                    <span style={{ fontSize: 12, color: 'var(--subtle)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      · ID <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{shortId}</span>
-                      <button onClick={copyId} title="Copy snapshot ID" style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: copied ? 'var(--green)' : 'var(--subtle)', padding: 2 }}>
+                    <span className="text-sm font-medium text-foreground">{fmt(fullSnapshot.createdAt)}</span>
+                    <span className="text-xs text-muted-foreground">· by {fullSnapshot.createdBy}</span>
+                    <span className="inline-flex items-center gap-[5px] text-xs text-muted-foreground">
+                      · ID <span className="font-mono text-muted-foreground">{shortId}</span>
+                      <button onClick={copyId} title="Copy snapshot ID" className={cn('inline-flex cursor-pointer border-none bg-transparent p-0.5', copied ? 'text-green' : 'text-muted-foreground')}>
                         {copied ? <Check size={12} /> : <Copy size={12} />}
                       </button>
                     </span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, position: 'relative' }}>
-                    <button onClick={handleExport} style={ghostBtnStyle}><Download size={13} /> Export</button>
-                    {canEdit && <button onClick={() => handleRestore(fullSnapshot)} disabled={restoring} style={{ ...primaryBtnStyle, background: 'var(--green)', cursor: restoring ? 'not-allowed' : 'pointer' }}><RotateCcw size={13} /> {restoring ? 'Restoring…' : 'Restore'}</button>}
+                  <div className="relative flex shrink-0 items-center gap-2">
+                    <button onClick={handleExport} className={ghostBtnClass}><Download size={13} /> Export</button>
+                    {canEdit && <button onClick={() => handleRestore(fullSnapshot)} disabled={restoring} className={cn(primaryBtnClass, 'bg-green', restoring ? 'cursor-not-allowed' : 'cursor-pointer')}><RotateCcw size={13} /> {restoring ? 'Restoring…' : 'Restore'}</button>}
                     {canEdit && (
                       <>
-                        <button onClick={() => setMenuOpen(o => !o)} style={{ ...ghostBtnStyle, padding: '7px 9px' }}><MoreHorizontal size={15} /></button>
+                        <button onClick={() => setMenuOpen(o => !o)} className={cn(ghostBtnClass, 'px-[9px]')}><MoreHorizontal size={15} /></button>
                         {menuOpen && (
                           <>
-                            <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 10 }} />
-                            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 11, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: 5, minWidth: 160 }}>
-                              <button onClick={() => { setMenuOpen(false); handleDelete(fullSnapshot.id); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', fontSize: 12.5, color: 'var(--red)', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}><Trash2 size={13} /> Delete snapshot</button>
+                            <div onClick={() => setMenuOpen(false)} className="fixed inset-0 z-10" />
+                            <div className="absolute right-0 top-full z-[11] mt-1.5 min-w-[160px] rounded-lg border border-border bg-card p-[5px] shadow-md">
+                              <button onClick={() => { setMenuOpen(false); handleDelete(fullSnapshot.id); }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-none bg-transparent px-2.5 py-[7px] text-left text-xs text-red"><Trash2 size={13} /> Delete snapshot</button>
                             </div>
                           </>
                         )}
@@ -4172,7 +4157,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
 
                 {/* Stat strip */}
                 {cur && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                  <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
                     <Stat icon={<Plus size={17} />} color="var(--green)" value={added} label="Files added" sub="New files" />
                     <Stat icon={<Pencil size={15} />} color="var(--amber)" value={updated} label="Files updated" sub="Modified files" />
                     <Stat icon={<Minus size={17} />} color="var(--red)" value={removed} label="Files removed" sub="Removed files" />
@@ -4180,22 +4165,22 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
                 )}
 
                 {/* Caption */}
-                <div style={{ fontSize: 11.5, color: 'var(--subtle)', lineHeight: 1.5 }}>
-                  Diff vs the current configuration — <span style={{ color: 'var(--green)', fontWeight: 600 }}>green</span> is what Restore would add, <span style={{ color: 'var(--red)', fontWeight: 600 }}>red</span> what it would remove.
+                <div className="text-2xs leading-normal text-muted-foreground">
+                  Diff vs the current configuration — <span className="font-semibold text-green">green</span> is what Restore would add, <span className="font-semibold text-red">red</span> what it would remove.
                 </div>
 
                 {/* Diff */}
                 {!cur ? (
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '24px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13 }}>Loading comparison…</div>
+                  <div className="rounded-xl border border-border p-6 text-center text-sm text-muted-foreground">Loading comparison…</div>
                 ) : files.length === 0 && !hasOther ? (
-                  <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '28px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>This snapshot matches the current configuration — no differences.</div>
+                  <div className="rounded-xl border border-dashed border-border p-7 text-center text-sm text-muted-foreground">This snapshot matches the current configuration — no differences.</div>
                 ) : (
                   <>
                     {files.length > 0 && <FilesChanged files={files} />}
                     {hasOther && (
-                      <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-                        <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>Other changes</div>
-                        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      <div className="overflow-hidden rounded-xl border border-border">
+                        <div className="border-b border-border px-4 py-[11px] text-xs font-bold uppercase tracking-[0.07em] text-muted-foreground">Other changes</div>
+                        <div className="flex flex-col gap-3.5 p-4">
                           {hasPermChanges && <PermsDiff snapshot={fullSnapshot} current={cur} />}
                           {hasMcpChanges && <McpsDiff snapshot={fullSnapshot} current={cur} allMcps={allMcps} />}
                           {hasChannelChanges && <ChannelsDiff snapshot={fullSnapshot} current={cur} />}
@@ -4206,7 +4191,7 @@ function HistoryTab({ agentId, canEdit }: { agentId: string; canEdit: boolean })
                 )}
 
                 {/* Pager */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 2 }}>
+                <div className="mt-0.5 flex items-center justify-between gap-2.5">
                   <button onClick={goNewer} disabled={selIndex <= 0} style={pagerBtnStyle(selIndex <= 0)}><ArrowLeft size={14} /> Newer</button>
                   <button onClick={goOlder} disabled={selIndex < 0 || selIndex >= snapshots.length - 1} style={pagerBtnStyle(selIndex < 0 || selIndex >= snapshots.length - 1)}>Older <ArrowRight size={14} /></button>
                 </div>
