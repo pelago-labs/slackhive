@@ -14,7 +14,7 @@ import { useEffect, useRef, useState, createContext } from 'react';
 import type { Agent } from '@slackhive/shared';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
-import { LayoutDashboard, Activity as ActivityIcon, LineChart, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { LayoutDashboard, Activity as ActivityIcon, LineChart, Plus, BookOpen, Blocks, KeyRound, Clock, Settings as SettingsIcon, ChevronDown, FileText, ExternalLink, Sun, Moon, LogOut, PanelLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WhatsNew } from './_components/WhatsNew';
 
@@ -114,13 +114,13 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
               aria-label="Expand sidebar"
               className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >
-              <PanelLeftOpen size={18} strokeWidth={1.75} />
+              <PanelLeft size={18} strokeWidth={2} />
             </button>
           ) : (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={branding.logoUrl || '/logo.svg'} alt="Logo" className="h-7 w-7 shrink-0 rounded-md object-cover" />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="whitespace-nowrap text-base font-semibold tracking-tight text-foreground">{branding.appName}</div>
                 <div className="-mt-px whitespace-nowrap text-2xs text-muted-foreground">{branding.tagline}</div>
               </div>
@@ -129,9 +129,9 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                   onClick={toggleCollapsed}
                   title="Collapse sidebar"
                   aria-label="Collapse sidebar"
-                  className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 >
-                  <PanelLeftClose size={16} strokeWidth={1.75} />
+                  <PanelLeft size={18} strokeWidth={2} />
                 </button>
               )}
             </>
