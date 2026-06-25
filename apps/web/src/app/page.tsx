@@ -194,12 +194,12 @@ export default function Dashboard() {
     <PageShell maxWidth={1440}>
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div className="mb-7 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
         <div>
-          <h1 className="m-0 text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="m-0 text-2xl font-bold tracking-normal text-foreground">
             {title}
           </h1>
-          <p className="mt-1.5 text-base text-muted-foreground">
+          <p className="mt-1.5 text-sm text-muted-foreground">
             {loading ? 'Loading agents…' : `${running} of ${total} agent${total !== 1 ? 's' : ''} online`}
           </p>
         </div>
@@ -209,7 +209,7 @@ export default function Dashboard() {
             <div className="relative">
               <button
                 onClick={() => setStatusOpen(!statusOpen)}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-muted px-3 py-[7px] text-xs text-foreground"
+                className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
               >
                 <span className={cn(
                   'inline-block h-2 w-2 rounded-full',
@@ -220,7 +220,7 @@ export default function Dashboard() {
                 {claudeStatus.label ?? 'Backend'} {claudeStatus.status === 'connected' ? 'connected' : claudeStatus.status === 'expired' ? 'expired' : 'disconnected'}
               </button>
               {statusOpen && (
-                <div className="absolute right-0 top-full z-[100] mt-1.5 min-w-[260px] rounded-md border border-border bg-card p-3 text-xs shadow-md">
+                <div className="absolute right-0 top-full z-[100] mt-1.5 min-w-[260px] rounded-md border border-border bg-card p-3 text-xs shadow-lg">
                   <div className="mb-2 flex justify-between">
                     <span className="font-semibold text-foreground">{claudeStatus.label ?? 'Backend'} Status</span>
                     <button onClick={() => setStatusOpen(false)} className="cursor-pointer border-none bg-none p-0 text-muted-foreground">×</button>
@@ -241,7 +241,7 @@ export default function Dashboard() {
           )}
           {/* View toggle */}
           {!loading && total > 0 && (
-            <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted p-[3px]">
+            <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted p-[3px] shadow-sm">
               <ViewBtn active={view === 'hierarchy'} onClick={() => setView('hierarchy')} title="Hierarchy">
                 <GitBranch size={14} />
               </ViewBtn>
@@ -263,15 +263,12 @@ export default function Dashboard() {
 
       {/* ── Inline stats strip ───────────────────────────────────────────── */}
       {!loading && total > 0 && (
-        <div className="mb-[18px] flex flex-wrap items-center gap-[18px] text-sm text-muted-foreground">
+        <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <Stat n={total} label={`agent${total !== 1 ? 's' : ''}`} />
-          <span className="text-border">·</span>
           <Stat n={running} label="running" colorClass="text-green" />
-          <span className="text-border">·</span>
           <Stat n={stopped} label="stopped" colorClass={stopped > 0 ? 'text-muted-foreground' : undefined} />
           {bossCount > 0 && (
             <>
-              <span className="text-border">·</span>
               <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} />
             </>
           )}
@@ -281,32 +278,32 @@ export default function Dashboard() {
       {/* ── Sticky search + sort + tag filter bar ────────────────────────── */}
       {!loading && total > 0 && (
         <div className={cn(
-          'sticky top-0 z-20 mb-[18px] border-b border-border bg-background pb-3.5 pt-1 transition-shadow duration-200',
-          scrolled && 'shadow-[0_4px_12px_-8px_rgba(0,0,0,0.12)]',
+          'sticky top-0 z-20 mb-5 border-b border-border bg-background/95 pb-3.5 pt-2 backdrop-blur supports-[backdrop-filter]:bg-background/85 transition-shadow duration-200',
+          scrolled && 'shadow-[0_8px_20px_-16px_rgba(16,24,40,0.24)]',
         )}>
           <div className={cn('flex items-center gap-3', allTags.length > 0 && 'mb-3')}>
             {/* Search */}
-            <div className="relative max-w-[320px] flex-1">
+            <div className="relative max-w-[360px] flex-1">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
                 placeholder="Search agents…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="h-[34px] w-full rounded-md border border-input bg-card pl-[34px] pr-3 text-sm text-foreground outline-none"
+                className="h-9 w-full rounded-md border border-input bg-card pl-[34px] pr-3 text-sm text-foreground shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/20"
               />
             </div>
             {/* Sort */}
             <div className="relative">
               <button
                 onClick={() => setSortOpen(!sortOpen)}
-                className="inline-flex h-[34px] cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs text-foreground"
+                className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
               >
                 <ArrowUpDown size={13} />
                 {SORT_LABELS[sort]}
               </button>
               {sortOpen && (
-                <div className="absolute right-0 top-full z-30 mt-1 min-w-[180px] rounded-md border border-border bg-card p-1 shadow-md">
+                <div className="absolute right-0 top-full z-30 mt-1 min-w-[180px] rounded-md border border-border bg-card p-1 shadow-lg">
                   {(Object.keys(SORT_LABELS) as SortKey[]).map(k => (
                     <button
                       key={k}
@@ -390,7 +387,7 @@ function HierarchyView({ agents }: { agents: Agent[] }) {
   if (bosses.length === 0) return <GridView agents={agents} label="All Agents" />;
 
   return (
-    <div className="flex flex-col gap-14">
+    <div className="flex flex-col gap-12">
       {bosses.map(boss => (
         <OrgTree key={boss.id} boss={boss} reports={reportMap.get(boss.id) ?? []} />
       ))}
@@ -538,7 +535,7 @@ function AgentCard({ agent, compact, multiReport }: {
     <Link
       href={`/agents/${agent.slug}`}
       className={cn(
-        'fade-up agent-card-v2 ui-card ui-card-hover relative block rounded-lg border border-border bg-card no-underline shadow-sm',
+        'fade-up agent-card-v2 ui-card ui-card-hover relative block min-h-[128px] rounded-lg border border-border bg-card no-underline shadow-card',
         compact ? 'px-4 pb-3.5 pt-4' : 'p-[18px]',
       )}
     >
@@ -548,7 +545,7 @@ function AgentCard({ agent, compact, multiReport }: {
         <div className="relative h-11 w-11 shrink-0">
           <div
             className={cn(
-              'flex h-11 w-11 items-center justify-center overflow-hidden rounded-full text-md font-semibold',
+              'flex h-11 w-11 items-center justify-center overflow-hidden rounded-full text-md font-semibold shadow-sm',
               showSlackImage && 'bg-muted',
             )}
             style={showSlackImage ? undefined : { background: palette.bg, color: palette.fg }}
@@ -561,7 +558,7 @@ function AgentCard({ agent, compact, multiReport }: {
                 width={44}
                 height={44}
                 onError={() => setImgFailed(true)}
-                className="block h-full w-full object-cover"
+                className="block h-full w-full rounded-full object-cover"
               />
             ) : (
               agent.name.charAt(0).toUpperCase()
@@ -609,7 +606,7 @@ function AgentCard({ agent, compact, multiReport }: {
 
       {/* Description — only if present, no italic placeholder noise */}
       {hasDescription && (
-        <p className="mx-0 mb-2.5 mt-0 truncate text-xs leading-snug text-muted-foreground" title={agent.description}>
+        <p className="mx-0 mb-3 mt-0 truncate text-xs leading-snug text-muted-foreground" title={agent.description}>
           {agent.description}
         </p>
       )}
@@ -639,7 +636,7 @@ function AgentCard({ agent, compact, multiReport }: {
 
 function Stat({ n, label, colorClass }: { n: number; label: string; colorClass?: string }) {
   return (
-    <span className="inline-flex items-baseline gap-[5px]">
+    <span className="inline-flex items-baseline gap-[5px] rounded-md border border-border bg-card px-2.5 py-1 shadow-sm">
       <strong className={cn('text-base font-bold tabular-nums', colorClass ?? 'text-foreground')}>{n}</strong>
       <span>{label}</span>
     </span>
@@ -653,10 +650,10 @@ function FilterChip({ active, onClick, children }: {
     <button
       onClick={onClick}
       className={cn(
-        'shrink-0 cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-all',
+        'shrink-0 cursor-pointer rounded-md border px-3 py-1 text-xs font-medium transition-all',
         active
-          ? 'border-foreground bg-foreground text-background'
-          : 'border-border bg-card text-muted-foreground',
+          ? 'border-foreground bg-foreground text-background shadow-sm'
+          : 'border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-muted hover:text-foreground',
       )}
     >{children}</button>
   );

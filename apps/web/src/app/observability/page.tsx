@@ -69,7 +69,7 @@ interface SessionsPage { sessions: SessionRow[]; nextCursor: string | null }
 
 type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sessions';
 
-const cardCls = 'rounded-lg border border-border bg-card px-4 py-3.5';
+const cardCls = 'rounded-lg border border-border bg-card px-4 py-3.5 shadow-card';
 
 /** Agent column cell: the (comma-joined) agent names. */
 function AgentCell({ names }: { names: string[] }): React.JSX.Element {
@@ -160,29 +160,31 @@ function Body(): React.JSX.Element {
       {(
         <>
           {/* Header: title/subtitle left, filters right — fills the otherwise-empty right side. */}
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-6">
-            <div>
-              <h1 className="text-xl font-bold tracking-[-0.02em] text-foreground">
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-6 border-b border-border pb-5">
+            <div className="min-w-0">
+              <h1 className="m-0 text-2xl font-bold tracking-normal text-foreground">
                 {scope === 'agent' ? `Observability · ${agentName.get(agentFilter) ?? 'Agent'}` : 'Observability'}
               </h1>
-              <div className="mt-1 text-sm text-muted-foreground">
-                Tokens, cost, sensitive data, tools, feedback and sessions across your agents.
+              <div className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                Operational health, model usage, sensitive access, tool reliability and session traces.
               </div>
             </div>
-            <FilterRow
-              agents={agents} agentFilter={agentFilter} windowKey={windowKey}
-              onAgentChange={setAgentFilter} onWindowChange={setWindowKey}
-              from={from} to={to} onRangeChange={(f, t) => { setFrom(f); setTo(t); }}
-            />
+            <div className="[&>div]:mb-0">
+              <FilterRow
+                agents={agents} agentFilter={agentFilter} windowKey={windowKey}
+                onAgentChange={setAgentFilter} onWindowChange={setWindowKey}
+                from={from} to={to} onRangeChange={(f, t) => { setFrom(f); setTo(t); }}
+              />
+            </div>
           </div>
           {/* Tabs */}
-          <div className="mb-4 flex flex-wrap gap-1">
+          <div className="mb-5 inline-flex max-w-full flex-wrap gap-0.5 rounded-lg border border-border bg-muted p-1 shadow-sm">
             {tabs.map(t => {
               const on = t.key === activeTab;
               return (
                 <button key={t.key} onClick={() => setTab(t.key)} className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs',
-                  on ? 'border-primary bg-muted font-semibold text-foreground' : 'border-border bg-card font-medium text-muted-foreground',
+                  'inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent px-3 text-xs transition-colors',
+                  on ? 'bg-card font-semibold text-foreground shadow-sm' : 'font-medium text-muted-foreground hover:bg-card/60 hover:text-foreground',
                 )}><t.Icon size={13} /> {t.label}</button>
               );
             })}
@@ -208,10 +210,20 @@ function Muted({ children }: { children: React.ReactNode }) {
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className={cn(cardCls, 'min-w-[120px] flex-[1_1_120px]')}>
+    <div className="min-w-[120px] flex-[1_1_120px] rounded-lg border border-border bg-card px-4 py-3 shadow-sm">
       <div className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-xl font-bold text-foreground">{value}</div>
+      <div className="mt-1.5 text-xl font-bold tabular-nums text-foreground">{value}</div>
       {sub && <div className="mt-0.5 text-2xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+function MiniMetric({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card px-3.5 py-3 shadow-sm">
+      <div className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-lg font-bold tabular-nums text-foreground" style={tone ? { color: tone } : undefined}>{value}</div>
+      {sub && <div className="mt-0.5 truncate text-2xs text-muted-foreground">{sub}</div>}
     </div>
   );
 }
@@ -224,8 +236,8 @@ function Bars({ rows, max }: { rows: { label: string; value: number; sub: string
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[150px_1fr_auto] items-center gap-2.5">
           <span className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-foreground">{r.label}</span>
-          <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full opacity-75" style={{ width: `${Math.max(3, max ? (r.value / max) * 100 : 0)}%`, background: 'var(--accent-2, #404040)' }} />
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full opacity-80" style={{ width: `${Math.max(3, max ? (r.value / max) * 100 : 0)}%`, background: 'var(--accent-2, #404040)' }} />
           </div>
           <span className="whitespace-nowrap font-mono text-2xs text-muted-foreground">{r.sub}</span>
         </div>
@@ -238,48 +250,72 @@ function Bars({ rows, max }: { rows: { label: string; value: number; sub: string
  *  tooltip showing the date + in/out counts, and first/last date labels on the axis. */
 function TokensChart({ data }: { data: { date: string; input: number; output: number }[] }): React.JSX.Element {
   const [hover, setHover] = useState<number | null>(null);
-  const max = Math.max(1, ...data.map(d => d.input + d.output));
+  const totals = data.map(d => d.input + d.output);
+  const totalAll = totals.reduce((a, b) => a + b, 0);
+  const max = Math.max(1, ...totals);
+  const avg = totalAll / Math.max(1, totals.length);
+  const peakIndex = totals.findIndex(v => v === max);
   const h = hover != null ? data[hover] : null;
   const fmtDay = (iso: string) => {
     const [, m, day] = iso.split('-');
     return m && day ? `${['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m)]} ${Number(day)}` : iso;
   };
+  const point = (i: number, value: number) => {
+    const x = data.length === 1 ? 50 : (i / (data.length - 1)) * 100;
+    const y = 44 - (value / max) * 36;
+    return { x, y };
+  };
+  const points = totals.map((value, i) => point(i, value));
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ');
+  const areaPath = `${linePath} L 100 44 L 0 44 Z`;
+  const hoverPoint = hover == null ? null : points[hover];
   return (
     <div>
-      {/* Tooltip line — reserves height so the chart doesn't jump on hover. */}
-      <div className="mb-1.5 flex h-[18px] items-center gap-2 text-xs text-foreground">
+      <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-4">
+        <MiniMetric label="Total" value={formatTokens(totalAll)} sub="window usage" />
+        <MiniMetric label="Average/day" value={formatTokens(avg)} sub={`${data.length} days`} />
+        <MiniMetric label="Peak day" value={formatTokens(max)} sub={peakIndex >= 0 ? fmtDay(data[peakIndex].date) : '—'} />
+        <MiniMetric label="Range" value={`${fmtDay(data[0].date)}–${fmtDay(data[data.length - 1].date)}`} sub="selected window" />
+      </div>
+      <div className="mb-2 flex h-5 items-center gap-2 text-xs">
         {h ? (
           <>
-            <span className="font-semibold">{fmtDay(h.date)}</span>
+            <span className="font-semibold text-foreground">{fmtDay(h.date)}</span>
             <span className="text-muted-foreground">{formatTokens(h.input + h.output)} total</span>
             <span className="text-muted-foreground">· {formatTokens(h.input)} in · {formatTokens(h.output)} out</span>
           </>
-        ) : <span className="text-2xs text-muted-foreground">Hover a day for details</span>}
+        ) : (
+          <span className="text-muted-foreground">Hover the trend for daily token details.</span>
+        )}
       </div>
-      <div className="flex h-20 items-end gap-[3px]" onMouseLeave={() => setHover(null)}>
-        {data.map((d, i) => {
-          const total = d.input + d.output;
-          const on = hover === i;
-          return (
-            <div key={d.date} onMouseEnter={() => setHover(i)}
-              className="flex h-full min-w-[3px] flex-1 cursor-default items-end">
-              <div className="flex w-full flex-col overflow-hidden rounded-[3px] transition-opacity duration-100"
-                style={{ height: `${Math.max(2, (total / max) * 100)}%`, opacity: hover === null || on ? 1 : 0.45 }}>
-                <div style={{ height: `${total ? (d.output / total) * 100 : 0}%`, background: 'var(--accent-2, #404040)' }} />
-                <div className="bg-[color:var(--muted)]" style={{ height: `${total ? (d.input / total) * 100 : 0}%` }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {/* Axis: first → last date + legend. */}
-      <div className="mt-1.5 flex items-center text-2xs text-muted-foreground">
-        <span>{fmtDay(data[0].date)}</span>
-        <span className="mx-auto inline-flex gap-3">
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-[2px] bg-[color:var(--muted)]" /> in</span>
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-[2px]" style={{ background: 'var(--accent-2, #404040)' }} /> out</span>
-        </span>
-        <span>{fmtDay(data[data.length - 1].date)}</span>
+      <div className="relative min-h-[176px]" onMouseLeave={() => setHover(null)}>
+        <svg viewBox="0 0 100 48" preserveAspectRatio="none" className="h-40 w-full overflow-visible">
+          {[8, 20, 32, 44].map(y => <line key={y} x1="0" x2="100" y1={y} y2={y} stroke="var(--border)" strokeWidth="0.35" vectorEffect="non-scaling-stroke" />)}
+          <path d={areaPath} fill="var(--accent-2)" opacity="0.08" />
+          <path d={linePath} fill="none" stroke="var(--accent-2)" strokeWidth="1.4" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+          {hoverPoint && (
+            <>
+              <line x1={hoverPoint.x} x2={hoverPoint.x} y1="6" y2="44" stroke="var(--border-2)" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />
+              <circle cx={hoverPoint.x} cy={hoverPoint.y} r="1.3" fill="var(--surface)" stroke="var(--accent-2)" strokeWidth="0.9" vectorEffect="non-scaling-stroke" />
+            </>
+          )}
+        </svg>
+        <div className="absolute inset-0 flex">
+          {data.map((d, i) => (
+            <button
+              key={d.date}
+              type="button"
+              aria-label={`${fmtDay(d.date)} ${formatTokens(d.input + d.output)} tokens`}
+              onMouseEnter={() => setHover(i)}
+              className="h-full flex-1 cursor-default border-0 bg-transparent p-0"
+            />
+          ))}
+        </div>
+        <div className="mt-1.5 flex items-center text-2xs text-muted-foreground">
+          <span>{fmtDay(data[0].date)}</span>
+          <span className="mx-auto font-mono">peak {formatTokens(max)}</span>
+          <span>{fmtDay(data[data.length - 1].date)}</span>
+        </div>
       </div>
     </div>
   );
@@ -290,7 +326,7 @@ function TokensChart({ data }: { data: { date: string; input: number; output: nu
 /** Accepts a ms epoch (span timestamps) OR a SQLite 'YYYY-MM-DD HH:MM:SS' string. */
 interface Col<T> { label: string; align?: 'left' | 'right' | 'center'; width?: string; render: (row: T) => React.ReactNode }
 
-const thCls = 'whitespace-nowrap border-b border-border px-3 py-2 text-2xs font-semibold uppercase tracking-[0.03em] text-muted-foreground';
+const thCls = 'whitespace-nowrap border-b border-border bg-muted/45 px-3 py-2 text-2xs font-semibold uppercase tracking-[0.03em] text-muted-foreground';
 
 function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; rowHref?: (r: T) => string | undefined; empty: string }) {
   const router = useRouter();
@@ -309,7 +345,7 @@ function Table<T>({ cols, rows, rowHref, empty }: { cols: Col<T>[]; rows: T[]; r
                 className={cn('trace-node', href ? 'cursor-pointer' : 'cursor-default')}>
                 {cols.map((c, ci) => (
                   <td key={ci} className={cn(
-                    'px-3 py-2.5 align-middle text-sm text-foreground',
+                    'px-3 py-2.5 align-middle text-sm text-foreground transition-colors',
                     ci === 0 ? 'pl-4' : 'pl-3', ci === cols.length - 1 ? 'pr-4' : 'pr-3',
                     last ? 'border-b-0' : 'border-b border-border',
                     c.align === 'right' && 'whitespace-nowrap tabular-nums',
@@ -351,13 +387,13 @@ function Overview({ data, agentName, canTokens, onTab }: { data: InsightsRespons
   const sessions = (data.sessions ?? []).slice(0, 6);
   const events = [...(data.events ?? [])].sort((a, b) => b.startMs - a.startMs).slice(0, 6);
   const sectionTitle = (label: string, t?: TabKey): React.ReactNode => (
-    <div className="mb-2 flex items-center">
-      <span className="text-sm font-semibold">{label}</span>
-      {t && <button onClick={() => onTab(t)} className="ml-auto inline-flex cursor-pointer items-center gap-0.5 border-none bg-transparent text-2xs text-muted-foreground">View all <ArrowRight size={11} /></button>}
+    <div className="mb-3 flex items-center border-b border-border pb-2.5">
+      <span className="text-sm font-semibold text-foreground">{label}</span>
+      {t && <button onClick={() => onTab(t)} className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md border-none bg-transparent px-1.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">View all <ArrowRight size={11} /></button>}
     </div>
   );
   return (
-    <div className="flex flex-col gap-3.5">
+    <div className="flex flex-col gap-4">
       {/* KPI strip */}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
         <Kpi label="Sessions" value={String(r.sessions ?? 0)} sub={`${r.turns} turns`} />
@@ -377,7 +413,7 @@ function Overview({ data, agentName, canTokens, onTab }: { data: InsightsRespons
       )}
 
       {/* Models + top tools + satisfaction */}
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-3.5">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
         {r.models.length > 0 && (
           <div className={cardCls}>
             {sectionTitle('By model')}
@@ -431,10 +467,25 @@ function Tokens({ data, agentName, canTokens, isSuper }: { data: InsightsRespons
   if (!canTokens) return <DeniedCard />;
   const byAgent = (data.byAgent ?? []).slice().sort((a, b) => (b.inputTokens + b.outputTokens) - (a.inputTokens + a.outputTokens));
   const power = data.powerUsers ?? [];
+  const r = data.rollup;
   return (
-    <div className="flex flex-col gap-3.5">
+    <div className="flex flex-col gap-4">
+      {r && (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-2.5">
+          <MiniMetric label="Total tokens" value={formatTokens(r.totalTokens)} sub={`${formatTokens(r.inputTokens)} in · ${formatTokens(r.outputTokens)} out`} />
+          <MiniMetric label="Cost" value={`$${r.costUsd.toFixed(2)}`} sub="estimated usage" />
+          <MiniMetric label="Turns" value={String(r.turns)} sub={`${r.generations} generations`} />
+          <MiniMetric label="Avg / turn" value={formatTokens(r.turns ? Math.round(r.totalTokens / r.turns) : 0)} sub="token density" />
+        </div>
+      )}
+      {r?.tokensByDay && r.tokensByDay.length > 1 && (
+        <div className={cardCls}>
+          <PanelTitle>Daily token trend</PanelTitle>
+          <TokensChart data={r.tokensByDay} />
+        </div>
+      )}
       <div className={cardCls}>
-        <div className="mb-1.5 text-sm font-semibold">Tokens by agent</div>
+        <PanelTitle>Tokens by agent</PanelTitle>
         <Table<AgentTokens> rows={byAgent} empty="No token usage in this window."
           cols={[
             { label: 'Agent', render: a => <span className="font-medium">{agentName.get(a.agentId) ?? a.agentId}</span> },
@@ -447,7 +498,7 @@ function Tokens({ data, agentName, canTokens, isSuper }: { data: InsightsRespons
       {/* Org-wide power-users leaderboard is superadmin-only (the route returns null otherwise). */}
       {isSuper && (
         <div className={cardCls}>
-          <div className="mb-1.5 text-sm font-semibold">Power users</div>
+          <PanelTitle>Power users</PanelTitle>
           <Table<PowerUser> rows={power} empty="No users in this window."
             cols={[
               { label: '#', width: '32px', render: (_u: PowerUser) => <span /> },
@@ -463,11 +514,22 @@ function Tokens({ data, agentName, canTokens, isSuper }: { data: InsightsRespons
 }
 
 function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }) {
+  const severityCounts = events.reduce<Record<Severity, number>>((acc, e) => {
+    if (e.severity) acc[e.severity] += 1;
+    return acc;
+  }, { critical: 0, high: 0, medium: 0, low: 0 });
+  const aiCaught = events.filter(e => e.caughtByLlm).length;
   return (
-    <div className="flex flex-col gap-3.5">
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
+        <MiniMetric label="Flagged" value={String(events.length)} sub={`${flows.length} flow${flows.length === 1 ? '' : 's'}`} tone={events.length ? 'var(--amber)' : undefined} />
+        <MiniMetric label="Critical/high" value={String(severityCounts.critical + severityCounts.high)} sub={`${severityCounts.critical} critical · ${severityCounts.high} high`} tone={severityCounts.critical + severityCounts.high ? 'var(--red)' : undefined} />
+        <MiniMetric label="Medium/low" value={String(severityCounts.medium + severityCounts.low)} sub={`${severityCounts.medium} medium · ${severityCounts.low} low`} />
+        <MiniMetric label="Smart detector" value={String(aiCaught)} sub="caught by AI" />
+      </div>
       {flows.length > 0 && (
         <div className={cardCls}>
-          <div className="mb-1.5 text-sm font-semibold">Exfiltration flows</div>
+          <PanelTitle>Exfiltration flows</PanelTitle>
           <Table<SensFlow> rows={flows} empty="" rowHref={f => f.sessionId ? `/activity/${encodeURIComponent(f.sessionId)}?span=${encodeURIComponent(f.sinkSpanId)}` : undefined}
             cols={[
               { label: 'Severity', render: f => <SevBadge s={f.severity} /> },
@@ -478,7 +540,7 @@ function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }
         </div>
       )}
       <div className={cardCls}>
-        <div className="mb-1.5 text-sm font-semibold">Sensitive access</div>
+        <PanelTitle>Sensitive access</PanelTitle>
         <Table<SensEvent> rows={[...events].sort((a, b) => b.startMs - a.startMs)} empty="Nothing flagged in this window."
           rowHref={e => `/activity/${encodeURIComponent(e.sessionId)}?span=${encodeURIComponent(e.spanId)}`}
           cols={[
@@ -499,12 +561,22 @@ function Sensitive({ events, flows }: { events: SensEvent[]; flows: SensFlow[] }
 function Tools({ tools }: { tools: ToolStat[] }) {
   const [open, setOpen] = useState<string | null>(null);
   const sorted = [...tools].sort((a, b) => b.calls - a.calls);
+  const calls = tools.reduce((sum, t) => sum + t.calls, 0);
+  const errors = tools.reduce((sum, t) => sum + t.errors, 0);
+  const erroringTools = tools.filter(t => t.errors > 0).length;
   return (
-    <div className={cardCls}>
-      <div className="mb-1.5 text-sm font-semibold">Tools</div>
-      {sorted.length === 0 ? <div className="px-3 py-4 text-center text-xs text-muted-foreground">No tool calls in this window.</div> : (
-        <div className="-mx-4 -mb-3.5 border-t border-border">
-          {sorted.map((t, i) => {
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
+        <MiniMetric label="Tool calls" value={String(calls)} sub={`${tools.length} tools`} />
+        <MiniMetric label="Errors" value={String(errors)} sub={`${erroringTools} tools affected`} tone={errors ? 'var(--red)' : undefined} />
+        <MiniMetric label="Error rate" value={`${calls ? Math.round((errors / calls) * 100) : 0}%`} sub="of calls" tone={errors ? 'var(--red)' : undefined} />
+        <MiniMetric label="Top tool" value={sorted[0]?.name ? truncate(sorted[0].name, 18) : '—'} sub={sorted[0] ? `${sorted[0].calls} calls` : 'No calls'} />
+      </div>
+      <div className={cardCls}>
+        <PanelTitle>Tools</PanelTitle>
+        {sorted.length === 0 ? <div className="px-3 py-4 text-center text-xs text-muted-foreground">No tool calls in this window.</div> : (
+          <div className="-mx-4 -mb-3.5 border-t border-border">
+            {sorted.map((t, i) => {
             const hasErr = t.errors > 0 && (t.errorGroups?.length ?? 0) > 0;
             const expanded = open === t.name;
             const last = i === sorted.length - 1;
@@ -543,9 +615,10 @@ function Tools({ tools }: { tools: ToolStat[] }) {
                 )}
               </div>
             );
-          })}
-        </div>
-      )}
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -564,9 +637,17 @@ function FilterChip({ active, onClick, color, children }: { active: boolean; onC
   }
   return (
     <button onClick={onClick} className={cn(
-      'rounded-md border px-2.5 py-1 text-2xs font-medium',
-      active ? 'border-primary bg-muted text-foreground' : 'border-border bg-card text-muted-foreground',
+      'rounded-md border px-2.5 py-1 text-2xs font-medium transition-colors',
+      active ? 'border-primary bg-card text-foreground shadow-sm' : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground',
     )}>{children}</button>
+  );
+}
+
+function PanelTitle({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="mb-3 flex items-center border-b border-border pb-2.5">
+      <div className="text-sm font-semibold text-foreground">{children}</div>
+    </div>
   );
 }
 
@@ -784,16 +865,25 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
   }, [rows, q, stateFilter, sensOnly, initiator, agentName]);
   const errCount = rows.filter(s => s.status === 'error').length;
   const sensCount = rows.filter(s => s.sensitive).length;
+  const activeCount = rows.filter(s => s.status === 'active').length;
+  const doneCount = rows.filter(s => s.status === 'done').length;
+  const turnCount = rows.reduce((sum, s) => sum + s.turns, 0);
   const cols = canTokens ? 9 : 8;
   const tdCls = 'whitespace-nowrap border-b border-border px-3 py-2.5 align-middle text-sm text-foreground';
 
   return (
     <RevealCtx.Provider value={canReveal}>
      <NodeDetailProvider>
+      <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
+        <MiniMetric label="Sessions" value={String(rows.length)} sub={`${turnCount} turns`} />
+        <MiniMetric label="Done" value={String(doneCount)} sub="completed sessions" tone="var(--green)" />
+        <MiniMetric label="Running" value={String(activeCount)} sub="currently active" tone={activeCount ? 'var(--blue)' : undefined} />
+        <MiniMetric label="Needs review" value={String(errCount + sensCount)} sub={`${errCount} errors · ${sensCount} sensitive`} tone={errCount + sensCount ? 'var(--red)' : undefined} />
+      </div>
       <div className={cardCls}>
-        <div className="mb-2.5 flex flex-wrap items-center gap-2">
-          <div className="text-sm font-semibold">Sessions</div>
-          <div className="ml-1.5 inline-flex gap-1">
+        <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-border pb-3">
+          <div className="mr-1 text-sm font-semibold text-foreground">Sessions</div>
+          <div className="inline-flex flex-wrap gap-1">
             {([['all', 'All'], ['done', 'OK'], ['error', `Errors${errCount ? ` ${errCount}` : ''}`], ['active', 'Running']] as const).map(([key, label]) => (
               <FilterChip key={key} active={stateFilter === key} onClick={() => setStateFilter(key)}>{label}</FilterChip>
             ))}
@@ -801,19 +891,19 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
           </div>
           {initiators.length > 0 && (
             <select value={initiator} onChange={e => setInitiator(e.target.value)} title="Filter by who initiated"
-              className="cursor-pointer rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground">
+              className="h-8 cursor-pointer rounded-md border border-border bg-card px-2.5 text-xs font-medium text-foreground shadow-sm">
               <option value="">All initiators</option>
               {initiators.map(h => <option key={h} value={h}>@{h}</option>)}
             </select>
           )}
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search sessions…"
-            className="ml-auto w-[200px] rounded-md border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground" />
-          <span className="text-2xs text-muted-foreground">{filtered.length}</span>
+            className="ml-auto h-8 w-[220px] rounded-md border border-border bg-card px-2.5 text-xs text-foreground shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/20" />
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-2xs font-medium text-muted-foreground">{filtered.length}</span>
         </div>
         {filtered.length === 0 ? (
           <div className="px-3 py-4 text-center text-xs text-muted-foreground">No sessions in this window.</div>
         ) : (
-          <div className="-mx-4 -mb-3.5 overflow-x-auto border-t border-border">
+          <div className="-mx-4 -mb-3.5 overflow-x-auto">
             <table className="w-full border-collapse">
               <thead><tr>
                 <th className={cn(thCls, 'w-[22px] pl-4')} />
@@ -829,8 +919,8 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
                   const turns = turnsBySession[s.sessionId];
                   // When open, the session reads as a dropdown header: tinted, bolder,
                   // and border-less at the bottom so it visually connects to its turns.
-                  const rowTdCls = cn(tdCls, open && 'bg-muted border-b-0');
-                  const nestNoteCls = 'border-b border-border bg-muted py-2 pl-[46px] pr-4 text-xs text-muted-foreground';
+                  const rowTdCls = cn(tdCls, open && 'border-b-0 bg-muted/70');
+                  const nestNoteCls = 'border-b border-border bg-muted/70 py-2 pl-[46px] pr-4 text-xs text-muted-foreground';
                   return (
                     <React.Fragment key={s.sessionId}>
                       <tr onClick={() => toggleSession(s.sessionId)} className="trace-node cursor-pointer">
@@ -879,7 +969,7 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
         {nextCursor && (
           <div className="flex justify-center pt-3">
             <button onClick={loadMore} disabled={loadingMore} className={cn(
-              'rounded-md border border-border bg-card px-4 py-1.5 text-xs font-medium text-foreground',
+              'rounded-md border border-border bg-card px-4 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted',
               loadingMore ? 'cursor-default opacity-60' : 'cursor-pointer',
             )}>{loadingMore ? 'Loading…' : 'Load more'}</button>
           </div>

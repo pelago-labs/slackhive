@@ -63,13 +63,13 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex min-h-screen w-screen items-center justify-center bg-background">
-      <div className="w-[360px] rounded-lg border border-border bg-card px-8 py-9 shadow-lg">
+    <div className="flex min-h-screen w-screen items-center justify-center bg-background px-4">
+      <div className="w-full max-w-[380px] rounded-lg border border-border bg-card px-8 py-9 shadow-modal">
         {/* Logo */}
         <div className="mb-7 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="SlackHive" className="mx-auto mb-3.5 block h-11 w-11 rounded-xl" />
-          <h1 className="text-xl font-bold tracking-tight text-foreground">
+          <img src="/logo.svg" alt="SlackHive" className="mx-auto mb-3.5 block h-11 w-11 rounded-lg shadow-sm" />
+          <h1 className="text-xl font-bold tracking-normal text-foreground">
             SlackHive
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -81,7 +81,7 @@ function LoginForm() {
           <div className="mb-5">
             <a
               href="/api/auth/slack/authorize"
-              className="flex w-full items-center justify-center gap-2.5 rounded-md border border-border bg-card px-2.5 py-2.5 text-base font-semibold text-foreground no-underline transition-colors hover:border-primary"
+              className="flex w-full items-center justify-center gap-2.5 rounded-md border border-border bg-card px-2.5 py-2.5 text-base font-semibold text-foreground no-underline shadow-sm transition-colors hover:border-primary hover:bg-muted"
             >
               <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Slack_icon_2019.svg/3840px-Slack_icon_2019.svg.png" width="18" height="18" alt="Slack" />
               Sign in with Slack

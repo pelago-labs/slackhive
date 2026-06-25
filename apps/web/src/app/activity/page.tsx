@@ -19,7 +19,7 @@ import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_compon
 import { ReplayButton } from './_components/ReplayButton';
 import { relativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import { PageShell, PageHeader, EmptyState, AvatarStack } from '@/components/patterns';
+import { PageShell, EmptyState, AvatarStack } from '@/components/patterns';
 
 interface Task {
   id: string;
@@ -53,9 +53,9 @@ interface AgentLite {
 type Column = 'active' | 'recent' | 'errored';
 
 const COLUMNS: { key: Column; label: string; icon: React.ReactNode; accent: string }[] = [
-  { key: 'active',  label: 'Active',  icon: <CircleDashed size={13} />,   accent: '#2563eb' },
-  { key: 'recent',  label: 'Recent',  icon: <CheckCircle2 size={13} />,   accent: '#059669' },
-  { key: 'errored', label: 'Errors',  icon: <AlertTriangle size={13} />,  accent: '#dc2626' },
+  { key: 'active',  label: 'Active',  icon: <CircleDashed size={13} />,   accent: 'var(--blue)' },
+  { key: 'recent',  label: 'Recent',  icon: <CheckCircle2 size={13} />,   accent: 'var(--green)' },
+  { key: 'errored', label: 'Errors',  icon: <AlertTriangle size={13} />,  accent: 'var(--red)' },
 ];
 
 export default function ActivityPage(): React.JSX.Element {
@@ -87,7 +87,7 @@ function ActivityPageBody(): React.JSX.Element {
   const [from, setFrom] = useState<string>(searchParams?.get('from') ?? '');
   const [to, setTo] = useState<string>(searchParams?.get('to') ?? '');
   const [windowKey, setWindowKey] = useState<WindowKey>(
-    parseWindowKey(searchParams?.get('window') ?? (searchParams?.get('from') && searchParams?.get('to') ? 'custom' : null)),
+    parseWindowKey(searchParams?.get('window') ?? (searchParams?.get('from') && searchParams?.get('to') ? 'custom' : '7d')),
   );
   const timeQs = () => timeParams(windowKey, from, to);
   // Agent participation per task now comes straight from the list response
@@ -174,12 +174,17 @@ function ActivityPageBody(): React.JSX.Element {
 
   return (
     <PageShell>
-      <PageHeader
-        title={<span className="flex items-center gap-2.5"><ActivityIcon size={20} /> Activity</span>}
-        subtitle="Every task your agents worked on, live."
-        action={
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
+        <div className="min-w-0">
+          <h1 className="m-0 flex items-center gap-2.5 text-2xl font-bold tracking-normal text-foreground">
+            <ActivityIcon size={20} strokeWidth={1.9} />
+            Activity
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">Live task queue across every agent.</p>
+        </div>
+        <div className="pt-1">
           <div className={cn(
-            'inline-flex items-center gap-1.5 text-xs font-medium',
+            'inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-medium shadow-sm',
             activeCount > 0 ? 'text-blue' : 'text-muted-foreground',
           )}>
             <span className={cn(
@@ -188,8 +193,8 @@ function ActivityPageBody(): React.JSX.Element {
             )} />
             {activeCount > 0 ? `${activeCount} active` : 'Idle'}
           </div>
-        }
-      />
+        </div>
+      </div>
 
       <TabSwitcher />
 
@@ -209,7 +214,7 @@ function ActivityPageBody(): React.JSX.Element {
       {/* Per-agent analytics (KPIs / tokens / tools / models) moved to the
           Observability page — Activity stays the task kanban. */}
 
-      <div className="grid grid-cols-3 gap-3.5">
+      <div className="grid grid-cols-3 gap-4">
         {COLUMNS.map(col => (
           <ColumnView
             key={col.key}
@@ -238,18 +243,17 @@ function ColumnView(props: {
 
   return (
     <div
-      className="flex flex-col overflow-hidden rounded-xl border border-border"
-      style={{ background: `color-mix(in srgb, ${column.accent} 4%, var(--surface))` }}
+      className="flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm"
     >
-      <div className="flex items-center gap-2 px-3.5 py-3">
+      <div className="flex items-center gap-2 border-b border-border bg-muted/35 px-3.5 py-2.5">
         <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: column.accent }} />
-        <span className="text-xs font-semibold text-foreground">{column.label}</span>
-        <span className="rounded-full bg-secondary px-2 py-px text-xs font-semibold text-muted-foreground">{tasks.length}{hasMore ? '+' : ''}</span>
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">{column.icon}{column.label}</span>
+        <span className="ml-auto rounded-md border border-border bg-card px-1.5 py-px text-2xs font-semibold tabular-nums text-muted-foreground">{tasks.length}{hasMore ? '+' : ''}</span>
       </div>
-      <div className="flex min-h-[120px] flex-col gap-2 px-2.5 pb-2.5 pt-1">
+      <div className="flex min-h-[120px] flex-col gap-1.5 bg-background/45 px-2.5 pb-2.5 pt-2.5">
         {!loaded && <div className="p-5 text-center text-xs text-muted-foreground">Loading…</div>}
         {loaded && tasks.length === 0 && (
-          <EmptyState title="No tasks" className="px-6 py-6" />
+          <EmptyState title="No tasks" className="border-border/80 bg-card px-6 py-6 shadow-none" />
         )}
         {tasks.map(t => (
           <TaskCard
@@ -263,7 +267,7 @@ function ColumnView(props: {
         {hasMore && (
           <button
             onClick={onLoadMore}
-            className="mt-1 cursor-pointer rounded-md border border-border bg-transparent px-2.5 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary"
+            className="mt-1 cursor-pointer rounded-md border border-border bg-card px-2.5 py-2 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
           >
             Load more
           </button>
@@ -288,36 +292,38 @@ function TaskCard(props: {
   return (
     <Link
       href={href}
-      className="block rounded-[10px] border border-border bg-card px-3 py-3 text-inherit no-underline shadow-sm transition-[box-shadow,border-color] duration-100 hover:border-input hover:shadow-lg"
+      className="block rounded-md border border-border bg-card px-3 py-2.5 text-inherit no-underline shadow-sm transition-[background-color,border-color,box-shadow] duration-150 hover:border-border/80 hover:bg-muted/35 hover:shadow-md"
     >
-      {/* Top row: ref code + sensitive flag + time */}
-      <div className="mb-[7px] flex items-center gap-1.5">
-        <span className="text-xs font-medium tracking-[0.01em] text-muted-foreground/80">{shortRef(task.id)}</span>
+      {/* Top row: ref code + assignee + time */}
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <span className="font-mono text-2xs font-semibold tracking-normal text-muted-foreground/85">{shortRef(task.id)}</span>
         {task.sensitive && (
           <ShieldAlert size={12} className="shrink-0 text-amber" aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
         )}
-        <span className="ml-auto shrink-0 text-2xs text-muted-foreground/80">{relativeTime(task.lastActivityAt)}</span>
+        {agentIds.length > 0 && (
+          <span className="ml-auto">
+            <AvatarStack
+              items={agentIds.map(id => ({ id, name: agentById.get(id)?.name ?? id.slice(0, 6) }))}
+              size={16}
+              max={2}
+            />
+          </span>
+        )}
+        <span className={cn('shrink-0 text-2xs text-muted-foreground/80', agentIds.length === 0 && 'ml-auto')}>{relativeTime(task.lastActivityAt)}</span>
       </div>
 
       {/* Title — up to two lines, like a Linear issue */}
       <div
-        className="overflow-hidden text-sm font-semibold leading-snug text-foreground"
+        className="overflow-hidden text-sm font-medium leading-snug text-foreground"
         style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
       >
         {task.summary || '(empty message)'}
       </div>
 
-      {/* Footer: avatars (assignee) + meta chips */}
-      <div className="mt-3 flex items-center gap-2">
-        {agentIds.length > 0 && (
-          <AvatarStack
-            items={agentIds.map(id => ({ id, name: agentById.get(id)?.name ?? id.slice(0, 6) }))}
-            size={20}
-            max={3}
-          />
-        )}
+      {/* Footer: compact metadata chips */}
+      <div className="mt-2 flex items-center gap-1.5">
         {primaryAgentName && (
-          <span className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">{primaryAgentName}</span>
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap rounded-md bg-muted px-1.5 py-px text-2xs font-medium text-muted-foreground">{primaryAgentName}</span>
         )}
         <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
           {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
@@ -342,7 +348,7 @@ function Chip({ children, color }: { children: React.ReactNode; color?: string }
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-0.5 rounded-md border px-[7px] py-px text-2xs font-medium',
+        'inline-flex items-center gap-0.5 rounded-md border px-1.5 py-px text-2xs font-medium leading-4',
         !color && 'border-border bg-secondary text-muted-foreground',
       )}
       style={color ? { color, background: `${color}14`, borderColor: `${color}33` } : undefined}
@@ -365,11 +371,11 @@ function StatsStrip(props: { stats: StatsResponse | null; agentCount: number }):
   const total   = active + recent + errored;
 
   return (
-    <div className="mb-3.5 grid grid-cols-4 gap-2.5">
-      <StatCard label="Active" value={active} color="#2563eb" pulse={active > 0}
+    <div className="mb-4 grid grid-cols-4 gap-3">
+      <StatCard label="Active" value={active} color="var(--blue)" pulse={active > 0}
                 sub={agentCount > 0 ? `${agentCount} agent${agentCount === 1 ? '' : 's'} working` : 'No agents in-flight'} />
-      <StatCard label="Completed" value={recent} color="#059669" sub="Finished in window" />
-      <StatCard label="Errors" value={errored} color={errored > 0 ? '#dc2626' : 'var(--muted)'}
+      <StatCard label="Completed" value={recent} color="var(--green)" sub="Finished in window" />
+      <StatCard label="Errors" value={errored} color={errored > 0 ? 'var(--red)' : 'var(--muted)'}
                 sub={errored > 0 ? 'Needs attention' : 'No errors'} />
       <StatCard label="Total" value={total} sub="In selected window" />
     </div>
@@ -379,17 +385,16 @@ function StatsStrip(props: { stats: StatsResponse | null; agentCount: number }):
 function StatCard(props: { label: string; value: number; color?: string; sub?: string; pulse?: boolean }): React.JSX.Element {
   const { label, value, color, sub, pulse } = props;
   return (
-    <div className="rounded-lg border border-border bg-card px-3.5 py-3">
+    <div className="rounded-lg border border-border bg-card px-3.5 py-3 shadow-card">
       <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
         {pulse && <span className="status-running h-1.5 w-1.5 rounded-full" style={{ background: color ?? '#2563eb' }} />}
         {label}
       </div>
       <div
-        className={cn('mt-1 text-2xl font-bold leading-none tabular-nums tracking-tight', !color && 'text-foreground')}
+        className={cn('mt-1.5 text-2xl font-bold leading-none tabular-nums tracking-normal', !color && 'text-foreground')}
         style={color ? { color } : undefined}
       >{value}</div>
       {sub && <div className="mt-1 text-2xs text-muted-foreground">{sub}</div>}
     </div>
   );
 }
-

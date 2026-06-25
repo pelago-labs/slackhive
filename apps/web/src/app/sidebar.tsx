@@ -105,7 +105,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
       )}
       <aside
         className={cn(
-          'fixed bottom-0 top-0 z-50 flex flex-col overflow-hidden border-r border-border bg-card',
+          'fixed bottom-0 top-0 z-50 flex flex-col overflow-hidden border-r border-border bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/90',
           isMobile && mobileOpen && 'shadow-lg',
         )}
         style={{
@@ -118,7 +118,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
       >
 
         {/* ── Brand + collapse toggle (top-right) ───────────────────────── */}
-        <div className={cn('flex min-h-[56px] items-center border-b border-border', collapsed ? 'justify-center py-3.5' : 'gap-2.5 px-5 pb-3.5 pt-[18px]')}>
+        <div className={cn('flex min-h-[56px] items-center border-b border-border', collapsed ? 'justify-center py-3.5' : 'gap-2.5 px-4 pb-3.5 pt-[18px]')}>
           {collapsed ? (
             // Collapsed: show the logo; reveal the expand toggle on hover.
             <button
@@ -135,7 +135,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={branding.logoUrl || '/logo.svg'} alt="Logo" className="h-7 w-7 shrink-0 rounded-md object-cover" />
-              <div className="min-w-0 flex-1 whitespace-nowrap text-md font-semibold tracking-tight text-foreground">{branding.appName}</div>
+              <div className="min-w-0 flex-1 whitespace-nowrap text-md font-semibold tracking-normal text-foreground">{branding.appName}</div>
               {!isMobile && (
                 <button
                   onClick={toggleCollapsed}
@@ -154,7 +154,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         <div className="flex flex-1 flex-col overflow-hidden">
 
         {/* Scrollable agents section */}
-        <div className="flex-1 overflow-y-auto px-3 pb-1 pt-3">
+        <div className="flex-1 overflow-y-auto px-2.5 pb-1 pt-3">
           <NavItem href="/" active={pathname === '/'} collapsed={collapsed} icon={<LayoutDashboard size={16} strokeWidth={1.75} />}>Dashboard</NavItem>
 
           {role !== 'viewer' && (
@@ -184,11 +184,12 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                 href={`/agents/${agent.slug}`}
                 title={agent.name}
                 className={cn(
-                  'mb-0.5 flex items-center gap-2.5 rounded-md no-underline transition-colors',
+                  'relative mb-0.5 flex items-center gap-2.5 rounded-md no-underline transition-colors',
                   collapsed ? 'justify-center py-1.5' : 'justify-start px-3 py-2',
-                  isActive ? 'bg-secondary' : 'hover:bg-secondary',
+                  isActive ? 'bg-secondary text-foreground shadow-sm' : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
                 )}
               >
+                {isActive && !collapsed && <span className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-0.5 rounded-full bg-primary" />}
                 <div className="relative shrink-0">
                   <div className={cn(
                     'flex h-7 w-7 items-center justify-center rounded-md text-2xs font-semibold',
@@ -201,7 +202,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                 </div>
                 {!collapsed && (
                   <div className="min-w-0 flex-1">
-                    <div className={cn('flex items-center gap-1.5 truncate text-sm text-foreground', isActive ? 'font-semibold' : 'font-normal')}>
+                    <div className={cn('flex items-center gap-1.5 truncate text-sm', isActive ? 'font-semibold text-foreground' : 'font-normal text-muted-foreground')}>
                       {agent.name}
                       {agent.isBoss && (
                         <span
@@ -233,7 +234,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         </div>
 
         {/* Fixed bottom nav — always visible */}
-        <div className="shrink-0 border-t border-border px-3 py-2">
+        <div className="shrink-0 border-t border-border px-2.5 py-2">
 
           {!collapsed && (
             <div className="px-1 pb-1 pl-2.5">
@@ -254,7 +255,7 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         </div>
 
         {/* ── Footer — Profile ──────────────────────────────────────────── */}
-        <div ref={profileRef} className={cn('relative border-t border-border', collapsed ? 'px-2 py-3' : 'p-3')}>
+        <div ref={profileRef} className={cn('relative border-t border-border', collapsed ? 'px-2 py-3' : 'p-2.5')}>
           {/* Profile row — click to toggle popup */}
           <button
             onClick={() => setProfileOpen(p => !p)}
@@ -334,7 +335,7 @@ function NavItem({ href, icon, children, active, collapsed, onClick, badge }: {
   const className = cn(
     'relative flex w-full items-center gap-2.5 rounded-md text-sm no-underline transition-colors',
     collapsed ? 'justify-center py-2' : 'justify-start px-2.5 py-2',
-    active ? 'bg-secondary font-semibold text-foreground' : 'font-normal text-muted-foreground hover:bg-secondary hover:text-foreground',
+    active ? 'bg-secondary font-semibold text-foreground shadow-sm' : 'font-normal text-muted-foreground hover:bg-secondary hover:text-foreground',
   );
   const iconNode = icon && (
     <span className="relative shrink-0">
@@ -346,6 +347,7 @@ function NavItem({ href, icon, children, active, collapsed, onClick, badge }: {
   );
   const content = (
     <>
+      {active && !collapsed && <span className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-0.5 rounded-full bg-primary" />}
       {iconNode}
       {!collapsed && <span className="flex-1 text-left">{children}</span>}
       {!collapsed && badge !== undefined && badge > 0 && (

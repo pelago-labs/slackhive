@@ -24,7 +24,7 @@ export function PageShell({ children, maxWidth = 1600, className }: {
 }): React.JSX.Element {
   return (
     <div
-      className={cn('fade-up mx-auto w-full px-5 py-8 md:px-10 md:py-9', className)}
+      className={cn('fade-up mx-auto w-full px-5 py-7 md:px-10 md:py-8', className)}
       style={{ maxWidth }}
     >
       {children}
@@ -39,7 +39,7 @@ export function PageHeader({ title, subtitle, action }: {
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="m-0 text-3xl font-bold text-foreground">{title}</h1>
+        <h1 className="m-0 text-3xl font-bold tracking-normal text-foreground">{title}</h1>
         {subtitle && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">{subtitle}</p>}
       </div>
       {action && <div className="flex shrink-0 items-center gap-2.5">{action}</div>}
@@ -95,7 +95,7 @@ export function MetricCard({ label, value, sub, icon, onClick, className }: {
     <div
       onClick={onClick}
       className={cn(
-        'rounded-lg border border-border bg-card p-4 shadow-sm transition-colors',
+        'rounded-lg border border-border bg-card p-4 shadow-card transition-colors',
         onClick && 'metric-clickable',
         className,
       )}
@@ -129,7 +129,7 @@ export function EmptyState({ icon, title, hint, action, className }: {
   action?: React.ReactNode; className?: string;
 }): React.JSX.Element {
   return (
-    <div className={cn('flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-6 py-10 text-center', className)}>
+    <div className={cn('flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card px-6 py-10 text-center shadow-sm', className)}>
       {icon && <div className="text-muted-foreground">{icon}</div>}
       <div className="text-sm font-medium text-foreground">{title}</div>
       {hint && <div className="max-w-sm text-2xs text-muted-foreground">{hint}</div>}
