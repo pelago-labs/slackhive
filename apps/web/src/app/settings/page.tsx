@@ -9,7 +9,19 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { KeyRound, SlidersHorizontal, Bot, ShieldCheck, LogIn, Users } from 'lucide-react';
+import {
+  Bot,
+  Grid2X2,
+  KeyRound,
+  LogIn,
+  Plus,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import {
   MODELS,
   DEFAULT_COACH_MODEL,
@@ -73,9 +85,10 @@ export default function SettingsPage() {
 
   return (
     <PageShell>
+      <div className="max-w-[1180px]">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="m-0 text-xl font-bold tracking-tight text-foreground">
+      <div className="mb-6 border-b border-border pb-5">
+        <h1 className="m-0 text-xl font-semibold tracking-normal text-foreground">
           Settings
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -84,29 +97,30 @@ export default function SettingsPage() {
       </div>
 
       {/* Side-nav + content */}
-      <div className="flex flex-wrap items-start gap-7">
-        <nav className="flex w-[200px] flex-shrink-0 flex-col gap-0.5">
+      <div className="grid gap-8 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <nav className="flex h-fit flex-col gap-1 rounded-xl border border-border bg-card p-2 shadow-card lg:sticky lg:top-4">
           {nav.map(n => (
             <button
               key={n.id}
               onClick={() => setSection(n.id)}
               className={cn(
-                'inline-flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm',
+                'inline-flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors',
                 active === n.id
                   ? 'bg-secondary font-semibold text-foreground'
-                  : 'font-normal text-muted-foreground',
+                  : 'font-normal text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
               )}
             ><n.Icon size={15} />{n.label}</button>
           ))}
         </nav>
 
-        <div className="min-w-0 max-w-[760px] flex-1">
+        <div className="min-w-0">
           {active === 'general' && <GeneralTab />}
           {active === 'ai'      && canManageUsers && <AITab />}
           {active === 'access'  && canManageUsers && <AccessControlSection />}
           {active === 'signin'  && canManageUsers && isSuperadmin && <AuthTab />}
           {active === 'users'   && canManageUsers && <UsersTab />}
         </div>
+      </div>
       </div>
     </PageShell>
   );
@@ -526,40 +540,6 @@ function UsersTab() {
 
   return (
     <>
-      {/* Header */}
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <div className="mb-0.5 text-base font-semibold text-foreground">Team members</div>
-          <div className="text-sm text-muted-foreground">{users.length + 1} member{users.length !== 0 ? 's' : ''}</div>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={openImport} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            Import from Slack
-          </button>
-          <button onClick={() => setShowForm(true)} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-            Add member
-          </button>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="relative mb-3.5">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
-          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
-          <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-        </svg>
-        <input
-          value={userSearch}
-          onChange={e => setUserSearch(e.target.value)}
-          placeholder="Search members..."
-          className="w-full rounded-lg border border-border bg-card py-2 pl-[30px] pr-3 text-sm text-foreground outline-none"
-        />
-      </div>
-
       {/* Table */}
       {loading ? (
         <div className="flex flex-col gap-px">
@@ -568,10 +548,51 @@ function UsersTab() {
           ))}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border">
+        <section className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/45 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                <Users size={16} />
+              </span>
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  Team members
+                  <span className="rounded-md border border-border bg-card px-1.5 py-px text-2xs font-medium text-muted-foreground">
+                    {users.length + 1}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Roles, login source, and per-agent access.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={openImport} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-sm hover:bg-secondary">
+                <UserPlus size={14} />
+                Import from Slack
+              </button>
+              <button onClick={() => setShowForm(true)} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground shadow-sm">
+                <Plus size={14} />
+                Add member
+              </button>
+            </div>
+          </div>
+
+          <div className="border-b border-border px-4 py-3">
+            <div className="relative max-w-[420px]">
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={userSearch}
+                onChange={e => setUserSearch(e.target.value)}
+                placeholder="Search members..."
+                className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-3 text-sm text-foreground outline-none focus:border-ring placeholder:text-muted-foreground"
+              />
+            </div>
+          </div>
+
           <table className="w-full border-collapse">
             <thead>
-              <tr className="bg-secondary">
+              <tr className="bg-secondary/70">
                 <th className="border-b border-border px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">Member</th>
                 <th className="border-b border-border px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">Source</th>
                 <th className="border-b border-border px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">Role</th>
@@ -582,36 +603,33 @@ function UsersTab() {
             <tbody>
               {/* Superadmin row */}
               <tr className="border-b border-border bg-card">
-                <td className="px-4 py-3">
+                <td className="px-4 py-2.5">
                   <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">A</div>
+                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">A</div>
                     <span className="text-sm font-semibold text-foreground">admin</span>
                   </div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-2.5">
                   <span className="text-xs text-muted-foreground">Environment variable</span>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-2.5">
                   <span className="rounded bg-amber/10 px-2 py-0.5 text-2xs font-bold uppercase tracking-[0.05em] text-amber">Owner</span>
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-4 py-2.5 text-center">
                   <span className="text-xs text-muted-foreground">—</span>
                 </td>
-                <td className="px-4 py-3" />
+                <td className="px-4 py-2.5" />
               </tr>
 
               {filteredUsers.map((u, idx) => {
                 const initials = u.username.slice(0, 2).toUpperCase();
-                const avatarBg = u.role === 'admin' ? '#18181b' : u.role === 'editor' ? '#0f766e' : '#6366f1';
-                const roleColor = u.role === 'admin' ? { color: '#2563eb', bg: 'rgba(37,99,235,0.08)' } : u.role === 'editor' ? { color: '#0f766e', bg: 'rgba(15,118,110,0.08)' } : { color: 'var(--muted)', bg: 'var(--surface-2)' };
                 const isLast = idx === filteredUsers.length - 1;
                 return (
-                  <tr key={u.id} className={cn('bg-card', !isLast && 'border-b border-border')}>
-                    <td className="px-4 py-3">
+                  <tr key={u.id} className={cn('bg-card transition-colors hover:bg-secondary/35', !isLast && 'border-b border-border')}>
+                    <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2.5">
                         <div
-                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
-                          style={{ background: avatarBg }}
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-2xs font-semibold text-foreground"
                         >{initials}</div>
                         <div>
                           <div className="text-sm font-semibold text-foreground">{u.username}</div>
@@ -619,7 +637,7 @@ function UsersTab() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       {u.fromSlack ? (
                         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
                           <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Slack_icon_2019.svg/3840px-Slack_icon_2019.svg.png" width="13" height="13" alt="Slack" />
@@ -629,46 +647,48 @@ function UsersTab() {
                         <span className="text-xs text-muted-foreground">Manual</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <select
                         value={u.role}
                         disabled={updatingRole === u.id}
                         onChange={e => changeRole(u.id, e.target.value)}
-                        className={cn('cursor-pointer rounded-md border border-border px-2 py-1 text-xs font-semibold outline-none', updatingRole === u.id && 'opacity-50')}
-                        style={{ background: roleColor.bg, color: roleColor.color }}
+                        className={cn(
+                          'h-7 cursor-pointer rounded-md border border-border bg-secondary px-2 text-xs font-medium capitalize text-foreground outline-none',
+                          updatingRole === u.id && 'opacity-50',
+                        )}
                       >
                         <option value="admin">Admin</option>
                         <option value="editor">Editor</option>
                         <option value="viewer">Viewer</option>
                       </select>
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-2.5 text-center">
                       {(u.agentCount ?? 0) > 0 ? (
-                        <span className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-blue/10 px-1.5 text-2xs font-bold text-blue">{u.agentCount}</span>
+                        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border bg-secondary px-1.5 text-2xs font-semibold text-foreground">{u.agentCount}</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
                         {(u.role === 'editor' || u.role === 'viewer') && (
                           <button
                             onClick={() => toggleExpand(u.id)}
                             title="Agent Access"
                             className={cn(
-                              'inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2.5 py-1.5 text-xs font-medium',
-                              expandedUser === u.id ? 'bg-blue/10 text-blue' : 'bg-secondary text-muted-foreground',
+                              'inline-flex h-7 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2 text-xs font-medium',
+                              expandedUser === u.id ? 'bg-secondary text-foreground' : 'bg-card text-muted-foreground hover:bg-secondary hover:text-foreground',
                             )}
                           >
-                            <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/></svg>
-                            Agent Access
+                            <Grid2X2 size={12} />
+                            Access
                           </button>
                         )}
                         {isSuperadmin && !u.fromSlack && (
-                          <button onClick={() => openReset(u)} title="Reset password" className="inline-flex h-[30px] w-[30px] flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground"><KeyRound size={13} /></button>
+                          <button onClick={() => openReset(u)} title="Reset password" className="inline-flex h-7 w-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"><KeyRound size={13} /></button>
                         )}
-                        <button onClick={() => remove(u.id, u.username)} title="Remove member" className="inline-flex h-[30px] w-[30px] flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-secondary text-red opacity-70">
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9h8l1-9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        <button onClick={() => remove(u.id, u.username)} title="Remove member" className="inline-flex h-7 w-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card text-red opacity-70 hover:bg-secondary hover:opacity-100">
+                          <Trash2 size={13} />
                         </button>
                       </div>
                     </td>
@@ -685,7 +705,7 @@ function UsersTab() {
               )}
             </tbody>
           </table>
-        </div>
+        </section>
       )}
 
       {/* Agent access side panel */}
@@ -1103,10 +1123,12 @@ function AuthTab() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mb-[22px] border-b border-border pb-[22px]">
-      <div className="mb-3.5 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{title}</div>
-      <div className="flex flex-col gap-3">{children}</div>
-    </div>
+    <section className="mb-4 rounded-xl border border-border bg-card shadow-card">
+      <div className="border-b border-border bg-secondary/45 px-4 py-3">
+        <div className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{title}</div>
+      </div>
+      <div className="flex flex-col gap-3 px-4 py-4">{children}</div>
+    </section>
   );
 }
 
@@ -1127,8 +1149,8 @@ function Field({ label, value, onChange, onBlur, hint, maxLength }: {
       <input type="text" value={value} maxLength={maxLength} onChange={e => onChange(e.target.value)}
         onBlur={() => onBlur?.()}
         className={cn(
-          'w-full rounded-md border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors',
-          overLimit ? 'border-red' : 'border-border focus:border-primary',
+          'h-9 w-full rounded-md border bg-card px-3 text-sm text-foreground outline-none transition-colors',
+          overLimit ? 'border-red' : 'border-input focus:border-ring',
         )}
       />
       {hint && <p className="m-0 mt-1 text-2xs text-muted-foreground">{hint}</p>}
@@ -1149,7 +1171,7 @@ function SelectField({ label, value, options, onChange, hint }: {
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full cursor-pointer rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary"
+        className="h-9 w-full cursor-pointer rounded-md border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
       >
         {options.map(o => (
           <option key={o.value} value={o.value}>
