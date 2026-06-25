@@ -1699,39 +1699,35 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
 
       {/* ── Top sub-nav + content ──────────────────────────────────────── */}
       <div className="flex flex-col gap-4">
-        {/* Sub-nav tab bar */}
-        <nav className="inline-flex w-fit shrink-0 flex-row gap-0.5 rounded-xl border border-border bg-card p-1.5 shadow-sm">
-          {([
-            { id: 'system' as const, label: 'System Prompt', Icon: FileText },
-            { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
-            { id: 'memory' as const, label: 'Memory', Icon: Database },
-          ]).map(s => (
-            <button key={s.id} onClick={() => setSection(s.id)} className={cn(
-              'inline-flex cursor-pointer items-center gap-[9px] rounded-[9px] px-3 py-[9px] text-left text-sm transition-colors',
-              section === s.id ? 'bg-secondary font-semibold text-foreground' : 'bg-transparent font-medium text-muted-foreground hover:text-foreground',
-            )}><s.Icon size={15} />{s.label}</button>
-          ))}
-        </nav>
+        {/* Sub-nav tab bar + one-line description (the active tab IS the heading —
+            no duplicate H2, which reclaims the wasted band of vertical space). */}
+        <div className="flex flex-col gap-2">
+          <nav className="inline-flex w-fit shrink-0 flex-row gap-0.5 rounded-xl border border-border bg-card p-1.5 shadow-sm">
+            {([
+              { id: 'system' as const, label: 'System Prompt', Icon: FileText },
+              { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
+              { id: 'memory' as const, label: 'Memory', Icon: Database },
+            ]).map(s => (
+              <button key={s.id} onClick={() => setSection(s.id)} className={cn(
+                'inline-flex cursor-pointer items-center gap-[9px] rounded-[9px] px-3 py-[9px] text-left text-sm transition-colors',
+                section === s.id ? 'bg-secondary font-semibold text-foreground' : 'bg-transparent font-medium text-muted-foreground hover:text-foreground',
+              )}><s.Icon size={15} />{s.label}</button>
+            ))}
+          </nav>
+          <p className="max-w-[640px] px-0.5 text-xs leading-normal text-muted-foreground">
+            {section === 'system'
+              ? (agent.isBoss
+                  ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
+                  : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
+              : section === 'skills'
+              ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
+              : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
+            {importError && <span className="ml-2 text-red">{importError}</span>}
+          </p>
+        </div>
 
         {/* Content column */}
         <div className="min-w-0 flex-1">
-          {/* Header: title + description (actions live in the tab bar) */}
-          <div className="mb-3.5">
-            <h2 className="mb-[3px] text-lg font-semibold tracking-[-0.01em] text-foreground">
-              {section === 'system' ? 'System Prompt' : section === 'skills' ? 'Skills' : 'Memory'}
-            </h2>
-            <p className="max-w-[620px] text-xs leading-normal text-muted-foreground">
-              {section === 'system'
-                ? (agent.isBoss
-                    ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
-                    : "Define how this agent should behave — its rules, workflows, and response style. Always in the agent's context.")
-                : section === 'skills'
-                ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
-                : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
-              {importError && <span className="ml-2 text-red">{importError}</span>}
-            </p>
-          </div>
-
           {section === 'system' && <ClaudeMdSection agentId={agent.id} canEdit={canEdit && !agent.isBoss} updatedAt={agent.updatedAt} />}
           {section === 'skills' && <SkillsTab agentId={agent.id} canEdit={canEdit} agentName={agent.name} agentPersona={agent.persona ?? ''} agentDescription={agent.description ?? ''} />}
           {section === 'memory' && <MemorySection agentId={agent.id} canEdit={canEdit} />}
