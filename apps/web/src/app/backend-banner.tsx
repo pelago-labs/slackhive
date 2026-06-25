@@ -49,18 +49,10 @@ export function BackendBanner() {
     : `No ${label} account connected — agents can't run until you connect one.`;
 
   return (
-    <div style={{
-      position: 'sticky', top: 0, zIndex: 45,
-      background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 500,
-      padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10,
-      fontFamily: 'var(--font-sans)',
-    }}>
-      <AlertTriangle size={15} style={{ flexShrink: 0 }} />
-      <span style={{ flex: 1, minWidth: 0 }}>{message}</span>
-      <Link href="/settings" style={{
-        color: '#fff', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 2,
-        whiteSpace: 'nowrap', flexShrink: 0,
-      }}>
+    <div className="sticky top-0 z-[45] flex items-center gap-2.5 bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground">
+      <AlertTriangle size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1">{message}</span>
+      <Link href="/settings" className="shrink-0 whitespace-nowrap font-semibold text-destructive-foreground underline underline-offset-2">
         {expired ? 'Re-authenticate' : 'Connect'}
       </Link>
     </div>

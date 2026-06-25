@@ -11,10 +11,12 @@
 
 import { useContext, useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { Menu } from 'lucide-react';
 import { Sidebar, SidebarContext } from './sidebar';
 import { BackendBanner } from './backend-banner';
 import { AuthProvider } from '@/lib/auth-context';
 import { ThemeProvider } from '@/lib/theme-context';
+import { Toaster } from '@/components/ui/sonner';
 
 /**
  * Renders auth provider + sidebar + main content.
@@ -33,6 +35,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       <AuthProvider>
         <ResponsiveLayout>{children}</ResponsiveLayout>
+        <Toaster position="bottom-right" />
       </AuthProvider>
     </ThemeProvider>
   );
@@ -73,18 +76,10 @@ function Main({ children, isMobile, onHamburger }: { children: React.ReactNode; 
       {isMobile && (
         <button
           onClick={onHamburger}
-          style={{
-            position: 'fixed', top: 12, left: 12, zIndex: 48,
-            width: 36, height: 36, borderRadius: 8,
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-md)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', color: 'var(--text)',
-          }}
+          aria-label="Open navigation"
+          className="fixed left-3 top-3 z-[48] flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-foreground shadow-md"
         >
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-          </svg>
+          <Menu size={18} strokeWidth={1.75} />
         </button>
       )}
       <BackendBanner />
