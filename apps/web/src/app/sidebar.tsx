@@ -105,15 +105,36 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         }}
       >
 
-        {/* ── Brand ──────────────────────────────────────────────────────── */}
-        <div className={cn('flex min-h-[56px] items-center gap-2.5 border-b border-border', collapsed ? 'justify-center py-3.5' : 'justify-start px-5 pb-3.5 pt-[18px]')}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={branding.logoUrl || '/logo.svg'} alt="Logo" className="h-7 w-7 shrink-0 rounded-md object-cover" />
-          {!collapsed && (
-            <div className="min-w-0">
-              <div className="whitespace-nowrap text-base font-semibold tracking-tight text-foreground">{branding.appName}</div>
-              <div className="-mt-px whitespace-nowrap text-2xs text-muted-foreground">{branding.tagline}</div>
-            </div>
+        {/* ── Brand + collapse toggle (top-right) ───────────────────────── */}
+        <div className={cn('flex min-h-[56px] items-center border-b border-border', collapsed ? 'justify-center py-3.5' : 'gap-2.5 px-5 pb-3.5 pt-[18px]')}>
+          {collapsed ? (
+            <button
+              onClick={toggleCollapsed}
+              title="Expand sidebar"
+              aria-label="Expand sidebar"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <PanelLeftOpen size={18} strokeWidth={1.75} />
+            </button>
+          ) : (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={branding.logoUrl || '/logo.svg'} alt="Logo" className="h-7 w-7 shrink-0 rounded-md object-cover" />
+              <div className="min-w-0">
+                <div className="whitespace-nowrap text-base font-semibold tracking-tight text-foreground">{branding.appName}</div>
+                <div className="-mt-px whitespace-nowrap text-2xs text-muted-foreground">{branding.tagline}</div>
+              </div>
+              {!isMobile && (
+                <button
+                  onClick={toggleCollapsed}
+                  title="Collapse sidebar"
+                  aria-label="Collapse sidebar"
+                  className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <PanelLeftClose size={16} strokeWidth={1.75} />
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -221,23 +242,8 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
         </div>
         </div>
 
-        {/* ── Footer — collapse toggle + profile ────────────────────────── */}
+        {/* ── Footer — Profile ──────────────────────────────────────────── */}
         <div ref={profileRef} className={cn('relative border-t border-border', collapsed ? 'px-2 py-3' : 'p-3')}>
-          {/* Collapse / expand (desktop only — mobile uses the overlay drawer) */}
-          {!isMobile && (
-            <button
-              onClick={toggleCollapsed}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className={cn(
-                'mb-1 flex w-full items-center gap-2.5 rounded-md text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
-                collapsed ? 'justify-center py-2' : 'justify-start px-2.5 py-2',
-              )}
-            >
-              {collapsed ? <PanelLeftOpen size={16} strokeWidth={1.75} className="shrink-0" /> : <PanelLeftClose size={16} strokeWidth={1.75} className="shrink-0" />}
-              {!collapsed && 'Collapse'}
-            </button>
-          )}
           {/* Profile row — click to toggle popup */}
           <button
             onClick={() => setProfileOpen(p => !p)}
