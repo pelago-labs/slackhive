@@ -57,6 +57,7 @@ module.exports = {
         'surface-3': 'var(--surface-3)',
         'text-2': 'var(--text-2)',
         subtle: 'var(--subtle)',
+        tertiary: 'var(--text-tertiary)',
         brand: 'hsl(var(--sd-primary) / <alpha-value>)',
         'brand-fg': 'hsl(var(--sd-primary-foreground) / <alpha-value>)',
         blue: 'hsl(var(--blue-hsl) / <alpha-value>)',
@@ -74,14 +75,19 @@ module.exports = {
         mono: ['var(--font-jb-mono)', 'JetBrains Mono', 'ui-monospace', 'monospace'],
       },
       fontSize: {
-        // Type scale collapsing the 12/12.5/13/13.5 drift onto 11/12/13/14/16/18/20/24/30.
-        // tuple = [size, { lineHeight, letterSpacing }]. Defaults kept for xs(12)/lg(18)/xl(20).
-        '2xs': ['0.6875rem', { lineHeight: '1rem', letterSpacing: '0.01em' }],      // 11 — captions/labels
-        sm: ['0.8125rem', { lineHeight: '1.25rem' }],                               // 13 — body-small (override 14)
-        base: ['0.875rem', { lineHeight: '1.5rem' }],                               // 14 — body (override 16)
-        md: ['1rem', { lineHeight: '1.5rem' }],                                     // 16 — subtitle
-        '2xl': ['1.5rem', { lineHeight: '1.875rem', letterSpacing: '-0.02em' }],    // 24 — h2 (tight)
-        '3xl': ['1.875rem', { lineHeight: '2.25rem', letterSpacing: '-0.02em' }],   // 30 — h1 (tight)
+        // Type scale (11/12/13/14/16/18/20/24/30) with Linear-style negative tracking
+        // baked in: the bigger the text, the tighter — and headings get tighter line
+        // height too. tuple = [size, { lineHeight, letterSpacing }]. Uppercase labels
+        // still override tracking via explicit `tracking-[…]` classes.
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }],                               // 11 — captions/labels
+        xs:    ['0.75rem',   { lineHeight: '1rem' }],                               // 12
+        sm:    ['0.8125rem', { lineHeight: '1.25rem' }],                            // 13 — body-small
+        base:  ['0.875rem',  { lineHeight: '1.5rem', letterSpacing: '-0.006em' }],  // 14 — body
+        md:    ['1rem',      { lineHeight: '1.5rem', letterSpacing: '-0.011em' }],  // 16 — subtitle
+        lg:    ['1.125rem',  { lineHeight: '1.5rem', letterSpacing: '-0.014em' }],  // 18
+        xl:    ['1.25rem',   { lineHeight: '1.625rem', letterSpacing: '-0.017em' }],// 20
+        '2xl': ['1.5rem',    { lineHeight: '1.75rem', letterSpacing: '-0.02em' }],  // 24 — h2
+        '3xl': ['1.875rem',  { lineHeight: '2rem', letterSpacing: '-0.024em' }],    // 30 — h1
       },
       boxShadow: {
         sm: 'var(--shadow-sm)',
