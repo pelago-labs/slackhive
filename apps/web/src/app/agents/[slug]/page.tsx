@@ -1097,27 +1097,23 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
   const slackConfigured = !!(agent.slackBotToken || agent.slackAppToken || agent.slackSigningSecret);
 
   return (
-    <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div className="flex max-w-[620px] flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-2.5">
         {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
         <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
         {canEdit && slackConfigured && (
-          <button onClick={disconnect} disabled={disconnecting} style={{
-            marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8,
-            border: '1px solid var(--red-soft-border, #fecaca)', background: 'var(--surface)', color: '#dc2626',
-            fontSize: 13, fontWeight: 500, cursor: disconnecting ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap',
-          }}><Plug size={13} /> {disconnecting ? 'Disconnecting…' : 'Disconnect Slack'}</button>
+          <button onClick={disconnect} disabled={disconnecting} className="ml-auto inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-destructive/30 bg-card px-3.5 py-1.5 text-sm font-medium text-destructive disabled:cursor-not-allowed"><Plug size={13} /> {disconnecting ? 'Disconnecting…' : 'Disconnect Slack'}</button>
         )}
-        {msg && <span style={{ fontSize: 12, color: '#16a34a' }}>{msg}</span>}
+        {msg && <span className="text-xs text-green">{msg}</span>}
       </div>
 
       {!slackConfigured && (
         <Card title="Connect this agent to Slack">
-          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+          <p className="mb-3 mt-0 text-xs leading-relaxed text-muted-foreground">
             This agent isn&apos;t connected yet, so it can&apos;t post to Slack. It takes ~2 minutes:
           </p>
-          <ol style={{ margin: '0 0 4px', paddingLeft: 18, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.85 }}>
-            <li>Open <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>api.slack.com/apps</a> → <strong>Create New App</strong> → <strong>From a manifest</strong>.</li>
+          <ol className="mb-1 mt-0 list-decimal pl-[18px] text-xs leading-loose text-muted-foreground">
+            <li>Open <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="font-medium text-primary no-underline">api.slack.com/apps</a> → <strong>Create New App</strong> → <strong>From a manifest</strong>.</li>
             <li>Click <strong>View Slack Manifest</strong> above, copy it, and paste it into the JSON tab → <strong>Create</strong>.</li>
             <li><strong>Install to Workspace</strong> (sidebar → Install App), then paste the Bot &amp; App-Level tokens below and <strong>Save</strong>.</li>
           </ol>
@@ -1127,29 +1123,29 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
       <Card title="Slack Credentials">
         <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={form.slackBotToken && !form.slackBotToken.startsWith('xoxb-')
-            ? <span style={{ color: 'var(--red)' }}>Bot tokens start with <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>xoxb-</code> — did you paste the wrong one?</span>
+            ? <span className="text-red">Bot tokens start with <code className="font-mono text-2xs">xoxb-</code> — did you paste the wrong one?</span>
             : <>api.slack.com/apps → your app → <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token</>} />
         <Field label="App-Level Token" value={form.slackAppToken ?? ''} onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password" readOnly={!canEdit}
           hint={form.slackAppToken && !form.slackAppToken.startsWith('xapp-')
-            ? <span style={{ color: 'var(--red)' }}>App-level tokens start with <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>xapp-</code> — did you paste the wrong one?</span>
-            : <>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>connections:write</code></>} />
+            ? <span className="text-red">App-level tokens start with <code className="font-mono text-2xs">xapp-</code> — did you paste the wrong one?</span>
+            : <>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code className="font-mono text-2xs">connections:write</code></>} />
         <Field label="Signing Secret (optional)" value={form.slackSigningSecret ?? ''} onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
           hint="Not used in Socket Mode (how agents connect) — only needed for the HTTP Events API. Basic Information → App Credentials → Signing Secret." />
         {slackInfo && (
-          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, padding: '10px 14px', fontSize: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-              <span style={{ color: '#15803d', fontWeight: 600 }}>Connected to Slack</span>
-              <span style={{ color: '#86efac', marginLeft: 'auto', fontSize: 11 }}>{slackInfo.teamName}</span>
+          <div className="rounded-md border border-green/30 bg-green/10 px-3.5 py-2.5 text-xs">
+            <div className="mb-2 flex items-center gap-1.5">
+              <div className="h-[7px] w-[7px] shrink-0 rounded-full bg-green" />
+              <span className="font-semibold text-green">Connected to Slack</span>
+              <span className="ml-auto text-2xs text-muted-foreground">{slackInfo.teamName}</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
-              <span style={{ color: '#6b7280' }}>Display name</span>
-              <span style={{ color: '#166534', fontWeight: 500 }}>{slackInfo.displayName}</span>
-              <span style={{ color: '#6b7280' }}>@handle</span>
-              <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>@{slackInfo.handle}</span>
+            <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+              <span className="text-muted-foreground">Display name</span>
+              <span className="font-medium text-foreground">{slackInfo.displayName}</span>
+              <span className="text-muted-foreground">@handle</span>
+              <span className="font-mono text-foreground">@{slackInfo.handle}</span>
               {agent.slackBotUserId && <>
-                <span style={{ color: '#6b7280' }}>Bot User ID</span>
-                <span style={{ color: '#166534', fontFamily: 'var(--font-mono)' }}>{agent.slackBotUserId}</span>
+                <span className="text-muted-foreground">Bot User ID</span>
+                <span className="font-mono text-foreground">{agent.slackBotUserId}</span>
               </>}
             </div>
           </div>
@@ -1157,23 +1153,22 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
       </Card>
 
       <Card title="Allowed Channels">
-        <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-          Restrict this bot to specific Slack channels. One Slack channel ID per line (e.g. <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>C01234ABCDE</code>).
+        <p className="mb-2.5 mt-0 text-xs leading-relaxed text-muted-foreground">
+          Restrict this bot to specific Slack channels. One Slack channel ID per line (e.g. <code className="font-mono text-2xs">C01234ABCDE</code>).
           If empty, the bot responds in all channels it's invited to.
         </p>
         <textarea value={allowedChannels} onChange={e => setAllowedChannels(e.target.value)} rows={4} readOnly={!canEdit} placeholder={'C01234ABCDE\nC09876ZYXWV'}
-          style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.7, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
-          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')} onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')} />
+          className="w-full resize-y rounded-md border border-input bg-background px-3 py-2.5 font-mono text-xs leading-relaxed text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
       </Card>
 
       {showManifest && (
         <Modal title="Slack App Manifest" width={680} onClose={() => setShowManifest(false)}>
-          <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>slack-manifest.json</span>
-              <button onClick={() => navigator.clipboard.writeText(manifest)} style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Copy</button>
+          <div className="overflow-hidden rounded-lg border border-border bg-muted">
+            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+              <span className="font-mono text-2xs text-muted-foreground">slack-manifest.json</span>
+              <button onClick={() => navigator.clipboard.writeText(manifest)} className="cursor-pointer border-none bg-transparent text-2xs text-primary">Copy</button>
             </div>
-            <pre style={{ margin: 0, padding: '16px', fontSize: 11.5, color: 'var(--accent)', fontFamily: 'var(--font-mono)', overflow: 'auto', maxHeight: '60vh' }}>{manifest}</pre>
+            <pre className="m-0 max-h-[60vh] overflow-auto p-4 font-mono text-2xs text-primary">{manifest}</pre>
           </div>
         </Modal>
       )}
@@ -1274,7 +1269,7 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
   });
 
   const windowUI = (
-    <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
+    <div className="flex gap-[3px] rounded-lg bg-secondary p-[3px]">
       {FB_WINDOWS.map(w => (
         <button key={w.k} onClick={() => setWin(w.k)} style={pill(win === w.k)}>{w.label}</button>
       ))}
@@ -1282,7 +1277,7 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
   );
 
   const sentimentUI = (
-    <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
+    <div className="flex gap-[3px] rounded-lg bg-secondary p-[3px]">
       <button onClick={() => setSent('all')} style={pill(sent === 'all')}>All</button>
       <button onClick={() => setSent('up')} style={pill(sent === 'up')} aria-label="Thumbs up only"><ThumbsUp size={13} /></button>
       <button onClick={() => setSent('down')} style={pill(sent === 'down')} aria-label="Thumbs down only"><ThumbsDown size={13} /></button>
@@ -1292,19 +1287,19 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
   const GREEN = '#16a34a', RED = '#dc2626';
 
   return (
-    <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-up">
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+    <div className="fade-up flex max-w-[760px] flex-col gap-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Feedback</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Ratings users gave this agent&apos;s replies in Slack.</div>
+          <div className="text-xl font-semibold tracking-[-0.01em]">Feedback</div>
+          <div className="mt-1 text-sm text-muted-foreground">Ratings users gave this agent&apos;s replies in Slack.</div>
         </div>
         {windowUI}
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        <div className="text-sm text-muted-foreground">Loading…</div>
       ) : total === 0 ? (
-        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '48px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
+        <div className="rounded-[14px] border border-dashed border-border px-5 py-12 text-center text-sm leading-relaxed text-muted-foreground">
           {win === 'all'
             ? <>No ratings yet. When this agent replies in Slack, a feedback prompt lets users rate it — results show up here.</>
             : <>No ratings in the {FB_WINDOW_LABEL[win]}. Try a wider range.</>}
@@ -1312,71 +1307,71 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
       ) : (
         <>
           {/* Summary card — score, label, satisfaction bar, and stat tiles. */}
-          <div style={{ border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: 22 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
+          <div className="rounded-2xl border border-border bg-card p-[22px] shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-5">
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--subtle)' }}>Satisfaction</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 6 }}>
-                  <span style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.02em', color: tier.color, lineHeight: 1 }}>{score}%</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: tier.color, background: `color-mix(in srgb, ${tier.color} 12%, transparent)`, borderRadius: 6, padding: '2px 8px' }}>{tier.label}</span>
+                <div className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Satisfaction</div>
+                <div className="mt-1.5 flex items-baseline gap-2.5">
+                  <span className="text-[40px] font-bold leading-none tracking-[-0.02em]" style={{ color: tier.color }}>{score}%</span>
+                  <span className="rounded-md px-2 py-0.5 text-xs font-bold" style={{ color: tier.color, background: `color-mix(in srgb, ${tier.color} 12%, transparent)` }}>{tier.label}</span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--subtle)', marginTop: 8 }}>{total} rating{total !== 1 ? 's' : ''} · {FB_WINDOW_LABEL[win]}</div>
+                <div className="mt-2 text-xs text-muted-foreground">{total} rating{total !== 1 ? 's' : ''} · {FB_WINDOW_LABEL[win]}</div>
               </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                {[{ icon: <ThumbsUp size={16} style={{ color: GREEN }} />, n: up, label: 'Helpful', c: GREEN },
-                  { icon: <ThumbsDown size={16} style={{ color: RED }} />, n: down, label: 'Not helpful', c: RED }].map((s, i) => (
-                  <div key={i} style={{ minWidth: 96, border: '1px solid var(--border)', borderRadius: 12, padding: '12px 14px', background: 'var(--surface-2)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>{s.icon}<span style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{s.n}</span></div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>{s.label}</div>
+              <div className="flex gap-2.5">
+                {[{ icon: <ThumbsUp size={16} className="text-green" />, n: up, label: 'Helpful', c: GREEN },
+                  { icon: <ThumbsDown size={16} className="text-red" />, n: down, label: 'Not helpful', c: RED }].map((s, i) => (
+                  <div key={i} className="min-w-24 rounded-xl border border-border bg-secondary px-3.5 py-3">
+                    <div className="flex items-center gap-[7px]">{s.icon}<span className="text-xl font-bold leading-none text-foreground">{s.n}</span></div>
+                    <div className="mt-[5px] text-2xs text-muted-foreground">{s.label}</div>
                   </div>
                 ))}
               </div>
             </div>
-            <div style={{ display: 'flex', height: 6, borderRadius: 99, overflow: 'hidden', marginTop: 18, background: `color-mix(in srgb, ${RED} 22%, var(--surface-2))` }}>
-              <div style={{ width: `${score}%`, background: GREEN }} />
+            <div className="mt-[18px] flex h-1.5 overflow-hidden rounded-full" style={{ background: `color-mix(in srgb, ${RED} 22%, var(--surface-2))` }}>
+              <div className="bg-green" style={{ width: `${score}%` }} />
             </div>
           </div>
 
           {/* Ratings feed — rater, sentiment, note, and a thread link. */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>Ratings{ratingCount ? ` (${ratingCount})` : ''}</div>
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <div className="text-base font-semibold">Ratings{ratingCount ? ` (${ratingCount})` : ''}</div>
               {sentimentUI}
             </div>
             {list.length === 0 ? (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '28px 20px', textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>
+              <div className="rounded-xl border border-border px-5 py-7 text-center text-sm text-muted-foreground">
                 No {sent === 'up' ? 'positive' : sent === 'down' ? 'negative' : ''} ratings in this range.
               </div>
             ) : (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', background: 'var(--surface)' }}>
+              <div className="overflow-hidden rounded-[14px] border border-border bg-card">
                 {list.map((rt, i) => {
                   const c = rt.sentiment === 'up' ? GREEN : RED;
                   const handle = rt.raterHandle || 'Anonymous';
                   return (
-                    <div key={i} style={{ display: 'flex', gap: 12, padding: '14px 16px', borderTop: i ? '1px solid var(--border)' : 'none' }}>
-                      <div style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `color-mix(in srgb, ${c} 14%, transparent)` }}>
-                        {rt.sentiment === 'up' ? <ThumbsUp size={15} style={{ color: c }} /> : <ThumbsDown size={15} style={{ color: c }} />}
+                    <div key={i} className={cn('flex gap-3 px-4 py-3.5', i && 'border-t border-border')}>
+                      <div className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg" style={{ background: `color-mix(in srgb, ${c} 14%, transparent)` }}>
+                        {rt.sentiment === 'up' ? <ThumbsUp size={15} className="text-green" /> : <ThumbsDown size={15} className="text-red" />}
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{handle}</span>
-                          <span style={{ fontSize: 11, color: 'var(--subtle)' }}>{fmtAgentDate(rt.createdAt)}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">{handle}</span>
+                          <span className="text-2xs text-muted-foreground">{fmtAgentDate(rt.createdAt)}</span>
                           {(rt.sessionId || rt.permalink) && (
-                            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <span className="ml-auto flex items-center gap-3.5">
                               {rt.sessionId && (
-                                <Link href={`/activity/${encodeURIComponent(rt.sessionId)}`} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'var(--accent)', textDecoration: 'none' }}>
+                                <Link href={`/activity/${encodeURIComponent(rt.sessionId)}`} className="flex items-center gap-1 text-xs font-medium text-primary no-underline">
                                   View session <ArrowRight size={12} />
                                 </Link>
                               )}
                               {rt.permalink && (
-                                <a href={rt.permalink} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'var(--muted)', textDecoration: 'none' }}>
+                                <a href={rt.permalink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs font-medium text-muted-foreground no-underline">
                                   View thread <ExternalLink size={12} />
                                 </a>
                               )}
                             </span>
                           )}
                         </div>
-                        {rt.note && <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, marginTop: 5 }}>{rt.note}</div>}
+                        {rt.note && <div className="mt-[5px] text-sm leading-[1.55] text-foreground">{rt.note}</div>}
                       </div>
                     </div>
                   );
@@ -1384,11 +1379,7 @@ function FeedbackPanel({ agent }: { agent: Agent }) {
               </div>
             )}
             {list.length < ratingCount && (
-              <button onClick={loadMore} disabled={loadingMore} style={{
-                marginTop: 12, background: 'none', border: '1px solid var(--border)',
-                borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 500, color: 'var(--text)',
-                cursor: loadingMore ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
-              }}>{loadingMore ? 'Loading…' : `Load more (${ratingCount - list.length})`}</button>
+              <button onClick={loadMore} disabled={loadingMore} className={cn('mt-3 rounded-lg border border-border bg-transparent px-3.5 py-[7px] text-xs font-medium text-foreground', loadingMore ? 'cursor-default' : 'cursor-pointer')}>{loadingMore ? 'Loading…' : `Load more (${ratingCount - list.length})`}</button>
             )}
           </div>
         </>
@@ -1562,13 +1553,13 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
   const jsonPanel = (() => {
     if (!importPreview) {
       return (
-        <div style={{ padding: '28px 24px' }}>
-          <div style={{ border: '2px dashed var(--border)', borderRadius: 12, padding: '40px 20px', textAlign: 'center' }}>
-            <Upload size={26} style={{ color: 'var(--border-2)', display: 'block', margin: '0 auto' }} />
-            <p style={{ margin: '12px 0 4px', fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Import an exported config</p>
-            <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)' }}>Choose a <code>.json</code> file exported from an agent — you’ll pick which parts to apply.</p>
-            <button onClick={() => fileInputRef.current?.click()} style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Choose file</button>
-            {importError && <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--red)' }}>{importError}</p>}
+        <div className="px-6 py-7">
+          <div className="rounded-xl border-2 border-dashed border-border px-5 py-10 text-center">
+            <Upload size={26} className="mx-auto block text-muted-foreground" />
+            <p className="mb-1 mt-3 text-base font-semibold text-foreground">Import an exported config</p>
+            <p className="mb-4 text-xs text-muted-foreground">Choose a <code>.json</code> file exported from an agent — you’ll pick which parts to apply.</p>
+            <button onClick={() => fileInputRef.current?.click()} className="cursor-pointer rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Choose file</button>
+            {importError && <p className="mt-3.5 text-xs text-red">{importError}</p>}
           </div>
         </div>
       );
@@ -1579,23 +1570,23 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
     const nMems = importPreview.memories?.length ?? 0;
     const none = !(importSel.identity && hasIdentity) && !(importSel.system && hasMd) && !(importSel.skills && nSkills) && !(importSel.memory && nMems);
     const row = (sel: boolean, onToggle: () => void, disabled: boolean, label: string, sub: string) => (
-      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, background: sel && !disabled ? 'var(--surface-2)' : 'var(--surface)' }}>
-        <input type="checkbox" checked={sel} disabled={disabled} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
-        <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{sub}</div></div>
+      <label className={cn('flex items-start gap-2.5 rounded-[9px] border border-border px-3 py-[11px]', disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer', sel && !disabled ? 'bg-secondary' : 'bg-card')}>
+        <input type="checkbox" checked={sel} disabled={disabled} onChange={onToggle} className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary" />
+        <div><div className="text-sm font-medium text-foreground">{label}</div><div className="mt-px text-2xs text-muted-foreground">{sub}</div></div>
       </label>
     );
     return (
-      <div style={{ padding: '20px 24px' }}>
-        <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+      <div className="px-6 py-5">
+        <p className="mb-3.5 text-xs leading-normal text-muted-foreground">
           Choose what to import{importPreview.exportedAt ? ` (exported ${new Date(importPreview.exportedAt).toLocaleDateString()})` : ''}. Selected parts overwrite current content; the system prompt is snapshotted before it&apos;s replaced.
         </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+        <div className="mb-[18px] flex flex-col gap-2">
           {row(importSel.identity && hasIdentity, () => setImportSel(s => ({ ...s, identity: !s.identity })), !hasIdentity, 'Identity', hasIdentity ? 'Replaces persona & description' : 'Not in this file')}
           {row(importSel.system && hasMd, () => setImportSel(s => ({ ...s, system: !s.system })), !hasMd, 'System Prompt', hasMd ? 'Replaces the current instructions' : 'Not in this file')}
           {row(importSel.skills && nSkills > 0, () => setImportSel(s => ({ ...s, skills: !s.skills })), nSkills === 0, 'Skills', nSkills > 0 ? `${nSkills} skill${nSkills !== 1 ? 's' : ''} upserted` : 'Not in this file')}
           {row(importSel.memory && nMems > 0, () => setImportSel(s => ({ ...s, memory: !s.memory })), nMems === 0, 'Memories', nMems > 0 ? `${nMems} memor${nMems !== 1 ? 'ies' : 'y'} added` : 'Not in this file')}
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="flex gap-2.5">
           <PrimaryBtn onClick={async () => { await applyImport(); setPersonaLibOpen(false); }} loading={importing}>{none ? 'Select something' : 'Import'}</PrimaryBtn>
           <GhostBtn onClick={() => { setImportPreview(null); setImportError(''); }}>Choose another file</GhostBtn>
         </div>
@@ -1605,31 +1596,31 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
 
   return (
     <div className="fade-up">
-      <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+      <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
 
 
       {/* ── Export: choose which parts to include ────────────────────── */}
       {exportOpen && (() => {
         const none = !exportSel.identity && !exportSel.system && !exportSel.skills && !exportSel.memory;
         const row = (sel: boolean, onToggle: () => void, label: string, sub: string) => (
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', border: '1px solid var(--border)', borderRadius: 9, cursor: 'pointer', background: sel ? 'var(--surface-2)' : 'var(--surface)' }}>
-            <input type="checkbox" checked={sel} onChange={onToggle} style={{ accentColor: 'var(--accent)', width: 14, height: 14, marginTop: 2, flexShrink: 0 }} />
-            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{sub}</div></div>
+          <label className={cn('flex cursor-pointer items-start gap-2.5 rounded-[9px] border border-border px-3 py-[11px]', sel ? 'bg-secondary' : 'bg-card')}>
+            <input type="checkbox" checked={sel} onChange={onToggle} className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary" />
+            <div><div className="text-sm font-medium text-foreground">{label}</div><div className="mt-px text-2xs text-muted-foreground">{sub}</div></div>
           </label>
         );
         return (
           <Portal>
-            <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setExportOpen(false)}>
-              <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '26px 28px', maxWidth: 460, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
-                <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>Export agent config</h3>
-                <p style={{ margin: '0 0 16px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>Choose what to include in the downloaded JSON.</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45 backdrop-blur-sm" onClick={() => setExportOpen(false)}>
+              <div className="w-[90%] max-w-[460px] rounded-[14px] bg-card px-7 py-[26px] shadow-lg" onClick={e => e.stopPropagation()}>
+                <h3 className="mb-1.5 text-md font-bold tracking-[-0.02em] text-foreground">Export agent config</h3>
+                <p className="mb-4 text-xs leading-normal text-muted-foreground">Choose what to include in the downloaded JSON.</p>
+                <div className="mb-5 flex flex-col gap-2">
                   {row(exportSel.identity, () => setExportSel(s => ({ ...s, identity: !s.identity })), 'Identity', 'Persona & description')}
                   {row(exportSel.system, () => setExportSel(s => ({ ...s, system: !s.system })), 'System Prompt', 'The agent instructions')}
                   {row(exportSel.skills, () => setExportSel(s => ({ ...s, skills: !s.skills })), 'Skills', 'All skill files')}
                   {row(exportSel.memory, () => setExportSel(s => ({ ...s, memory: !s.memory })), 'Memories', 'Learned memories')}
                 </div>
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div className="flex gap-2.5">
                   <PrimaryBtn onClick={doExport} loading={exporting}>{none ? 'Select something' : 'Download'}</PrimaryBtn>
                   <GhostBtn onClick={() => setExportOpen(false)}>Cancel</GhostBtn>
                 </div>
@@ -1707,33 +1698,29 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
       )}
 
       {/* ── Left rail + content ────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap items-start gap-6">
         {/* Sub-nav rail */}
-        <nav style={{ width: 188, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface)', boxShadow: 'var(--shadow-sm)', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <nav className="flex w-[188px] shrink-0 flex-col gap-0.5 rounded-[14px] border border-border bg-card p-1.5 shadow-sm">
           {([
             { id: 'system' as const, label: 'System Prompt', Icon: FileText },
             { id: 'skills' as const, label: 'Skills', Icon: Sparkles },
             { id: 'memory' as const, label: 'Memory', Icon: Database },
           ]).map(s => (
-            <button key={s.id} onClick={() => setSection(s.id)} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 9, textAlign: 'left',
-              padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
-              fontFamily: 'var(--font-sans)', fontSize: 13,
-              background: section === s.id ? 'var(--surface-2)' : 'transparent',
-              color: section === s.id ? 'var(--text)' : 'var(--muted)',
-              fontWeight: section === s.id ? 600 : 500,
-            }}><s.Icon size={15} />{s.label}</button>
+            <button key={s.id} onClick={() => setSection(s.id)} className={cn(
+              'inline-flex cursor-pointer items-center gap-[9px] rounded-[9px] px-3 py-[9px] text-left text-sm',
+              section === s.id ? 'bg-secondary font-semibold text-foreground' : 'bg-transparent font-medium text-muted-foreground',
+            )}><s.Icon size={15} />{s.label}</button>
           ))}
         </nav>
 
         {/* Content column */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="min-w-0 flex-1">
           {/* Header: title + description (actions live in the tab bar) */}
-          <div style={{ marginBottom: 14 }}>
-            <h2 style={{ margin: '0 0 3px', fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>
+          <div className="mb-3.5">
+            <h2 className="mb-[3px] text-lg font-semibold tracking-[-0.01em] text-foreground">
               {section === 'system' ? 'System Prompt' : section === 'skills' ? 'Skills' : 'Memory'}
             </h2>
-            <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 620 }}>
+            <p className="max-w-[620px] text-xs leading-normal text-muted-foreground">
               {section === 'system'
                 ? (agent.isBoss
                     ? 'Auto-generated from your team roster. Updates automatically when agents are added or removed.'
@@ -1741,7 +1728,7 @@ function InstructionsTab({ agent, canEdit, onAgentUpdate, onOpenCoach }: { agent
                 : section === 'skills'
                 ? 'Specialized knowledge files the agent uses on demand via /commands. Add domain expertise, workflows, or reference docs.'
                 : 'Learned from conversations — the agent asks before saving. Open Coach to review and clean up.'}
-              {importError && <span style={{ color: 'var(--red)', marginLeft: 8 }}>{importError}</span>}
+              {importError && <span className="ml-2 text-red">{importError}</span>}
             </p>
           </div>
 
@@ -1813,33 +1800,30 @@ function ClaudeMdSection({ agentId, canEdit, updatedAt }: { agentId: string; can
     } finally { setSaving(false); }
   };
 
-  if (loading) return <p style={{ color: 'var(--muted)', fontSize: 14 }}>Loading...</p>;
+  if (loading) return <p className="text-base text-muted-foreground">Loading...</p>;
 
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', overflow: 'hidden' }}>
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
       {/* Slim toolbar — Last updated / save status (left) · Save + Edit/Preview (right) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-        <span style={{ fontSize: 11.5, color: 'var(--subtle)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-2xs text-muted-foreground">
           {msg
-            ? <span style={{ color: msg.startsWith('Error') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>
+            ? <span className={msg.startsWith('Error') ? 'text-red' : 'text-green'}>{msg}</span>
             : (updatedAt ? `Last updated ${new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '')}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div className="flex shrink-0 items-center gap-2">
           {canEdit && view === 'edit' && dirty && (
-            <button onClick={save} disabled={saving} style={{
-              background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none',
-              borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 500,
-              cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
-            }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button onClick={save} disabled={saving} className={cn(
+              'rounded-md bg-primary px-3.5 py-[5px] text-xs font-medium text-primary-foreground',
+              saving ? 'cursor-not-allowed' : 'cursor-pointer',
+            )}>{saving ? 'Saving…' : 'Save'}</button>
           )}
-          <div style={{ display: 'inline-flex', gap: 2, padding: 3, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 9 }}>
+          <div className="inline-flex gap-0.5 rounded-[9px] border border-border bg-secondary p-[3px]">
             {(['edit', 'preview'] as const).map(v => (
-              <button key={v} onClick={() => setView(v)} style={{
-                padding: '4px 13px', fontSize: 12, borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                background: view === v ? 'var(--surface)' : 'transparent',
-                color: view === v ? 'var(--text)' : 'var(--muted)',
-                fontWeight: view === v ? 600 : 400, boxShadow: view === v ? 'var(--shadow-sm)' : 'none',
-              }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
+              <button key={v} onClick={() => setView(v)} className={cn(
+                'cursor-pointer rounded-md px-3.5 py-1 text-xs',
+                view === v ? 'bg-card font-semibold text-foreground shadow-sm' : 'bg-transparent font-normal text-muted-foreground',
+              )}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
             ))}
           </div>
         </div>
@@ -1851,30 +1835,24 @@ function ClaudeMdSection({ agentId, canEdit, updatedAt }: { agentId: string; can
           onChange={e => { setContent(e.target.value); setDirty(true); }}
           readOnly={!canEdit}
           placeholder="Write the agent's core instructions here — rules, workflows, response style..."
-          style={{
-            display: 'block', width: '100%', minHeight: 440, maxHeight: '72vh',
-            background: 'var(--surface)', border: 'none',
-            padding: '14px 16px', fontSize: 12.5, lineHeight: 1.7,
-            color: 'var(--text)', fontFamily: 'var(--font-mono)',
-            resize: 'vertical', outline: 'none', boxSizing: 'border-box',
-          }}
+          className="box-border block max-h-[72vh] min-h-[440px] w-full resize-y border-none bg-card px-4 py-3.5 font-mono text-xs leading-[1.7] text-foreground outline-none"
         />
       ) : (
-        <div style={{ minHeight: 440, maxHeight: '72vh', overflow: 'auto', padding: '14px 18px', boxSizing: 'border-box' }}>
+        <div className="box-border max-h-[72vh] min-h-[440px] overflow-auto px-[18px] py-3.5">
           <MarkdownView>{content}</MarkdownView>
         </div>
       )}
 
       {/* Footer metadata */}
       {!loading && (
-        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', padding: '11px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+        <div className="flex flex-wrap gap-8 border-t border-border bg-secondary px-4 py-[11px]">
           {[
             ['Characters', content.length.toLocaleString()],
             ['Words', content.trim() ? content.trim().split(/\s+/).length.toLocaleString() : '0'],
           ].map(([l, v]) => (
             <div key={l}>
-              <div style={{ fontSize: 10.5, color: 'var(--subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{l}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 500 }}>{v}</div>
+              <div className="mb-[3px] text-2xs uppercase tracking-[0.05em] text-muted-foreground">{l}</div>
+              <div className="text-xs font-medium text-foreground">{v}</div>
             </div>
           ))}
         </div>
@@ -2044,89 +2022,46 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
   const isIdentity = selected?.id === '__identity__';
 
   return (
-    <div className="fade-up" style={{ display: 'flex', gap: 14, height: 580 }}>
+    <div className="fade-up flex h-[580px] gap-3.5">
       {/* File tree */}
-      <div style={{
-        width: 220, flexShrink: 0,
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, overflow: 'auto', display: 'flex', flexDirection: 'column',
-      }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 12px', borderBottom: '1px solid var(--border)',
-        }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+      <div className="flex w-[220px] shrink-0 flex-col overflow-auto rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
+          <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             Files
           </span>
-          {canEdit && <button onClick={() => setShowNew(true)} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            fontSize: 12, color: 'var(--accent)', fontFamily: 'var(--font-sans)',
-          }}>+ New</button>}
+          {canEdit && <button onClick={() => setShowNew(true)} className="cursor-pointer border-none bg-transparent text-xs text-primary">+ New</button>}
         </div>
-        <div style={{ padding: '6px 6px', flex: 1, overflow: 'auto' }}>
+        <div className="flex-1 overflow-auto p-1.5">
           {/* Virtual identity row — always first */}
           <div>
-            <div style={{
-              fontSize: 10.5, color: 'var(--subtle)', padding: '6px 6px 2px',
-              fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
-            }}>00-core/</div>
+            <div className="px-1.5 pb-0.5 pt-1.5 font-mono text-2xs tracking-[0.02em] text-muted-foreground">00-core/</div>
             <div
               onClick={() => select(identityVirtual)}
-              className="skill-row"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
-                fontSize: 12, fontFamily: 'var(--font-mono)',
-                background: selected?.id === '__identity__' ? 'rgba(59,130,246,0.12)' : 'transparent',
-                color: selected?.id === '__identity__' ? 'var(--accent)' : 'var(--muted)',
-                transition: 'background 0.12s, color 0.12s',
-              }}
-              onMouseEnter={e => { if (selected?.id !== '__identity__') (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
-              onMouseLeave={e => { if (selected?.id !== '__identity__') (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+              className={cn(
+                'skill-row flex cursor-pointer items-center justify-between rounded-md px-2 py-[5px] font-mono text-xs transition-colors',
+                selected?.id === '__identity__' ? 'bg-blue/10 text-primary' : 'bg-transparent text-muted-foreground hover:bg-secondary',
+              )}
             >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>identity.md</span>
-              <span style={{ fontSize: 9, color: 'var(--subtle)', flexShrink: 0 }}>locked</span>
+              <span className="overflow-hidden text-ellipsis whitespace-nowrap">identity.md</span>
+              <span className="shrink-0 text-[9px] text-muted-foreground">locked</span>
             </div>
           </div>
           {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([cat, catSkills]) => (
             <div key={cat}>
-              <div style={{
-                fontSize: 10.5, color: 'var(--subtle)', padding: '6px 6px 2px',
-                fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
-              }}>{cat}/</div>
+              <div className="px-1.5 pb-0.5 pt-1.5 font-mono text-2xs tracking-[0.02em] text-muted-foreground">{cat}/</div>
               {catSkills.map(s => (
                 <div
                   key={s.id}
                   onClick={() => select(s)}
-                  className="skill-row"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
-                    fontSize: 12, fontFamily: 'var(--font-mono)',
-                    background: selected?.id === s.id ? 'rgba(59,130,246,0.12)' : 'transparent',
-                    color: selected?.id === s.id ? 'var(--accent)' : 'var(--muted)',
-                    transition: 'background 0.12s, color 0.12s',
-                  }}
-                  onMouseEnter={e => {
-                    if (selected?.id !== s.id) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)';
-                    const btn = (e.currentTarget as HTMLElement).querySelector('.delete-btn') as HTMLElement | null;
-                    if (btn) btn.style.opacity = '1';
-                  }}
-                  onMouseLeave={e => {
-                    if (selected?.id !== s.id) (e.currentTarget as HTMLElement).style.background = 'transparent';
-                    const btn = (e.currentTarget as HTMLElement).querySelector('.delete-btn') as HTMLElement | null;
-                    if (btn) btn.style.opacity = '0';
-                  }}
+                  className={cn(
+                    'skill-row group flex cursor-pointer items-center justify-between rounded-md px-2 py-[5px] font-mono text-xs transition-colors',
+                    selected?.id === s.id ? 'bg-blue/10 text-primary' : 'bg-transparent text-muted-foreground hover:bg-secondary',
+                  )}
                 >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.filename}</span>
+                  <span className="overflow-hidden text-ellipsis whitespace-nowrap">{s.filename}</span>
                   {canEdit && <button
                     onClick={e => { e.stopPropagation(); remove(s); }}
-                    className="delete-btn"
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      color: '#ef4444', fontSize: 14, opacity: 0, transition: 'opacity 0.12s',
-                      fontFamily: 'var(--font-sans)', lineHeight: 1, padding: '0 2px', flexShrink: 0,
-                    }}
+                    className="delete-btn shrink-0 cursor-pointer border-none bg-transparent px-0.5 text-base leading-none text-red opacity-0 transition-opacity group-hover:opacity-100"
                   >×</button>}
                 </div>
               ))}
@@ -2136,22 +2071,15 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
       </div>
 
       {/* Editor */}
-      <div style={{
-        flex: 1, background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      }}>
+      <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
         {selected ? (
           <>
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '10px 16px', borderBottom: '1px solid var(--border)',
-              background: 'var(--surface-2)', gap: 12,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+            <div className="flex items-center justify-between gap-3 border-b border-border bg-secondary px-4 py-2.5">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="font-mono text-xs text-muted-foreground">
                   {selected.category}/{selected.filename}
                 </span>
-                {isIdentity && <span style={{ fontSize: 10, color: 'var(--subtle)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3 }}>read-only · edit in Overview</span>}
+                {isIdentity && <span className="rounded-sm bg-muted px-1.5 py-px text-2xs text-muted-foreground">read-only · edit in Overview</span>}
                 {!isIdentity && (
                   <button
                     onClick={openDescModal}
@@ -2161,23 +2089,17 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                         : description ? description
                         : (canEdit ? 'Add a "when to use" description' : 'No description')
                     }
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      fontSize: 10, fontWeight: 500, letterSpacing: '0.04em',
-                      textTransform: 'uppercase', fontFamily: 'var(--font-sans)',
-                      background: 'var(--surface-3)', color: 'var(--muted)',
-                      border: 'none', borderRadius: 3,
-                      padding: '2px 8px', cursor: canEdit ? 'pointer' : 'default',
-                      flexShrink: 0,
-                    }}
-                    onMouseEnter={e => { if (canEdit) (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
-                    onMouseLeave={e => { if (canEdit) (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; }}
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1 rounded-sm border-none bg-muted px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.04em] text-muted-foreground',
+                      canEdit ? 'cursor-pointer hover:text-foreground' : 'cursor-default',
+                    )}
                   >
                     {regenerating && (
                       <span
                         aria-label="Regenerating"
+                        className="shrink-0"
                         style={{
-                          width: 8, height: 8, flexShrink: 0,
+                          width: 8, height: 8,
                           border: '1.5px solid var(--border-2)',
                           borderTopColor: 'var(--text)',
                           borderRadius: '50%',
@@ -2189,26 +2111,22 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                   </button>
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                <div style={{ display: 'inline-flex', gap: 2, padding: 2, background: 'var(--surface-3)', borderRadius: 7 }}>
+              <div className="flex shrink-0 items-center gap-2.5">
+                <div className="inline-flex gap-0.5 rounded-[7px] bg-muted p-0.5">
                   {(['edit', 'preview'] as const).map(v => (
-                    <button key={v} onClick={() => setSkillView(v)} style={{
-                      padding: '3px 10px', fontSize: 11, borderRadius: 5, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                      background: skillView === v ? 'var(--surface)' : 'transparent',
-                      color: skillView === v ? 'var(--text)' : 'var(--muted)', fontWeight: skillView === v ? 600 : 400,
-                    }}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
+                    <button key={v} onClick={() => setSkillView(v)} className={cn(
+                      'cursor-pointer rounded-[5px] px-2.5 py-[3px] text-2xs',
+                      skillView === v ? 'bg-card font-semibold text-foreground' : 'bg-transparent font-normal text-muted-foreground',
+                    )}>{v === 'edit' ? 'Edit' : 'Preview'}</button>
                   ))}
                 </div>
-                {msg && <span style={{ fontSize: 11.5, color: '#16a34a' }}>{msg}</span>}
+                {msg && <span className="text-2xs text-green">{msg}</span>}
                 {canEdit && !isIdentity && skillView === 'edit' && <button
                   onClick={save} disabled={saving}
-                  style={{
-                    background: saving ? 'var(--border)' : 'var(--accent)',
-                    color: 'var(--accent-fg)', border: 'none', borderRadius: 6,
-                    padding: '5px 14px', fontSize: 12, fontWeight: 500,
-                    cursor: saving ? 'not-allowed' : 'pointer',
-                    fontFamily: 'var(--font-sans)',
-                  }}
+                  className={cn(
+                    'rounded-md border-none px-3.5 py-[5px] text-xs font-medium text-primary-foreground',
+                    saving ? 'cursor-not-allowed bg-border' : 'cursor-pointer bg-primary',
+                  )}
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>}
@@ -2219,22 +2137,17 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
                 value={isIdentity ? identityVirtual.content : content}
                 onChange={e => { if (!isIdentity) setContent(e.target.value); }}
                 readOnly={!canEdit || isIdentity}
-                style={{
-                  flex: 1, border: 'none', outline: 'none', resize: 'none',
-                  background: 'transparent', color: 'var(--text)',
-                  fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.65,
-                  padding: '16px', caretColor: 'var(--accent)',
-                }}
+                className="flex-1 resize-none border-none bg-transparent p-4 font-mono text-xs leading-[1.65] text-foreground caret-primary outline-none"
                 spellCheck={false}
               />
             ) : (
-              <div style={{ flex: 1, overflow: 'auto', padding: '16px 18px' }}>
+              <div className="flex-1 overflow-auto px-[18px] py-4">
                 <MarkdownView>{isIdentity ? identityVirtual.content : content}</MarkdownView>
               </div>
             )}
           </>
         ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--subtle)', fontSize: 13 }}>
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
             Select a file to edit
           </div>
         )}
@@ -2249,7 +2162,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
             onChange={v => setNewSkill(s => ({ ...s, filename: v }))} hint="e.g. api-design.md" />
           <TextArea label="Content (optional)" value={newSkill.content}
             onChange={v => setNewSkill(s => ({ ...s, content: v }))} rows={4} />
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <div className="mt-1 flex gap-2">
             <PrimaryBtn onClick={create}>Create</PrimaryBtn>
             <GhostBtn onClick={() => setShowNew(false)}>Cancel</GhostBtn>
           </div>
@@ -2259,7 +2172,7 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
       {/* Edit description modal */}
       {descModal && selected && (
         <Modal title={`Edit description — ${selected.filename}`} onClose={() => setDescModal(false)}>
-          <div style={{ position: 'relative' }}>
+          <div className="relative">
             <TextArea
               label="Description"
               value={descDraft}
@@ -2268,17 +2181,12 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
               hint='Frame as a "when to use" trigger so the agent picks the right /command. e.g. "Use when filing a Notion bug ticket from a Slack investigation".'
             />
             {regenerating && (
-              <div style={{
-                position: 'absolute', inset: '24px 0 32px 0',
-                background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)',
-                borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                color: 'var(--text)', fontSize: 13, fontWeight: 500,
-                pointerEvents: 'none',
-              }}>
+              <div className="pointer-events-none absolute inset-x-0 bottom-8 top-6 flex items-center justify-center gap-2.5 rounded-md bg-black/35 text-sm font-medium text-foreground backdrop-blur-[2px]">
                 <span
                   aria-label="Regenerating"
+                  className="shrink-0"
                   style={{
-                    width: 14, height: 14, flexShrink: 0,
+                    width: 14, height: 14,
                     border: '2px solid var(--border-2)',
                     borderTopColor: 'var(--text)',
                     borderRadius: '50%',
@@ -2289,8 +2197,8 @@ function SkillsTab({ agentId, canEdit, agentName, agentPersona, agentDescription
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 4, justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+          <div className="mt-1 flex justify-between gap-2">
+            <div className="flex gap-2">
               <PrimaryBtn onClick={saveDescription}>Save</PrimaryBtn>
               <GhostBtn onClick={() => setDescModal(false)}>Cancel</GhostBtn>
             </div>
@@ -2375,11 +2283,7 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
   const available = all.filter(m => !assigned.has(m.id));
 
   const Badge = ({ children }: { children: React.ReactNode }) => (
-    <span style={{
-      fontSize: 10, fontWeight: 600, letterSpacing: '0.03em', fontFamily: 'var(--font-mono)',
-      color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)',
-      padding: '1px 6px', borderRadius: 5, lineHeight: 1.5, whiteSpace: 'nowrap',
-    }}>{children}</span>
+    <span className="whitespace-nowrap rounded-[5px] border border-border bg-secondary px-1.5 py-px font-mono text-2xs font-semibold leading-normal tracking-[0.03em] text-muted-foreground">{children}</span>
   );
 
   const renderCard = (mcp: McpServer, isConn: boolean) => {
@@ -2387,69 +2291,52 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
     const canAssign = canManageMcps || mcp.createdBy === currentUsername;
     const actionable = canEdit && canAssign && mcp.enabled;
     return (
-      <div key={mcp.id} style={{
-        border: isConn ? '1px solid var(--border-2)' : '1px solid var(--border)', borderRadius: 14,
-        background: isConn ? 'var(--surface-2)' : 'var(--surface)',
-        overflow: 'hidden', opacity: mcp.enabled ? 1 : 0.6,
-      }}>
-        <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
-          <div style={{
-            position: 'relative', width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex',
-            alignItems: 'center', justifyContent: 'center',
-            background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)',
-          }}>
+      <div key={mcp.id} className={cn(
+        'overflow-hidden rounded-[14px] border border-border',
+        isConn ? 'bg-secondary' : 'bg-card',
+        mcp.enabled ? 'opacity-100' : 'opacity-60',
+      )}>
+        <div className="flex items-start gap-[13px] p-4">
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] border border-border bg-card text-foreground">
             <Icon size={20} />
             {isConn && (
-              <span style={{
-                position: 'absolute', right: -5, bottom: -5, width: 18, height: 18, borderRadius: '50%',
-                background: 'var(--accent)', color: 'var(--accent-fg)', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface-2)',
-              }}><Check size={11} strokeWidth={3} /></span>
+              <span className="absolute -bottom-[5px] -right-[5px] flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-secondary bg-primary text-primary-foreground"><Check size={11} strokeWidth={3} /></span>
             )}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mcp.name}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-[7px]">
+                  <span className="overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold text-foreground">{mcp.name}</span>
                   <Badge>MCP</Badge>
                   <Badge>{mcp.type.toUpperCase()}</Badge>
                 </div>
               </div>
               {canEdit && (
                 actionable ? (
-                  <button onClick={() => toggle(mcp.id)} style={{
-                    flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
-                    padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 8,
-                    cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                    border: '1px solid var(--border)',
-                    background: isConn ? 'var(--surface)' : 'var(--accent)',
-                    color: isConn ? 'var(--text)' : 'var(--accent-fg)',
-                    borderColor: isConn ? 'var(--border)' : 'var(--accent)',
-                  }}>
+                  <button onClick={() => toggle(mcp.id)} className={cn(
+                    'inline-flex shrink-0 cursor-pointer items-center gap-[5px] rounded-lg border px-3 py-[5px] text-xs font-medium',
+                    isConn ? 'border-border bg-card text-foreground' : 'border-primary bg-primary text-primary-foreground',
+                  )}>
                     {isConn ? <><X size={13} />Disconnect</> : <><Plus size={13} />Connect</>}
                   </button>
                 ) : (
-                  <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--subtle)', maxWidth: 130, textAlign: 'right' }}>
+                  <span className="max-w-[130px] shrink-0 text-right text-2xs text-muted-foreground">
                     {!mcp.enabled ? 'Disabled in catalog' : 'Owner/admin only'}
                   </span>
                 )
               )}
             </div>
             {mcp.description && (
-              <p style={{
-                margin: '7px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5,
-                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-              }}>{mcp.description}</p>
+              <p className="mt-[7px] line-clamp-2 text-xs leading-normal text-muted-foreground">{mcp.description}</p>
             )}
           </div>
         </div>
-        <div style={{
-          borderTop: '1px solid var(--border)',
-          padding: '9px 16px', display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5,
-          color: isConn ? 'var(--green)' : 'var(--muted)', fontWeight: isConn ? 600 : 400,
-        }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: isConn ? 'var(--green)' : 'var(--subtle)', flexShrink: 0 }} />
+        <div className={cn(
+          'flex items-center gap-[7px] border-t border-border px-4 py-[9px] text-2xs',
+          isConn ? 'font-semibold text-green' : 'font-normal text-muted-foreground',
+        )}>
+          <span className={cn('h-[7px] w-[7px] shrink-0 rounded-full', isConn ? 'bg-green' : 'bg-muted-foreground')} />
           {isConn ? 'Connected' : 'Not connected'}
         </div>
       </div>
@@ -2457,67 +2344,57 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
   };
 
   const SectionHead = ({ label, count }: { label: string; count: number }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
-      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{label}</h3>
-      <span style={{
-        fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)',
-        border: '1px solid var(--border)', borderRadius: 99, padding: '0 8px', lineHeight: '18px',
-      }}>{count}</span>
+    <div className="mb-3 flex items-center gap-2">
+      <h3 className="text-base font-semibold text-foreground">{label}</h3>
+      <span className="rounded-full border border-border bg-secondary px-2 text-2xs font-semibold leading-[18px] text-muted-foreground">{count}</span>
     </div>
   );
 
   const colEmpty = (text: string) => (
-    <div style={{
-      border: '1px dashed var(--border)', borderRadius: 14, padding: '28px 16px',
-      textAlign: 'center', fontSize: 12.5, color: 'var(--muted)',
-    }}>{text}</div>
+    <div className="rounded-[14px] border border-dashed border-border px-4 py-7 text-center text-xs text-muted-foreground">{text}</div>
   );
 
   return (
     <div className="fade-up">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
-        <div style={{ minWidth: 0 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>Tools</h2>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
+      <div className="mb-[22px] flex flex-wrap items-start justify-between gap-3.5">
+        <div className="min-w-0">
+          <h2 className="mb-1 text-xl font-semibold tracking-[-0.01em] text-foreground">Tools</h2>
+          <p className="max-w-[560px] text-sm leading-normal text-muted-foreground">
             Connect external systems and MCP servers that this agent can use.
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {msg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{msg}</span>}
+        <div className="flex shrink-0 items-center gap-2.5">
+          {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
           {canEdit && dirty && <PrimaryBtn onClick={save} loading={saving}>Save changes</PrimaryBtn>}
-          <Link href="/settings/mcps" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px',
-            fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none',
-            border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
-          }}>Browse MCP Catalog <ExternalLink size={13} /></Link>
+          <Link href="/settings/mcps" className="inline-flex items-center gap-[7px] rounded-lg border border-border bg-card px-3 py-[7px] text-xs font-medium text-foreground no-underline">Browse MCP Catalog <ExternalLink size={13} /></Link>
         </div>
       </div>
 
       {loading ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <div className="flex items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
           <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading tools…
         </div>
       ) : loadError ? (
-        <div style={{ padding: '16px 20px', color: 'var(--red)', fontSize: 13, background: 'var(--red-soft-bg)', borderRadius: 12 }}>
+        <div className="rounded-xl bg-destructive/10 px-5 py-4 text-sm text-destructive">
           Couldn't load MCP servers: {loadError}
         </div>
       ) : all.length === 0 ? (
-        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+        <div className="rounded-[14px] border border-dashed border-border px-5 py-10 text-center text-sm text-muted-foreground">
           No MCP servers in the catalog yet.{' '}
-          <Link href="/settings/mcps" style={{ color: 'var(--text)', fontWeight: 500 }}>Add one →</Link>
+          <Link href="/settings/mcps" className="font-medium text-foreground">Add one →</Link>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 28, alignItems: 'start' }}>
+        <div className="grid items-start gap-7 [grid-template-columns:repeat(auto-fit,minmax(360px,1fr))]">
           <div>
             <SectionHead label="Connected Tools" count={connected.length} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="flex flex-col gap-3">
               {connected.length ? connected.map(m => renderCard(m, true)) : colEmpty('No tools connected yet — connect one from the right.')}
             </div>
           </div>
           <div>
             <SectionHead label="Available Tools" count={available.length} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="flex flex-col gap-3">
               {available.length ? available.map(m => renderCard(m, false)) : colEmpty('All catalog tools are connected.')}
             </div>
           </div>
@@ -2525,27 +2402,16 @@ function McpsSection({ agentId, canEdit, canManageMcps, currentUsername }: { age
       )}
 
       {/* What are tools? */}
-      <div style={{
-        marginTop: 28, padding: '16px 18px', border: '1px solid var(--border)', borderRadius: 14,
-        background: 'var(--surface-2)', display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap',
-      }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: 10, flexShrink: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center', background: 'var(--surface)',
-          border: '1px solid var(--border)', color: 'var(--text)',
-        }}><Plug size={18} /></div>
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>What are tools?</div>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+      <div className="mt-7 flex flex-wrap items-start gap-3.5 rounded-[14px] border border-border bg-secondary px-[18px] py-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-foreground"><Plug size={18} /></div>
+        <div className="min-w-[220px] flex-1">
+          <div className="mb-[3px] text-sm font-semibold text-foreground">What are tools?</div>
+          <p className="text-xs leading-[1.55] text-muted-foreground">
             Tools let this agent securely access external systems and data through MCP (Model Context Protocol) servers —
             querying databases, calling APIs, or running integrations. Connect the ones it needs; changes take effect on its next reload.
           </p>
         </div>
-        <Link href="/settings/mcps" style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', alignSelf: 'center',
-          fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none',
-          border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0,
-        }}>Learn more <ExternalLink size={13} /></Link>
+        <Link href="/settings/mcps" className="inline-flex shrink-0 items-center gap-1.5 self-center rounded-lg border border-border bg-card px-3 py-[7px] text-xs font-medium text-foreground no-underline">Learn more <ExternalLink size={13} /></Link>
       </div>
     </div>
   );
@@ -2603,8 +2469,8 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13, padding: '6px 0' }}>
-        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading capabilities…
+      <div className="flex items-center gap-2 py-1.5 text-sm text-muted-foreground">
+        <Loader2 size={14} className="animate-spin" /> Loading capabilities…
       </div>
     );
   }
@@ -2613,73 +2479,61 @@ function PermissionsTab({ agentId, canEdit }: { agentId: string; canEdit: boolea
     <div>
       <div>
         {/* Internet Access */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '2px 0 14px', borderBottom: '1px solid var(--border)',
-        }}>
+        <div className="flex items-center justify-between border-b border-border pb-3.5 pt-0.5">
           <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Internet Access</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+            <div className="text-sm font-medium text-foreground">Internet Access</div>
+            <div className="mt-0.5 text-2xs text-muted-foreground">
               Web search and fetch
             </div>
           </div>
-          <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, flexShrink: 0 }}>
+          <label className="relative inline-block h-[22px] w-10 shrink-0">
             <input type="checkbox" checked={internetOn} disabled={!canEdit}
               onChange={e => toggleCapability(INTERNET_TOOLS, e.target.checked)}
-              style={{ opacity: 0, width: 0, height: 0 }} />
-            <span style={{
-              position: 'absolute', cursor: canEdit ? 'pointer' : 'default', inset: 0, borderRadius: 11,
-              background: internetOn ? 'var(--green)' : 'var(--border-2)', transition: 'background 0.2s',
-            }}>
-              <span style={{
-                position: 'absolute', width: 16, height: 16, borderRadius: '50%', background: '#fff',
-                top: 3, left: internetOn ? 21 : 3, transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-              }} />
+              className="h-0 w-0 opacity-0" />
+            <span className={cn(
+              'absolute inset-0 rounded-full transition-colors',
+              internetOn ? 'bg-green' : 'bg-border',
+              canEdit ? 'cursor-pointer' : 'cursor-default',
+            )}>
+              <span className="absolute top-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-[left]" style={{ left: internetOn ? 21 : 3 }} />
             </span>
           </label>
         </div>
 
         {/* Shell Access */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '14px 0 2px',
-        }}>
+        <div className="flex items-center justify-between pb-0.5 pt-3.5">
           <div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Shell Access</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+            <div className="text-sm font-medium text-foreground">Shell Access</div>
+            <div className="mt-0.5 text-2xs text-muted-foreground">
               Terminal commands (dangerous commands auto-blocked)
             </div>
           </div>
-          <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, flexShrink: 0 }}>
+          <label className="relative inline-block h-[22px] w-10 shrink-0">
             <input type="checkbox" checked={shellOn} disabled={!canEdit}
               onChange={e => toggleCapability(SHELL_TOOLS, e.target.checked)}
-              style={{ opacity: 0, width: 0, height: 0 }} />
-            <span style={{
-              position: 'absolute', cursor: canEdit ? 'pointer' : 'default', inset: 0, borderRadius: 11,
-              background: shellOn ? 'var(--green)' : 'var(--border-2)', transition: 'background 0.2s',
-            }}>
-              <span style={{
-                position: 'absolute', width: 16, height: 16, borderRadius: '50%', background: '#fff',
-                top: 3, left: shellOn ? 21 : 3, transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-              }} />
+              className="h-0 w-0 opacity-0" />
+            <span className={cn(
+              'absolute inset-0 rounded-full transition-colors',
+              shellOn ? 'bg-green' : 'bg-border',
+              canEdit ? 'cursor-pointer' : 'cursor-default',
+            )}>
+              <span className="absolute top-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-[left]" style={{ left: shellOn ? 21 : 3 }} />
             </span>
           </label>
         </div>
       </div>
-      {msg && <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 10 }}>{msg}</div>}
+      {msg && <div className="mt-2.5 text-xs text-green">{msg}</div>}
     </div>
   );
 }
 
 // ─── Memory ───────────────────────────────────────────────────────────────────
 
-const MEM_TYPE_STYLE: Record<string, { bg: string; color: string }> = {
-  user:      { bg: '#f3f0ff', color: '#7c3aed' },
-  feedback:  { bg: '#eff6ff', color: '#2563eb' },
-  project:   { bg: 'var(--amber-soft-bg)', color: '#b45309' },
-  reference: { bg: '#f0fdf4', color: '#15803d' },
+const MEM_TYPE_STYLE: Record<string, string> = {
+  user:      'bg-purple-500/10 text-purple-500',
+  feedback:  'bg-blue/10 text-blue',
+  project:   'bg-amber/10 text-amber',
+  reference: 'bg-green/10 text-green',
 };
 
 function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
@@ -2711,30 +2565,20 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
 
   if (loading) {
     return (
-      <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, padding: '24px 20px',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-        color: 'var(--muted)', fontSize: 13,
-      }}>
-        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading memories…
+      <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-5 py-6 text-sm text-muted-foreground">
+        <Loader2 size={14} className="animate-spin" /> Loading memories…
       </div>
     );
   }
 
   if (memories.length === 0) {
     return (
-      <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, padding: '40px 20px',
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        color: 'var(--muted)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Brain size={32} style={{ color: 'var(--border-2)' }} /></div>
-        <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>
+      <div className="flex flex-col items-center rounded-lg border border-border bg-card px-5 py-10 text-muted-foreground">
+        <div className="mb-3 flex justify-center"><Brain size={32} className="text-muted-foreground/50" /></div>
+        <p className="mb-0.5 mt-0 text-center text-md font-semibold text-foreground">
           No memories yet
         </p>
-        <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 300, margin: '0', textAlign: 'center' }}>
+        <p className="m-0 max-w-[300px] text-center text-sm text-muted-foreground">
           The agent will automatically accumulate memories as it interacts in Slack.
         </p>
       </div>
@@ -2742,12 +2586,9 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
   }
 
   return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 10, padding: '16px 18px',
-    }}>
-      <div style={{ marginBottom: 14 }}>
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+    <div className="rounded-lg border border-border bg-card px-4 py-4">
+      <div className="mb-3.5">
+        <span className="text-sm text-muted-foreground">
           {memories.length} memor{memories.length === 1 ? 'y' : 'ies'}
         </span>
       </div>
@@ -2755,59 +2596,37 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
       {(['feedback', 'user', 'project', 'reference'] as const).map(type => {
         const items = grouped[type];
         if (!items?.length) return null;
-        const style = MEM_TYPE_STYLE[type] ?? { bg: 'var(--border)', color: 'var(--muted)' };
+        const badge = MEM_TYPE_STYLE[type] ?? 'bg-muted text-muted-foreground';
         return (
-          <div key={type} style={{ marginBottom: 20 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
-            }}>
-              <span style={{
-                fontSize: 10.5, fontWeight: 600, letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                background: style.bg, color: style.color,
-                padding: '2px 8px', borderRadius: 5,
-              }}>{type}</span>
-              <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{items.length}</span>
+          <div key={type} className="mb-5">
+            <div className="mb-2 flex items-center gap-2">
+              <span className={cn('rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em]', badge)}>{type}</span>
+              <span className="text-2xs text-muted-foreground">{items.length}</span>
             </div>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            <div className="overflow-hidden rounded-lg border border-border">
               {items.map((m, i) => (
-                <div key={m.id} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '10px 14px', cursor: 'pointer',
-                  }} onClick={() => toggle(m.id)}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                <div key={m.id} className={cn(i < items.length - 1 && 'border-b border-border')}>
+                  <div className="flex cursor-pointer items-center justify-between px-3.5 py-2.5" onClick={() => toggle(m.id)}>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="text-2xs text-muted-foreground">
                         {expanded.has(m.id) ? '▼' : '▶'}
                       </span>
-                      <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>
+                      <span className="font-mono text-sm font-medium text-foreground">
                         {m.name}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-2xs text-muted-foreground">
                         {new Date(m.updatedAt).toLocaleDateString()}
                       </span>
                       {canEdit && <button
                         onClick={e => { e.stopPropagation(); remove(m.id, m.name); }}
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: '#ef4444', fontSize: 13, opacity: 0.5, transition: 'opacity 0.12s',
-                          fontFamily: 'var(--font-sans)',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                        onMouseLeave={e => (e.currentTarget.style.opacity = '0.5')}
+                        className="cursor-pointer border-none bg-transparent text-sm text-red opacity-50 transition-opacity hover:opacity-100"
                       >Delete</button>}
                     </div>
                   </div>
                   {expanded.has(m.id) && (
-                    <pre style={{
-                      margin: 0, padding: '12px 14px',
-                      background: 'var(--surface-2)',
-                      borderTop: '1px solid var(--border)',
-                      fontFamily: 'var(--font-mono)', fontSize: 11.5,
-                      color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.6,
-                    }}>{m.content}</pre>
+                    <pre className="m-0 whitespace-pre-wrap border-t border-border bg-muted px-3.5 py-3 font-mono text-2xs leading-relaxed text-muted-foreground">{m.content}</pre>
                   )}
                 </div>
               ))}
@@ -2872,11 +2691,9 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
   if (isFolder) {
     return (
       <div>
-        <div onClick={() => setOpen(!open)} style={{
-          display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-          padding: `6px 6px 2px ${6 + depth * 12}px`,
-          fontSize: 10.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
-        }}>
+        <div onClick={() => setOpen(!open)}
+          style={{ paddingLeft: 6 + depth * 12 }}
+          className="flex cursor-pointer items-center gap-1 px-1.5 pb-0.5 pt-1.5 font-mono text-2xs tracking-[0.02em] text-muted-foreground">
           {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
           {label}/
         </div>
@@ -2890,20 +2707,14 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
   return (
     <div
       onClick={() => node.path && onSelect(node.path)}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 4,
-        padding: `4px 8px 4px ${8 + depth * 12}px`, borderRadius: 6, cursor: 'pointer',
-        fontSize: 12, fontFamily: 'var(--font-mono)',
-        background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
-        color: isActive ? 'var(--accent)' : 'var(--muted)',
-        transition: 'background 0.12s, color 0.12s',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}
-      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
-      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+      style={{ paddingLeft: 8 + depth * 12 }}
+      className={cn(
+        'flex cursor-pointer items-center gap-1 truncate rounded-md px-2 py-1 font-mono text-xs transition-colors',
+        isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent',
+      )}
     >
-      <FileText size={12} style={{ flexShrink: 0 }} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name.replace('.md', '')}</span>
+      <FileText size={12} className="shrink-0" />
+      <span className="truncate">{node.name.replace('.md', '')}</span>
     </div>
   );
 }
@@ -2911,7 +2722,8 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
 function WikiTree({ articles, onSelect, selected }: { articles: WikiArticle[]; onSelect: (path: string) => void; selected: string | null }) {
   const tree = buildTree(articles);
   return (
-    <div style={{ padding: '6px 6px', flex: 1, overflow: 'auto' }}>
+    <div className="flex-1 overflow-auto p-1.5">
+
       {tree.map(node => (
         <WikiTreeNode key={node.path || node.name} node={node} depth={0} onSelect={onSelect} selected={selected} />
       ))}
@@ -2981,48 +2793,39 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
     const st = stats[f.id];
     const busy = saving === f.id;
     return (
-      <div key={f.id} style={{
-        border: `1px solid ${f.assigned ? 'var(--border-2)' : 'var(--border)'}`, borderRadius: 14,
-        background: f.assigned ? 'var(--surface-2)' : 'var(--surface)', overflow: 'hidden',
-      }}>
-        <div style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
-          <Link href={`/knowledge?folder=${f.id}`} title={`Open ${f.name}`} style={{ width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', textDecoration: 'none' }}>
+      <div key={f.id} className={cn('overflow-hidden rounded-xl border', f.assigned ? 'border-border bg-muted' : 'border-border bg-card')}>
+        <div className="flex items-start gap-3 p-4">
+          <Link href={`/knowledge?folder=${f.id}`} title={`Open ${f.name}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-foreground no-underline">
             {f.assigned ? <FolderOpen size={20} /> : <Folder size={20} />}
           </Link>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ minWidth: 0 }}>
-                <Link href={`/knowledge?folder=${f.id}`} title={`Open ${f.name}`} style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-                  onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}>{f.name}</Link>
-                <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 2 }}>by {f.createdBy}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="min-w-0">
+                <Link href={`/knowledge?folder=${f.id}`} title={`Open ${f.name}`} className="block truncate text-base font-semibold text-foreground no-underline hover:underline">{f.name}</Link>
+                <div className="mt-0.5 text-2xs text-muted-foreground">by {f.createdBy}</div>
               </div>
               {canEdit ? (
-                <button onClick={() => toggle(f.id, f.assigned)} disabled={busy} style={{
-                  flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
-                  padding: '5px 12px', fontSize: 12, fontWeight: 500, borderRadius: 8,
-                  cursor: busy ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)', opacity: busy ? 0.6 : 1,
-                  border: '1px solid var(--border)',
-                  background: f.assigned ? 'var(--surface)' : 'var(--accent)',
-                  color: f.assigned ? 'var(--text)' : 'var(--accent-fg)',
-                  borderColor: f.assigned ? 'var(--border)' : 'var(--accent)',
-                }}>
+                <button onClick={() => toggle(f.id, f.assigned)} disabled={busy} className={cn(
+                  'inline-flex shrink-0 items-center gap-1 rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-60',
+                  busy ? 'cursor-not-allowed' : 'cursor-pointer',
+                  f.assigned ? 'border-border bg-card text-foreground' : 'border-primary bg-primary text-primary-foreground',
+                )}>
                   {f.assigned ? <><X size={13} />Unassign</> : <><Plus size={13} />Assign</>}
                 </button>
               ) : null}
             </div>
             {f.description && (
-              <p style={{ margin: '7px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{f.description}</p>
+              <p className="mt-2 line-clamp-2 text-xs leading-normal text-muted-foreground">{f.description}</p>
             )}
           </div>
         </div>
-        <div style={{ borderTop: '1px solid var(--border)', padding: '9px 16px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 11.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><FileText size={12} /> {st ? `${st.sources} source${st.sources !== 1 ? 's' : ''}` : '—'}</span>
-          <span style={{ color: 'var(--border-2)' }}>·</span>
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2 text-2xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1"><FileText size={12} /> {st ? `${st.sources} source${st.sources !== 1 ? 's' : ''}` : '—'}</span>
+          <span className="text-border">·</span>
           <span>{st ? `${fmtWords(st.words)} words` : '—'}</span>
-          {st?.lastSynced && (<><span style={{ color: 'var(--border-2)' }}>·</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Clock size={12} /> synced {fmtSynced(st.lastSynced)}</span></>)}
-          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: f.assigned ? 'var(--green)' : 'var(--subtle)', fontWeight: f.assigned ? 600 : 400 }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: f.assigned ? 'var(--green)' : 'var(--subtle)' }} />
+          {st?.lastSynced && (<><span className="text-border">·</span><span className="inline-flex items-center gap-1"><Clock size={12} /> synced {fmtSynced(st.lastSynced)}</span></>)}
+          <span className={cn('ml-auto inline-flex items-center gap-1.5', f.assigned ? 'font-semibold text-green' : 'text-muted-foreground')}>
+            <span className={cn('h-[7px] w-[7px] rounded-full', f.assigned ? 'bg-green' : 'bg-muted-foreground')} />
             {f.assigned ? 'Assigned' : 'Not assigned'}
           </span>
         </div>
@@ -3031,49 +2834,49 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
   };
 
   const SectionHead = ({ label, count }: { label: string; count: number }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
-      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{label}</h3>
-      <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 99, padding: '0 8px', lineHeight: '18px' }}>{count}</span>
+    <div className="mb-3 flex items-center gap-2">
+      <h3 className="m-0 text-base font-semibold text-foreground">{label}</h3>
+      <span className="rounded-full border border-border bg-muted px-2 text-2xs font-semibold leading-[18px] text-muted-foreground">{count}</span>
     </div>
   );
 
   const colEmpty = (text: string) => (
-    <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '28px 16px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>{text}</div>
+    <div className="rounded-xl border border-dashed border-border px-4 py-7 text-center text-xs text-muted-foreground">{text}</div>
   );
 
   return (
     <div className="fade-up">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
-        <div style={{ minWidth: 0 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>Wiki</h2>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 560 }}>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3.5">
+        <div className="min-w-0">
+          <h2 className="mb-0.5 mt-0 text-xl font-semibold tracking-tight text-foreground">Wiki</h2>
+          <p className="m-0 max-w-[560px] text-sm leading-normal text-muted-foreground">
             Assign shared knowledge folders — the agent reads these wikis at compile time.
           </p>
         </div>
-        <Link href="/knowledge" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px', fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0 }}>Knowledge Library <ExternalLink size={13} /></Link>
+        <Link href="/knowledge" className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground no-underline">Knowledge Library <ExternalLink size={13} /></Link>
       </div>
 
       {loading ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading folders…
+        <div className="flex items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
+          <Loader2 size={14} className="animate-spin" /> Loading folders…
         </div>
       ) : allFolders.length === 0 ? (
-        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+        <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center text-sm text-muted-foreground">
           No wiki folders exist yet.{' '}
-          <Link href="/knowledge" style={{ color: 'var(--text)', fontWeight: 500 }}>Create one in the Knowledge Library →</Link>
+          <Link href="/knowledge" className="font-medium text-foreground">Create one in the Knowledge Library →</Link>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 28, alignItems: 'start' }}>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] items-start gap-7">
           <div>
             <SectionHead label="Assigned" count={assigned.length} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="flex flex-col gap-3">
               {assigned.length ? assigned.map(renderCard) : colEmpty('No folders assigned yet — assign one from the right.')}
             </div>
           </div>
           <div>
             <SectionHead label="Available" count={available.length} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="flex flex-col gap-3">
               {available.length ? available.map(renderCard) : colEmpty('All folders are assigned.')}
             </div>
           </div>
@@ -3081,19 +2884,20 @@ function KnowledgeTab({ agentId, canEdit }: { agentId: string; agentSlug: string
       )}
 
       {/* What is the wiki? */}
-      <div style={{ marginTop: 28, padding: '16px 18px', border: '1px solid var(--border)', borderRadius: 14, background: 'var(--surface-2)', display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
-        <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}><BookOpen size={18} /></div>
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>What is the wiki?</div>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+      <div className="mt-7 flex flex-wrap items-start gap-3.5 rounded-xl border border-border bg-muted px-4 py-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-foreground"><BookOpen size={18} /></div>
+        <div className="min-w-[220px] flex-1">
+          <div className="mb-0.5 text-sm font-semibold text-foreground">What is the wiki?</div>
+          <p className="m-0 text-xs leading-relaxed text-muted-foreground">
             Wiki folders are shared knowledge bases — docs, repos, and URLs — that the agent reads at compile time.
             Assign the folders this agent should know; edit folder contents in the Knowledge Library.
           </p>
         </div>
-        <Link href="/knowledge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', alignSelf: 'center', fontSize: 12.5, fontWeight: 500, borderRadius: 8, textDecoration: 'none', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', flexShrink: 0 }}>Learn more <ExternalLink size={13} /></Link>
+        <Link href="/knowledge" className="inline-flex shrink-0 items-center gap-1.5 self-center rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground no-underline">Learn more <ExternalLink size={13} /></Link>
       </div>
     </div>
   );
+
 }
 
 // ─── Logs ─────────────────────────────────────────────────────────────────────
@@ -3159,11 +2963,11 @@ function CopyLogsBtn({ lines }: { lines: ParsedLog[] }) {
     });
   };
   return (
-    <button onClick={copy} disabled={lines.length === 0} style={{
-      background: 'none', border: 'none', cursor: lines.length ? 'pointer' : 'default',
-      fontSize: 11, color: copied ? '#16a34a' : 'var(--subtle)', fontFamily: 'var(--font-sans)',
-      opacity: lines.length ? 1 : 0.4,
-    }}>{copied ? 'Copied!' : 'Copy'}</button>
+    <button onClick={copy} disabled={lines.length === 0} className={cn(
+      'cursor-pointer border-none bg-transparent text-2xs',
+      copied ? 'text-green' : 'text-muted-foreground',
+      lines.length ? 'opacity-100' : 'cursor-default opacity-40',
+    )}>{copied ? 'Copied!' : 'Copy'}</button>
   );
 }
 
@@ -3179,66 +2983,58 @@ function LogRow({ log }: { log: ParsedLog }) {
       onClick={() => setExpanded(e => !e)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      className="cursor-pointer border-b border-border transition-colors"
       style={{
-        cursor: 'pointer',
         background: hovered ? 'var(--surface-2)' : (expanded ? 'var(--surface-2)' : m.rowBg),
         borderLeft: `3px solid ${expanded ? m.border : 'transparent'}`,
-        borderBottom: '1px solid var(--border)',
-        transition: 'background 0.1s',
       }}
     >
       {/* Compact single row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 10px', minHeight: 28 }}>
-        <span style={{ color: 'var(--subtle)', flexShrink: 0, fontSize: 10.5, fontVariantNumeric: 'tabular-nums', minWidth: 68 }}>
+      <div className="flex min-h-[28px] items-center gap-2.5 px-2.5 py-1">
+        <span className="min-w-[68px] shrink-0 text-2xs tabular-nums text-muted-foreground">
           {log.time}
         </span>
-        <span style={{
-          flexShrink: 0, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em',
-          padding: '1px 6px', borderRadius: 3, border: `1px solid ${m.border}`,
-          background: m.bg, color: m.color, minWidth: 34, textAlign: 'center',
-        }}>{m.label}</span>
-        <span style={{ flex: 1, color: msgColor, fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span style={{ border: `1px solid ${m.border}`, background: m.bg, color: m.color }}
+          className="min-w-[34px] shrink-0 rounded-sm px-1.5 py-px text-center text-[9.5px] font-bold tracking-[0.06em]">{m.label}</span>
+        <span style={{ color: msgColor }} className="flex-1 truncate text-2xs">
           {log.message}
         </span>
         {!expanded && hasFields && (
-          <span style={{ flexShrink: 0, display: 'flex', gap: 3 }}>
+          <span className="flex shrink-0 gap-1">
             {Object.keys(log.fields).slice(0, 3).map(k => (
-              <span key={k} style={{ fontSize: 9.5, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 3, padding: '0 4px' }}>{k}</span>
+              <span key={k} className="rounded-sm border border-border bg-muted px-1 text-[9.5px] text-muted-foreground">{k}</span>
             ))}
-            {Object.keys(log.fields).length > 3 && <span style={{ fontSize: 9.5, color: 'var(--subtle)' }}>+{Object.keys(log.fields).length - 3}</span>}
+            {Object.keys(log.fields).length > 3 && <span className="text-[9.5px] text-muted-foreground">+{Object.keys(log.fields).length - 3}</span>}
           </span>
         )}
-        <span style={{ flexShrink: 0, color: 'var(--subtle)', fontSize: 9, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
+        <span className="shrink-0 text-[9px] text-muted-foreground transition-transform" style={{ transform: expanded ? 'rotate(90deg)' : 'none' }}>▶</span>
       </div>
 
       {/* Expanded detail */}
       {expanded && (
-        <div style={{ padding: '8px 14px 12px 92px', borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+        <div className="border-t border-border bg-muted py-2 pl-[92px] pr-3.5 pb-3">
           {log.message.includes('\n') && (
-            <pre style={{ margin: '0 0 10px', color: 'var(--text)', fontSize: 11.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{log.message}</pre>
+            <pre className="mb-2.5 mt-0 whitespace-pre-wrap break-words text-2xs text-foreground">{log.message}</pre>
           )}
           {hasFields && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px', marginBottom: 8 }}>
+            <div className="mb-2 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
               {Object.entries(log.fields).map(([k, v]) => (
                 <>
-                  <span key={`k-${k}`} style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 500 }}>{k}</span>
-                  <span key={`v-${k}`} style={{ color: 'var(--muted)', fontSize: 11, wordBreak: 'break-all' }}>{v}</span>
+                  <span key={`k-${k}`} className="text-2xs font-medium text-primary">{k}</span>
+                  <span key={`v-${k}`} className="break-all text-2xs text-muted-foreground">{v}</span>
                 </>
               ))}
             </div>
           )}
           {log.raw && (
             <>
-              <div style={{ fontSize: 10, color: 'var(--subtle)', marginTop: 8, marginBottom: 4 }}>Raw</div>
-              <pre style={{
-                margin: 0, padding: '8px 10px', background: 'var(--surface-2)',
-                border: '1px solid var(--border)', borderRadius: 4,
-                fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 180, overflow: 'auto',
-              }}>{log.raw}</pre>
+              <div className="mb-1 mt-2 text-[10px] text-muted-foreground">Raw</div>
+              <pre className="m-0 max-h-[180px] overflow-auto whitespace-pre-wrap break-all rounded-sm border border-border bg-muted px-2.5 py-2 text-2xs text-muted-foreground">{log.raw}</pre>
             </>
           )}
         </div>
       )}
+
     </div>
   );
 }
@@ -3286,44 +3082,33 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
   return (
     <div className="fade-up">
       {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <div className={connected ? 'status-running' : ''}
-            style={{ width: 6, height: 6, borderRadius: '50%', background: connected ? '#16a34a' : 'var(--border-2)' }} />
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{connected ? 'Live' : 'Disconnected'}</span>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1">
+          <div className={cn('h-1.5 w-1.5 rounded-full', connected ? 'status-running bg-green' : 'bg-border')} />
+          <span className="text-2xs text-muted-foreground">{connected ? 'Live' : 'Disconnected'}</span>
         </div>
-        <div style={{ width: 1, height: 14, background: 'var(--border)', margin: '0 2px' }} />
+        <div className="mx-0.5 h-3.5 w-px bg-border" />
         {/* Level filters with counts */}
         {(['all', ...LEVEL_ORDER] as LogLevel[]).map(lvl => {
           const m = LOG_META[lvl];
           const active = levelFilter === lvl;
           return (
-            <button key={lvl} onClick={() => setLevelFilter(lvl)} style={{
-              padding: '2px 8px', borderRadius: 4,
-              border: `1px solid ${active ? m.border : 'var(--border)'}`,
-              fontSize: 10.5, fontFamily: 'var(--font-sans)', cursor: 'pointer',
-              background: active ? m.bg : 'transparent',
-              color: active ? m.color : 'var(--muted)',
-              fontWeight: active ? 700 : 400,
-              display: 'flex', alignItems: 'center', gap: 4,
-            }}>
+            <button key={lvl} onClick={() => setLevelFilter(lvl)}
+              style={active ? { borderColor: m.border, background: m.bg, color: m.color } : undefined}
+              className={cn(
+                'flex cursor-pointer items-center gap-1 rounded-sm border px-2 py-0.5 text-2xs',
+                active ? 'font-bold' : 'border-border bg-transparent font-normal text-muted-foreground',
+              )}>
               {m.label}
-              {counts[lvl] > 0 && <span style={{ fontSize: 9.5, opacity: 0.75 }}>{counts[lvl]}</span>}
+              {counts[lvl] > 0 && <span className="text-[9.5px] opacity-75">{counts[lvl]}</span>}
             </button>
           );
         })}
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter logs…"
-          style={{
-            padding: '3px 10px', borderRadius: 4, border: '1px solid var(--border)',
-            fontSize: 11, fontFamily: 'var(--font-mono)', background: 'transparent',
-            color: 'var(--text)', outline: 'none', width: 180,
-          }} />
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          className="w-[180px] rounded-sm border border-border bg-transparent px-2.5 py-0.5 font-mono text-2xs text-foreground outline-none" />
+        <div className="ml-auto flex gap-1.5">
           <CopyLogsBtn lines={visibleLines} />
-          <button onClick={() => setLines([])} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)',
-          }}>Clear</button>
+          <button onClick={() => setLines([])} className="cursor-pointer border-none bg-transparent text-2xs text-muted-foreground">Clear</button>
         </div>
       </div>
 
@@ -3331,12 +3116,9 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
       <div ref={containerRef} onScroll={e => {
         const el = e.currentTarget;
         setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 40);
-      }} style={{
-        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
-        height: 520, overflow: 'auto', fontFamily: 'var(--font-mono)',
-      }}>
+      }} className="h-[520px] overflow-auto rounded-md border border-border bg-card font-mono">
         {visibleLines.length === 0 ? (
-          <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--subtle)', fontSize: 12 }}>
+          <div className="px-5 py-10 text-center text-xs text-muted-foreground">
             {lines.length === 0 ? 'Waiting for log lines…' : 'No matching lines.'}
           </div>
         ) : (
@@ -3345,17 +3127,18 @@ function LogsTab({ agentId, slug }: { agentId: string; slug: string }) {
         <div ref={bottomRef} />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, padding: '0 2px' }}>
-        <span style={{ fontSize: 10.5, color: 'var(--subtle)' }}>
+      <div className="mt-1 flex justify-between px-0.5">
+        <span className="text-2xs text-muted-foreground">
           {visibleLines.length}{visibleLines.length !== lines.length ? ` / ${lines.length}` : ''} line{visibleLines.length !== 1 ? 's' : ''}
         </span>
         {!autoScroll && (
           <button onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
-            style={{ fontSize: 10.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
+            className="cursor-pointer border-none bg-transparent text-2xs text-primary">
             ↓ Jump to latest
           </button>
         )}
       </div>
+
     </div>
   );
 }
@@ -3686,84 +3469,48 @@ function PersonaLibraryModal({
 
   return (
     <Portal>
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '20px',
-      }}>
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }}
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center p-5">
+        <div className="fixed inset-0 bg-black/50"
           onClick={onClose} />
-        <div style={{
-          position: 'relative', background: 'var(--bg)', borderRadius: 12,
-          width: '100%', maxWidth: 800, maxHeight: 560,
-          display: 'flex', flexDirection: 'column',
-          border: '1px solid var(--border)',
-          boxShadow: 'rgba(50,50,93,0.25) 0px 30px 60px -12px, rgba(0,0,0,0.3) 0px 18px 36px -18px',
-        }}>
+        <div className="relative flex w-full max-w-[800px] max-h-[560px] flex-col rounded-xl border border-border bg-background shadow-lg">
 
           {/* ── Header ───────────────────────────────────────────────────── */}
-          <div style={{
-            padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
-            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-          }}>
-            <div style={{ display: 'flex', gap: 4 }}>
+          <div className="flex shrink-0 items-start justify-between border-b border-border px-6 pb-4 pt-5">
+            <div className="flex gap-1">
               {(['json', 'template'] as const).map(id => (
-                <button key={id} onClick={() => onTabChange(id)} style={{
-                  padding: '7px 14px', fontSize: 13, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                  background: tab === id ? 'var(--surface-2)' : 'transparent',
-                  color: tab === id ? 'var(--text)' : 'var(--muted)', fontWeight: tab === id ? 600 : 500,
-                }}>{id === 'json' ? 'Import JSON' : 'Choose Template'}</button>
+                <button key={id} onClick={() => onTabChange(id)} className={cn(
+                  'cursor-pointer rounded-lg px-3.5 py-[7px] text-sm',
+                  tab === id ? 'bg-secondary font-semibold text-foreground' : 'font-medium text-muted-foreground',
+                )}>{id === 'json' ? 'Import JSON' : 'Choose Template'}</button>
               ))}
             </div>
-            <button onClick={onClose} style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--muted)', padding: 4, marginTop: -2,
-            }}><X size={18} /></button>
+            <button onClick={onClose} className="-mt-0.5 cursor-pointer p-1 text-muted-foreground"><X size={18} /></button>
           </div>
 
           {tab === 'json' && jsonPanel}
           {tab === 'template' && (<>
 
           {/* ── Search bar ───────────────────────────────────────────────── */}
-          <div style={{
-            padding: '12px 24px', borderBottom: '1px solid var(--border)', flexShrink: 0,
-            display: 'flex', gap: 8, alignItems: 'center',
-          }}>
-            <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={14} style={{
-                position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
-                color: 'var(--muted)', pointerEvents: 'none',
-              }} />
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
+            <div className="relative flex-1">
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 placeholder="Search personas..."
                 value={search}
                 onChange={e => onSearchChange(e.target.value)}
                 autoFocus={!selected}
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  padding: '7px 10px 7px 32px', fontSize: 13,
-                  background: 'var(--surface-2)', border: '1px solid var(--border)',
-                  borderRadius: 6, color: 'var(--text)', fontFamily: 'var(--font-sans)',
-                  outline: 'none',
-                }}
+                className="box-border w-full rounded-md border border-border bg-secondary py-[7px] pl-8 pr-2.5 text-sm text-foreground outline-none"
               />
             </div>
           </div>
 
           {/* ── Body: sidebar + main ─────────────────────────────────────── */}
-          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <div className="flex flex-1 overflow-hidden">
 
             {/* Left sidebar */}
-            <div style={{
-              width: 160, borderRight: '1px solid var(--border)', flexShrink: 0,
-              padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2,
-              overflowY: 'auto',
-            }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700, color: 'var(--subtle)', letterSpacing: '0.08em',
-                textTransform: 'uppercase', padding: '0 10px', marginBottom: 4,
-              }}>Browse</span>
+            <div className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border px-2 py-3">
+              <span className="mb-1 px-2.5 text-2xs font-bold uppercase tracking-[0.08em] text-muted-foreground">Browse</span>
               {Object.entries(CATEGORY_LABELS).map(([val, label]) => {
                 const isActive = category === val;
                 const count = val === 'all'
@@ -3775,35 +3522,20 @@ function PersonaLibraryModal({
                 return (
                   <button key={val}
                     onClick={() => { onCategoryChange(val as PersonaCategory | 'all'); if (selected) onBack(); }}
-                    style={{
-                      position: 'relative',
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '7px 10px', borderRadius: 6, border: 'none',
-                      background: isActive ? 'var(--surface-2)' : 'transparent',
-                      color: isActive ? 'var(--text)' : 'var(--muted)',
-                      fontFamily: 'var(--font-sans)', fontSize: 13,
-                      fontWeight: isActive ? 600 : 400,
-                      cursor: 'pointer', textAlign: 'left',
-                      transition: 'background 0.12s, color 0.12s',
-                    }}
-                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }}
-                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                    className={cn(
+                      'relative flex cursor-pointer items-center justify-between rounded-md px-2.5 py-[7px] text-left text-sm transition-colors',
+                      isActive ? 'bg-secondary font-semibold text-foreground' : 'font-normal text-muted-foreground hover:bg-secondary',
+                    )}
                   >
                     {isActive && (
-                      <span style={{
-                        position: 'absolute', left: 0, top: '20%', bottom: '20%',
-                        width: 3, borderRadius: 2,
-                        background: CATEGORY_COLORS[val] ?? 'var(--accent)',
-                      }} />
+                      <span className="absolute bottom-[20%] left-0 top-[20%] w-[3px] rounded-sm"
+                        style={{ background: CATEGORY_COLORS[val] ?? 'var(--accent)' }} />
                     )}
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: iconColor }}>
+                    <span className="flex items-center gap-2" style={{ color: iconColor }}>
                       {CATEGORY_ICONS[val]}
-                      <span style={{ color: isActive ? 'var(--text)' : 'var(--muted)' }}>{label}</span>
+                      <span className={isActive ? 'text-foreground' : 'text-muted-foreground'}>{label}</span>
                     </span>
-                    <span style={{
-                      fontSize: 11, fontWeight: 500,
-                      color: isActive ? 'var(--accent)' : 'var(--subtle)',
-                    }}>{count}</span>
+                    <span className={cn('text-xs font-medium', isActive ? 'text-primary' : 'text-muted-foreground')}>{count}</span>
                   </button>
                 );
               })}
@@ -3812,36 +3544,20 @@ function PersonaLibraryModal({
             {/* Right: card grid or detail */}
             {selected ? (
               // ── Detail view ───────────────────────────────────────────────
-              <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-                <div style={{
-                  padding: '12px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                }}>
-                  <button onClick={onBack} style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--muted)', display: 'flex', alignItems: 'center',
-                    gap: 5, fontSize: 13, padding: 0, fontFamily: 'var(--font-sans)',
-                  }}
-                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
-                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
-                  >
+              <div className="flex flex-1 flex-col overflow-auto">
+                <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+                  <button onClick={onBack} className="flex cursor-pointer items-center gap-[5px] p-0 text-sm text-muted-foreground hover:text-foreground">
                     <ArrowLeft size={14} /> Back
                   </button>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="flex gap-2">
                     {selected.skills.length > 0 && (
                       <button
                         disabled={applying || skillSel.size === 0}
                         onClick={() => onImportSkills(selected, skillSel)}
-                        style={{
-                          background: 'transparent', color: 'var(--text)',
-                          border: '1px solid var(--border-2)', borderRadius: 6,
-                          padding: '7px 14px', fontSize: 13, fontWeight: 500,
-                          cursor: (applying || skillSel.size === 0) ? 'not-allowed' : 'pointer',
-                          fontFamily: 'var(--font-sans)',
-                          opacity: (applying || skillSel.size === 0) ? 0.4 : 1,
-                        }}
-                        onMouseEnter={e => { if (!applying && skillSel.size > 0) (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'; }}
+                        className={cn(
+                          'rounded-md border border-border bg-transparent px-3.5 py-[7px] text-sm font-medium text-foreground hover:border-primary',
+                          (applying || skillSel.size === 0) ? 'cursor-not-allowed opacity-40' : 'cursor-pointer',
+                        )}
                       >
                         Add {skillSel.size} skill{skillSel.size !== 1 ? 's' : ''}
                       </button>
@@ -3849,70 +3565,47 @@ function PersonaLibraryModal({
                     <button
                       disabled={applying}
                       onClick={() => onImportFull(selected)}
-                      style={{
-                        background: 'var(--accent)', color: 'var(--accent-fg)',
-                        border: 'none', borderRadius: 6, padding: '7px 16px',
-                        fontSize: 13, fontWeight: 600,
-                        cursor: applying ? 'not-allowed' : 'pointer',
-                        fontFamily: 'var(--font-sans)', opacity: applying ? 0.7 : 1,
-                        transition: 'opacity 0.15s',
-                      }}
-                      onMouseEnter={e => { if (!applying) (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+                      className={cn(
+                        'rounded-md border-none bg-primary px-4 py-[7px] text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-85',
+                        applying ? 'cursor-not-allowed opacity-70' : 'cursor-pointer',
+                      )}
                     >
                       {applying ? 'Importing…' : 'Import persona'}
                     </button>
                   </div>
                 </div>
 
-                <div style={{ padding: '16px 20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div className="flex flex-col gap-4 px-5 pb-7 pt-4">
                   <div>
-                    <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                    <h3 className="mb-1 text-md font-semibold text-foreground">
                       {selected.name}
                     </h3>
-                    <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
+                    <p className="text-sm leading-normal text-muted-foreground">
                       {selected.cardDescription}
                     </p>
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
-                      textTransform: 'uppercase', padding: '2px 7px', borderRadius: 4,
-                      background: `${CATEGORY_COLORS[selected.category]}1a`,
-                      color: CATEGORY_COLORS[selected.category] ?? 'var(--muted)',
-                    }}>{selected.category}</span>
+                  <div className="flex flex-wrap gap-[5px]">
+                    <span className="rounded-sm px-[7px] py-0.5 text-2xs font-bold uppercase tracking-[0.06em]"
+                      style={{
+                        background: `${CATEGORY_COLORS[selected.category]}1a`,
+                        color: CATEGORY_COLORS[selected.category] ?? 'var(--muted)',
+                      }}>{selected.category}</span>
                     {selected.tags.map(tag => (
-                      <span key={tag} style={{
-                        fontSize: 11, padding: '2px 7px', borderRadius: 4,
-                        background: 'var(--surface-2)', color: 'var(--muted)',
-                        border: '1px solid var(--border)',
-                      }}>{tag}</span>
+                      <span key={tag} className="rounded-sm border border-border bg-secondary px-[7px] py-0.5 text-xs text-muted-foreground">{tag}</span>
                     ))}
                   </div>
                   {/* System prompt preview */}
                   {selected.claudeMd && (
-                    <div style={{ border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
-                      <button onClick={() => setPromptExpanded(v => !v)} style={{
-                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '8px 12px', background: 'var(--surface-2)', border: 'none',
-                        cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                      }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>
+                    <div className="overflow-hidden rounded-md border border-border">
+                      <button onClick={() => setPromptExpanded(v => !v)} className="flex w-full cursor-pointer items-center justify-between border-none bg-secondary px-3 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                           System Prompt
                         </span>
-                        <ChevronDown size={13} style={{
-                          color: 'var(--muted)',
-                          transform: promptExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.15s',
-                        }} />
+                        <ChevronDown size={13} className="text-muted-foreground transition-transform"
+                          style={{ transform: promptExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }} />
                       </button>
                       {promptExpanded && (
-                        <pre style={{
-                          margin: 0, padding: '10px 12px', fontSize: 11.5,
-                          fontFamily: 'var(--font-mono)', color: 'var(--muted)',
-                          whiteSpace: 'pre-wrap', lineHeight: 1.5, maxHeight: 200,
-                          overflow: 'auto', background: 'var(--bg)',
-                        }}>
+                        <pre className="m-0 max-h-[200px] overflow-auto bg-background px-3 py-2.5 font-mono text-2xs leading-normal text-muted-foreground whitespace-pre-wrap">
                           {selected.claudeMd.trim()}
                         </pre>
                       )}
@@ -3921,53 +3614,38 @@ function PersonaLibraryModal({
 
                   {selected.skills.length > 0 && (
                     <div>
-                      <p style={{
-                        margin: '0 0 8px', fontSize: 11, fontWeight: 600,
-                        textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)',
-                      }}>Skills · select to cherry-pick</p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Skills · select to cherry-pick</p>
+                      <div className="flex flex-col gap-0.5">
                         {selected.skills.map(skill => {
                           const isExpanded = expandedSkill === skill.filename;
                           return (
-                            <div key={skill.filename} style={{
-                              borderRadius: 6, border: '1px solid',
-                              borderColor: skillSel.has(skill.filename) ? 'var(--border-2)' : 'var(--border)',
-                              background: skillSel.has(skill.filename) ? 'var(--surface-2)' : 'transparent',
-                              overflow: 'hidden', transition: 'all 0.1s',
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px' }}>
+                            <div key={skill.filename} className={cn(
+                              'overflow-hidden rounded-md border transition-all',
+                              skillSel.has(skill.filename) ? 'border-border bg-secondary' : 'border-border bg-transparent',
+                            )}>
+                              <div className="flex items-center gap-2 px-2.5 py-[7px]">
                                 <input type="checkbox"
                                   checked={skillSel.has(skill.filename)}
                                   onChange={() => onToggleSkill(skill.filename)}
-                                  style={{ accentColor: 'var(--accent)', width: 13, height: 13, cursor: 'pointer', flexShrink: 0 }}
+                                  className="h-[13px] w-[13px] shrink-0 cursor-pointer"
+                                  style={{ accentColor: 'var(--accent)' }}
                                 />
-                                <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{skill.category}/</span>
-                                <span style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono)', flex: 1 }}>{skill.filename}</span>
+                                <span className="shrink-0 font-mono text-xs text-muted-foreground">{skill.category}/</span>
+                                <span className="flex-1 font-mono text-xs text-foreground">{skill.filename}</span>
                                 <button
                                   onClick={() => setExpandedSkill(isExpanded ? null : skill.filename)}
-                                  style={{
-                                    background: 'none', border: 'none', cursor: 'pointer',
-                                    color: isExpanded ? 'var(--text)' : 'var(--muted)',
-                                    display: 'flex', alignItems: 'center', padding: '2px 4px',
-                                    flexShrink: 0,
-                                  }}
+                                  className={cn(
+                                    'flex shrink-0 cursor-pointer items-center border-none bg-transparent px-1 py-0.5',
+                                    isExpanded ? 'text-foreground' : 'text-muted-foreground',
+                                  )}
                                   title={isExpanded ? 'Hide content' : 'Preview content'}
                                 >
-                                  <ChevronDown size={12} style={{
-                                    transform: isExpanded ? 'rotate(180deg)' : 'none',
-                                    transition: 'transform 0.15s',
-                                  }} />
+                                  <ChevronDown size={12} className="transition-transform"
+                                    style={{ transform: isExpanded ? 'rotate(180deg)' : 'none' }} />
                                 </button>
                               </div>
                               {isExpanded && (
-                                <pre style={{
-                                  margin: 0, padding: '8px 12px 10px',
-                                  fontSize: 11, fontFamily: 'var(--font-mono)',
-                                  color: 'var(--muted)', whiteSpace: 'pre-wrap',
-                                  lineHeight: 1.5, maxHeight: 200, overflow: 'auto',
-                                  borderTop: '1px solid var(--border)',
-                                  background: 'var(--bg)',
-                                }}>
+                                <pre className="m-0 max-h-[200px] overflow-auto border-t border-border bg-background px-3 pb-2.5 pt-2 font-mono text-xs leading-normal text-muted-foreground whitespace-pre-wrap">
                                   {skill.content}
                                 </pre>
                               )}
@@ -3977,79 +3655,40 @@ function PersonaLibraryModal({
                       </div>
                     </div>
                   )}
-                  <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>
+                  <p className="text-xs text-muted-foreground">
                     "Import persona" replaces your current system prompt, description, and all existing skills.
                   </p>
-                  <button onClick={() => { onClose(); fileInputRef.current?.click(); }} style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--muted)', fontSize: 12, padding: 0, alignSelf: 'flex-start',
-                    fontFamily: 'var(--font-sans)', textDecoration: 'underline', textUnderlineOffset: 3,
-                  }}
-                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
-                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+                  <button onClick={() => { onClose(); fileInputRef.current?.click(); }} className="cursor-pointer self-start border-none bg-transparent p-0 text-xs text-muted-foreground underline underline-offset-[3px] hover:text-foreground"
                   >Import from JSON file instead</button>
                 </div>
               </div>
             ) : (
               // ── Card grid ─────────────────────────────────────────────────
-              <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px 20px' }}>
+              <div className="flex-1 overflow-auto px-4 pb-5 pt-3">
                 {filteredPersonas.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: 13 }}>
+                  <div className="py-10 text-center text-sm text-muted-foreground">
                     No personas match your search.
                   </div>
                 ) : (
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                    gap: 10,
-                  }}>
+                  <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
                     {filteredPersonas.map(p => (
                       <button key={p.id} onClick={() => onSelectPersona(p)}
-                        style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                          gap: 7, padding: '12px 12px',
-                          background: 'var(--surface)', border: '1px solid var(--border)',
-                          borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                          fontFamily: 'var(--font-sans)', minWidth: 0,
-                          boxShadow: 'rgba(50,50,93,0.06) 0px 2px 5px -1px, rgba(0,0,0,0.04) 0px 1px 3px -1px',
-                          transition: 'border-color 0.15s, box-shadow 0.15s',
-                        }}
-                        onMouseEnter={e => {
-                          const el = e.currentTarget as HTMLElement;
-                          el.style.borderColor = 'var(--accent)';
-                          el.style.boxShadow = 'rgba(50,50,93,0.2) 0px 6px 12px -2px, rgba(0,0,0,0.08) 0px 3px 7px -3px';
-                        }}
-                        onMouseLeave={e => {
-                          const el = e.currentTarget as HTMLElement;
-                          el.style.borderColor = 'var(--border)';
-                          el.style.boxShadow = 'rgba(50,50,93,0.06) 0px 2px 5px -1px, rgba(0,0,0,0.04) 0px 1px 3px -1px';
-                        }}
+                        className="flex min-w-0 cursor-pointer flex-col items-start gap-[7px] rounded-lg border border-border bg-card p-3 text-left shadow-sm transition-all hover:border-primary hover:shadow-md"
                       >
-                        <span style={{
-                          fontSize: 9, fontWeight: 700, letterSpacing: '0.07em',
-                          textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4,
-                          background: `${CATEGORY_COLORS[p.category]}1a`,
-                          color: CATEGORY_COLORS[p.category] ?? 'var(--muted)',
-                          flexShrink: 0,
-                        }}>{p.category}</span>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2 }}>
+                        <span className="shrink-0 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.07em]"
+                          style={{
+                            background: `${CATEGORY_COLORS[p.category]}1a`,
+                            color: CATEGORY_COLORS[p.category] ?? 'var(--muted)',
+                          }}>{p.category}</span>
+                        <span className="text-sm font-semibold leading-tight text-foreground">
                           {p.name}
                         </span>
-                        <p style={{
-                          margin: 0, fontSize: 11, color: 'var(--muted)', lineHeight: 1.4,
-                          display: '-webkit-box', WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
-                        }}>{p.cardDescription}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 4, minWidth: 0 }}>
-                          <span style={{
-                            fontSize: 10, padding: '1px 6px', borderRadius: 4,
-                            background: 'var(--surface-2)', color: 'var(--muted)',
-                            border: '1px solid var(--border)',
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            minWidth: 0, flexShrink: 1,
-                          }}>{p.tags[0]}</span>
+                        <p className="m-0 overflow-hidden text-xs leading-snug text-muted-foreground"
+                          style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>{p.cardDescription}</p>
+                        <div className="flex w-full min-w-0 items-center justify-between gap-1">
+                          <span className="min-w-0 flex-shrink overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-border bg-secondary px-1.5 py-px text-2xs text-muted-foreground">{p.tags[0]}</span>
                           {p.skills.length > 0 && (
-                            <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                            <span className="shrink-0 whitespace-nowrap text-2xs text-muted-foreground">
                               {p.skills.length} skills
                             </span>
                           )}
@@ -4132,20 +3771,20 @@ function PermsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current: Ag
   const willDropDenied  = [...currDenied].filter(t => !snapDenied.has(t));
 
   if (!willAddAllowed.length && !willDropAllowed.length && !willAddDenied.length && !willDropDenied.length) {
-    return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No permission changes.</p>;
+    return <p className="m-0 text-sm text-muted-foreground">No permission changes.</p>;
   }
   const row = (label: string, items: string[], color: string) => items.length > 0 && (
     <div key={label}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      <div className="mb-1 text-2xs font-semibold text-muted-foreground">{label}</div>
+      <div className="flex flex-wrap gap-1.5">
         {items.map(t => (
-          <span key={t} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: `${color}22`, color }}>{t}</span>
+          <span key={t} style={{ background: `${color}22`, color }} className="rounded-sm px-2 py-0.5 font-mono text-2xs">{t}</span>
         ))}
       </div>
     </div>
   );
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {row('Tools that will be allowed',      willAddAllowed,  'var(--green)')}
       {row('Tools that will no longer be allowed', willDropAllowed, 'var(--red)')}
       {row('Tools that will be denied',       willAddDenied,   'var(--red)')}
@@ -4160,16 +3799,16 @@ function McpsDiff({ snapshot, current, allMcps }: { snapshot: AgentSnapshot; cur
   const snapIds = new Set(snapshot.mcpIds);
   const willConnect    = [...snapIds].filter(id => !currIds.has(id));
   const willDisconnect = [...currIds].filter(id => !snapIds.has(id));
-  if (!willConnect.length && !willDisconnect.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No MCP changes.</p>;
+  if (!willConnect.length && !willDisconnect.length) return <p className="m-0 text-sm text-muted-foreground">No MCP changes.</p>;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="flex flex-col gap-2">
       {willConnect.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', marginBottom: 4 }}>Will be connected</div>
-        {willConnect.map(id => <div key={id} style={{ fontSize: 12.5, color: 'var(--green)' }}>+ {nameFor(id)}</div>)}
+        <div className="mb-1 text-2xs font-semibold text-green">Will be connected</div>
+        {willConnect.map(id => <div key={id} className="text-xs text-green">+ {nameFor(id)}</div>)}
       </div>}
       {willDisconnect.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', marginBottom: 4 }}>Will be disconnected</div>
-        {willDisconnect.map(id => <div key={id} style={{ fontSize: 12.5, color: 'var(--red)' }}>− {nameFor(id)}</div>)}
+        <div className="mb-1 text-2xs font-semibold text-red">Will be disconnected</div>
+        {willDisconnect.map(id => <div key={id} className="text-xs text-red">− {nameFor(id)}</div>)}
       </div>}
     </div>
   );
@@ -4180,22 +3819,22 @@ function ChannelsDiff({ snapshot, current }: { snapshot: AgentSnapshot; current:
   const snapChannels = new Set(snapshot.allowedChannels ?? []);
   const willAdd  = [...snapChannels].filter(ch => !currChannels.has(ch));
   const willDrop = [...currChannels].filter(ch => !snapChannels.has(ch));
-  if (!willAdd.length && !willDrop.length) return <p style={{ fontSize: 13, color: 'var(--subtle)', margin: 0 }}>No channel restriction changes.</p>;
+  if (!willAdd.length && !willDrop.length) return <p className="m-0 text-sm text-muted-foreground">No channel restriction changes.</p>;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="flex flex-col gap-2">
       {willAdd.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', marginBottom: 4 }}>Channels that will be restored</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="mb-1 text-2xs font-semibold text-green">Channels that will be restored</div>
+        <div className="flex flex-wrap gap-1.5">
           {willAdd.map(ch => (
-            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: 'rgba(16,185,129,0.12)', color: 'var(--green)' }}>{ch}</span>
+            <span key={ch} className="rounded-sm bg-green/10 px-2 py-0.5 font-mono text-2xs text-green">{ch}</span>
           ))}
         </div>
       </div>}
       {willDrop.length > 0 && <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', marginBottom: 4 }}>Channels that will be dropped</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="mb-1 text-2xs font-semibold text-red">Channels that will be dropped</div>
+        <div className="flex flex-wrap gap-1.5">
           {willDrop.map(ch => (
-            <span key={ch} style={{ fontSize: 11.5, fontFamily: 'var(--font-mono)', padding: '2px 8px', borderRadius: 4, background: 'var(--red-soft-bg)', color: 'var(--red)' }}>{ch}</span>
+            <span key={ch} className="rounded-sm bg-red/10 px-2 py-0.5 font-mono text-2xs text-red">{ch}</span>
           ))}
         </div>
       </div>}
@@ -4221,12 +3860,11 @@ const TRIGGER_LABELS: Record<string, string> = {
 function TriggerBadge({ trigger }: { trigger: string }) {
   const c = TRIGGER_COLORS[trigger] ?? { bg: 'var(--surface-2)', color: 'var(--muted)' };
   return (
-    <span style={{
-      fontSize: 10.5, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
-      background: c.bg, color: c.color, letterSpacing: '0.03em',
-    }}>{TRIGGER_LABELS[trigger] ?? trigger}</span>
+    <span style={{ background: c.bg, color: c.color }}
+      className="rounded-md px-2 py-0.5 text-2xs font-semibold tracking-[0.03em]">{TRIGGER_LABELS[trigger] ?? trigger}</span>
   );
 }
+
 
 // ── Main HistoryTab component ─────────────────────────────────────────────────
 
