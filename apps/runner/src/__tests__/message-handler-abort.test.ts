@@ -73,6 +73,16 @@ async function* hangUntilAborted(ctl?: AbortController): AsyncGenerator<unknown,
   // SDK's "silent return on consumer break" semantics — never throws.
 }
 
+/** Like `hangUntilAborted` but returns after `maxTicks` even if never aborted,
+ *  so a test can't hang forever when the abort it expects fails to arrive. */
+async function* hangUntilAbortedOrTimeout(ctl?: AbortController, maxTicks = 100): AsyncGenerator<unknown, void, unknown> {
+  let ticks = 0;
+  while (!ctl?.signal.aborted && ticks < maxTicks) {
+    await new Promise(r => setTimeout(r, 5));
+    ticks++;
+  }
+}
+
 function makeAgent(): Agent {
   return {
     id: 'agent-test',
@@ -174,6 +184,40 @@ describe('MessageHandler — same-thread abort routing', () => {
     const postedPayloads = (adapter.postPayload as unknown as ReturnType<typeof vi.fn>)
       .mock.calls.map(c => (c[1] as { text?: string }).text);
     expect(postedPayloads).toContain(FALLBACK_TEXT);
+  });
+
+  it('keeps the live turn abortable after a preempted turn cleans up (no parallel runs)', async () => {
+    // Reproduces the "two turns running in parallel" bug. Three same-session
+    // messages arrive in sequence: #1 is preempted by #2, then #3 arrives. The
+    // preempted #1's `finally` must NOT delete the controller slot now owned by
+    // the still-running #2 — otherwise #3 finds nothing to abort and runs in
+    // parallel with #2. We assert #2's controller IS aborted when #3 arrives.
+    const streamQuery = claude.streamQuery as unknown as ReturnType<typeof vi.fn>;
+    const controllers: AbortController[] = [];
+    streamQuery.mockImplementation((_p: unknown, _s: string, ctl?: AbortController) => {
+      controllers.push(ctl as AbortController);
+      const call = controllers.length;
+      if (call === 3) {
+        return (async function* () {
+          yield { type: 'result', subtype: 'success', result: 'third wins' };
+        })();
+      }
+      // #1 and #2 hang until aborted (or time out so a missed abort can't hang the test).
+      return hangUntilAbortedOrTimeout(ctl);
+    });
+
+    const first = handler.handleMessage(makeMsg('m1'));
+    await new Promise(r => setTimeout(r, 30));   // #1 registers ctrl1, enters loop
+    const second = handler.handleMessage(makeMsg('m2', 'again')); // aborts #1, registers ctrl2
+    await new Promise(r => setTimeout(r, 30));   // let #1 unwind + run its finally
+    const third = handler.handleMessage(makeMsg('m3', 'stop'));   // must abort ctrl2
+    await Promise.all([first, second, third]);
+
+    // ctrl2 (the second turn) must have been aborted by the third message.
+    // Without the identity guard, #1's finally deletes ctrl2 from the slot, so
+    // #3's `get(sessionKey)?.abort()` is a no-op and ctrl2 stays unaborted.
+    expect(controllers).toHaveLength(3);
+    expect(controllers[1].signal.aborted).toBe(true);
   });
 
   it('routes to the abort branch when signal flips between loop end and post-loop check', async () => {

@@ -15,11 +15,7 @@ import type {
   SuggestedCaseWire,
   SuggestedCheck,
 } from '@slackhive/shared';
-
-function runnerBase(): string {
-  const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
-  return `http://127.0.0.1:${port}`;
-}
+import { runnerBase } from '@/lib/runner';
 
 interface SuggestRunnerRequest {
   agent: {

@@ -13,9 +13,10 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert, RotateCcw, Loader2 } from 'lucide-react';
+import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert } from 'lucide-react';
 import { TabSwitcher } from './_components/TabSwitcher';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
+import { ReplayButton } from './_components/ReplayButton';
 import { relativeTime } from '@/lib/time';
 
 interface Task {
@@ -320,43 +321,6 @@ function TaskCard(props: {
   const primaryAgent = agentIds[0] ?? task.initialAgentId;
   const primaryAgentName = primaryAgent ? agentById.get(primaryAgent)?.name : undefined;
   const href = `/activity/${encodeURIComponent(task.id)}`;
-  // No role gate here: the replay route (guardAdmin) actually allows editor+ (it
-  // blocks only viewers), and viewers can't load this board at all — so anyone who
-  // can see an errored card can replay it.
-  const [replaying, setReplaying] = useState(false);
-  const [replayDone, setReplayDone] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-  // One auto-dismiss timer per card; cleared before re-arming and on unmount so a
-  // stale timer can't wipe a newer toast (or fire after unmount).
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
-  const flash = (msg: string, ok: boolean) => {
-    setToast({ msg, ok });
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3000);
-  };
-
-  async function handleReplay(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setReplaying(true);
-    try {
-      const res = await fetch(`/api/activity/${encodeURIComponent(task.id)}/replay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      // Latch on success ('Queued') — the route isn't idempotent, so we must NOT
-      // re-enable the button against the same still-errored card (would double-queue).
-      if (res.ok) { setReplayDone(true); flash('Replay queued', true); }
-      else flash('Failed to replay', false);
-    } catch {
-      // Thrown fetch (runner unreachable / network drop) — surface it, don't swallow.
-      flash('Failed to replay', false);
-    } finally {
-      setReplaying(false);
-    }
-  }
 
   return (
     <Link
@@ -398,36 +362,9 @@ function TaskCard(props: {
           {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
           {!!task.feedbackDown && <Chip color="#dc2626"><ThumbsDown size={10} />{task.feedbackDown}</Chip>}
           <Chip>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</Chip>
-          {isErrored && (
-            <button
-              onClick={handleReplay}
-              disabled={replaying || replayDone}
-              title={replayDone ? 'Queued' : 'Replay'}
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 22, height: 22, borderRadius: 5, border: 'none',
-                background: replayDone ? 'rgba(5,150,105,0.12)' : 'rgba(220,38,38,0.1)',
-                color: replayDone ? '#047857' : '#dc2626',
-                cursor: replaying || replayDone ? 'default' : 'pointer',
-                opacity: replaying ? 0.5 : 1, flexShrink: 0,
-              }}
-            >
-              {replaying
-                ? <Loader2 size={11} style={{ animation: 'spin 1.2s linear infinite' }} />
-                : replayDone ? <CheckCircle2 size={11} /> : <RotateCcw size={11} />}
-            </button>
-          )}
+          {isErrored && <ReplayButton taskId={task.id} variant="icon" />}
         </span>
       </div>
-      {toast && (
-        <div style={{
-          marginTop: 6, fontSize: 11, fontWeight: 500,
-          color: toast.ok ? '#047857' : '#dc2626',
-        }}>
-          {toast.ok ? <CheckCircle2 size={10} style={{ display: 'inline', marginRight: 4 }} /> : null}
-          {toast.msg}
-        </div>
-      )}
     </Link>
   );
 }

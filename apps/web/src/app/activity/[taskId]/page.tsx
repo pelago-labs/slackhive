@@ -27,6 +27,7 @@ import { type TraceTurn } from '@slackhive/shared';
 import { relativeTime } from '@/lib/time';
 import { SEV_COLOR } from '../_components/SevBadge';
 import { RevealCtx, NodeDetailProvider, SensitiveBadge, buildNodes, NodeRow, formatMs } from '../_components/trace-nodes';
+import { ReplayButton } from '../_components/ReplayButton';
 
 interface Task {
   id: string; platform: string; channelId: string; threadTs: string;
@@ -188,7 +189,7 @@ export default function TaskTracePage(): React.JSX.Element {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {turns.length === 0 && <Empty>No activity recorded yet.</Empty>}
               {turns.length > 0 && visibleTurns.length === 0 && <Empty>No turns match this filter.</Empty>}
-              {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} highlightSpanId={highlightSpanId} />)}
+              {visibleTurns.map(({ t, i }, vi) => <TurnCard key={t.activityId} turn={t} index={i} isLast={vi === visibleTurns.length - 1} taskId={task.id} highlightSpanId={highlightSpanId} />)}
             </div>
           </div>
         </div>
@@ -391,7 +392,7 @@ function StackBars(props: { title: string; data: { label: string; input: number;
 }
 
 // ── Turn ────────────────────────────────────────────────────────────────────
-function TurnCard({ turn, index, isLast, highlightSpanId }: { turn: TraceTurn; index: number; isLast?: boolean; highlightSpanId?: string | null }): React.JSX.Element {
+function TurnCard({ turn, index, isLast, taskId, highlightSpanId }: { turn: TraceTurn; index: number; isLast?: boolean; taskId: string; highlightSpanId?: string | null }): React.JSX.Element {
   const nodes = buildNodes(turn);
   const containsHighlight = !!highlightSpanId && nodes.some(n => n.key === highlightSpanId);
   // Expand the most recent (last visible) turn by default; also a deep-linked turn,
@@ -446,6 +447,11 @@ function TurnCard({ turn, index, isLast, highlightSpanId }: { turn: TraceTurn; i
             </span>
           </div>
           {turn.messagePreview && <div style={{ marginTop: 6, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{turn.messagePreview}</div>}
+          {turn.status === 'error' && (
+            <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
+              <ReplayButton taskId={taskId} activityId={turn.activityId} variant="labeled" />
+            </div>
+          )}
         </div>
       </div>
 

@@ -18,6 +18,7 @@
  */
 
 import type { ToolCallTrace } from '@slackhive/shared';
+import { runnerBase } from '@/lib/runner';
 
 export interface Trace {
   finalReply: string;
@@ -28,11 +29,6 @@ export interface Trace {
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-
-function runnerBase(): string {
-  const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
-  return `http://127.0.0.1:${port}`;
-}
 
 /**
  * Runs one case against an agent.

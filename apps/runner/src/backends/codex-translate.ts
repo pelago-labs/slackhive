@@ -137,7 +137,6 @@ export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise
   if (typeof prompt === 'string') return prompt;
   const out: UserInput[] = [];
   let imgIdx = 0;
-  let pdfIdx = 0;
   for (const block of prompt as Array<Record<string, unknown>>) {
     if (block?.type === 'text' && typeof block.text === 'string') {
       out.push({ type: 'text', text: block.text });
@@ -147,7 +146,7 @@ export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise
         const ext = source.media_type?.split('/')[1] || 'png';
         const p = path.join(tmpDir, `input-image-${imgIdx++}.${ext}`);
         try {
-          fs.writeFileSync(p, Buffer.from(source.data, 'base64'));
+          await fs.promises.writeFile(p, Buffer.from(source.data, 'base64'));
           out.push({ type: 'local_image', path: p });
         } catch { /* skip unreadable image */ }
       }
@@ -157,11 +156,18 @@ export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise
       // on dense tabular data — pdftotext gives exact text for every row/column.
       const source = block.source as { data?: string; media_type?: string } | undefined;
       if (source?.data && source.media_type === 'application/pdf') {
-        const name = `attachment-${pdfIdx++}.pdf`;
         const attDir = path.join(tmpDir, 'attachments');
         try {
-          fs.mkdirSync(attDir, { recursive: true });
-          fs.writeFileSync(path.join(attDir, name), Buffer.from(source.data, 'base64'));
+          await fs.promises.mkdir(attDir, { recursive: true });
+          // tmpDir is the PERSISTENT per-session cwd, so a per-call counter would
+          // overwrite a prior turn's attachment-0.pdf (and a later "the PDF I sent
+          // earlier" reference would then read the wrong file). Pick the next free
+          // index from what's already on disk — sequential awaits mean a second PDF
+          // in the same turn sees the first and lands on the next index.
+          const name = await nextPdfName(attDir);
+          // Async write so a multi-MB PDF doesn't block the runner's event loop
+          // (and stall every other concurrent agent) during the disk write.
+          await fs.promises.writeFile(path.join(attDir, name), Buffer.from(source.data, 'base64'));
           out.push({ type: 'text', text: `[A PDF attachment has been saved to ./attachments/${name}. Run \`pdftotext ./attachments/${name} -\` to read its full text content (use \`-layout\` flag for tables), then answer the user's question based on it.]` });
         } catch {
           // Staging failed — fall back to telling the model so it can ask the user.
@@ -173,4 +179,17 @@ export async function toCodexInput(prompt: AgentPrompt, tmpDir: string): Promise
   if (out.length === 0) return '';
   if (out.length === 1 && out[0].type === 'text') return out[0].text;
   return out;
+}
+
+/** Next free `attachment-N.pdf` name in `attDir`, based on what's already staged.
+ *  Avoids clobbering PDFs from earlier turns in the persistent session cwd. */
+async function nextPdfName(attDir: string): Promise<string> {
+  let max = -1;
+  try {
+    for (const f of await fs.promises.readdir(attDir)) {
+      const m = /^attachment-(\d+)\.pdf$/.exec(f);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+  } catch { /* dir is fresh — start at 0 */ }
+  return `attachment-${max + 1}.pdf`;
 }

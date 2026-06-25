@@ -8,6 +8,7 @@
  */
 
 import type { Verdict } from '@slackhive/shared';
+import { runnerBase } from '@/lib/runner';
 
 export interface JudgeInput {
   rubric: string;
@@ -20,11 +21,6 @@ export interface JudgeInput {
 export interface JudgeResult {
   verdict: Verdict;
   reasoning: string;
-}
-
-function runnerBase(): string {
-  const port = process.env.RUNNER_INTERNAL_PORT ?? '3002';
-  return `http://127.0.0.1:${port}`;
 }
 
 /**
