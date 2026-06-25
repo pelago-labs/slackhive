@@ -18,7 +18,7 @@ import { useAuth } from '@/lib/auth-context';
 import { FilterRow, parseWindowKey, timeParams, type WindowKey } from '../activity/_components/FilterRow';
 import { formatTokens } from '../activity/_components/formatTokens';
 import { SevBadge } from '../activity/_components/SevBadge';
-import { RevealCtx, buildNodes, NodeRow, SensitiveBadge, type NodeData } from '../activity/_components/trace-nodes';
+import { RevealCtx, NodeDetailProvider, buildNodes, NodeRow, SensitiveBadge, type NodeData } from '../activity/_components/trace-nodes';
 import { relativeTime } from '@/lib/time';
 import type { TraceTurn } from '@slackhive/shared';
 
@@ -676,7 +676,7 @@ function TurnRows({ turn, request, sessionId, cols, expanded, onToggle, canToken
           <td colSpan={cols} style={{ padding: 0, background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', boxShadow: indent ? 'inset 4px 0 0 var(--border-2)' : undefined }}>
             <div style={{ padding: '6px 16px 12px 56px', display: 'flex', flexDirection: 'column', gap: 6 }}>
               {/* RevealCtx is provided by the enclosing view (admin → revealable). */}
-              {nodes.map(n => <NodeRow key={n.key} node={n} maxMs={maxMs} />)}
+              {nodes.map((n, ni) => <NodeRow key={n.key} node={n} maxMs={maxMs} isLast={ni === nodes.length - 1} />)}
               <a href={`/activity/${encodeURIComponent(sessionId)}${firstSpan ? `?span=${encodeURIComponent(firstSpan)}` : ''}`}
                 style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
                 Open full session <ArrowRight size={12} />
@@ -788,6 +788,7 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
 
   return (
     <RevealCtx.Provider value={canReveal}>
+     <NodeDetailProvider>
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>Sessions</div>
@@ -888,6 +889,7 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
           </div>
         )}
       </div>
+     </NodeDetailProvider>
     </RevealCtx.Provider>
   );
 }

@@ -26,7 +26,7 @@ import { formatTokens } from '../_components/formatTokens';
 import { type TraceTurn } from '@slackhive/shared';
 import { relativeTime } from '@/lib/time';
 import { SEV_COLOR } from '../_components/SevBadge';
-import { RevealCtx, SensitiveBadge, buildNodes, NodeRow, formatMs } from '../_components/trace-nodes';
+import { RevealCtx, NodeDetailProvider, SensitiveBadge, buildNodes, NodeRow, formatMs } from '../_components/trace-nodes';
 
 interface Task {
   id: string; platform: string; channelId: string; threadTs: string;
@@ -137,6 +137,7 @@ export default function TaskTracePage(): React.JSX.Element {
 
   return (
     <RevealCtx.Provider value={canReveal}>
+    <NodeDetailProvider>
     <Shell>
       {/* Title + description (the Back button above handles navigation) */}
       <div style={{ marginTop: 16 }}>
@@ -215,6 +216,7 @@ export default function TaskTracePage(): React.JSX.Element {
         </aside>
       </div>
     </Shell>
+    </NodeDetailProvider>
     </RevealCtx.Provider>
   );
 }
@@ -454,7 +456,7 @@ function TurnCard({ turn, index, isLast, highlightSpanId }: { turn: TraceTurn; i
           )}
           {/* Observation list: type tag · name · proportional duration bar · duration. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {nodes.map(node => <NodeRow key={node.key} node={node} maxMs={maxStepMs} highlight={!!highlightSpanId && node.key === highlightSpanId} />)}
+            {nodes.map((node, ni) => <NodeRow key={node.key} node={node} maxMs={maxStepMs} isLast={ni === nodes.length - 1} highlight={!!highlightSpanId && node.key === highlightSpanId} />)}
           </div>
 
           {turn.feedback.map((f, i) => (

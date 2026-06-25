@@ -10,9 +10,10 @@
  * @module web/app/activity/_components/trace-nodes
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  ChevronRight, ChevronDown, Wrench, CheckCircle2, AlertTriangle, Brain, Clock,
+  Plus, Minus, X, Wrench, CheckCircle2, AlertTriangle, Brain, Clock,
   ShieldAlert, Copy, Check, Lock,
 } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
@@ -216,25 +217,41 @@ export function buildNodes(turn: TraceTurn): NodeData[] {
 
 const META = { fontSize: 11, color: 'var(--subtle)', flexShrink: 0, fontFamily: 'var(--font-mono, monospace)', fontVariantNumeric: 'tabular-nums' } as const;
 
-/** One observation row: chevron · type icon · name · model/tokens · a comparative
- * duration bar · duration. Click to expand its content. */
-export function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: number; highlight?: boolean }): React.JSX.Element {
-  const has = node.sections.length > 0;
-  const [open, setOpen] = useState(!!node.defaultOpen || !!highlight);
+/** Per-node kind → icon / colours, shared by the row and the detail drawer. */
+function nodeVisuals(node: NodeData) {
+  const isErr = node.kind === 'error' || !!node.error;
+  const Icon = isErr ? AlertTriangle : node.kind === 'final' ? CheckCircle2 : node.kind === 'tool' ? Wrench : node.kind === 'event' ? Clock : Brain;
+  return {
+    isErr,
+    Icon,
+    tagColor: isErr ? 'var(--red)' : node.kind === 'final' ? 'var(--green)' : 'var(--muted)',
+    barColor: isErr ? 'var(--red)' : 'var(--text-2)',
+    titleColor: node.kind === 'final' ? 'var(--green)' : isErr ? 'var(--red)' : 'var(--text)',
+    accent: isErr ? 'var(--red)' as string : undefined,
+  };
+}
+
+/** One observation row in the tree: pipe connector · ± toggle · type icon · name ·
+ * model/tokens · a comparative duration bar · duration. Click opens the node's
+ * content (args / result / reasoning) in the right-hand detail drawer. */
+export function NodeRow({ node, maxMs, highlight, isLast }: { node: NodeData; maxMs: number; highlight?: boolean; isLast?: boolean }): React.JSX.Element {
+  const has = node.sections.length > 0 || !!node.sensitive;
+  const detail = useContext(NodeDetailCtx);
+  const isOpen = detail.openKey === node.key;
   const rowRef = useRef<HTMLDivElement>(null);
   const [flash, setFlash] = useState(!!highlight);
+  // Deep-linked span: scroll it into view, flash it, and open its drawer once.
+  const opener = useRef(detail.open);
+  opener.current = detail.open;
   useEffect(() => {
     if (!highlight) return;
     rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (has) opener.current(node);
     const t = setTimeout(() => setFlash(false), 2600);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for the highlighted span
   }, [highlight]);
-  const isErr = node.kind === 'error' || node.error;
-  const Icon = isErr ? AlertTriangle : node.kind === 'final' ? CheckCircle2 : node.kind === 'tool' ? Wrench : node.kind === 'event' ? Clock : Brain;
-  const tagColor = isErr ? 'var(--red)' : node.kind === 'final' ? 'var(--green)' : 'var(--muted)';
-  const barColor = isErr ? 'var(--red)' : 'var(--text-2)';
-  const titleColor = node.kind === 'final' ? 'var(--green)' : isErr ? 'var(--red)' : 'var(--text)';
-  const accent = isErr ? 'var(--red)' : undefined;
+  const { Icon, tagColor, barColor, titleColor } = nodeVisuals(node);
 
   const hasDur = node.durationMs != null;
   const pct = hasDur ? Math.max(2, Math.min(100, ((node.durationMs as number) / maxMs) * 100)) : 0;
@@ -242,11 +259,19 @@ export function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: num
 
   return (
     <div id={`span-${node.key}`} ref={rowRef} style={{ borderRadius: 8, scrollMarginTop: 80, transition: 'box-shadow 0.4s, background 0.4s', ...(flash ? { boxShadow: '0 0 0 2px var(--accent)', background: 'var(--surface-2)' } : {}) }}>
-      <div className="trace-node" onClick={() => has && setOpen(o => !o)}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 8px', borderRadius: 6, minHeight: 30, cursor: has ? 'pointer' : 'default' }}>
+      <div className="trace-node" onClick={() => has && detail.open(node)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px 4px 0', borderRadius: 6, minHeight: 30, cursor: has ? 'pointer' : 'default', background: isOpen ? 'var(--surface-2)' : undefined }}>
+        {/* Tree pipe connector linking the rows into a single-level chain. */}
+        <span aria-hidden style={{ position: 'relative', alignSelf: 'stretch', width: 16, flexShrink: 0 }}>
+          <span style={{ position: 'absolute', left: 8, top: 0, bottom: isLast ? 'calc(50% - 0.5px)' : 0, width: 1, background: 'var(--border)' }} />
+          <span style={{ position: 'absolute', left: 8, top: 'calc(50% - 0.5px)', width: 6, height: 1, background: 'var(--border)' }} />
+        </span>
+        {/* ± expand affordance (boxed, IDE file-tree style). */}
         {has
-          ? (open ? <ChevronDown size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} />)
-          : <span style={{ width: 13, flexShrink: 0 }} />}
+          ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 3, background: isOpen ? 'var(--accent)' : 'var(--surface)', color: isOpen ? '#fff' : 'var(--subtle)' }}>
+              {isOpen ? <Minus size={10} strokeWidth={2.5} /> : <Plus size={10} strokeWidth={2.5} />}
+            </span>
+          : <span style={{ width: 14, flexShrink: 0 }} />}
         <Icon size={13} style={{ flexShrink: 0, color: tagColor }} />
         <span style={{ fontSize: 12.5, fontWeight: 500, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto', minWidth: 60, fontStyle: node.kind === 'generation' && node.title === 'Thinking' ? 'italic' : 'normal' }}>{node.title}</span>
         {node.sensitive && <SensitiveBadge categories={node.sensitiveCategories ?? []} compact llm={node.sensitiveLlm} />}
@@ -262,19 +287,107 @@ export function NodeRow({ node, maxMs, highlight }: { node: NodeData; maxMs: num
         </div>
         <span style={{ ...META, minWidth: 50, textAlign: 'right' }} title={hasDur && !(node.durationMs && node.durationMs > 0) ? 'Instant / not reported by backend' : undefined}>{durText}</span>
       </div>
-      {open && has && (
-        <div style={{ paddingLeft: 24, paddingRight: 4, paddingBottom: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} scope={node.kind === 'tool' ? 'all' : 'text'} llmHits={node.sensitiveLlmHits} />)}
-          {node.sensitive && <SensitiveNote categories={node.sensitiveCategories ?? []} hits={node.sensitiveLlmHits ?? []} llm={node.sensitiveLlm} />}
-        </div>
-      )}
     </div>
+  );
+}
+
+/** Renders a node's full content (args / result / reasoning) — used inside the
+ * detail drawer. Shares the masking-aware {@link Content} with the old inline view. */
+function NodeDetailBody({ node }: { node: NodeData }): React.JSX.Element {
+  const { accent } = nodeVisuals(node);
+  const last = node.sections.length - 1;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0 }}>
+      {node.sections.map((s, i) => <Content key={i} label={s.label} body={s.body} markdown={s.markdown} accent={accent} sensitive={node.sensitive} scope={node.kind === 'tool' ? 'all' : 'text'} llmHits={node.sensitiveLlmHits} fill={i === last} />)}
+      {node.sensitive && <SensitiveNote categories={node.sensitiveCategories ?? []} hits={node.sensitiveLlmHits ?? []} llm={node.sensitiveLlm} />}
+    </div>
+  );
+}
+
+type NodeDetailValue = { openKey: string | null; open: (node: NodeData) => void; close: () => void };
+const NodeDetailCtx = React.createContext<NodeDetailValue>({ openKey: null, open: () => {}, close: () => {} });
+
+/** Wraps a node tree (and any number of {@link NodeRow}s) so clicking a node opens
+ * its content in a single shared right-hand drawer. Render it inside the same
+ * {@link RevealCtx} provider as the rows so admin-reveal works in the drawer too. */
+export function NodeDetailProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const [node, setNode] = useState<NodeData | null>(null);
+  const open = useCallback((n: NodeData) => setNode(cur => (cur && cur.key === n.key ? null : n)), []);
+  const close = useCallback(() => setNode(null), []);
+  const value = useMemo<NodeDetailValue>(() => ({ openKey: node?.key ?? null, open, close }), [node, open, close]);
+  return (
+    <NodeDetailCtx.Provider value={value}>
+      {children}
+      <NodeDetailDrawer node={node} onClose={close} />
+    </NodeDetailCtx.Provider>
+  );
+}
+
+/** Right slide-in panel showing the selected node's content. Closes on backdrop
+ * click, the × button, or Escape. Portaled to <body> but kept inside the React
+ * tree so {@link RevealCtx} (admin reveal) still applies. */
+function NodeDetailDrawer({ node, onClose }: { node: NodeData | null; onClose: () => void }): React.JSX.Element | null {
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+  // Keep the last node during the slide-out so content doesn't vanish mid-animation.
+  const [shown, setShown] = useState<NodeData | null>(node);
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    if (node) {
+      setShown(node);
+      const r = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(r);
+    }
+    setVisible(false);
+    const t = setTimeout(() => setShown(null), 220);
+    return () => clearTimeout(t);
+  }, [node]);
+  useEffect(() => {
+    if (!node) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [node, onClose]);
+
+  if (!mounted || !shown) return null;
+  const { Icon, tagColor, titleColor } = nodeVisuals(shown);
+  const dur = shown.durationMs != null && shown.durationMs > 0 ? formatMs(shown.durationMs) : null;
+
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.28)', opacity: visible ? 1 : 0, transition: 'opacity 0.2s ease' }} />
+      <div role="dialog" aria-label={`${shown.title} detail`} style={{
+        position: 'relative', width: '45%', minWidth: 380, maxWidth: 640, alignSelf: 'stretch',
+        background: 'var(--surface)', borderLeft: '1px solid var(--border)', boxShadow: '-8px 0 28px rgba(0,0,0,0.18)',
+        transform: visible ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 0.22s ease',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <Icon size={15} style={{ flexShrink: 0, color: tagColor }} />
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: titleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{shown.title}</span>
+          {shown.sensitive && <SensitiveBadge categories={shown.sensitiveCategories ?? []} compact llm={shown.sensitiveLlm} />}
+          {shown.model && <span style={{ fontSize: 10.5, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>{shown.model}</span>}
+          {shown.tokens > 0 && <span style={META}>{formatTokens(shown.tokens)}</span>}
+          {dur && <span style={META}>{dur}</span>}
+          <button onClick={onClose} title="Close (Esc)" style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', padding: 2, marginLeft: 2 }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 14 }}>
+          {shown.error && (
+            <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', flexShrink: 0 }}>{shown.error}</div>
+          )}
+          <NodeDetailBody node={shown} />
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
 /** Section body: markdown for prose (thinking / answers / responses), pretty
  * code for tool args/results. Filled (not bordered) for a calmer look. */
-function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmHits }: { label: string; body: string; markdown?: boolean; accent?: string; sensitive?: boolean; scope?: SensScope; llmHits?: ExtraMark[] }): React.JSX.Element {
+function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmHits, fill }: { label: string; body: string; markdown?: boolean; accent?: string; sensitive?: boolean; scope?: SensScope; llmHits?: ExtraMark[]; fill?: boolean }): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   const hits = llmHits ?? EMPTY_HITS;
   let text = body;
@@ -293,10 +406,13 @@ function Content({ label, body, markdown, accent, sensitive, scope = 'all', llmH
   const shell: React.CSSProperties = {
     background: 'var(--surface-2)', borderRadius: 6, padding: '8px 10px',
     borderLeft: accent ? `2px solid ${accent}` : undefined,
-    maxHeight: 360, overflow: 'auto',
+    overflow: 'auto',
+    // In the drawer the body section grows to fill the panel and scrolls internally;
+    // inline it stays capped so a long result doesn't dominate the trace list.
+    ...(fill ? { flex: 1, minHeight: 0 } : { maxHeight: 360 }),
   };
   return (
-    <div>
+    <div style={fill ? { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } : undefined}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
         <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '0.07em', color: 'var(--subtle)', textTransform: 'uppercase' }}>{label}</span>
         <button onClick={copy} title="Copy" style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: copied ? 'var(--green)' : 'var(--subtle)', padding: 2 }}>
