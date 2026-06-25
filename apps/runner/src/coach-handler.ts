@@ -314,11 +314,13 @@ export function resumeSessionFor(
   sdkSessionId: string | undefined,
 ): string | undefined {
   if (!sdkSessionId) return undefined;
-  // Sessions persisted before this fix carry no backend tag. They were almost
-  // certainly minted on the default backend, so assume that — otherwise a legacy
-  // session would still resume a foreign id after a switch (the bug we're fixing).
-  const effective = sessionBackend ?? DEFAULT_AGENT_BACKEND;
-  if (effective !== activeBackend) return undefined;
+  // No backend tag (session pre-dates tagging): we can't know which backend minted
+  // the id, and resuming a foreign id HARD-ERRORS, whereas starting fresh only loses
+  // resume continuity once (self-heals — the session gets tagged this turn). So drop
+  // it rather than guess. Guessing "default backend" would still mis-resume on a
+  // non-default workspace or break on the default one.
+  if (!sessionBackend) return undefined;
+  if (sessionBackend !== activeBackend) return undefined;
   return sdkSessionId;
 }
 

@@ -11,6 +11,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
+import { getSessionFromRequest } from '@/lib/auth';
+import { listAccessibleAgentIds } from '@/lib/db';
 import { runnerBase } from '@/lib/runner';
 import { getTaskWithDetails } from '@slackhive/shared';
 
@@ -22,6 +24,8 @@ export async function POST(
 ): Promise<NextResponse> {
   const denied = guardAdmin(req);
   if (denied) return denied;
+  const session = getSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const { taskId } = await params;
   // activityId is optional. Either way, ONLY the last turn is replayable (and only
@@ -32,9 +36,18 @@ export async function POST(
   const details = await getTaskWithDetails(taskId);
   if (!details) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
 
-  // activities are chronological (oldest first) → the last one is the latest turn.
-  const last = details.activities[details.activities.length - 1];
-  if (!last) return NextResponse.json({ error: 'No activity on this task' }, { status: 400 });
+  // Scope to the caller's accessible agents (admins: null = all). This matches the
+  // access-scoped trace the UI renders — so "the last turn" means the same thing on
+  // both sides — and stops an editor replaying a turn on an agent outside their scope.
+  const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
+  const allowed = accessibleAgentIds === null ? null : new Set(accessibleAgentIds);
+  const visible = allowed === null
+    ? details.activities
+    : details.activities.filter(a => allowed.has(a.agentId));
+  if (visible.length === 0) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+
+  // activities are chronological (oldest first) → the last accessible one is the latest turn.
+  const last = visible[visible.length - 1];
   if (last.status !== 'error') {
     return NextResponse.json({ error: 'Only the last turn can be replayed, and it is not an error' }, { status: 400 });
   }

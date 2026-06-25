@@ -57,11 +57,11 @@ describe('resumeSessionFor', () => {
     expect(resumeSessionFor('claude', 'codex', 'codex-thread')).toBeUndefined();
   });
 
-  it('treats an untagged (pre-fix) session as the default backend', () => {
-    // Default backend is 'claude' — a legacy session resumes on claude…
-    expect(resumeSessionFor('claude', undefined, 'sess-2')).toBe('sess-2');
-    // …but is dropped if the active backend was switched away from the default.
-    expect(resumeSessionFor('codex', undefined, 'legacy-claude-uuid')).toBeUndefined();
+  it('starts fresh for an untagged (pre-fix) session — never guesses the backend', () => {
+    // No backend tag → unknown origin → drop the id (start fresh) on ANY backend,
+    // since resuming a possibly-foreign id hard-errors.
+    expect(resumeSessionFor('claude', undefined, 'sess-2')).toBeUndefined();
+    expect(resumeSessionFor('codex', undefined, 'legacy-id')).toBeUndefined();
   });
 
   it('returns undefined when there is no session id', () => {
