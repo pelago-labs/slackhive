@@ -71,7 +71,7 @@ export function ReplayButton(props: {
         disabled={busy}
         className={cn(
           'inline-flex items-center gap-1.5 rounded-md border-0 px-3 py-1.5 text-xs font-semibold',
-          ok ? 'bg-secondary text-green' : 'bg-secondary text-red',
+          ok ? 'bg-green/10 text-green' : 'bg-red/10 text-red',
           busy ? 'cursor-default opacity-70' : 'cursor-pointer',
         )}
       >
@@ -89,7 +89,7 @@ export function ReplayButton(props: {
         aria-label={label}
         className={cn(
           'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-0',
-          ok ? 'bg-secondary text-green' : 'bg-secondary text-red',
+          ok ? 'bg-green/10 text-green' : 'bg-red/10 text-red',
           busy ? 'cursor-default opacity-50' : 'cursor-pointer',
         )}
       >

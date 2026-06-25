@@ -85,7 +85,7 @@ export function WhatsNew(): React.JSX.Element {
       >
         <Bell size={16} strokeWidth={1.75} />
         {unread > 0 && (
-          <span className="absolute right-1 top-1 h-[7px] w-[7px] rounded-full border-[1.5px] border-background bg-blue" />
+          <span className="absolute right-1 top-1 h-[7px] w-[7px] rounded-full border-[1.5px] border-card bg-blue" />
         )}
       </button>
 

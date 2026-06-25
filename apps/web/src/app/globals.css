@@ -80,11 +80,17 @@
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
   --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
 
-  /* Desaturated semantic palette (calmer than Tailwind 500/600). */
-  --blue:  #3257c5;
-  --green: #14855f;
-  --red:   #cc3333;
-  --amber: #c2790b;
+  /* Desaturated semantic palette (calmer than Tailwind 500/600). Defined as HSL
+     channels so the Tailwind aliases can take `/ <alpha-value>` (bg-blue/10 etc);
+     the hex var() forms are derived for inline-style use. */
+  --blue-hsl:  225 56% 48%;
+  --green-hsl: 160 74% 30%;
+  --red-hsl:   0 60% 50%;
+  --amber-hsl: 36 89% 40%;
+  --blue:  hsl(var(--blue-hsl));
+  --green: hsl(var(--green-hsl));
+  --red:   hsl(var(--red-hsl));
+  --amber: hsl(var(--amber-hsl));
 }
 
 /* ─── Design Tokens — Dark ───────────────────────────────────────────────────── */
@@ -139,10 +145,14 @@
   --sd-ring: 0 0% 63.9%;
 
   /* Desaturated semantic palette — dark. */
-  --blue:  #5b7fd4;
-  --green: #2fa37a;
-  --red:   #e05656;
-  --amber: #e0a13a;
+  --blue-hsl:  222 58% 59%;
+  --green-hsl: 159 55% 41%;
+  --red-hsl:   0 69% 61%;
+  --amber-hsl: 37 73% 55%;
+  --blue:  hsl(var(--blue-hsl));
+  --green: hsl(var(--green-hsl));
+  --red:   hsl(var(--red-hsl));
+  --amber: hsl(var(--amber-hsl));
 }
 
 /* ─── Form elements — inherit theme ─────────────────────────────────────────── */
@@ -158,6 +168,9 @@ input, textarea, select, button, option { font-family: inherit; }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
+/* Default border color = the theme hairline, so bare `border`/`border-t` utilities
+   (and shadcn primitives) don't fall back to Tailwind's `currentColor`. */
+*, *::before, *::after { border-color: hsl(var(--sd-border)); }
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
 body {

@@ -49,18 +49,20 @@ module.exports = {
         },
         // ── legacy aliases (transitional) ────────────────────────────────────
         // Let migrating code use `bg-surface`/`text-subtle` etc. while the hex
-        // tokens still back inline styles. Removed in Phase 5 once unused.
-        surface: 'var(--surface)',
-        'surface-2': 'var(--surface-2)',
+        // tokens still back inline styles. Alpha-aware (hsl(var(--…) / <alpha-value>))
+        // so opacity modifiers like `bg-blue/10` actually emit CSS — the colors
+        // here are mirrored as HSL-channel vars in globals.css. Removed in Phase 5.
+        surface: 'hsl(var(--sd-card) / <alpha-value>)',
+        'surface-2': 'hsl(var(--sd-secondary) / <alpha-value>)',
         'surface-3': 'var(--surface-3)',
         'text-2': 'var(--text-2)',
         subtle: 'var(--subtle)',
-        brand: 'var(--accent)',
-        'brand-fg': 'var(--accent-fg)',
-        blue: 'var(--blue)',
-        green: 'var(--green)',
-        red: 'var(--red)',
-        amber: 'var(--amber)',
+        brand: 'hsl(var(--sd-primary) / <alpha-value>)',
+        'brand-fg': 'hsl(var(--sd-primary-foreground) / <alpha-value>)',
+        blue: 'hsl(var(--blue-hsl) / <alpha-value>)',
+        green: 'hsl(var(--green-hsl) / <alpha-value>)',
+        red: 'hsl(var(--red-hsl) / <alpha-value>)',
+        amber: 'hsl(var(--amber-hsl) / <alpha-value>)',
       },
       borderRadius: {
         lg: 'var(--radius)',

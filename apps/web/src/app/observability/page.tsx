@@ -93,7 +93,7 @@ function Body(): React.JSX.Element {
   const [agentFilter, setAgentFilter] = useState(sp?.get('agent') ?? '');
   const [from, setFrom] = useState(sp?.get('from') ?? '');
   const [to, setTo] = useState(sp?.get('to') ?? '');
-  const [windowKey, setWindowKey] = useState<WindowKey>(parseWindowKey(sp?.get('window') ?? (sp?.get('from') && sp?.get('to') ? 'custom' : '24h')));
+  const [windowKey, setWindowKey] = useState<WindowKey>(parseWindowKey(sp?.get('window') ?? (sp?.get('from') && sp?.get('to') ? 'custom' : '30d')));
   const [tab, setTab] = useState<TabKey>((sp?.get('tab') as TabKey) || 'overview');
   const [data, setData] = useState<InsightsResponse | null>(null);
   const [loading, setLoading] = useState(true);
