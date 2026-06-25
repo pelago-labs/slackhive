@@ -235,7 +235,7 @@ async function writeSetting(key: string, value: string): Promise<void> {
 
 export async function loadCoachSession(
   agentId: string
-): Promise<{ sdkSessionId?: string; messages: unknown[] }> {
+): Promise<{ sdkSessionId?: string; backend?: string; messages: unknown[] }> {
   const raw = await readSetting(sessionKey(agentId));
   if (!raw) return { messages: [] };
   try { return JSON.parse(raw); } catch { return { messages: [] }; }
@@ -243,7 +243,7 @@ export async function loadCoachSession(
 
 export async function saveCoachSession(
   agentId: string,
-  data: { sdkSessionId?: string; messages: unknown[] }
+  data: { sdkSessionId?: string; backend?: string; messages: unknown[] }
 ): Promise<void> {
   await writeSetting(sessionKey(agentId), JSON.stringify({ ...data, updatedAt: new Date().toISOString() }));
 }
@@ -273,6 +273,13 @@ export interface CoachTurnInput {
   /** SDK session id from a previous turn, if any. */
   sdkSessionId?: string;
   /**
+   * The backend that minted `sdkSessionId`. Session ids are backend-specific
+   * (Claude SDK session UUID vs Codex thread id), so if this differs from the
+   * currently-active backend the stale id is ignored and a fresh session is
+   * started — otherwise the new backend tries to resume a foreign id and breaks.
+   */
+  sessionBackend?: string;
+  /**
    * When true, proposals auto-apply and the bootstrap appendix is added to the
    * system prompt. Set only by the new-agent wizard's first turn.
    */
@@ -284,9 +291,31 @@ export interface CoachTurnInput {
 /** Shared return shape for a single coach turn across backends. */
 export interface CoachTurnResult {
   sdkSessionId?: string;
+  /** The backend this turn ran on — persist it so the next turn can detect a switch. */
+  backend: string;
   proposals: CoachProposal[];
   assistantText: string;
   toolCalls: { name: string; input: Record<string, unknown>; ok: boolean }[];
+}
+
+/**
+ * Decide whether a stored coach session id may be resumed on the currently-active
+ * backend. Session ids are backend-specific — a Claude Agent SDK session UUID is
+ * meaningless to Codex's `resumeThread`, and vice-versa — so when the active
+ * backend differs from the one that minted the id (the user switched AI backend),
+ * the stale id is dropped and a fresh full-context session is started instead of
+ * blindly resuming a foreign one (which is what broke the coach).
+ *
+ * @returns the id to resume, or `undefined` to start a new session.
+ */
+export function resumeSessionFor(
+  activeBackend: string,
+  sessionBackend: string | undefined,
+  sdkSessionId: string | undefined,
+): string | undefined {
+  if (!sdkSessionId) return undefined;
+  if (sessionBackend && sessionBackend !== activeBackend) return undefined;
+  return sdkSessionId;
 }
 
 /** Coach model under Codex — falls back to the default if a Claude id is configured. */
@@ -412,29 +441,32 @@ When the user attaches an \`<eval_failure>\` block (a failing regression test fo
 - **real_failure** — the test correctly caught a true failure but the right fix is unclear (ambiguous spec, missing context). Do NOT propose; ask ONE specific clarifying question.
 Read the relevant parts of the block before triaging — never propose a check change without understanding why the existing check fired.`;
 
-/**
- * Run one coach turn on the active backend over a read-only workspace, returning
- * the model's text + a resumable session id. The single backend-dispatch point
- * for Coach (parallels generateText / createAgentBackend).
- */
-async function runCoachModelTurn(opts: {
-  backend: string; prompt: string; workDir: string; resumeId?: string;
+/** Inputs each coach backend runner receives. Workspace is read-only. */
+interface CoachRunOpts {
+  prompt: string;
+  workDir: string;
+  resumeId?: string;
   emit: (ev: CoachStreamEvent) => void;
-}): Promise<{ text: string; sessionId?: string }> {
-  if (opts.backend === 'codex') {
-    const model = await codexCoachModel();
-    const codex = await createCodexClient(baseCodexConfig());
-    const threadOpts = {
-      workingDirectory: opts.workDir, skipGitRepoCheck: true,
-      sandboxMode: 'read-only' as const, approvalPolicy: 'never' as const,
-      webSearchEnabled: true, webSearchMode: 'live' as const, model,
-    };
-    const thread = opts.resumeId ? codex.resumeThread(opts.resumeId, threadOpts) : codex.startThread(threadOpts);
-    const turn = await thread.run(opts.prompt);
-    return { text: turn.finalResponse ?? '', sessionId: thread.id ?? opts.resumeId };
-  }
+}
+/** One backend's implementation of a coach turn: prompt in, text + resumable id out. */
+type CoachBackendRunner = (opts: CoachRunOpts) => Promise<{ text: string; sessionId?: string }>;
 
-  // Claude: read-only file tools (Read/Glob/Grep) + web; writes/bash denied.
+/** Codex: read-only sandbox thread with live web search. */
+const runCodexCoachTurn: CoachBackendRunner = async (opts) => {
+  const model = await codexCoachModel();
+  const codex = await createCodexClient(baseCodexConfig());
+  const threadOpts = {
+    workingDirectory: opts.workDir, skipGitRepoCheck: true,
+    sandboxMode: 'read-only' as const, approvalPolicy: 'never' as const,
+    webSearchEnabled: true, webSearchMode: 'live' as const, model,
+  };
+  const thread = opts.resumeId ? codex.resumeThread(opts.resumeId, threadOpts) : codex.startThread(threadOpts);
+  const turn = await thread.run(opts.prompt);
+  return { text: turn.finalResponse ?? '', sessionId: thread.id ?? opts.resumeId };
+};
+
+/** Claude Agent SDK: read-only file tools (Read/Glob/Grep) + web; writes/bash denied. */
+const runClaudeCoachTurn: CoachBackendRunner = async (opts) => {
   const model = (await readSetting(COACH_MODEL_SETTING_KEY)) ?? DEFAULT_COACH_MODEL;
   let text = '';
   let sessionId = opts.resumeId;
@@ -464,6 +496,30 @@ async function runCoachModelTurn(opts: {
     }
   }
   return { text, sessionId };
+};
+
+/**
+ * Coach backend registry. To support a NEW backend, add one runner function and
+ * register it here — nothing else in the coach flow needs to change (session
+ * portability is handled generically by {@link resumeSessionFor}).
+ */
+const COACH_BACKENDS: Record<string, CoachBackendRunner> = {
+  codex: runCodexCoachTurn,
+  claude: runClaudeCoachTurn,
+};
+
+/** Resolve a backend name to its runner, falling back to the default backend. */
+export function resolveCoachBackend(backend: string): CoachBackendRunner {
+  return COACH_BACKENDS[backend] ?? COACH_BACKENDS[DEFAULT_AGENT_BACKEND] ?? runClaudeCoachTurn;
+}
+
+/**
+ * Run one coach turn on the active backend over a read-only workspace, returning
+ * the model's text + a resumable session id. The single backend-dispatch point
+ * for Coach (parallels generateText / createAgentBackend).
+ */
+async function runCoachModelTurn(opts: { backend: string } & CoachRunOpts): Promise<{ text: string; sessionId?: string }> {
+  return resolveCoachBackend(opts.backend)(opts);
 }
 
 /**
@@ -617,12 +673,14 @@ export async function runCoachTurn(input: CoachTurnInput): Promise<CoachTurnResu
     `# User message\n${userBlock}`,
     reminder,
   ].join('\n\n');
-  const prompt = input.sdkSessionId ? `${userBlock}\n\n${reminder}` : fullPrompt;
+  // Drop a stale, foreign session id when the user switched backend mid-thread.
+  const resumeId = resumeSessionFor(backend, input.sessionBackend, input.sdkSessionId);
+  const prompt = resumeId ? `${userBlock}\n\n${reminder}` : fullPrompt;
 
   let assistantText = '';
-  let sessionId = input.sdkSessionId;
+  let sessionId = resumeId;
   try {
-    const r = await runCoachModelTurn({ backend, prompt, workDir: dir, resumeId: input.sdkSessionId, emit: input.emit });
+    const r = await runCoachModelTurn({ backend, prompt, workDir: dir, resumeId, emit: input.emit });
     assistantText = r.text;
     sessionId = r.sessionId ?? sessionId;
   } catch (err) {
@@ -653,5 +711,5 @@ export async function runCoachTurn(input: CoachTurnInput): Promise<CoachTurnResu
 
   for (const p of proposals) input.emit({ type: 'proposal', proposal: p });
   input.emit({ type: 'done', sdkSessionId: sessionId });
-  return { sdkSessionId: sessionId, proposals, assistantText: message, toolCalls: [] };
+  return { sdkSessionId: sessionId, backend, proposals, assistantText: message, toolCalls: [] };
 }

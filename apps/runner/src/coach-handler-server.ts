@@ -61,6 +61,7 @@ export async function handleCoachStream(
   // Load prior session to resume.
   const prior = await loadCoachSession(agentId) as {
     sdkSessionId?: string;
+    backend?: string;
     messages?: CoachMessage[];
   };
   const priorMessages: CoachMessage[] = Array.isArray(prior.messages) ? prior.messages : [];
@@ -88,6 +89,7 @@ export async function handleCoachStream(
   };
   await saveCoachSession(agentId, {
     sdkSessionId: prior.sdkSessionId,
+    backend: prior.backend,
     messages: [...priorMessages, userMsg, draftingMsg].slice(-50),
   });
 
@@ -98,6 +100,7 @@ export async function handleCoachStream(
       attachment: parsed.attachment,
       attachmentName: parsed.attachmentName,
       sdkSessionId: prior.sdkSessionId,
+      sessionBackend: prior.backend,
       autoApply,
       emit: (ev) => writeSse(res, ev),
     });
@@ -113,6 +116,7 @@ export async function handleCoachStream(
 
     await saveCoachSession(agentId, {
       sdkSessionId: result.sdkSessionId ?? prior.sdkSessionId,
+      backend: result.backend,
       messages: [...priorMessages, userMsg, assistantMsg].slice(-50),
     });
   } catch (err) {
@@ -120,6 +124,7 @@ export async function handleCoachStream(
     // the thread isn't lost.
     await saveCoachSession(agentId, {
       sdkSessionId: prior.sdkSessionId,
+      backend: prior.backend,
       messages: [...priorMessages, userMsg].slice(-50),
     });
     logger.error('coach turn aborted', { agentId, error: (err as Error).message });
