@@ -1188,6 +1188,8 @@ export interface Activity {
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
+  /** Model in effect for this turn — drives the by-model token breakdown. */
+  model?: string;
 }
 
 /** One tool invocation captured from the SDK stream. */

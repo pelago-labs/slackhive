@@ -127,6 +127,25 @@ function n(v: unknown): number { return v == null ? 0 : Number(v); }
 function nn(v: unknown): number | null { return v == null ? null : Number(v); }
 function s(v: unknown): string | null { return v == null ? null : String(v); }
 
+/**
+ * Collapse model-usage rows (token-desc ordered) into at most 6 bars, folding the
+ * tail into a single "Other" bucket. The by-model query is intentionally unlimited
+ * so the bars ALWAYS sum to the headline token total — a bare SQL `LIMIT 6` would
+ * silently drop the smallest models and make the breakdown fail to reconcile.
+ */
+function foldModels(rows: Array<Record<string, unknown>>): ModelUsage[] {
+  const all = rows.map(r => ({ model: String(r.model), turns: n(r.turns), tokens: n(r.tokens) }));
+  if (all.length <= 6) return all;
+  const top = all.slice(0, 5);
+  const rest = all.slice(5);
+  top.push({
+    model: 'Other',
+    turns: rest.reduce((acc, m) => acc + m.turns, 0),
+    tokens: rest.reduce((acc, m) => acc + m.tokens, 0),
+  });
+  return top;
+}
+
 /** Convert a `YYYY-MM-DD HH:MM:SS` UTC window floor to epoch ms (for the
  * span table's integer timestamps). NaN when absent/unparseable. */
 function sinceToMs(since?: string): number {
@@ -490,10 +509,17 @@ async function computeAgentRollup(opts: { agentId: string; since?: string; until
                 FROM spans
                WHERE ${spanWhere} AND kind='tool' AND tool_name IS NOT NULL
                GROUP BY tool_name ORDER BY c DESC LIMIT 8`, spanParams),
-    db.query(`SELECT model, COUNT(DISTINCT activity_id) turns,
-                     COALESCE(SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)),0) tokens
-                FROM spans WHERE ${spanWhere} AND model IS NOT NULL
-               GROUP BY model ORDER BY tokens DESC LIMIT 6`, spanParams),
+    // By-model derives from `activities` — the SAME source as the headline total and
+    // by-agent — grouped on the per-turn `model` stamped at begin time, so the bars
+    // reconcile with the total AND survive later model switches (grouping by the
+    // agent's CURRENT model would retroactively relabel a prior Claude period as the
+    // new model). Span-level token data is unusable here: generation spans record 0
+    // tokens, so a spans-based breakdown under-counts ~5x and never sums to the total.
+    db.query(`SELECT COALESCE(a.model, 'unknown') AS model, COUNT(*) AS turns,
+                     COALESCE(SUM(COALESCE(a.input_tokens,0)+COALESCE(a.output_tokens,0)),0) AS tokens
+                FROM activities a
+               WHERE ${actWhere}
+               GROUP BY COALESCE(a.model, 'unknown') ORDER BY tokens DESC`, actParams),
     db.query(`SELECT SUM(CASE WHEN sentiment='up' THEN 1 ELSE 0 END) up,
                      SUM(CASE WHEN sentiment='down' THEN 1 ELSE 0 END) down
                 FROM message_feedback WHERE ${fbWhere}`, fbParams),
@@ -524,7 +550,7 @@ async function computeAgentRollup(opts: { agentId: string; since?: string; until
     sensitiveEvents: n((sens.rows[0] ?? {}).c),
     tokensByDay: byDay.rows.map(r => ({ date: String(r.d), input: n(r.input), output: n(r.output) })),
     topTools: tools.rows.map(r => ({ name: String(r.name), count: n(r.c), errors: n(r.e) })),
-    models: models.rows.map(r => ({ model: String(r.model), turns: n(r.turns), tokens: n(r.tokens) })),
+    models: foldModels(models.rows),
   };
 }
 
@@ -629,10 +655,17 @@ async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRo
                 FROM spans
                WHERE ${spanWhere} AND kind='tool' AND tool_name IS NOT NULL
                GROUP BY tool_name ORDER BY c DESC LIMIT 8`, spanParams),
-    db.query(`SELECT model, COUNT(DISTINCT activity_id) turns,
-                     COALESCE(SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)),0) tokens
-                FROM spans WHERE ${spanWhere} AND model IS NOT NULL
-               GROUP BY model ORDER BY tokens DESC LIMIT 6`, spanParams),
+    // By-model derives from `activities` — the SAME source as the headline total and
+    // by-agent — grouped on the per-turn `model` stamped at begin time, so the bars
+    // reconcile with the total AND survive later model switches (grouping by the
+    // agent's CURRENT model would retroactively relabel a prior Claude period as the
+    // new model). Span-level token data is unusable here: generation spans record 0
+    // tokens, so a spans-based breakdown under-counts ~5x and never sums to the total.
+    db.query(`SELECT COALESCE(a.model, 'unknown') AS model, COUNT(*) AS turns,
+                     COALESCE(SUM(COALESCE(a.input_tokens,0)+COALESCE(a.output_tokens,0)),0) AS tokens
+                FROM activities a
+               WHERE ${actWhere}
+               GROUP BY COALESCE(a.model, 'unknown') ORDER BY tokens DESC`, actParams),
     db.query(`SELECT SUM(CASE WHEN sentiment='up' THEN 1 ELSE 0 END) up,
                      SUM(CASE WHEN sentiment='down' THEN 1 ELSE 0 END) down
                 FROM message_feedback WHERE ${fbWhere}`, fbParams),
@@ -663,7 +696,7 @@ async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRo
     sensitiveEvents: n((sens.rows[0] ?? {}).c),
     tokensByDay: byDay.rows.map(r => ({ date: String(r.d), input: n(r.input), output: n(r.output) })),
     topTools: tools.rows.map(r => ({ name: String(r.name), count: n(r.c), errors: n(r.e) })),
-    models: models.rows.map(r => ({ model: String(r.model), turns: n(r.turns), tokens: n(r.tokens) })),
+    models: foldModels(models.rows),
   };
 }
 

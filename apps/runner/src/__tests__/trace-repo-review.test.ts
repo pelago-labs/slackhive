@@ -32,10 +32,10 @@ async function task(id: string, lastActivityAt?: string) {
 async function agent(id: string) {
   await getDb().query(`INSERT INTO agents (id, slug, name, model) VALUES ($1,$1,$1,'m')`, [id]);
 }
-async function activity(id: string, taskId: string, agentId: string, startedAt: string) {
+async function activity(id: string, taskId: string, agentId: string, startedAt: string, model?: string) {
   await getDb().query(
-    `INSERT INTO activities (id, task_id, agent_id, initiator_kind, status, started_at) VALUES ($1,$2,$3,'user','done',$4)`,
-    [id, taskId, agentId, startedAt],
+    `INSERT INTO activities (id, task_id, agent_id, initiator_kind, status, started_at, model) VALUES ($1,$2,$3,'user','done',$4,$5)`,
+    [id, taskId, agentId, startedAt, model ?? null],
   );
 }
 async function span(id: string, session: string, activityId: string, agentId: string, opts: { model?: string; startMs?: number } = {}) {
@@ -84,8 +84,9 @@ describe('getSessionTrace — deterministic same-second ordering (#7)', () => {
 describe('getAgentRollup — per-model turns counts distinct turns (#5)', () => {
   it('does not inflate model turns by the number of generation spans', async () => {
     await agent('agM'); await task('sessM');
-    await activity('act1', 'sessM', 'agM', '2026-01-01 00:00:01');
-    // One turn, three generation spans on the same model.
+    // By-model derives from `activities` (grouped on the per-turn model stamp), so
+    // one turn is one row regardless of how many generation spans it produced.
+    await activity('act1', 'sessM', 'agM', '2026-01-01 00:00:01', 'm1');
     await span('g1', 'sessM', 'act1', 'agM', { model: 'm1' });
     await span('g2', 'sessM', 'act1', 'agM', { model: 'm1' });
     await span('g3', 'sessM', 'act1', 'agM', { model: 'm1' });

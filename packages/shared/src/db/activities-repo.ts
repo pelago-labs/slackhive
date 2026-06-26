@@ -89,6 +89,7 @@ function rowToActivity(row: Record<string, unknown>): Activity {
     outputTokens: row.output_tokens == null ? undefined : Number(row.output_tokens),
     cacheReadTokens: row.cache_read_tokens == null ? undefined : Number(row.cache_read_tokens),
     cacheCreationTokens: row.cache_creation_tokens == null ? undefined : Number(row.cache_creation_tokens),
+    model: (row.model as string | null) ?? undefined,
   };
 }
 
@@ -159,6 +160,8 @@ export interface BeginActivityInput {
   initiatorHandle?: string;
   messageRef?: string;
   messagePreview?: string;
+  /** Model in effect for this turn — stamped so by-model analytics survive switches. */
+  model?: string;
 }
 
 /** Insert an activity row in `status='in_progress'` and return its id. */
@@ -169,8 +172,8 @@ export async function beginActivity(input: BeginActivityInput): Promise<string> 
     `INSERT INTO activities (
        id, task_id, agent_id, platform,
        initiator_kind, initiator_user_id, initiator_handle,
-       message_ref, message_preview, status
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'in_progress')`,
+       message_ref, message_preview, model, status
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'in_progress')`,
     [
       id,
       input.taskId,
@@ -181,6 +184,7 @@ export async function beginActivity(input: BeginActivityInput): Promise<string> 
       input.initiatorHandle ?? null,
       input.messageRef ?? null,
       truncate(input.messagePreview),
+      input.model ?? null,
     ],
   );
   // Bump the task summary counters. We do this on begin (not finish) so the
@@ -284,6 +288,10 @@ export interface ActivityUsageInput {
 export async function recordActivityUsage(
   activityId: string,
   usage: ActivityUsageInput,
+  /** Model in effect at completion. Refreshes the begin-time stamp so the
+   *  recorded model is consistent with the moment tokens are written (handles a
+   *  mid-turn model change). COALESCE keeps the begin stamp when not provided. */
+  model?: string,
 ): Promise<void> {
   const db = getDb();
   await db.query(
@@ -291,13 +299,15 @@ export async function recordActivityUsage(
         SET input_tokens          = $1,
             output_tokens         = $2,
             cache_read_tokens     = $3,
-            cache_creation_tokens = $4
-      WHERE id = $5`,
+            cache_creation_tokens = $4,
+            model                 = COALESCE($5, model)
+      WHERE id = $6`,
     [
       Number(usage.input_tokens ?? 0),
       Number(usage.output_tokens ?? 0),
       Number(usage.cache_read_input_tokens ?? 0),
       Number(usage.cache_creation_input_tokens ?? 0),
+      model ?? null,
       activityId,
     ],
   );

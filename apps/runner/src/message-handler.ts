@@ -445,7 +445,7 @@ export class MessageHandler {
             const usage = (message as any).usage;
             if (usage) {
               try {
-                await recordActivityUsage(recorder.activityId, usage);
+                await recordActivityUsage(recorder.activityId, usage, this.agent.model);
               } catch (err) {
                 this.log.warn('activity: recordActivityUsage failed', { error: (err as Error).message });
               }
@@ -640,6 +640,7 @@ export class MessageHandler {
         initiatorHandle,
         messageRef: msg.id,
         messagePreview: text,
+        model: this.agent.model,
       });
       return { activityId, taskId, initiatorKind, initiatorUserId: msg.userId, initiatorHandle };
     } catch (err) {

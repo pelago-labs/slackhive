@@ -452,7 +452,11 @@ CREATE TABLE IF NOT EXISTS activities (
   input_tokens           INTEGER,
   output_tokens          INTEGER,
   cache_read_tokens      INTEGER,
-  cache_creation_tokens  INTEGER
+  cache_creation_tokens  INTEGER,
+  -- Model actually in effect when this turn ran. Stamped at begin so the
+  -- token-by-model breakdown survives later model switches (grouping by the
+  -- agent's CURRENT model would retroactively relabel history).
+  model                  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tool_calls (
@@ -942,6 +946,22 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   if (!activityCols.includes('reply_ts')) {
     db.exec('ALTER TABLE activities ADD COLUMN reply_ts TEXT');
     db.exec('CREATE INDEX IF NOT EXISTS idx_activities_reply_ts ON activities(reply_ts)');
+  }
+  // Per-turn model, for an accurate token-by-model breakdown. New turns stamp it
+  // at begin; pre-existing rows are best-effort backfilled to the agent's CURRENT
+  // model (the real model wasn't recorded, so a prior Claude period folds into the
+  // current model for history only — going forward each turn is attributed correctly).
+  if (!activityCols.includes('model')) {
+    // Atomic ALTER + backfill: if the (potentially slow) UPDATE is interrupted, the
+    // whole thing rolls back so the column-add guard above stays false and the
+    // migration retries next boot — rather than leaving the column added but rows
+    // permanently NULL (→ a stuck 'unknown' bucket) with no recovery path.
+    db.transaction(() => {
+      db.exec('ALTER TABLE activities ADD COLUMN model TEXT');
+      db.exec(`UPDATE activities
+                  SET model = (SELECT a.model FROM agents a WHERE a.id = activities.agent_id)
+                WHERE model IS NULL`);
+    })();
   }
 
   // spans.sensitive* — added after the spans table shipped (sensitive-access monitor).
