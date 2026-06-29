@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Bot, LayoutGrid, GitBranch, Search, ArrowUpDown, Plus } from 'lucide-react';
 import { PageShell } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/time';
 
@@ -191,10 +192,10 @@ export default function Dashboard() {
 
   return (
     <InProgressContext.Provider value={inProgressByAgent}>
-    <PageShell maxWidth={1440}>
+    <PageShell maxWidth={1440} className="py-5 md:py-6">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
         <div>
           <h1 className="m-0 text-2xl font-bold tracking-normal text-foreground">
             {title}
@@ -261,38 +262,32 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Inline stats strip ───────────────────────────────────────────── */}
-      {!loading && total > 0 && (
-        <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <Stat n={total} label={`agent${total !== 1 ? 's' : ''}`} />
-          <Stat n={running} label="running" colorClass="text-green" />
-          <Stat n={stopped} label="stopped" colorClass={stopped > 0 ? 'text-muted-foreground' : undefined} />
-          {bossCount > 0 && (
-            <>
-              <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} />
-            </>
-          )}
-        </div>
-      )}
-
       {/* ── Sticky search + sort + tag filter bar ────────────────────────── */}
       {!loading && total > 0 && (
         <div className={cn(
-          'sticky top-0 z-20 mb-5 border-b border-border bg-background/95 pb-3.5 pt-2 backdrop-blur supports-[backdrop-filter]:bg-background/85 transition-shadow duration-200',
+          'sticky top-0 z-20 mb-4 rounded-lg border border-border bg-background/95 p-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/85 transition-shadow duration-200',
           scrolled && 'shadow-[0_8px_20px_-16px_rgba(16,24,40,0.24)]',
         )}>
-          <div className={cn('flex items-center gap-3', allTags.length > 0 && 'mb-3')}>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+              <Stat n={total} label={`agent${total !== 1 ? 's' : ''}`} />
+              <Stat n={running} label="running" colorClass="text-green" />
+              <Stat n={stopped} label="stopped" colorClass={stopped > 0 ? 'text-muted-foreground' : undefined} />
+              {bossCount > 0 && <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} />}
+            </div>
+
             {/* Search */}
-            <div className="relative max-w-[360px] flex-1">
+            <div className="relative min-w-[240px] flex-1">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
+              <Input
                 type="search"
                 placeholder="Search agents…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-card pl-[34px] pr-3 text-sm text-foreground shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/20"
+                className="pl-9"
               />
             </div>
+
             {/* Sort */}
             <div className="relative">
               <button
@@ -321,18 +316,18 @@ export default function Dashboard() {
             <span className="ml-auto text-xs text-muted-foreground">
               {filteredAgents.length} of {total}
             </span>
-          </div>
-          {/* Tag chips */}
-          {allTags.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+
+            {allTags.length > 0 && (
+              <div className="flex max-w-full gap-1.5 overflow-x-auto">
               <FilterChip active={selectedTag === null} onClick={() => setSelectedTag(null)}>All</FilterChip>
               {allTags.map(tag => (
                 <FilterChip key={tag} active={selectedTag === tag} onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}>
                   {tag}
                 </FilterChip>
               ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -372,9 +367,6 @@ function ViewBtn({ active, onClick, title, children }: {
 
 // ── Hierarchy view ────────────────────────────────────────────────────────────
 
-const CARD_W = 260;
-const CARD_GAP = 16;
-
 function HierarchyView({ agents }: { agents: Agent[] }) {
   const bosses = agents.filter(a => a.isBoss);
   const nonBosses = agents.filter(a => !a.isBoss);
@@ -387,7 +379,7 @@ function HierarchyView({ agents }: { agents: Agent[] }) {
   if (bosses.length === 0) return <GridView agents={agents} label="All Agents" />;
 
   return (
-    <div className="flex flex-col gap-12">
+    <div className="flex flex-col gap-4">
       {bosses.map(boss => (
         <OrgTree key={boss.id} boss={boss} reports={reportMap.get(boss.id) ?? []} />
       ))}
@@ -416,69 +408,29 @@ function SectionLabel({ label }: { label: string }) {
 }
 
 function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
-  const n = reports.length;
-  // total width of the reports row
-  const rowW = n * CARD_W + Math.max(0, n - 1) * CARD_GAP;
-  const bossW = Math.min(360, Math.max(CARD_W, rowW));
-  const V_DROP = 32; // px from boss card bottom to horizontal bar
-  const STUB_H = 20; // px from horizontal bar down to each report card
-
   return (
-    <div>
-      {/* Boss card — centered over the reports row */}
-      <div className={cn('flex flex-col', n > 0 ? 'items-center' : 'items-start')}>
-        <div className="max-w-full" style={{ width: bossW }}>
+    <section className="rounded-lg border border-border bg-card/40 p-3 shadow-sm">
+      <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <div className="mb-2 px-1 text-2xs font-bold uppercase tracking-[0.08em] text-muted-foreground">Boss</div>
           <AgentCard agent={boss} />
         </div>
 
-        {n > 0 && (
-          <>
-            {/* SVG connector: vertical stem + horizontal bar + stubs */}
-            <svg
-              width={Math.max(rowW, bossW)}
-              height={V_DROP + STUB_H}
-              className="block overflow-visible"
-            >
-              {(() => {
-                const svgW = Math.max(rowW, bossW);
-                const stemX = svgW / 2;
-                const barY = V_DROP;
-                // center of each report card
-                const cardCenters = Array.from({ length: n }, (_, i) =>
-                  i * (CARD_W + CARD_GAP) + CARD_W / 2 + (svgW - rowW) / 2
-                );
-                const barX1 = cardCenters[0];
-                const barX2 = cardCenters[n - 1];
-                return (
-                  <g stroke="var(--border-2)" strokeWidth="1.5" fill="none">
-                    {/* Vertical stem from boss */}
-                    <line x1={stemX} y1={0} x2={stemX} y2={barY} />
-                    {/* Horizontal bar */}
-                    {n > 1 && <line x1={barX1} y1={barY} x2={barX2} y2={barY} />}
-                    {/* Stubs down to each card */}
-                    {cardCenters.map((cx, i) => (
-                      <line key={i} x1={cx} y1={barY} x2={cx} y2={barY + STUB_H} />
-                    ))}
-                  </g>
-                );
-              })()}
-            </svg>
-
-            {/* Reports row */}
-            <div className="flex items-start" style={{ gap: CARD_GAP, width: Math.max(rowW, bossW) }}>
-              {/* Offset so cards align under SVG stubs */}
-              <div className="flex" style={{ gap: CARD_GAP, marginLeft: (Math.max(rowW, bossW) - rowW) / 2 }}>
-                {reports.map(agent => (
-                  <div key={agent.id} className="shrink-0" style={{ width: CARD_W }}>
-                    <AgentCard agent={agent} compact multiReport={(agent.reportsTo?.length ?? 0) > 1} />
-                  </div>
-                ))}
-              </div>
+        {reports.length > 0 && (
+          <div className="min-w-0">
+            <div className="mb-2 flex items-center justify-between gap-2 px-1">
+              <div className="text-2xs font-bold uppercase tracking-[0.08em] text-muted-foreground">Reports</div>
+              <div className="text-2xs text-muted-foreground">{reports.length}</div>
             </div>
-          </>
+            <div className="agent-grid grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+              {reports.map(agent => (
+                <AgentCard key={agent.id} agent={agent} compact multiReport={(agent.reportsTo?.length ?? 0) > 1} />
+              ))}
+            </div>
+          </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -636,8 +588,8 @@ function AgentCard({ agent, compact, multiReport }: {
 
 function Stat({ n, label, colorClass }: { n: number; label: string; colorClass?: string }) {
   return (
-    <span className="inline-flex items-baseline gap-[5px] rounded-md border border-border bg-card px-2.5 py-1 shadow-sm">
-      <strong className={cn('text-base font-bold tabular-nums', colorClass ?? 'text-foreground')}>{n}</strong>
+    <span className="inline-flex h-8 items-center gap-[5px] rounded-md border border-border bg-card px-2.5 text-xs text-muted-foreground">
+      <strong className={cn('text-sm font-bold tabular-nums', colorClass ?? 'text-foreground')}>{n}</strong>
       <span>{label}</span>
     </span>
   );
