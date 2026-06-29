@@ -441,7 +441,8 @@ function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
   const n = reports.length;
   const rowW = n * CARD_W + Math.max(0, n - 1) * CARD_GAP;
   const treeW = Math.max(CARD_W, rowW);
-  const bossCenter = CARD_W / 2;
+  const bossOffset = n > 0 ? (treeW - CARD_W) / 2 : 0;
+  const bossCenter = bossOffset + CARD_W / 2;
   const connectorH = 40;
   const barY = 24;
   const reportCenters = Array.from({ length: n }, (_, i) => i * (CARD_W + CARD_GAP) + CARD_W / 2);
@@ -449,7 +450,7 @@ function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
   return (
     <div className="overflow-x-auto pb-1">
       <div className="min-w-[260px]" style={{ width: treeW }}>
-        <div style={{ width: CARD_W }}>
+        <div style={{ width: CARD_W, marginLeft: bossOffset }}>
           <AgentCard agent={boss} />
         </div>
 
