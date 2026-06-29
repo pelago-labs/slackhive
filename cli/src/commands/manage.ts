@@ -11,7 +11,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, openSyn
 import { join, dirname } from 'path';
 import { request as httpRequest } from 'http';
 import { createInterface } from 'readline';
-import { unwrapRecoveryKey } from '@slackhive/shared/db/recovery-key';
+import { createDecipheriv, scryptSync } from 'crypto';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -420,9 +420,31 @@ function stamp(): string {
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}-${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
 }
 
+/**
+ * Unwrap the password-protected recovery key. Deliberately inlined (mirrors
+ * packages/shared/src/db/recovery-key.ts): the root `prepare` script builds the CLI via
+ * esbuild during `npm ci`, BEFORE `packages/shared/dist` exists — so the CLI bundle
+ * cannot import the shared module (it also avoids pulling in shared's native
+ * better-sqlite3). Keep the scrypt/AES params here in sync with the shared module.
+ */
+function unwrapRecoveryKey(
+  blob: { v: number; kdf: string; scrypt?: { N: number; r: number; p: number }; salt: string; iv: string; tag: string; ct: string },
+  password: string,
+): string {
+  if (!blob || blob.v !== 1 || blob.kdf !== 'scrypt') throw new Error('Unrecognized recovery-key file format.');
+  const sc = blob.scrypt ?? { N: 1 << 15, r: 8, p: 1 };
+  const key = scryptSync(password, Buffer.from(blob.salt, 'base64'), 32, { N: sc.N, r: sc.r, p: sc.p, maxmem: 64 * 1024 * 1024 });
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(blob.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(blob.tag, 'base64'));
+  try {
+    return Buffer.concat([decipher.update(Buffer.from(blob.ct, 'base64')), decipher.final()]).toString('utf8');
+  } catch {
+    throw new Error('Wrong password or corrupted recovery-key file.');
+  }
+}
+
 /** Prompt for a password without echoing it. Restores the terminal on Ctrl-C so a
- *  cancelled prompt doesn't leave echo disabled. (unwrapRecoveryKey is imported from the
- *  shared module so the wrap/unwrap formats can never drift apart.) */
+ *  cancelled prompt doesn't leave echo disabled. */
 function promptHidden(label: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
