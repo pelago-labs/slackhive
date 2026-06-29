@@ -1,0 +1,160 @@
+---
+title: "Backup & Recovery"
+description: "Create SQLite backups, export a recovery key, and restore SlackHive safely after host loss."
+---
+
+SlackHive includes built-in database backups for CLI installs that use SQLite. Backups are designed for disaster recovery: recovering agents, users, settings, jobs, histories, encrypted secrets, and other platform state on the same host or a fresh host.
+
+Open **Settings -> Backups** as a superadmin.
+
+## What you need for recovery
+
+Full recovery needs three things:
+
+| Item | Why it matters |
+|---|---|
+| **Database backup** | The `data-YYYYMMDD-HHMMSS.db` file with SlackHive state |
+| **Recovery-key file** | A password-wrapped copy of the encryption key used for stored secrets |
+| **Recovery-key password** | The password that unwraps the recovery-key file |
+
+<Warning>
+  Store the recovery-key file and its password separately from the database backups. A database backup contains encrypted secrets, but it cannot decrypt them without the recovery key.
+</Warning>
+
+## Automatic backups
+
+Automatic backups are enabled by default for SQLite installs.
+
+Default schedule:
+
+| Setting | Default |
+|---|---|
+| Enabled | Yes |
+| Every | 24 hours |
+| Keep latest | 5 backups |
+| Location | `~/.slackhive/backups/` |
+
+SlackHive creates backups with SQLite `VACUUM INTO`, which produces a consistent snapshot while the app is running. The runner also prunes old `data-*.db` files beyond the retention count.
+
+Change the schedule from **Settings -> Backups -> Automatic backups**. Changes are stored in SlackHive settings and do not require a restart.
+
+## Manual backup
+
+From the dashboard, click **Back up now**.
+
+From the CLI:
+
+```bash
+slackhive backup
+```
+
+When SlackHive is running, the CLI asks the runner to create a consistent live snapshot. When SlackHive is stopped, it copies the closed database file directly.
+
+To write to a specific path:
+
+```bash
+slackhive backup --output /secure/backups/slackhive.db
+```
+
+## Download backups
+
+Open **Settings -> Backups** to list and download stored backups.
+
+Backup filenames look like:
+
+```text
+data-20260629-093000.db
+```
+
+Downloads are restricted to valid backup filenames inside `~/.slackhive/backups/`.
+
+## Export the recovery key
+
+Open **Settings -> Backups -> Recovery key**.
+
+1. Enter a strong password.
+2. Click **Download recovery key**.
+3. Store the downloaded `slackhive-recovery-*.json` file somewhere safe.
+4. Store the password separately.
+
+The password must be at least 16 characters and pass basic strength checks. The recovery file does not contain the plaintext key; it contains the encrypted key wrapped with your password.
+
+## Restore from a backup
+
+Restore is intentionally CLI-only. It stops SlackHive and replaces the local SQLite database.
+
+```bash
+slackhive restore -f ~/.slackhive/backups/data-20260629-093000.db \
+  --recovery-key ~/Downloads/slackhive-recovery-20260629-093100.json
+```
+
+SlackHive prompts for the recovery-key password without echoing it.
+
+Then start the app:
+
+```bash
+slackhive start
+```
+
+For non-interactive restore jobs, provide the password through an environment variable:
+
+```bash
+SLACKHIVE_RECOVERY_PASSWORD='use-a-secret-manager-here' \
+  slackhive restore -f /backups/data.db --recovery-key /secure/slackhive-recovery.json
+```
+
+Do not pass the recovery password as a command-line argument; command arguments can appear in shell history and process lists.
+
+## Restore with an env file
+
+If you have a trusted `.env` file with the original `ENV_SECRET_KEY`, you can restore with that instead of a recovery-key file:
+
+```bash
+slackhive restore -f /backups/data.db --env /secure/slackhive.env
+slackhive start
+```
+
+Use this only when the env file came from the same SlackHive installation or contains the matching `ENV_SECRET_KEY`.
+
+## Safety behavior
+
+Before replacing the live database, `slackhive restore`:
+
+1. Validates the backup file exists.
+2. Validates and unwraps the recovery key before touching the current database.
+3. Stops SlackHive if it is running.
+4. Creates a safety snapshot named `pre-restore-YYYYMMDD-HHMMSS.db`.
+5. Writes the recovered `ENV_SECRET_KEY` into the project `.env`.
+6. Replaces `~/.slackhive/data.db`.
+7. Removes stale SQLite `-wal` and `-shm` files.
+
+The `pre-restore-*` safety snapshots are not auto-pruned by the scheduled backup retention policy.
+
+## What is not in the database backup
+
+Built-in backups cover the SQLite database. For most SlackHive operations, that is the source of truth.
+
+If you want a full host image, also snapshot:
+
+| Path | Why you may want it |
+|---|---|
+| `~/.slackhive/agents/` | Per-agent working directories and local session artifacts |
+| `~/.slackhive/knowledge/` | Compiled Knowledge Library wiki files |
+| `~/.slackhive/logs/` | Historical runner logs |
+
+These files are not a replacement for the database backup. Treat them as optional host-level artifacts.
+
+## Postgres installs
+
+The built-in backup engine is SQLite-only. If you run SlackHive against Postgres, use your normal Postgres backup tooling, such as `pg_dump` or managed database snapshots.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="CLI Reference" icon="terminal" href="/operations/cli">
+    Backup and restore command reference.
+  </Card>
+  <Card title="Production Deployment" icon="server" href="/self-hosting/production">
+    Production checklist, service setup, reverse proxy, and key rotation.
+  </Card>
+</CardGroup>

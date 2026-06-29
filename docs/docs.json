@@ -87,6 +87,7 @@
             "group": "Operations",
             "pages": [
               "operations/cli",
+              "operations/backup-recovery",
               "operations/debugging",
               "operations/troubleshooting"
             ]

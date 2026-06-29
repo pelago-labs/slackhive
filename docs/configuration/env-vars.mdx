@@ -84,6 +84,8 @@ openssl rand -hex 32
   Do not rotate `ENV_SECRET_KEY` after initial setup without a migration plan. Stored AI backend credentials, Slack tokens, and MCP env vars become unreadable.
 </Warning>
 
+For disaster recovery, export a password-protected recovery key from **Settings -> Backups**. That file lets you recover encrypted secrets from a database backup without storing the plaintext `ENV_SECRET_KEY` beside the backup.
+
 ## Platform
 
 | Variable | Default | Purpose |
@@ -100,13 +102,14 @@ openssl rand -hex 32
 | Path | Contents |
 |---|---|
 | `~/.slackhive/data.db` | SQLite database: agents, memories, skills, activities, traces, settings |
+| `~/.slackhive/backups/` | SQLite backups and pre-restore safety snapshots |
 | `~/.slackhive/agents/<slug>/` | Agent workspace, sessions, instructions, skills, assigned wiki copies |
 | `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wiki for one Knowledge Library folder |
 | `~/.slackhive/logs/runner.log` | Runner log stream |
 | `~/.slackhive/runner.lock` | Singleton runner lock |
 | `~/.slackhive/slackhive.pid` | Web server PID file |
 
-Back up `~/.slackhive/` to preserve your install.
+Use [Backup & Recovery](/operations/backup-recovery) for database backups and recovery-key export. Snapshot `~/.slackhive/` separately when you also need generated workspaces, compiled wiki files, and logs.
 
 ## Complete `.env.example`
 

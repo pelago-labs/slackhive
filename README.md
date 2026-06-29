@@ -180,6 +180,7 @@ Every agent has tools, memory, identity, and instructions. When you @mention one
 | 🧵 **Full Thread Context** | Agents fetch the entire Slack thread on every invocation - zero context lost in handoffs. |
 | 💾 **Session Continuity** | Slack thread ↔ agent session mapping survives restarts. Pick up exactly where you left off. |
 | 🔐 **Encrypted Secret Store** | API keys encrypted at rest (AES-256). MCPs reference secrets by name - raw values never touch the API or UI. |
+| 🧯 **Backup & Recovery** | Scheduled SQLite backups, manual backup/download, password-wrapped recovery key export, and CLI-only restore with pre-restore safety snapshots. |
 | 🔁 **Hot Reload** | Edit instructions, skills, or tools and the agent picks up changes within seconds. No restart needed. |
 
 ### 👑 Boss + Specialist Hierarchy
