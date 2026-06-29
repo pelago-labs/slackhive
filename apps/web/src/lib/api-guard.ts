@@ -89,3 +89,22 @@ export function guardUserAdmin(req: Request): NextResponse | null {
   }
   return null;
 }
+
+/**
+ * Returns 403 unless the caller is a superadmin. For the most sensitive operations
+ * (disaster-recovery: DB backup download, recovery-key export — these expose the
+ * encrypted database and the wrapped master key).
+ *
+ * @param {Request} req - Incoming request.
+ * @returns {NextResponse | null} 401/403 response or null if authorized.
+ */
+export function guardSuperadmin(req: Request): NextResponse | null {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+  if (session.role !== 'superadmin') {
+    return NextResponse.json({ error: 'Superadmin only' }, { status: 403 });
+  }
+  return null;
+}

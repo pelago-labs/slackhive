@@ -16,7 +16,7 @@
 
 import { Command } from 'commander';
 import { init } from './commands/init';
-import { start, stop, status, logs, update } from './commands/manage';
+import { start, stop, status, logs, update, backup, restore } from './commands/manage';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json');
 
@@ -59,5 +59,20 @@ program
   .command('update')
   .description('Pull latest changes and rebuild')
   .action(update);
+
+program
+  .command('backup')
+  .description('Create a database backup (consistent snapshot)')
+  .option('-o, --output <path>', 'Write the backup to this path instead of ~/.slackhive/backups/')
+  .action(backup);
+
+program
+  .command('restore')
+  .description('Restore the database from a backup (stops the runner; the only restore path)')
+  .requiredOption('-f, --from <file>', 'Backup .db file to restore')
+  .option('--recovery-key <file>', 'Password-wrapped recovery-key file (prompts for password)')
+  .option('--env <file>', 'Plain .env file to install instead of a recovery key')
+  .option('--password <pw>', 'Recovery-key password (otherwise prompted)')
+  .action(restore);
 
 program.parse(process.argv);
