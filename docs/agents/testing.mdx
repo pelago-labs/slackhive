@@ -57,3 +57,14 @@ Each turn shows:
 - **Debugging delegation** - exercise `@mention` chains in isolation
 
 Once it works in Test Mode, it works in Slack.
+
+## From tests to evals
+
+When a test prompt represents behavior you never want to regress, turn it into an eval case:
+
+1. Copy the exact prompt
+2. Open agent → **Settings** → **Evals**
+3. Add a regression case with checks for the expected answer or tool usage
+4. Approve it and run the regression suite
+
+See [Agent Evals](/agents/evals) for healthchecks, regression cases, verdicts, and judge settings.

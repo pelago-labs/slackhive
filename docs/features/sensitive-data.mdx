@@ -1,0 +1,106 @@
+---
+title: "Sensitive Data"
+description: "Detect, audit, and optionally redact secrets, PII, sensitive data access, and outbound data flows."
+---
+
+Sensitive-data monitoring helps you understand when agents touch private or risky information. It can flag secrets, personal information, sensitive data columns, credential files, database access, and outbound flows.
+
+Enable it per agent from agent → **Settings** → **General** → **Sensitive data monitoring**.
+
+## Detection modes
+
+| Mode | What it does | Use when |
+|---|---|---|
+| **Off** | No scanning and no overhead | The agent never handles private data or external sends |
+| **Deterministic** | Fast pattern rules for PII, secrets, credentials, database access, and outbound flows | Default for most agents |
+| **Smart** | Deterministic rules plus a lightweight LLM pass per turn | You need to catch obfuscated or domain-specific sensitive data |
+
+Smart mode can reduce false positives and catch values the rules miss, such as a phone number written in words. Smart-only findings are marked **caught by LLM** in traces. They are report-only and add some latency and cost.
+
+## What gets flagged
+
+SlackHive uses broad categories so the audit trail stays readable:
+
+| Category | Examples |
+|---|---|
+| **Secret** | OpenAI keys, Anthropic keys, GitHub tokens, Slack tokens, Stripe keys, JWTs, private keys, connection strings, passwords |
+| **Personal info** | Email addresses, phone numbers, card numbers, SSNs, IBANs |
+| **Sensitive data** | Data columns or fields such as salary, payment, passport, address, date of birth, bank account, or custom keywords |
+| **Sensitive action** | Database access, credential-file access, or tools that move data out of SlackHive |
+
+Tool input and output are scanned. Agent replies are scanned for values such as PII and secrets.
+
+## Custom guidance
+
+In **Smart** mode, add agent-specific rules under **What's sensitive for this agent**.
+
+Use one rule per line, for example:
+
+```text
+Internal project codenames: Project Atlas, Bluebird
+Unreleased pricing or revenue figures
+Patient IDs and support case identifiers
+```
+
+This tells the LLM detector what matters for that agent beyond the built-in categories.
+
+## Redaction
+
+Turn on **Redact secrets in replies** when the agent posts into shared channels or reads from sensitive systems. The toggle name is intentionally conservative, but the level you choose controls how much gets masked.
+
+Choose a redaction level:
+
+| Level | What gets masked in the outbound reply |
+|---|---|
+| **Secrets only** | API keys, tokens, passwords, private keys, card numbers, SSNs, and other high-risk values |
+| **Secrets + PII** | Secrets plus emails, phone numbers, and other detected personal information |
+| **Everything flagged** | Every detected match, including sensitive data keywords and credential paths |
+
+Outbound redaction happens before the message reaches Slack. The private trace still records the event for audit, and non-admin viewers see sensitive values masked in trace views.
+
+## Auditing events
+
+Open **Observability → Sensitive** to review flagged sessions.
+
+The Sensitive tab shows:
+
+- Recent sensitive events
+- Which agent and session touched the data
+- Category and severity
+- Whether the event was caught by deterministic rules or Smart mode
+- Sensitive data flows, such as data found in an outbound sink
+
+Click an event to open the trace at the exact span. Admins can reveal raw values when needed; other roles see redacted content.
+
+## Operational defaults
+
+Recommended starting point:
+
+| Agent type | Detection | Redaction |
+|---|---|---|
+| Data analyst, finance, support, HR | Deterministic or Smart | Secrets only, or Secrets + PII for shared channels |
+| Engineering/code agents | Deterministic | Secrets only |
+| Public research or writing agents | Deterministic | Off unless they handle user data |
+| High-risk regulated workflows | Smart | Secrets + PII or Everything flagged |
+
+## Advanced keyword tuning
+
+Admins can extend deterministic matching from `.env`:
+
+| Variable | Purpose |
+|---|---|
+| `SENSITIVE_DATA_KEYWORDS` | Extra comma-separated data-field keywords to flag in tool arguments |
+| `SENSITIVE_TOOLS` | Extra comma-separated tool-name fragments to treat as sensitive tools |
+
+Restart SlackHive after changing `.env`.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Observability" icon="chart-line" href="/features/observability">
+    Review sensitive events, sessions, tools, tokens, and traces.
+  </Card>
+  <Card title="Agent Evals" icon="shield-check" href="/agents/evals">
+    Catch prompt, skill, tool, and behavior regressions before they hit Slack.
+  </Card>
+</CardGroup>

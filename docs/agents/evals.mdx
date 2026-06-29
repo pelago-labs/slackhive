@@ -1,0 +1,162 @@
+---
+title: "Agent Evals"
+description: "Healthcheck agent configuration and run regression cases before behavior drifts in Slack."
+---
+
+Agent evals help you keep an agent reliable after prompts, skills, tools, wiki folders, or backends change. Use them before inviting an agent into important channels and after every meaningful edit.
+
+Open an agent → **Settings** → **Evals**.
+
+## The mental model
+
+An eval is a repeatable test of whether an AI system still does the job you expect. For ordinary chatbots, that often means checking the final answer. For agents, it also means checking the path the agent took: which tool it chose, whether it avoided unsafe actions, whether it used the right context, and whether the final response was useful.
+
+SlackHive follows the same evaluation shape used by modern agent platforms:
+
+- Start with **traces** while debugging one run. A trace shows the full sequence of model calls, tool calls, handoffs, and safety markers. OpenAI's agent-eval guidance recommends traces first when diagnosing workflow-level issues, then moving to datasets and eval runs when repeatability matters.
+- Convert important traces or Slack questions into **repeatable cases**. A case is a real user question plus checks for the behavior that must hold.
+- Prefer the **cheapest reliable grader**. Anthropic recommends code/string checks when possible, LLM judges for nuanced criteria, and human review only where automation is not reliable enough.
+- Keep an **online → offline loop**. Production traces and feedback reveal failures; regression cases make sure the same failure does not come back.
+
+In SlackHive terms: **Observability** is online monitoring, **Test Mode** is interactive debugging, and **Agent Evals** are offline regression tests.
+
+## What to evaluate
+
+Agent quality is multidimensional. A good eval suite usually has a mix of:
+
+| Dimension | Question it answers | SlackHive check |
+|---|---|---|
+| **Final response** | Did the answer contain the right facts, caveats, and format? | Required / forbidden phrases, LLM judge |
+| **Trajectory** | Did the agent take the expected path to get the answer? | Required / forbidden tool calls |
+| **Tool safety** | Did the agent avoid costly, destructive, or unauthorized tools? | Forbidden tool calls, Tier 1 MCP coverage |
+| **Context use** | Did it use assigned wiki, memory, or tools instead of guessing? | Tool-call checks, rubric checks |
+| **Style and policy** | Did it follow tone, escalation, privacy, or refusal rules? | LLM judge with a specific rubric |
+| **Privacy preservation** | Did it avoid exposing secrets or PII? | Tier 1 PII & secrets, [Sensitive Data](/features/sensitive-data) |
+
+LangSmith's agent-eval guidance describes the same split as final-response, trajectory, and single-step evaluation. SlackHive's current UI focuses on final-response and trajectory checks, with static healthchecks for configuration safety.
+
+## What evals cover
+
+SlackHive has two eval layers:
+
+| Layer | What it checks | When to use it |
+|---|---|---|
+| **Tier 1 · Static healthcheck** | Configuration quality without running the agent | Every time you change instructions, skills, tools, or wiki assignments |
+| **Tier 2 · Regression eval** | Real agent answers against approved test cases | Before releases, after Coach changes, and when you need confidence an agent still behaves correctly |
+
+Tier 1 is instant and does not call the agent. Tier 2 runs the agent through approved cases and may call the configured judge model.
+
+## Tier 1 healthcheck
+
+The healthcheck runs automatically when you open the Evals section. Click **Re-run** after making changes.
+
+It checks:
+
+| Check | What it catches |
+|---|---|
+| **MCP coverage** | Tool references in the agent instructions that are not assigned to the agent |
+| **Cross-refs** | Missing skill links or wiki references |
+| **Skill overlap** | Skills with very similar descriptions that should probably be merged |
+| **Persona hygiene** | Risky prompt patterns such as unsafe shell instructions or prompt-injection markers |
+| **PII & secrets** | Possible keys, tokens, card numbers, SSNs, emails, or phone numbers inside prompts and skills |
+
+Issues are shown as warnings or errors with the file and line when available.
+
+## Tier 2 regression cases
+
+A regression case is a real question plus checks the answer must satisfy.
+
+1. Open agent → **Settings** → **Evals**
+2. Click **Add your first case** or **Manage cases**
+3. Write the user question
+4. Add one or more checks
+5. Set the case to **approved**
+6. Click **Run regression**
+
+Only **approved** cases run. **Proposed** cases are drafts that stay out of the regression suite until reviewed.
+
+## Check types
+
+| Check | Use it when |
+|---|---|
+| **Phrases that must appear** | The answer must include specific facts, numbers, headings, or caveats |
+| **Phrases that must not appear** | The agent must avoid a banned claim, tone, or unsafe instruction |
+| **Tools the agent must call** | The answer is only valid if the agent used a specific MCP or tool |
+| **Tools the agent must not call** | The agent should answer from context and avoid a costly or unsafe tool |
+| **LLM judges against rubric** | The desired behavior is semantic and cannot be reduced to exact phrases |
+
+Tool checks use full tool IDs such as `mcp__redshift__query`. A trailing `*` matches any tool from a server, for example `mcp__redshift__*`.
+
+## Verdicts
+
+| Verdict | Meaning |
+|---|---|
+| **PASS** | Every check passed |
+| **FAIL** | A deterministic check failed, or the judge says the answer diverged |
+| **SUSPECT** | The judge could not confidently decide, or there was no final reply to judge |
+| **INFRA** | The runner, backend, or tool infrastructure failed; this is not counted as agent behavior |
+
+Open a failed row to see the final reply, tool calls, check results, and judge reasoning when available.
+
+## Judge model
+
+LLM-judge checks use the active backend's judge model. Admins can change it in **Settings → AI Backend → Evals Judge Model**.
+
+Pick a cheaper model for broad regression suites and a stronger model for high-stakes rubrics.
+
+## Fixing failures with Coach
+
+When a case fails, click **Ask Coach** from the failing row. Coach receives the failed case, observed answer, tool calls, and check results. It can then suggest either:
+
+- A real agent fix, such as a prompt or skill change
+- A test correction when the case expectation is wrong
+
+Review Coach proposals before applying them, then rerun the regression.
+
+## Good eval cases
+
+Write cases from real Slack questions. A useful case includes:
+
+- The exact question a teammate would ask
+- One clear expected behavior
+- A check that catches the regression you care about
+- A small number of assertions, not a giant checklist
+
+<Tip>
+  Start with 5-10 cases for the workflows that would hurt most if the agent regressed. Add more from real failures over time.
+</Tip>
+
+## Designing a suite
+
+Use this pattern:
+
+1. **Define success before writing checks.** Be specific: "queries Redshift and reports GMV with date range" is better than "answers correctly."
+2. **Cover normal, edge, and refusal cases.** Include the happy path, ambiguous inputs, missing permissions, and things the agent must not do.
+3. **Use deterministic checks first.** Phrase and tool-call checks are fast, cheap, and less subjective.
+4. **Use LLM judges for judgment-heavy behavior.** Write rubrics with concrete pass/fail criteria, not broad impressions.
+5. **Keep cases small.** One case should catch one kind of failure.
+6. **Promote real incidents.** When Slack or Observability reveals a bad answer, turn that trace into a proposed case.
+
+<Warning>
+  Evals do not prove an agent is safe or correct in every situation. They are regression protection: they make known important behaviors measurable and repeatable.
+</Warning>
+
+## External evaluation theory
+
+These are the product ideas SlackHive's Evals page is built around:
+
+- [OpenAI: Evaluate agent workflows](https://developers.openai.com/api/docs/guides/agent-evals) - start with traces for workflow debugging, then move to datasets and eval runs for repeatability.
+- [Anthropic: Define success criteria and build evaluations](https://platform.claude.com/docs/en/test-and-evaluate/develop-tests) - define measurable success criteria, design task-specific evals, and choose the fastest reliable grader.
+- [LangSmith: Evaluation](https://docs.langchain.com/langsmith/evaluation) - separate offline regression evaluation from online production monitoring.
+- [LangSmith: Evaluate a complex agent](https://docs.langchain.com/langsmith/evaluate-complex-agent) - evaluate final responses, trajectories, and individual agent steps.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Test Mode" icon="message-square" href="/agents/testing">
+    Try one-off prompts before turning them into regression cases.
+  </Card>
+  <Card title="Coach" icon="comments" href="/agents/coach">
+    Use Coach to repair failed evals and improve prompts or skills.
+  </Card>
+</CardGroup>
