@@ -1,0 +1,81 @@
+---
+title: "AI Backends"
+description: "Configure SlackHive to run agents on OpenAI Codex or Claude Code."
+---
+
+SlackHive lets you choose which AI backend runs your agents. The rest of the product stays the same: Slack, memory, MCP tools, scheduled jobs, Coach, Knowledge Library, Activity, and Observability.
+
+Today SlackHive supports:
+
+| Backend | Best for | Auth options |
+|---|---|---|
+| **OpenAI Codex** | GPT-5.x models, Codex sessions, ChatGPT login | ChatGPT login, `CODEX_AUTH_JSON`, `OPENAI_API_KEY` |
+| **Claude Code** | Claude models, Claude login, Anthropic API billing | Claude login, `CLAUDE_CREDENTIALS_JSON`, `ANTHROPIC_API_KEY` |
+
+## Choose the active backend
+
+1. Open **Settings → AI Backend**
+2. Pick **OpenAI Codex** or **Claude Code**
+3. Choose an auth mode
+4. Click **Detect** or paste credentials
+5. Save
+
+Changing backend reloads agents. If an existing agent has a model that does not exist on the new backend, SlackHive moves it to that backend's default model.
+
+## OpenAI Codex
+
+Use Codex when you want GPT-5.x reasoning, Codex sessions, and ChatGPT login support.
+
+Supported credential paths:
+
+- **ChatGPT login / device auth** - Settings can start the login flow and persist `~/.codex/auth.json`.
+- **Stored auth JSON** - paste a `CODEX_AUTH_JSON` value in Settings for headless machines.
+- **API key** - set `OPENAI_API_KEY` or store it in Settings.
+- **Custom binary** - set `CODEX_PATH` if SlackHive should use a specific `codex` binary.
+
+Codex model choices may include reasoning levels such as Instant, Balanced, Thinking, and Max. SlackHive stores these as model choices and passes the appropriate reasoning effort to the backend.
+
+<Note>
+  Codex in SlackHive can read and describe images the user attaches, but image generation/editing output is not delivered to Slack. Agents are instructed to decline image-generation requests and offer text alternatives.
+</Note>
+
+## Claude Code
+
+Use Claude Code when you want Claude models, Claude subscription auth, or Anthropic API-key billing.
+
+Supported credential paths:
+
+- **Claude login** - run `claude login`; SlackHive reads `~/.claude/.credentials.json` and can detect live auth.
+- **Stored credentials JSON** - paste `CLAUDE_CREDENTIALS_JSON` in Settings for headless machines.
+- **API key** - set `ANTHROPIC_API_KEY` or store it in Settings.
+- **Custom binary** - set `CLAUDE_BIN` if SlackHive should use a specific `claude` binary.
+
+## What changes when you switch backend?
+
+| Area | Behavior |
+|---|---|
+| Agents | Reloaded so future turns use the selected runtime |
+| Models | Invalid model ids are migrated to the selected backend default |
+| Coach | Uses a backend-compatible model |
+| Sessions | Existing Slack thread mappings remain; the backend owns how it resumes them |
+| MCP | Assigned servers stay the same; SlackHive maps them to the backend runtime |
+| Observability | Activity, usage, sessions, and traces continue to work |
+
+## Backend status badge
+
+The dashboard header shows the active backend and connection status:
+
+- **Connected** - ready to run
+- **Expired** - login credentials exist but must be refreshed
+- **Disconnected** - no usable credentials found
+
+If status is not connected, open **Settings → AI Backend**, re-run provider login, click **Detect**, or paste fresh credentials.
+
+## Recommended defaults
+
+| Situation | Recommendation |
+|---|---|
+| Individual developer with ChatGPT | Codex + ChatGPT login |
+| Individual developer with Claude Pro/Max | Claude Code + `claude login` |
+| Production/team deployment | Provider API key in Settings or `.env` |
+| Backend experiments | Switch in Settings, verify model defaults, test one agent before broad use |

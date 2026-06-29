@@ -1,11 +1,11 @@
 ---
 title: "Slack App Setup"
-description: "Create and configure a Slack app for each agent - the wizard generates everything, you just copy and paste."
+description: "Create and configure a Slack app for each agent."
 ---
 
 Every SlackHive agent needs its own Slack app. The app is how your agent gets a Slack identity (`@handle`), connects to your workspace, and receives messages.
 
-The good news: **you don't need to configure scopes or settings manually.** The SlackHive wizard generates a complete app manifest - you just paste it into Slack and click a few buttons.
+The good news: **you don't need to configure scopes or settings manually.** SlackHive generates a complete app manifest from the agent page - you just paste it into Slack and click a few buttons.
 
 This page walks through that process in detail, and covers troubleshooting if something goes wrong.
 
@@ -18,7 +18,7 @@ Each Slack app gives your agent:
 
 ## Step 1: Generate the manifest
 
-When you're on **Step 2** of the agent creation wizard, click **Generate Manifest**. SlackHive creates a JSON manifest pre-configured for your agent with the correct name, scopes, and Socket Mode settings.
+Open the agent's **Overview** tab, find the Slack connection card, and click **Manage Slack** or **Connect Slack**. Then click **View Slack Manifest**. SlackHive creates a JSON manifest pre-configured for your agent with the correct name, scopes, and Socket Mode settings.
 
 Keep this manifest JSON ready - you'll paste it into Slack in the next step.
 
@@ -38,7 +38,7 @@ Keep this manifest JSON ready - you'll paste it into Slack in the next step.
     Choose the Slack workspace where you want this agent to live. Click **Next**.
   </Step>
   <Step title="Paste the manifest">
-    You'll see a text editor. Delete any existing content, then paste the manifest JSON from the SlackHive wizard. Click **Next**.
+    You'll see a text editor. Delete any existing content, then paste the manifest JSON from SlackHive. Click **Next**.
   </Step>
   <Step title="Review and create">
     Slack will show you a summary of the app settings. Click **Create** to finish. You'll land on the app's settings page.
@@ -91,15 +91,15 @@ You need three values to connect the agent in SlackHive. Here's exactly where to
 
 ## Step 5: Enter credentials in SlackHive
 
-Go back to the SlackHive agent wizard (Step 3 - Credentials) and paste all three values:
+Go back to the agent's **Overview** tab in SlackHive, open the Slack connection card, and paste the required values:
 
 | Field | Value |
 |-------|-------|
 | **Bot Token** | `xoxb-...` |
 | **App Token** | `xapp-...` |
-| **Signing Secret** | The hex string from App Credentials |
+| **Signing Secret** | Optional for Socket Mode. Only needed if you use Slack's HTTP Events API. |
 
-Click **Verify Connection**. SlackHive will test the connection before letting you proceed.
+Click **Save**. SlackHive stores the credentials and starts the agent's Slack listener.
 
 ## Required OAuth scopes
 
@@ -146,14 +146,14 @@ The generated manifest includes these bot token scopes. Here's what each one is 
 </Accordion>
 
 <Accordion title="Bot doesn't appear in workspace">
-  If you can't find `@your-agent-name` in Slack after completing the wizard:
+  If you can't find `@your-agent-name` in Slack after setup:
   1. Check that the app was installed: go to Slack app settings → **OAuth & Permissions** → the **Install to Workspace** button should show as already installed
   2. In Slack, type `@` in a message box and start typing the agent's name
   3. If it still doesn't appear, try reinstalling the app from **OAuth & Permissions**
 </Accordion>
 
-<Accordion title="Agent is Active but not responding">
-  If the dashboard shows the agent as Active but it doesn't respond to @mentions:
+<Accordion title="Agent is Running but not responding">
+  If the dashboard shows the agent as Running but it doesn't respond to @mentions:
   1. Make sure you've **invited the bot to the channel**: `/invite @your-agent-name`
   2. Check the **Logs** tab on the agent - it will show if messages are being received
   3. Verify the agent doesn't have channel restrictions set (Overview tab → Allowed Channels)
@@ -161,7 +161,7 @@ The generated manifest includes these bot token scopes. Here's what each one is 
 
 ## After setup
 
-Once credentials are verified, the runner connects the agent to Slack automatically. The agent status changes to **Active** in the dashboard.
+Once credentials are verified, the runner connects the agent to Slack automatically. The agent status changes to **Running** in the dashboard.
 
 Invite the bot to a channel and start a conversation:
 
@@ -183,6 +183,6 @@ This requires a **separate** Slack app (or the same one with additional OAuth co
 - The following **Redirect URL** added under **OAuth & Permissions → Redirect URLs**: `https://<your-slackhive-domain>/api/auth/slack/callback` (the path `/api/auth/slack/callback` is exact — only replace the domain)
 - The `openid`, `email`, and `profile` scopes added under **OAuth & Permissions → User Token Scopes**
 
-Once you have these, go to **Settings → General → Authentication** in SlackHive and enter the Client ID and Client Secret.
+Once you have these, go to **Settings → Sign in with Slack** in SlackHive and enter the Client ID and Client Secret.
 
 See [Settings & Users](/features/users#sign-in-with-slack) for the full configuration walkthrough and open vs invite-only login options.

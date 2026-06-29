@@ -89,7 +89,7 @@ Every specialist receives the **full Slack thread** as context. Nothing is lost 
 
 <Steps>
   <Step title="Create an agent">
-    Pick one of 26 research-backed personas (or start blank). Give it a name, connect it to a Slack app, and you're live in about 5 minutes.
+    Pick a starter persona or start blank. Give it a name, connect it to a Slack app, and you're live in about 5 minutes.
   </Step>
   <Step title="Connect it to your tools">
     Assign MCP servers to give the agent real capabilities - query a database, read files, call an API, create Jira tickets, update Notion pages.
@@ -114,7 +114,7 @@ Every specialist receives the **full Slack thread** as context. Nothing is lost 
     An interactive chat panel that tunes your agent's system prompt, skills, and knowledge. You describe what you want - Coach proposes concrete changes, you approve.
   </Card>
   <Card title="Persona Library" icon="users" href="/agents/personas">
-    26 research-backed starter personas covering engineering, data, product, ops, marketing, and support roles - ready to deploy.
+    Starter personas covering engineering, data, product, ops, marketing, and support roles - ready to deploy.
   </Card>
   <Card title="Boss Orchestration" icon="sitemap" href="/agents/boss-agents">
     A Boss agent receives high-level requests and delegates to specialists via Slack thread @mentions. Specialists report back, and Boss consolidates results.
@@ -126,7 +126,7 @@ Every specialist receives the **full Slack thread** as context. Nothing is lost 
     Agents write structured memories during every session. Memories compound - the longer an agent works with your team, the sharper it gets.
   </Card>
   <Card title="MCP Tool Servers" icon="plug" href="/configuration/mcp-servers">
-    Connect agents to Notion, Jira, GitHub, Figma, and more via MCP. Global catalog with Official / Community badges; one-click import from Claude Code CLI.
+    Connect agents to Notion, Jira, GitHub, Figma, and more via MCP. The global catalog works across supported AI backends; Claude Code CLI imports are available when you use Claude locally.
   </Card>
   <Card title="Test Mode" icon="flask" href="/agents/testing">
     A sandboxed conversation pane with real MCPs and multi-agent delegation - iterate without sending anything to Slack.
@@ -135,7 +135,10 @@ Every specialist receives the **full Slack thread** as context. Nothing is lost 
     Every save auto-snapshots the full agent state. Browse history with GitHub-style file diffs and restore any version with one click.
   </Card>
   <Card title="Activity Dashboard" icon="wave-pulse" href="/features/activity">
-    Live kanban of every task your agents are working on - Active, Completed, Errors - with drill-down to every MCP tool call. A superadmin-only Usage tab breaks down token consumption per agent and ranks power users. Scoped by role.
+    Live board of active, recent, and errored work, with replay actions for failed turns.
+  </Card>
+  <Card title="Observability" icon="chart-line" href="/features/observability">
+    Session traces, tool calls, model attribution, token usage, latency, sensitive-access signals, and replay.
   </Card>
   <Card title="Hot Reload" icon="bolt">
     Edit any agent - instructions, skills, tools, permissions - and changes take effect within seconds. No restarts, no downtime.
@@ -149,8 +152,8 @@ Every specialist receives the **full Slack thread** as context. Nothing is lost 
   <Card title="Dark Mode" icon="moon">
     Toggle in the profile menu. Runs across the whole dashboard.
   </Card>
-  <Card title="Claude Status" icon="signal">
-    A live badge on the dashboard header shows whether Claude Code is connected, where the token came from (file / Keychain / env), and when it expires. Auto-refreshes from Keychain on macOS.
+  <Card title="AI Backend Status" icon="signal" href="/configuration/ai-backends">
+    A live dashboard badge shows whether the active backend - Codex/OpenAI or Claude/Anthropic - is connected, expired, or disconnected.
   </Card>
 </CardGroup>
 
@@ -168,7 +171,7 @@ SlackHive runs two local processes:
 State is stored in a local SQLite database at `~/.slackhive/data.db`. One command (`slackhive start` / `slackhive stop`) manages the whole stack.
 
 <Note>
-  SlackHive agents are powered by **Claude Code**. Each agent is a real AI agent with tools, memory, and instructions — full read/write/exec capability through MCP, not a thin wrapper around a model. Works with a Claude Pro or Max subscription, or a standard API key.
+  SlackHive agents run on a selectable AI backend. Use **OpenAI Codex / ChatGPT** or **Claude Code / Anthropic** while keeping the same Slack, MCP, memory, jobs, Coach, Knowledge Library, and observability layers.
 </Note>
 
 ---
@@ -201,7 +204,7 @@ See [Concepts - What Goes Where](/agents/concepts) for the decision matrix - it'
     What goes where — system prompt vs skills vs memory vs Knowledge Library.
   </Card>
   <Card title="Create an Agent" icon="robot" href="/agents/creating-agents">
-    Walk through the 5-step agent wizard.
+    Walk through the two-step agent flow.
   </Card>
   <Card title="Example Agents" icon="sparkles" href="/examples">
     Ten ready-to-build setups - oncall triage, data analyst, birthday bot, and more.

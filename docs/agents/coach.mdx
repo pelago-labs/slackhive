@@ -3,9 +3,7 @@ title: "Coach"
 description: "Tune your agent's instructions, skills, and knowledge through an interactive chat panel."
 ---
 
-Coach is an interactive chat panel that helps you refine an agent after it's created. Instead of hand-editing CLAUDE.md, you describe what you want in plain English - Coach proposes concrete changes, and you apply or reject each one.
-
-<img src="/images/coach-panel.png" alt="Coach panel suggesting changes to an agent" style={{borderRadius: "12px", marginBottom: "24px"}} />
+Coach is an interactive chat panel that helps you refine an agent after it's created. Instead of hand-editing prompts and skill files, you describe what you want in plain English - Coach proposes concrete changes, and you apply or reject each one.
 
 ## Open the Coach panel
 
@@ -27,7 +25,7 @@ This agent keeps paraphrasing user questions before answering.
 Make it lead with the answer, then show the SQL.
 ```
 
-Coach reads the current system prompt, skills, memories, and knowledge, then streams a reply.
+Coach reads the current system prompt, skills, memories, and knowledge, then streams a reply. It is useful immediately after creating an agent: start with a short description, then ask Coach to build out the system prompt, skills, memory, evaluation cases, and operating rules over time.
 
 ## Attach a file
 
@@ -68,7 +66,7 @@ Every applied change is **snapshotted automatically**, so you can restore via **
 
 ## Wiki access (read-only)
 
-Coach can **read** the agent's assigned wiki folders for context — `list_file_sources` shows what file content is available across the agent's folders, and `read_file_source` returns the verbatim text of one source. This lets Coach audit claude.md or skills against actual reference material.
+Coach can **read** the agent's assigned wiki folders for context — `list_file_sources` shows what file content is available across the agent's folders, and `read_file_source` returns the verbatim text of one source. This lets Coach audit system prompts or skills against actual reference material.
 
 Coach **cannot** add, edit, or delete wiki sources. Wiki content is shared across many agents and belongs to the folder owner — edits go through the [Knowledge Library](/agents/knowledge-base) so the owner stays in control.
 

@@ -21,11 +21,11 @@ The Boss reads the message, looks up its team registry, and delegates to the rig
 
 ## Creating a Boss agent
 
-During agent creation (Step 1 - Name & Description), toggle **This agent is a Boss**.
+During agent creation, choose **Boss** in the Identity step.
 
-When the Boss toggle is enabled:
-- The Persona step is skipped - Boss identity is auto-generated from the team registry
-- The System Prompt is **locked** - not editable in the UI, and the **Optimize** button is hidden
+When Boss is selected:
+- The Profile step becomes a launch review - Boss identity is auto-generated from the team registry
+- The System Prompt is **locked** and not editable in the UI
 - The agent connects to Slack like any other agent and receives @mentions normally
 
 <Note>
@@ -34,7 +34,7 @@ When the Boss toggle is enabled:
 
 ## The team registry
 
-Each Boss gets a `CLAUDE.md` compiled from its team registry. The registry is a Markdown document injected into the Boss's identity that lists every specialist reporting to it.
+Each Boss gets system instructions compiled from its team registry. The registry lists every specialist reporting to it and tells the Boss how to delegate.
 
 Example registry section:
 
@@ -96,7 +96,7 @@ The key design: everything happens **in the Slack thread**. Every participant ca
 
 ## System Prompt is locked
 
-A Boss agent's **Instructions → System Prompt** is read-only. The Optimize button is hidden. SlackHive manages this file end-to-end - it regenerates whenever any agent is created, updated, or deleted.
+A Boss agent's **Instructions → System Prompt** is read-only. SlackHive manages this file end-to-end - it regenerates whenever any agent is created, updated, or deleted.
 
 Generated content includes:
 - The Boss's name and orchestrator role description

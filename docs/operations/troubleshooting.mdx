@@ -37,11 +37,11 @@ Heartbeats resume within 15s of the new runner starting. The dot goes back to gr
 
 **Fix:**
 
-1. Go to **Settings → Platform Integrations**
-2. Pick the agent
-3. Paste fresh **bot token**, **app token**, **signing secret**
-4. Save
-5. The agent restarts automatically; within a few seconds it goes back to running
+1. Open the affected agent → **Overview**
+2. Open **Manage Slack** in the Slack connection card
+3. Paste a fresh **Bot Token** and **App-Level Token**
+4. Add the **Signing Secret** only if your workspace requires it
+5. Save the connection, then restart the agent if it does not reconnect automatically
 
 Token sources: [api.slack.com/apps](https://api.slack.com/apps) → OAuth & Permissions (bot token), Basic Information → App-Level Tokens (app token), Basic Information → Signing Secret.
 
@@ -51,33 +51,29 @@ Token sources: [api.slack.com/apps](https://api.slack.com/apps) → OAuth & Perm
 
 **Fix:** none needed - `slackhive start` auto-detects stale locks (checks the PID with `process.kill(pid, 0)`), removes the lock, and starts cleanly.
 
-## Dashboard Claude badge is amber (expired) or red (disconnected)
+## Dashboard AI backend badge is amber or red
 
-**What it means.** The dashboard header has a Claude status badge - it polls `/api/system/claude-status` every 30 seconds. Amber means the cached token expired; red means no token was found at all.
-
-**Source hierarchy** (click the badge to see which one it used):
-
-1. `~/.claude/.credentials.json`
-2. macOS Keychain (`Claude Code-credentials`) - copied into the credentials file if found
-3. `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` env var
+**What it means.** The dashboard header shows the active AI backend status. Amber usually means the local login or cached credential needs refresh. Red means SlackHive cannot find a usable credential for the selected backend.
 
 **Fix:**
 
-- **Expired (amber)** - on macOS, SlackHive auto-syncs from Keychain on expiry. If that fails, run `claude login` on the host and the badge flips back to green within 30s.
-- **Disconnected (red)** - run `claude login`, or set `ANTHROPIC_API_KEY` in `.env` and `slackhive stop && slackhive start`.
+1. Open **Settings → AI Backend**
+2. Check which backend is selected
+3. For **Codex/OpenAI**, refresh your `codex login` / ChatGPT session or set `OPENAI_API_KEY`
+4. For **Claude/Anthropic**, run `claude login` or set `ANTHROPIC_API_KEY`
+5. Save or detect credentials again, then restart with `slackhive stop && slackhive start` if you changed `.env`
 
 ## OAuth MCP stopped working
 
 **What it means.** The OAuth token expired or was revoked.
 
-**Fix by platform:**
+**Fix:**
 
-| Platform | What SlackHive does | What you do |
-|---|---|---|
-| **macOS** | Auto-refreshes from Keychain on 401 - usually silent | If the Keychain itself is empty, run `claude login` |
-| **Linux (GNOME keyring)** | Reads via `secret-tool` | If missing, run `claude login`; if keyring is unavailable, see below |
-| **Linux (headless)** | Reads `~/.claude/.credentials.json` | Run `claude login` on the machine, or copy the credentials file from a machine where it worked |
-| **All** | - | Open the MCP catalog, click **Reconnect** on the offending MCP, or paste a fresh token |
+1. Open **MCP Catalog**
+2. Find the server and click **Test**
+3. If the token is expired, click **Reconnect** or edit the server and paste a fresh token
+4. If the server was imported from Claude Code CLI, refresh `claude login`, then re-import or update the server
+5. If it references `${env:NAME}`, confirm the secret still exists in **Settings → Env Vars**
 
 See [OAuth MCPs](/configuration/mcp-oauth).
 
