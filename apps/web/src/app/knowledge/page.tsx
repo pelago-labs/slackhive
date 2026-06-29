@@ -1,11 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useAuth } from '@/lib/auth-context';
-import { ChevronDown, ChevronRight, FileText, BookOpen, Globe, GitBranch, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, BookOpen, Globe, GitBranch, Pencil, Trash2, RefreshCw, Search, Layers3, FileStack, Clock3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { MetricCard } from '@/components/patterns';
 
 interface WikiFolder {
   id: string;
@@ -97,7 +102,7 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
       <div>
         <div
           onClick={() => setOpen(!open)}
-          className="flex cursor-pointer items-center gap-1 pb-0.5 pt-1.5 font-mono text-2xs tracking-[0.02em] text-muted-foreground"
+          className="flex cursor-pointer items-center gap-1 rounded-md pb-0.5 pt-1.5 font-mono text-2xs tracking-[0.02em] text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
           style={{ paddingLeft: 6 + depth * 12, paddingRight: 6 }}
         >
           {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
@@ -114,8 +119,8 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
     <div
       onClick={() => node.path && onSelect(node.path)}
       className={cn(
-        'flex cursor-pointer items-center gap-1 overflow-hidden truncate whitespace-nowrap rounded-md py-1 pr-2 font-mono text-xs transition-colors',
-        isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-secondary',
+        'flex cursor-pointer items-center gap-1 overflow-hidden truncate whitespace-nowrap rounded-md py-1.5 pr-2 font-mono text-xs transition-colors',
+        isActive ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
       )}
       style={{ paddingLeft: 8 + depth * 12 }}
     >
@@ -128,7 +133,7 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
 function WikiTree({ articles, onSelect, selected }: { articles: WikiPage[]; onSelect: (path: string) => void; selected: string | null }) {
   const tree = buildTree(articles);
   return (
-    <div className="flex-1 overflow-auto p-1.5">
+    <div className="flex-1 overflow-auto p-2">
       {tree.map(node => (
         <WikiTreeNode key={node.path || node.name} node={node} depth={0} onSelect={onSelect} selected={selected} />
       ))}
@@ -155,6 +160,10 @@ const timeAgo = (iso: string): string => {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 };
+
+function LibraryStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }): React.JSX.Element {
+  return <MetricCard icon={icon} label={label} value={value} className="p-3" />;
+}
 
 const EMPTY_SOURCE_FORM = { type: 'url', name: '', url: '', repoUrl: '', branch: 'main', patEnvRef: '', content: '' };
 
@@ -193,6 +202,7 @@ export default function KnowledgePage() {
   const [showBuildDropdown, setShowBuildDropdown] = useState(false);
   const [syncStatus, setSyncStatus]               = useState<Record<string, string>>({});
   const [envVarKeys, setEnvVarKeys]               = useState<string[]>([]);
+  const [folderSearch, setFolderSearch]           = useState('');
 
   const isAdmin = role === 'admin' || role === 'superadmin';
   const isOwnerOrAdmin = (f: WikiFolder) => isAdmin || (canEdit && f.createdBy === username);
@@ -431,32 +441,51 @@ export default function KnowledgePage() {
 
   const anySourceBuilding = sources.some(s => s.status === 'building') || syncStatus && Object.values(syncStatus).some(v => v === 'building');
   const folderIsBuilding = buildStatus[selected?.id ?? ''] === 'building' || anySourceBuilding;
+  const visibleFolders = folders.filter(f => {
+    const q = folderSearch.trim().toLowerCase();
+    return !q || f.name.toLowerCase().includes(q) || (f.description ?? '').toLowerCase().includes(q) || f.createdBy.toLowerCase().includes(q);
+  });
+  const libraryStats = folders.reduce((acc, f) => {
+    const st = folderStats[f.id];
+    acc.sources += st?.sources ?? 0;
+    acc.words += st?.words ?? 0;
+    if (st?.lastSynced && (!acc.lastSynced || st.lastSynced > acc.lastSynced)) acc.lastSynced = st.lastSynced;
+    return acc;
+  }, { sources: 0, words: 0, lastSynced: null as string | null });
 
   // ── Folder list view ──────────────────────────────────────────────────────
   if (!selected) {
     return (
-      <div className="fade-up flex min-h-screen flex-col">
+      <div className="fade-up min-h-screen">
         {/* Header */}
-        <div className="shrink-0 border-b border-border px-10 pt-7">
-          <div className="mb-5 flex items-start justify-between">
-            <div>
-              <h1 className="m-0 text-xl font-bold tracking-tight text-foreground">Knowledge Library</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {loading ? 'Loading…' : `${folders.length} shared wiki folder${folders.length !== 1 ? 's' : ''}`}
-              </p>
+        <div className="border-b border-border bg-background/80 px-6 py-6">
+          <div>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="m-0 text-xl font-semibold tracking-normal text-foreground">Knowledge Library</h1>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {loading ? 'Loading…' : `${folders.length} shared wiki folder${folders.length !== 1 ? 's' : ''} for agent context and retrieval.`}
+                </p>
+              </div>
+              {canEdit && (
+                <Button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }}>
+                  + New Folder
+                </Button>
+              )}
             </div>
-            {canEdit && (
-              <Button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }}>
-                + New Folder
-              </Button>
+
+            {!loading && folders.length > 0 && (
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <LibraryStat icon={<Layers3 size={15} />} label="Folders" value={folders.length.toLocaleString()} />
+                <LibraryStat icon={<FileStack size={15} />} label="Sources" value={libraryStats.sources.toLocaleString()} />
+                <LibraryStat icon={<Clock3 size={15} />} label="Last sync" value={libraryStats.lastSynced ? timeAgo(libraryStats.lastSynced) : 'No syncs'} />
+              </div>
             )}
           </div>
-          {/* Spacer to align with tab bar on agent pages */}
-          <div className="h-px" />
         </div>
 
         {/* Folder grid */}
-        <div className="px-10 py-7">
+        <div className="px-6 py-6">
           {loading ? (
             <div className="text-base text-muted-foreground">Loading…</div>
           ) : folders.length === 0 ? (
@@ -471,25 +500,38 @@ export default function KnowledgePage() {
               {canEdit && <Button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }}>Create First Folder</Button>}
             </div>
           ) : (
-            <div className="grid gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
-              {folders.map(f => (
+            <>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="relative min-w-[260px] max-w-[420px] flex-1">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={folderSearch}
+                  onChange={e => setFolderSearch(e.target.value)}
+                  placeholder="Search folders..."
+                  className="pl-9"
+                />
+              </div>
+              <div className="text-xs text-muted-foreground">{visibleFolders.length} visible</div>
+            </div>
+            <div className="grid gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+              {visibleFolders.map(f => (
                 <div
                   key={f.id}
                   onClick={() => openFolder(f)}
-                  className="fade-up cursor-pointer rounded-xl border border-border bg-card px-5 py-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-input hover:shadow-md"
+                  className="fade-up group cursor-pointer rounded-xl border border-border bg-card p-4 shadow-card transition-[border-color,box-shadow,background-color] hover:border-ring/35 hover:bg-secondary/30 hover:shadow-md"
                 >
-                  <div className="mb-2.5 flex items-start justify-between">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-foreground">
-                      <BookOpen size={18} />
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
+                      <BookOpen size={17} />
                     </div>
                     {folderStats[f.id] && (
-                      <span className="rounded-full border border-border bg-secondary px-2.5 py-0.5 text-2xs font-semibold text-muted-foreground">
+                      <span className="rounded-md border border-border bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">
                         {folderStats[f.id].sources} source{folderStats[f.id].sources !== 1 ? 's' : ''}
                       </span>
                     )}
                   </div>
-                  <div className="mb-1 text-base font-semibold tracking-tight text-foreground">{f.name}</div>
-                  <p className="m-0 mb-3.5 line-clamp-2 min-h-[36px] overflow-hidden text-xs leading-relaxed text-muted-foreground">
+                  <div className="mb-1 text-sm font-semibold tracking-normal text-foreground">{f.name}</div>
+                  <p className="m-0 mb-4 line-clamp-2 min-h-[36px] overflow-hidden text-xs leading-relaxed text-muted-foreground">
                     {f.description || <span className="italic text-muted-foreground">No description</span>}
                   </p>
                   <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3 text-2xs text-muted-foreground">
@@ -508,16 +550,28 @@ export default function KnowledgePage() {
                 </div>
               ))}
             </div>
+            {visibleFolders.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">
+                No folders match your search.
+              </div>
+            )}
+            </>
           )}
         </div>
 
         {/* Modals */}
         {showNewFolder && (
           <Modal title="New Knowledge Folder" onClose={() => setShowNewFolder(false)}>
-            <label className={labelClass}>Name</label>
-            <input className={inputClass} autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createFolder()} placeholder="e.g. Backend API Docs" />
-            <label className={labelClass}>Description (optional)</label>
-            <input className={inputClass} value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="folder-name">Name</Label>
+                <Input id="folder-name" autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createFolder()} placeholder="e.g. Backend API Docs" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="folder-description">Description</Label>
+                <Input id="folder-description" value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+              </div>
+            </div>
             <ModalFooter onCancel={() => setShowNewFolder(false)} onSave={createFolder} saving={saving} saveLabel="Create Folder" disabled={!folderForm.name.trim()} />
           </Modal>
         )}
@@ -530,7 +584,8 @@ export default function KnowledgePage() {
     <div className="fade-up min-h-screen">
 
       {/* Top bar */}
-      <div className="shrink-0 border-b border-border px-10 pt-7">
+      <div className="shrink-0 border-b border-border bg-background/80 px-6 pt-6">
+        <div>
         {/* Breadcrumb */}
         <div className="mb-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
           <button onClick={() => setSelected(null)} className="cursor-pointer border-none bg-none p-0 text-xs text-muted-foreground">Knowledge Library</button>
@@ -539,10 +594,16 @@ export default function KnowledgePage() {
         </div>
 
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="m-0 text-lg font-semibold tracking-tight text-foreground">{selected.name}</h1>
+          <div className="min-w-0">
+            <h1 className="m-0 text-xl font-semibold tracking-normal text-foreground">{selected.name}</h1>
             {selected.description && <p className="mt-1 text-sm text-muted-foreground">{selected.description}</p>}
-            <div className="mt-1 text-2xs text-muted-foreground">Owner: <span className="font-medium text-muted-foreground">{selected.createdBy}</span></div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
+              <span>Owner: <span className="font-medium text-foreground">{selected.createdBy}</span></span>
+              <span className="text-border">·</span>
+              <span>{sources.length} source{sources.length === 1 ? '' : 's'}</span>
+              <span className="text-border">·</span>
+              <span>{wikiPages.length} article{wikiPages.length === 1 ? '' : 's'}</span>
+            </div>
           </div>
           {canManageSelected && (
             <div className="flex shrink-0 items-center gap-2">
@@ -551,7 +612,7 @@ export default function KnowledgePage() {
                 title="Edit folder"
                 onClick={() => { setFolderForm({ name: selected.name, description: selected.description ?? '' }); setEditingFolder(selected); }}
                 disabled={folderIsBuilding}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Pencil size={14} />
               </button>
@@ -591,7 +652,7 @@ export default function KnowledgePage() {
                 title="Delete folder"
                 onClick={() => deleteFolder(selected.id)}
                 disabled={folderIsBuilding}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-red disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-red hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Trash2 size={14} />
               </button>
@@ -600,7 +661,7 @@ export default function KnowledgePage() {
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-0 overflow-x-auto">
+        <div className="flex gap-0">
           {(['sources', 'wiki'] as const).map(tab => (
             <button
               key={tab}
@@ -614,6 +675,7 @@ export default function KnowledgePage() {
             </button>
           ))}
         </div>
+        </div>
       </div>
 
       {/* Build progress panel */}
@@ -622,41 +684,54 @@ export default function KnowledgePage() {
       )}
 
       {/* Tab content */}
-      <div className="px-10 py-7">
+      <div className="px-6 py-6">
 
         {/* ── Sources tab ── */}
         {detailTab === 'sources' && (
           <>
-            <div className="mb-4 flex items-center justify-between">
-              <div className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Knowledge Sources</div>
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/45 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                  <FileStack size={15} />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    Knowledge sources
+                    <span className="rounded-md border border-border bg-card px-1.5 py-px text-2xs font-medium text-muted-foreground">{sources.length}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Raw inputs compiled into this folder&apos;s generated wiki.</p>
+                </div>
+              </div>
               {canManageSelected && <Button variant="outline" size="sm" onClick={openAddSource}>+ Add Source</Button>}
             </div>
             {sourcesLoading ? (
-              <div className="text-sm text-muted-foreground">Loading…</div>
+              <div className="px-4 py-8 text-sm text-muted-foreground">Loading…</div>
             ) : sources.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+              <div className="px-6 py-10 text-center text-sm text-muted-foreground">
                 {canManageSelected ? 'No sources yet. Add a URL, file, or Git repo, then click Build Wiki.' : 'No sources added yet.'}
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="divide-y divide-border">
                 {sources.map(s => {
                   const isSyncing = syncStatus[s.id] === 'building' || s.status === 'building';
                   const disabled = folderIsBuilding;
                   const iconBtnClass = cn(
-                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-secondary',
-                    disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer',
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground',
+                    disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-secondary hover:text-foreground',
                   );
                   return (
-                    <div key={s.id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3.5 py-3 shadow-sm">
+                    <div key={s.id} className="grid gap-3 px-4 py-3.5 transition-colors hover:bg-secondary/35 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
                       {/* Left: info */}
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0">
                         {/* Row 1: type icon + name */}
-                        <div className="mb-1 flex items-center gap-1.5">
-                          <span className="flex shrink-0 text-muted-foreground">{SOURCE_TYPE_ICON[s.type]}</span>
+                        <div className="mb-1 flex items-center gap-2">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">{SOURCE_TYPE_ICON[s.type]}</span>
                           <span className="overflow-hidden truncate whitespace-nowrap text-sm font-semibold text-foreground">{s.name}</span>
+                          <span className="rounded-md border border-border bg-secondary px-1.5 py-px font-mono text-2xs font-semibold uppercase text-muted-foreground">{s.type}</span>
                         </div>
                         {/* Row 2: url/path */}
-                        <div className="mb-1.5 overflow-hidden truncate whitespace-nowrap font-mono text-2xs text-muted-foreground">
+                        <div className="mb-1.5 max-w-[700px] overflow-hidden truncate whitespace-nowrap font-mono text-2xs text-muted-foreground">
                           {s.url || s.repoUrl || (s.content ? `${s.content.slice(0, 80)}…` : '—')}
                         </div>
                         {/* Row 3: status dot + word count + last synced */}
@@ -675,7 +750,7 @@ export default function KnowledgePage() {
                       </div>
                       {/* Right: icon actions */}
                       {canManageSelected && (
-                        <div className="flex shrink-0 items-center gap-1.5">
+                        <div className="flex shrink-0 items-center justify-end gap-1.5">
                           <button
                             title={isSyncing ? 'Syncing…' : 'Sync source'}
                             onClick={() => !isSyncing && !disabled && syncSource(s.id)}
@@ -708,6 +783,7 @@ export default function KnowledgePage() {
                 })}
               </div>
             )}
+            </section>
           </>
         )}
 
@@ -715,19 +791,29 @@ export default function KnowledgePage() {
         {detailTab === 'wiki' && (
           wikiLoading ? <div className="text-sm text-muted-foreground">Loading…</div>
           : wikiPages.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-              No wiki pages built yet.{canManageSelected && ' Add sources then click Build Wiki.'}
+            <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground shadow-card">
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
+                <BookOpen size={20} />
+              </div>
+              <p className="m-0 text-sm font-semibold text-foreground">No wiki pages built yet</p>
+              <p className="m-0 mt-1 text-xs text-muted-foreground">{canManageSelected ? 'Add sources, then build the wiki to generate articles.' : 'This folder has not been built yet.'}</p>
             </div>
           ) : (
-            <div>
-              <div className="mb-3 flex items-center gap-1.5">
-                <BookOpen size={14} className="text-muted-foreground" />
-                <span className="text-sm font-semibold text-foreground">Wiki</span>
-                <span className="text-xs text-muted-foreground">{wikiPages.length} articles</span>
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+              <div className="flex items-center justify-between border-b border-border bg-secondary/45 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                    <BookOpen size={15} />
+                  </span>
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Built wiki</div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{wikiPages.length} generated article{wikiPages.length === 1 ? '' : 's'}</p>
+                  </div>
+                </div>
               </div>
-              <div className="flex h-[480px] gap-3.5">
+              <div className="grid min-h-[560px] md:grid-cols-[280px_minmax(0,1fr)]">
                 {/* Sidebar — file tree */}
-                <div className="flex w-[220px] shrink-0 flex-col overflow-auto rounded-lg border border-border bg-card">
+                <div className="flex min-h-[320px] flex-col overflow-hidden border-b border-border bg-card md:border-b-0 md:border-r">
                   <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
                     <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Articles</span>
                     <span className="text-2xs text-muted-foreground">{wikiPages.length}</span>
@@ -736,31 +822,33 @@ export default function KnowledgePage() {
                 </div>
 
                 {/* Main — article content */}
-                <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+                <div className="flex min-w-0 flex-col overflow-hidden bg-card">
                   {selectedArticle ? (
                     <>
-                      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3.5 py-2.5">
+                      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
                         <FileText size={13} className="text-muted-foreground" />
-                        <span className="font-mono text-xs font-medium text-foreground">{selectedArticle}</span>
+                        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs font-medium text-foreground">{selectedArticle}</span>
                       </div>
-                      <div className="flex-1 overflow-auto px-4 py-4">
+                      <div className="flex-1 overflow-auto px-6 py-5">
                         {loadingArticle ? (
                           <div className="text-xs text-muted-foreground">Loading…</div>
                         ) : (
-                          <pre className="m-0 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-foreground">{articleContent}</pre>
+                          <pre className="m-0 max-w-[820px] whitespace-pre-wrap break-words font-sans text-sm leading-6 text-foreground">{articleContent}</pre>
                         )}
                       </div>
                     </>
                   ) : (
-                    <div className="flex flex-1 flex-col items-center justify-center gap-2">
-                      <BookOpen size={28} className="text-muted-foreground" />
-                      <p className="m-0 text-sm text-muted-foreground">Select an article to view</p>
-                      <p className="m-0 text-2xs text-muted-foreground">Browse the folder tree on the left</p>
+                    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
+                        <BookOpen size={24} />
+                      </div>
+                      <p className="m-0 text-sm font-semibold text-foreground">Select an article</p>
+                      <p className="m-0 max-w-[260px] text-xs text-muted-foreground">Choose a generated page from the article tree to inspect the compiled knowledge.</p>
                     </div>
                   )}
                 </div>
               </div>
-            </div>
+            </section>
           )
         )}
       </div>
@@ -768,62 +856,109 @@ export default function KnowledgePage() {
       {/* ── Edit Folder Modal ── */}
       {editingFolder && (
         <Modal title="Edit Folder" onClose={() => setEditingFolder(null)}>
-          <label className={labelClass}>Name</label>
-          <input className={inputClass} autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && saveEditFolder()} />
-          <label className={labelClass}>Description</label>
-          <input className={inputClass} value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-folder-name">Name</Label>
+              <Input id="edit-folder-name" autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && saveEditFolder()} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-folder-description">Description</Label>
+              <Input id="edit-folder-description" value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+            </div>
+          </div>
           <ModalFooter onCancel={() => setEditingFolder(null)} onSave={saveEditFolder} saving={saving} saveLabel="Save" disabled={!folderForm.name.trim()} />
         </Modal>
       )}
 
       {/* ── Add / Edit Source Modal ── */}
       {showSourceModal && (
-        <Modal title={editingSource ? 'Edit Source' : 'Add Source'} onClose={() => { setShowSourceModal(false); setEditingSource(null); }}>
-          <label className={labelClass}>Type</label>
-          <select className={inputClass} value={sourceForm.type} onChange={e => setSourceForm(p => ({ ...p, type: e.target.value }))} disabled={!!editingSource}>
-            <option value="url">URL</option>
-            <option value="file">File</option>
-            <option value="repo">Git Repository</option>
-          </select>
-          <label className={labelClass}>Name</label>
-          <input className={inputClass} autoFocus value={sourceForm.name} onChange={e => setSourceForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. API Reference" />
+        <Modal title={editingSource ? 'Edit source' : 'Add source'} subtitle={editingSource ? 'Update this source metadata or content. Source type cannot be changed after creation.' : 'Add a URL, file, or repository for the wiki builder to compile.'} onClose={() => { setShowSourceModal(false); setEditingSource(null); }}>
+          <div className="mb-5 grid grid-cols-3 gap-2 rounded-lg border border-border bg-secondary p-1">
+            {([
+              { id: 'url', label: 'URL', icon: <Globe size={14} /> },
+              { id: 'file', label: 'File', icon: <FileText size={14} /> },
+              { id: 'repo', label: 'Repo', icon: <GitBranch size={14} /> },
+            ] as const).map(t => {
+              const active = sourceForm.type === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={!!editingSource}
+                  onClick={() => setSourceForm(p => ({ ...p, type: t.id }))}
+                  className={cn(
+                    'inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors',
+                    active ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    editingSource && !active && 'cursor-not-allowed opacity-50',
+                  )}
+                >
+                  {t.icon}{t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <FormBlock title="Identity" description="Use a short, scannable name. This appears in source lists and build progress.">
+            <div className="space-y-1.5 pt-3">
+              <Label htmlFor="source-name">Name</Label>
+              <Input id="source-name" autoFocus value={sourceForm.name} onChange={e => setSourceForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. API Reference" />
+            </div>
+          </FormBlock>
 
           {sourceForm.type === 'url' && (
-            <>
-              <label className={labelClass}>URL</label>
-              <input className={inputClass} value={sourceForm.url} onChange={e => setSourceForm(p => ({ ...p, url: e.target.value }))} placeholder="https://docs.example.com" />
-            </>
+            <FormBlock title="Web page" description="Use a public page or documentation URL. The builder will fetch and summarize the content.">
+              <div className="space-y-1.5 pt-3">
+                <Label htmlFor="source-url">URL</Label>
+                <Input id="source-url" value={sourceForm.url} onChange={e => setSourceForm(p => ({ ...p, url: e.target.value }))} placeholder="https://docs.example.com" />
+              </div>
+            </FormBlock>
           )}
 
           {sourceForm.type === 'file' && (
-            <>
-              <label className={labelClass}>Content</label>
-              <div className="mb-1.5 flex items-center gap-2">
-                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={fileUploading} className="shrink-0 cursor-pointer rounded-md border border-border bg-muted px-3 py-1.5 text-xs text-foreground">
-                  {fileUploading ? 'Reading…' : 'Upload file'}
-                </button>
-                <span className="text-2xs text-muted-foreground">
-                  {sourceForm.content ? `${sourceForm.content.length.toLocaleString()} chars` : 'or paste below'}
-                </span>
+            <FormBlock title="File content" description="Upload a readable text/PDF file or paste source content directly.">
+              <div className="space-y-1.5 pt-3">
+                <Label htmlFor="source-content">Content</Label>
+                <div className="mb-2 rounded-lg border border-dashed border-border bg-secondary px-3 py-3">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={fileUploading} className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-secondary">
+                    <FileText size={13} />
+                    {fileUploading ? 'Reading…' : 'Choose file'}
+                  </button>
+                  <span className="ml-2 text-2xs text-muted-foreground">
+                    {sourceForm.content ? `${sourceForm.content.length.toLocaleString()} chars` : 'or paste below'}
+                  </span>
+                </div>
+                <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.ts,.js,.py,.go,.rb,.java,.c,.cpp,.h,.pdf" className="hidden" onChange={handleFileSelect} />
+                <Textarea id="source-content" className="min-h-[180px] resize-y font-mono text-xs leading-5" value={sourceForm.content} onChange={e => setSourceForm(p => ({ ...p, content: e.target.value }))} placeholder="Paste content here, or upload a file above…" />
               </div>
-              <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.ts,.js,.py,.go,.rb,.java,.c,.cpp,.h,.pdf" className="hidden" onChange={handleFileSelect} />
-              <textarea className={cn(inputClass, 'min-h-[140px] resize-y font-mono text-xs')} value={sourceForm.content} onChange={e => setSourceForm(p => ({ ...p, content: e.target.value }))} placeholder="Paste content here, or upload a file above…" />
-            </>
+            </FormBlock>
           )}
 
           {sourceForm.type === 'repo' && (
-            <>
-              <label className={labelClass}>Repository URL</label>
-              <input className={inputClass} value={sourceForm.repoUrl} onChange={e => setSourceForm(p => ({ ...p, repoUrl: e.target.value }))} placeholder="https://github.com/org/repo" />
-              <label className={labelClass}>Branch</label>
-              <input className={inputClass} value={sourceForm.branch} onChange={e => setSourceForm(p => ({ ...p, branch: e.target.value }))} placeholder="main" />
-              <label className={labelClass}>PAT env var (private repos only)</label>
-              <select className={inputClass} value={sourceForm.patEnvRef} onChange={e => setSourceForm(p => ({ ...p, patEnvRef: e.target.value }))}>
-                <option value="">— None (public repo) —</option>
-                {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
-                {envVarKeys.length === 0 && <option disabled>No accessible env vars</option>}
-              </select>
-            </>
+            <FormBlock title="Git repository" description="Point to a public repo, or choose a PAT env var for private repositories.">
+              <div className="space-y-1.5 pt-3">
+                <Label htmlFor="source-repo-url">Repository URL</Label>
+                <Input id="source-repo-url" value={sourceForm.repoUrl} onChange={e => setSourceForm(p => ({ ...p, repoUrl: e.target.value }))} placeholder="https://github.com/org/repo" />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1.5fr]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="source-branch">Branch</Label>
+                  <Input id="source-branch" value={sourceForm.branch} onChange={e => setSourceForm(p => ({ ...p, branch: e.target.value }))} placeholder="main" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>PAT env var</Label>
+                  <Select value={sourceForm.patEnvRef || '__none__'} onValueChange={value => setSourceForm(p => ({ ...p, patEnvRef: value === '__none__' ? '' : value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Public repo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None (public repo)</SelectItem>
+                      {envVarKeys.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}
+                      {envVarKeys.length === 0 && <SelectItem value="__empty__" disabled>No accessible env vars</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </FormBlock>
           )}
 
           <ModalFooter onCancel={() => { setShowSourceModal(false); setEditingSource(null); }} onSave={saveSource} saving={saving} saveLabel={editingSource ? 'Save Changes' : 'Add Source'} disabled={!sourceForm.name.trim()} />
@@ -924,30 +1059,39 @@ function BuildProgressPanel({ progress }: { progress?: BuildProgress }) {
   );
 }
 
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-  if (!mounted) return null;
-  return createPortal(
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="max-h-[90vh] w-[460px] max-w-[92vw] overflow-y-auto rounded-xl border border-border bg-card px-7 pb-6 pt-7 shadow-lg">
-        <div className="mb-5 text-md font-bold text-foreground">{title}</div>
-        {children}
+function FormBlock({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-4 rounded-lg border border-border bg-card">
+      <div className="border-b border-border bg-secondary/45 px-3.5 py-3">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        {description && <p className="m-0 mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>}
       </div>
-    </div>,
-    document.body,
+      <div className="px-3.5 pb-3.5 pt-1">{children}</div>
+    </section>
+  );
+}
+
+function Modal({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[90vh] max-w-[560px] overflow-y-auto p-0">
+        <DialogHeader className="border-b border-border px-5 py-4">
+          <DialogTitle>{title}</DialogTitle>
+          {subtitle && <DialogDescription>{subtitle}</DialogDescription>}
+        </DialogHeader>
+        <div className="px-5 py-5">
+        {children}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function ModalFooter({ onCancel, onSave, saving, saveLabel, disabled }: { onCancel: () => void; onSave: () => void; saving: boolean; saveLabel: string; disabled?: boolean }) {
   return (
-    <div className="mt-5 flex justify-end gap-2">
+    <DialogFooter className="sticky bottom-0 -mx-5 -mb-5 mt-5 border-t border-border bg-background px-5 py-4">
       <Button variant="outline" onClick={onCancel}>Cancel</Button>
       <Button onClick={onSave} disabled={saving || disabled}>{saving ? 'Saving…' : saveLabel}</Button>
-    </div>
+    </DialogFooter>
   );
 }
-
-const labelClass = 'mb-1.5 mt-3.5 block text-xs font-semibold text-muted-foreground';
-const inputClass = 'box-border w-full rounded-md border border-input bg-secondary px-2.5 py-2 text-sm text-foreground outline-none';
