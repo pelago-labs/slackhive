@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { BACKUP_NAME_RE } from '@slackhive/shared';
 import { guardSuperadmin } from '@/lib/api-guard';
 import { runnerBase } from '@/lib/runner';
 
@@ -17,6 +18,11 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (denied) return denied;
 
   const name = req.nextUrl.searchParams.get('name') ?? '';
+  // Defense in depth: validate web-side too (don't reflect an arbitrary name into the
+  // download header or the runner), not just rely on the runner's allowlist.
+  if (!BACKUP_NAME_RE.test(name)) {
+    return NextResponse.json({ error: 'invalid backup name' }, { status: 400 });
+  }
   const up = await fetch(`${runnerBase()}/backup-file?name=${encodeURIComponent(name)}`).catch(() => null);
   if (!up || !up.ok || !up.body) {
     return NextResponse.json({ error: 'backup not found' }, { status: up?.status ?? 502 });

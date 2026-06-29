@@ -70,9 +70,8 @@ program
   .command('restore')
   .description('Restore the database from a backup (stops the runner; the only restore path)')
   .requiredOption('-f, --from <file>', 'Backup .db file to restore')
-  .option('--recovery-key <file>', 'Password-wrapped recovery-key file (prompts for password)')
+  .option('--recovery-key <file>', 'Password-wrapped recovery-key file (prompts for password; set SLACKHIVE_RECOVERY_PASSWORD to skip the prompt)')
   .option('--env <file>', 'Plain .env file to install instead of a recovery key')
-  .option('--password <pw>', 'Recovery-key password (otherwise prompted)')
   .action(restore);
 
 program.parse(process.argv);

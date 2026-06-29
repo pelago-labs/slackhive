@@ -30,7 +30,7 @@ export type { DbAdapter, DbResult, DbRow } from './db/adapter';
 export { createSqliteAdapter } from './db/sqlite-adapter';
 export { backupDatabase, listBackups, pruneBackups, resolveBackupPath, backupsDir, databasePath, BACKUP_NAME_RE } from './db/backup';
 export type { BackupInfo } from './db/backup';
-export { wrapRecoveryKey, unwrapRecoveryKey, MIN_RECOVERY_PASSWORD_LENGTH } from './db/recovery-key';
+export { wrapRecoveryKey, unwrapRecoveryKey, assertStrongRecoveryPassword, MIN_RECOVERY_PASSWORD_LENGTH } from './db/recovery-key';
 export type { RecoveryBlob } from './db/recovery-key';
 export { getSessionTrace, getAgentRollup, getInsightsRollup, getSessionSummaries, getSensitiveEvents, getSensitiveFlows, getFeedbackCountsForTasks, getToolStats, pruneTraceData } from './db/trace-repo';
 export type {

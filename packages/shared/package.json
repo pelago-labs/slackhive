@@ -13,7 +13,8 @@
     "./sensitivity": { "types": "./dist/sensitivity.d.ts", "default": "./dist/sensitivity.js" },
     "./deep-link": { "types": "./dist/deep-link.d.ts", "default": "./dist/deep-link.js" },
     "./models": { "types": "./dist/models.d.ts", "default": "./dist/models.js" },
-    "./personas": { "types": "./dist/personas/index.d.ts", "default": "./dist/personas/index.js" }
+    "./personas": { "types": "./dist/personas/index.d.ts", "default": "./dist/personas/index.js" },
+    "./db/recovery-key": { "types": "./dist/db/recovery-key.d.ts", "default": "./dist/db/recovery-key.js" }
   },
   "scripts": {
     "build": "tsc",

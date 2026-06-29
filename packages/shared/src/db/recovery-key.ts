@@ -23,7 +23,46 @@ const SALT_LEN = 16;
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, keylen: 32, maxmem: 64 * 1024 * 1024 };
 
 /** Minimum password length for a recovery-key export — it protects the master key. */
-export const MIN_RECOVERY_PASSWORD_LENGTH = 12;
+export const MIN_RECOVERY_PASSWORD_LENGTH = 16;
+
+/** A small blocklist of famous/guessable passwords & passphrases (lowercased). */
+const WEAK_PASSWORDS = new Set([
+  'password', 'passw0rd', 'password123', 'changeme', 'letmein', 'admin', 'administrator',
+  'qwertyuiop', '1234567890', 'iloveyou', 'welcome1', 'correct horse battery staple',
+]);
+
+/**
+ * Enforce a STRONG, hard-to-guess recovery password. The entire escrow's security
+ * reduces to this one password (the wrapped file is downloadable), so a length floor
+ * alone isn't enough. Throws a specific, fixable message on a weak password.
+ *
+ * Policy: ≥ 16 chars; ≥ 3 of {lower, upper, digit, symbol} (relaxed to ≥ 2 for long
+ * ≥ 24-char passphrases); not a known weak/famous password; not a single repeated
+ * character or a trivial sequence; reasonable character variety.
+ */
+export function assertStrongRecoveryPassword(password: string): void {
+  const pw = password ?? '';
+  if (pw.length < MIN_RECOVERY_PASSWORD_LENGTH) {
+    throw new Error(`Recovery-key password must be at least ${MIN_RECOVERY_PASSWORD_LENGTH} characters.`);
+  }
+  if (WEAK_PASSWORDS.has(pw.toLowerCase())) {
+    throw new Error('Recovery-key password is too common/guessable — choose something unique.');
+  }
+  if (/^(.)\1+$/.test(pw)) {
+    throw new Error('Recovery-key password must not be a single repeated character.');
+  }
+  if (/^(?:0123456789|abcdefghijklmnopqrstuvwxyz|qwertyuiop)/i.test(pw)) {
+    throw new Error('Recovery-key password must not be a simple sequence.');
+  }
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter(re => re.test(pw)).length;
+  const needed = pw.length >= 24 ? 2 : 3; // long passphrases get a pass on composition
+  if (classes < needed) {
+    throw new Error(`Recovery-key password is too simple — use at least ${needed} of: lowercase, uppercase, digits, symbols (or a longer passphrase).`);
+  }
+  if (new Set(pw).size < Math.min(10, Math.ceil(pw.length / 2))) {
+    throw new Error('Recovery-key password has too little variety — avoid repeating the same few characters.');
+  }
+}
 
 /** Shape of the downloadable recovery-key file (`slackhive-recovery-<stamp>.json`). */
 export interface RecoveryBlob {
@@ -44,12 +83,10 @@ function deriveKey(password: string, salt: Buffer): Buffer {
 
 /**
  * Wrap the encryption key under `password`. Returns the JSON blob to download.
- * @throws if the password is shorter than {@link MIN_RECOVERY_PASSWORD_LENGTH}.
+ * @throws via {@link assertStrongRecoveryPassword} if the password is weak.
  */
 export function wrapRecoveryKey(encryptionKey: string, password: string): RecoveryBlob {
-  if (!password || password.length < MIN_RECOVERY_PASSWORD_LENGTH) {
-    throw new Error(`Recovery-key password must be at least ${MIN_RECOVERY_PASSWORD_LENGTH} characters.`);
-  }
+  assertStrongRecoveryPassword(password);
   const salt = randomBytes(SALT_LEN);
   const iv = randomBytes(IV_LEN);
   const key = deriveKey(password, salt);

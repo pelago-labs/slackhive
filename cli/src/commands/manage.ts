@@ -11,7 +11,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, openSyn
 import { join, dirname } from 'path';
 import { request as httpRequest } from 'http';
 import { createInterface } from 'readline';
-import { createDecipheriv, scryptSync } from 'crypto';
+import { unwrapRecoveryKey } from '@slackhive/shared/db/recovery-key';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -420,45 +420,46 @@ function stamp(): string {
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}-${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
 }
 
-/** Unwrap the password-protected recovery key. Mirrors packages/shared/src/db/recovery-key.ts
- *  (inlined so the CLI bundle doesn't pull in the shared package's native better-sqlite3). */
-function unwrapRecoveryKey(blob: { v: number; kdf: string; scrypt?: { N: number; r: number; p: number }; salt: string; iv: string; tag: string; ct: string }, password: string): string {
-  if (!blob || blob.v !== 1 || blob.kdf !== 'scrypt') throw new Error('Unrecognized recovery-key file format.');
-  const sc = blob.scrypt ?? { N: 1 << 15, r: 8, p: 1 };
-  const key = scryptSync(password, Buffer.from(blob.salt, 'base64'), 32, { N: sc.N, r: sc.r, p: sc.p, maxmem: 64 * 1024 * 1024 });
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(blob.iv, 'base64'));
-  decipher.setAuthTag(Buffer.from(blob.tag, 'base64'));
-  try {
-    return Buffer.concat([decipher.update(Buffer.from(blob.ct, 'base64')), decipher.final()]).toString('utf8');
-  } catch {
-    throw new Error('Wrong password or corrupted recovery-key file.');
-  }
-}
-
-/** Prompt for a password without echoing it. */
+/** Prompt for a password without echoing it. Restores the terminal on Ctrl-C so a
+ *  cancelled prompt doesn't leave echo disabled. (unwrapRecoveryKey is imported from the
+ *  shared module so the wrap/unwrap formats can never drift apart.) */
 function promptHidden(label: string): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     process.stdout.write(label);
     // Mute the readline interface's echo so keystrokes aren't shown.
     (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = () => { /* hidden */ };
+    rl.on('SIGINT', () => { rl.close(); process.stdout.write('\n'); reject(new Error('cancelled')); });
     rl.question('', (answer) => { rl.close(); process.stdout.write('\n'); resolve(answer); });
   });
 }
 
-/** Set ENV_SECRET_KEY in every .env file that exists under the project. */
+/** Set ENV_SECRET_KEY in the project's .env files. The root .env (what the runner loads
+ *  at boot) is created if missing — so a fresh-host restore actually persists the key.
+ *  Matches an existing line tolerating leading whitespace / `export ` (commented lines
+ *  are intentionally left as inert comments and a live line is appended instead). */
 function writeEnvSecretKey(projectDir: string, key: string): void {
-  for (const rel of ['.env', 'apps/web/.env', 'apps/runner/.env']) {
+  const KEY_RE = /^\s*(?:export\s+)?ENV_SECRET_KEY=/;
+  const setKeyIn = (rel: string, createIfMissing: boolean): void => {
     const file = join(projectDir, rel);
-    if (!existsSync(file)) continue;
+    if (!existsSync(file)) {
+      if (!createIfMissing) return;
+      writeFileSync(file, `ENV_SECRET_KEY=${key}\n`);
+      chmodSync(file, 0o600);
+      console.log(chalk.gray(`  created ${rel} with ENV_SECRET_KEY`));
+      return;
+    }
     const lines = readFileSync(file, 'utf-8').split('\n');
     let found = false;
-    const next = lines.map((l) => (l.startsWith('ENV_SECRET_KEY=') ? (found = true, `ENV_SECRET_KEY=${key}`) : l));
+    const next = lines.map((l) => (KEY_RE.test(l) ? (found = true, `ENV_SECRET_KEY=${key}`) : l));
     if (!found) next.push(`ENV_SECRET_KEY=${key}`);
     writeFileSync(file, next.join('\n'));
     chmodSync(file, 0o600);
     console.log(chalk.gray(`  updated ENV_SECRET_KEY in ${rel}`));
-  }
+  };
+  setKeyIn('.env', true);                  // runner loads this at boot — must exist
+  setKeyIn('apps/web/.env', false);
+  setKeyIn('apps/runner/.env', false);
 }
 
 function postBackupNow(internalPort: number): Promise<{ path?: string; bytes?: number; error?: string }> {
@@ -495,7 +496,7 @@ export async function backup(options: { output?: string }): Promise<void> {
 }
 
 /** `slackhive restore` — the ONLY restore path. Runs with the runner stopped. */
-export async function restore(options: { from: string; recoveryKey?: string; env?: string; password?: string }): Promise<void> {
+export async function restore(options: { from: string; recoveryKey?: string; env?: string }): Promise<void> {
   if (!existsSync(options.from)) { console.log(chalk.red(`  Backup file not found: ${options.from}`)); process.exit(1); }
   if (options.recoveryKey && !existsSync(options.recoveryKey)) { console.log(chalk.red(`  Recovery-key file not found: ${options.recoveryKey}`)); process.exit(1); }
   if (options.env && !existsSync(options.env)) { console.log(chalk.red(`  Env file not found: ${options.env}`)); process.exit(1); }
@@ -503,9 +504,17 @@ export async function restore(options: { from: string; recoveryKey?: string; env
   // Unwrap the recovery key (prompts for the password) BEFORE we touch anything.
   let encryptionKey: string | null = null;
   if (options.recoveryKey) {
-    const blob = JSON.parse(readFileSync(options.recoveryKey, 'utf-8'));
-    const pw = options.password ?? await promptHidden('  Recovery-key password: ');
-    encryptionKey = unwrapRecoveryKey(blob, pw); // throws on wrong password — abort before any swap
+    let blob: Parameters<typeof unwrapRecoveryKey>[0];
+    try { blob = JSON.parse(readFileSync(options.recoveryKey, 'utf-8')); }
+    catch { console.log(chalk.red('  Recovery-key file is not valid JSON')); process.exit(1); }
+    // Password via env (CI/non-interactive) or a hidden prompt — never via argv, which
+    // would leak into `ps`/shell history.
+    const pw = process.env.SLACKHIVE_RECOVERY_PASSWORD ?? await promptHidden('  Recovery-key password: ');
+    try {
+      encryptionKey = unwrapRecoveryKey(blob!, pw); // throws on wrong password — abort before any swap
+    } catch (err) {
+      console.log(chalk.red(`  ${(err as Error).message}`)); process.exit(1);
+    }
     console.log(chalk.green('  Recovery key unwrapped'));
   }
 

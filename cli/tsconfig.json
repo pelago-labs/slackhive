@@ -8,7 +8,14 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "declaration": true
+    "declaration": true,
+    "baseUrl": ".",
+    // tsc's commonjs/node resolution can't read @slackhive/shared's package.json
+    // "exports" map; esbuild (the real build) can. Point tsc at the built .d.ts for
+    // the one subpath we deep-import so typecheck resolves it.
+    "paths": {
+      "@slackhive/shared/db/recovery-key": ["../packages/shared/dist/db/recovery-key.d.ts"]
+    }
   },
   "include": ["src"]
 }

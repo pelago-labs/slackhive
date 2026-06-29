@@ -22,6 +22,9 @@ export const BACKUP_DEFAULTS = { enabled: true, everyHours: 24, retain: 5 } as c
 
 export class BackupScheduler {
   private timer: NodeJS.Timeout | null = null;
+  /** Guards against overlapping runs (a manual /backup-now firing during a scheduled
+   *  tick) — two `VACUUM INTO`s in the same second collide on the dest filename. */
+  private inProgress = false;
 
   start(): void {
     if (this.timer) return;
@@ -42,8 +45,8 @@ export class BackupScheduler {
     try {
       const enabled = (await getSetting('backup.enabled')) ?? String(BACKUP_DEFAULTS.enabled);
       if (enabled !== 'true') return;
-      const everyHours = Number(await getSetting('backup.everyHours')) || BACKUP_DEFAULTS.everyHours;
-      const retain = Number(await getSetting('backup.retain')) || BACKUP_DEFAULTS.retain;
+      const everyHours = posIntSetting(await getSetting('backup.everyHours'), BACKUP_DEFAULTS.everyHours);
+      const retain = posIntSetting(await getSetting('backup.retain'), BACKUP_DEFAULTS.retain);
       const lastTime = await getSetting('backup.lastTime');
       const lastMs = lastTime ? Date.parse(lastTime) : NaN;
       if (Number.isFinite(lastMs) && Date.now() - lastMs < everyHours * 3_600_000) return; // not due
@@ -55,6 +58,8 @@ export class BackupScheduler {
 
   /** Take a backup now + prune + record status. Shared by the scheduler and /backup-now. */
   async runBackup(retain: number = BACKUP_DEFAULTS.retain): Promise<{ path: string; bytes: number }> {
+    if (this.inProgress) throw new Error('A backup is already in progress — try again in a moment.');
+    this.inProgress = true;
     try {
       const res = await backupDatabase();
       const pruned = pruneBackups(retain);
@@ -67,6 +72,16 @@ export class BackupScheduler {
       await setSetting('backup.lastStatus', `error: ${msg}`).catch(() => {});
       logger.error('Database backup failed', { error: msg });
       throw err;
+    } finally {
+      this.inProgress = false;
     }
   }
+}
+
+/** Parse a settings value as a positive integer, falling back to `def` for
+ *  unset/non-numeric/zero/negative (an interval or retain count of 0 is invalid;
+ *  use the `enabled` toggle to disable backups). */
+function posIntSetting(raw: string | null, def: number): number {
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n > 0 ? n : def;
 }

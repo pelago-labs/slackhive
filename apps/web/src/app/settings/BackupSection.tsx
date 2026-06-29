@@ -80,7 +80,7 @@ export default function BackupSection() {
   }
 
   async function exportRecoveryKey() {
-    if (keyPw.length < 12) { sonnerToast.error('Password must be at least 12 characters'); return; }
+    if (keyPw.length < 16) { sonnerToast.error('Password must be at least 16 characters'); return; }
     setExporting(true);
     try {
       const res = await fetch('/api/recovery-key/export', {
@@ -178,9 +178,9 @@ export default function BackupSection() {
         </div>
         <div className="flex items-center gap-2">
           <input type="password" value={keyPw} onChange={e => setKeyPw(e.target.value)}
-            placeholder="Password (min 12 chars)" autoComplete="new-password"
+            placeholder="Strong password (min 16 chars, mixed)" autoComplete="new-password"
             className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground" />
-          <button onClick={exportRecoveryKey} disabled={exporting || keyPw.length < 12}
+          <button onClick={exportRecoveryKey} disabled={exporting || keyPw.length < 16}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-60">
             <KeyRound size={14} />{exporting ? 'Exporting…' : 'Download recovery key'}
           </button>

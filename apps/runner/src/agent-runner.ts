@@ -1322,15 +1322,27 @@ export class AgentRunner {
       }
 
       if (req.method === 'GET' && req.url?.startsWith('/backup-file')) {
-        const name = new URL(req.url, 'http://127.0.0.1').searchParams.get('name') ?? '';
-        const full = resolveBackupPath(name); // null if invalid / traversal / missing
-        if (!full) { res.writeHead(404); res.end('not found'); return; }
-        res.writeHead(200, {
-          'Content-Type': 'application/octet-stream',
-          'Content-Disposition': `attachment; filename="${name}"`,
-          'Content-Length': String(fs.statSync(full).size),
-        });
-        fs.createReadStream(full).pipe(res);
+        try {
+          const name = new URL(req.url, 'http://127.0.0.1').searchParams.get('name') ?? '';
+          const full = resolveBackupPath(name); // null if invalid / traversal / missing
+          if (!full) { res.writeHead(404); res.end('not found'); return; }
+          res.writeHead(200, {
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': `attachment; filename="${name}"`,
+            'Content-Length': String(fs.statSync(full).size),
+          });
+          const stream = fs.createReadStream(full);
+          // An unhandled stream 'error' (e.g. the file pruned mid-download) would crash
+          // the whole runner — destroy the response instead.
+          stream.on('error', (err) => {
+            logger.warn('backup-file stream error', { error: (err as Error).message });
+            res.destroy();
+          });
+          stream.pipe(res);
+        } catch (err) {
+          if (!res.headersSent) { res.writeHead(500); res.end((err as Error).message); }
+          else res.destroy();
+        }
         return;
       }
 
