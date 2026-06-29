@@ -99,27 +99,28 @@
 
 /* ─── Design Tokens — Dark ───────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  /* Warm "espresso" dark ramp — lifted off pure black with a clear step between
-     each surface so cards read as distinct panels, not one flat black sheet.
-     Hue ~33° (brown) with low saturation keeps it warm without going muddy. */
-  --bg:        #1b1611;
-  --surface:   #251f17;
-  --surface-2: #322a20;
-  --surface-3: #3e3429;
-  --border:    #443a2d;
-  --border-2:  #574b3b;
+  /* Near-neutral warm-dark ramp (the "standard" app dark look) — lifted off pure
+     black with a clear step between each surface so cards read as distinct panels,
+     not one flat black sheet. Hue ~30° at only ~7% saturation: a faint warmth, not
+     an obvious brown. */
+  --bg:        #191715;
+  --surface:   #211f1c;
+  --surface-2: #2c2926;
+  --surface-3: #393632;
+  --border:    #3c3834;
+  --border-2:  #4c4742;
   --accent:    #faf6ef;
   --accent-2:  #ded5c6;
-  --accent-fg: #1b1611;
+  --accent-fg: #191715;
   --blue:      #7292f6;
   --green:     #35c08c;
   --red:       #ff6b6b;
   --amber:     #f6bd4b;
-  --text:      #f7f1e6;
-  --text-2:    #e6ddcf;
-  --muted:     #b3a896;
-  --subtle:    #a09686;       /* small labels/captions — AA 4.5+ through surface-2 */
-  --text-tertiary: #8f8475;   /* dimmest ink (timestamps/meta) — clears the 3:1 large-text floor */
+  --text:      #f8f5f2;
+  --text-2:    #e2dbd5;
+  --muted:     #c0b8af;
+  --subtle:    #9c9186;       /* small labels/captions — AA 4.5+ through surface-2 */
+  --text-tertiary: #80756b;   /* dimmest ink (timestamps/meta) — clears the 3:1 large-text floor */
   /* Softer black halos + a slightly stronger top hairline: the surfaces lifted off
      near-black, so the old heavier shadows read too dark against the warm brown. */
   --shadow-sm:    0 1px 2px rgba(0,0,0,0.20);
@@ -137,24 +138,24 @@
   /* ── shadcn token contract (HSL channels) — Dark ──────────────────────────── */
   /* Saturation matched to the legacy hex twins (same lightness) so shadcn panels
      don't render grayer than adjacent var(--surface)/var(--border) panels. */
-  --sd-background: 30 23% 9%;         /* --bg (warm espresso, not black) */
-  --sd-foreground: 40 38% 96%;        /* --text */
-  --sd-card: 34 23% 12%;              /* --surface */
-  --sd-card-foreground: 40 38% 96%;
-  --sd-popover: 34 23% 12%;
-  --sd-popover-foreground: 40 38% 96%;
-  --sd-primary: 40 38% 96%;           /* --accent (near-white) */
-  --sd-primary-foreground: 30 23% 11%;
-  --sd-secondary: 33 22% 16%;         /* --surface-2 */
-  --sd-secondary-foreground: 40 38% 96%;
-  --sd-muted: 33 22% 16%;
-  --sd-muted-foreground: 36 14% 64%;  /* --muted text, lifted for legibility */
-  --sd-accent: 33 22% 16%;
-  --sd-accent-foreground: 40 38% 96%;
+  --sd-background: 30 7% 9%;          /* --bg (near-neutral warm dark) */
+  --sd-foreground: 30 14% 96%;        /* --text */
+  --sd-card: 30 7% 12%;               /* --surface */
+  --sd-card-foreground: 30 14% 96%;
+  --sd-popover: 30 7% 12%;
+  --sd-popover-foreground: 30 14% 96%;
+  --sd-primary: 30 14% 96%;           /* --accent (near-white) */
+  --sd-primary-foreground: 30 7% 11%;
+  --sd-secondary: 30 7% 16%;          /* --surface-2 */
+  --sd-secondary-foreground: 30 14% 96%;
+  --sd-muted: 30 7% 16%;
+  --sd-muted-foreground: 30 12% 72%;  /* --muted text */
+  --sd-accent: 30 7% 16%;
+  --sd-accent-foreground: 30 14% 96%;
   --sd-destructive: 0 100% 71%;       /* bright red (dark) */
   --sd-destructive-foreground: 221 39% 11%;
-  --sd-border: 34 20% 22%;            /* --border */
-  --sd-input: 34 20% 22%;
+  --sd-border: 30 7% 22%;             /* --border */
+  --sd-input: 30 7% 22%;
   --sd-ring: 226 87% 71%;
 
   /* Desaturated semantic palette — dark. */
