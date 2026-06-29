@@ -26,12 +26,15 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { Agent, PlatformAdapter, ThreadMessage, AgentBackend } from '@slackhive/shared';
 import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, pruneTraceData, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
+import { listBackups, resolveBackupPath, wrapRecoveryKey } from '@slackhive/shared';
+import { getEncryptionKey } from './secrets';
 import { generateText } from './backends/generate-text';
 import { loadFingerprintSalt } from './tracing/fingerprint';
 import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
 import { JobScheduler } from './job-scheduler';
+import { BackupScheduler } from './backup-scheduler';
 import { markShuttingDown } from './shutdown-signal';
 import {
   getAllAgents,
@@ -396,6 +399,9 @@ export class AgentRunner {
   /** Scheduled job executor. */
   private jobScheduler: JobScheduler;
 
+  /** Scheduled database backups (disaster recovery). */
+  private backupScheduler = new BackupScheduler();
+
   /** Event bus for hot-reload events (Redis or in-memory). */
   private eventBus: EventBus | null = null;
 
@@ -602,6 +608,7 @@ export class AgentRunner {
     await this.startInternalServer();
     await this.loadAllAgents();
     await this.jobScheduler.start();
+    this.backupScheduler.start();
     this.startHeartbeat();
     this.startPeriodicSweep();
     this.registerShutdownHandlers();
@@ -719,6 +726,7 @@ export class AgentRunner {
 
     // Stop job scheduler
     await this.jobScheduler.stop();
+    this.backupScheduler.stop();
 
     // Stop all agents concurrently
     const stopPromises = Array.from(this.runningAgents.keys()).map((id) =>
@@ -1281,6 +1289,78 @@ export class AgentRunner {
           } catch (err) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
+          }
+        });
+        return;
+      }
+
+      // ── Disaster recovery: backup + recovery-key export (no restore — CLI only) ──
+      if (req.method === 'POST' && req.url === '/backup-now') {
+        (async () => {
+          try {
+            const retain = Number(await getSetting('backup.retain')) || 5;
+            const res2 = await this.backupScheduler.runBackup(retain);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, path: res2.path, bytes: res2.bytes }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
+          }
+        })();
+        return;
+      }
+
+      if (req.method === 'GET' && req.url === '/backups') {
+        try {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ backups: listBackups() }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+        return;
+      }
+
+      if (req.method === 'GET' && req.url?.startsWith('/backup-file')) {
+        try {
+          const name = new URL(req.url, 'http://127.0.0.1').searchParams.get('name') ?? '';
+          const full = resolveBackupPath(name); // null if invalid / traversal / missing
+          if (!full) { res.writeHead(404); res.end('not found'); return; }
+          res.writeHead(200, {
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': `attachment; filename="${name}"`,
+            'Content-Length': String(fs.statSync(full).size),
+          });
+          const stream = fs.createReadStream(full);
+          // An unhandled stream 'error' (e.g. the file pruned mid-download) would crash
+          // the whole runner — destroy the response instead.
+          stream.on('error', (err) => {
+            logger.warn('backup-file stream error', { error: (err as Error).message });
+            res.destroy();
+          });
+          stream.pipe(res);
+        } catch (err) {
+          if (!res.headersSent) { res.writeHead(500); res.end((err as Error).message); }
+          else res.destroy();
+        }
+        return;
+      }
+
+      // Wrap the active encryption key under an admin-chosen password for off-host
+      // escrow. The plaintext key never touches disk here — only this response stream.
+      if (req.method === 'POST' && req.url === '/recovery-key/export') {
+        let rkBody = '';
+        req.on('data', (chunk: Buffer) => { rkBody += chunk.toString(); });
+        req.on('end', () => {
+          try {
+            const { password } = JSON.parse(rkBody || '{}') as { password?: string };
+            const blob = wrapRecoveryKey(getEncryptionKey(), password ?? '');
+            logger.info('Recovery key exported (password-wrapped)');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(blob));
+          } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: (err as Error).message }));
           }
         });
         return;

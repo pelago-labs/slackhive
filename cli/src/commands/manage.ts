@@ -7,8 +7,11 @@
  */
 
 import { execSync, spawn, type ChildProcess } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, copyFileSync, statSync, chmodSync } from 'fs';
+import { join, dirname } from 'path';
+import { request as httpRequest } from 'http';
+import { createInterface } from 'readline';
+import { createDecipheriv, scryptSync } from 'crypto';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -406,4 +409,162 @@ export async function logs(opts: { follow?: boolean }): Promise<void> {
 
 export async function update(): Promise<void> {
   nativeUpdate(findProjectDir());
+}
+
+// =============================================================================
+// Disaster recovery — backup + restore
+// =============================================================================
+
+function stamp(): string {
+  const d = new Date(); const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}-${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
+}
+
+/**
+ * Unwrap the password-protected recovery key. Deliberately inlined (mirrors
+ * packages/shared/src/db/recovery-key.ts): the root `prepare` script builds the CLI via
+ * esbuild during `npm ci`, BEFORE `packages/shared/dist` exists — so the CLI bundle
+ * cannot import the shared module (it also avoids pulling in shared's native
+ * better-sqlite3). Keep the scrypt/AES params here in sync with the shared module.
+ */
+function unwrapRecoveryKey(
+  blob: { v: number; kdf: string; scrypt?: { N: number; r: number; p: number }; salt: string; iv: string; tag: string; ct: string },
+  password: string,
+): string {
+  if (!blob || blob.v !== 1 || blob.kdf !== 'scrypt') throw new Error('Unrecognized recovery-key file format.');
+  const sc = blob.scrypt ?? { N: 1 << 15, r: 8, p: 1 };
+  const key = scryptSync(password, Buffer.from(blob.salt, 'base64'), 32, { N: sc.N, r: sc.r, p: sc.p, maxmem: 64 * 1024 * 1024 });
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(blob.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(blob.tag, 'base64'));
+  try {
+    return Buffer.concat([decipher.update(Buffer.from(blob.ct, 'base64')), decipher.final()]).toString('utf8');
+  } catch {
+    throw new Error('Wrong password or corrupted recovery-key file.');
+  }
+}
+
+/** Prompt for a password without echoing it. Restores the terminal on Ctrl-C so a
+ *  cancelled prompt doesn't leave echo disabled. */
+function promptHidden(label: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    process.stdout.write(label);
+    // Mute the readline interface's echo so keystrokes aren't shown.
+    (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = () => { /* hidden */ };
+    rl.on('SIGINT', () => { rl.close(); process.stdout.write('\n'); reject(new Error('cancelled')); });
+    rl.question('', (answer) => { rl.close(); process.stdout.write('\n'); resolve(answer); });
+  });
+}
+
+/** Set ENV_SECRET_KEY in the project's .env files. The root .env (what the runner loads
+ *  at boot) is created if missing — so a fresh-host restore actually persists the key.
+ *  Matches an existing line tolerating leading whitespace / `export ` (commented lines
+ *  are intentionally left as inert comments and a live line is appended instead). */
+function writeEnvSecretKey(projectDir: string, key: string): void {
+  const KEY_RE = /^\s*(?:export\s+)?ENV_SECRET_KEY=/;
+  const setKeyIn = (rel: string, createIfMissing: boolean): void => {
+    const file = join(projectDir, rel);
+    if (!existsSync(file)) {
+      if (!createIfMissing) return;
+      writeFileSync(file, `ENV_SECRET_KEY=${key}\n`);
+      chmodSync(file, 0o600);
+      console.log(chalk.gray(`  created ${rel} with ENV_SECRET_KEY`));
+      return;
+    }
+    const lines = readFileSync(file, 'utf-8').split('\n');
+    let found = false;
+    const next = lines.map((l) => (KEY_RE.test(l) ? (found = true, `ENV_SECRET_KEY=${key}`) : l));
+    if (!found) next.push(`ENV_SECRET_KEY=${key}`);
+    writeFileSync(file, next.join('\n'));
+    chmodSync(file, 0o600);
+    console.log(chalk.gray(`  updated ENV_SECRET_KEY in ${rel}`));
+  };
+  setKeyIn('.env', true);                  // runner loads this at boot — must exist
+  setKeyIn('apps/web/.env', false);
+  setKeyIn('apps/runner/.env', false);
+}
+
+function postBackupNow(internalPort: number): Promise<{ path?: string; bytes?: number; error?: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ host: '127.0.0.1', port: internalPort, path: '/backup-now', method: 'POST' }, (res) => {
+      let body = ''; res.on('data', (c) => (body += c)); res.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { reject(new Error('bad runner response')); } });
+    });
+    req.on('error', reject); req.end();
+  });
+}
+
+/** `slackhive backup` — consistent snapshot via the running runner, or a safe copy if stopped. */
+export async function backup(options: { output?: string }): Promise<void> {
+  const dataDb = join(getSlackhiveDir(), 'data.db');
+  if (!existsSync(dataDb)) { console.log(chalk.red('  Database not found at ' + dataDb)); process.exit(1); }
+  const info = readPidInfo();
+  const spinner = ora('Creating database backup...').start();
+  try {
+    if (info) {
+      const r = await postBackupNow(info.internalPort);
+      if (r.error) throw new Error(r.error);
+      spinner.succeed(`Backup created: ${r.path}`);
+    } else {
+      // Runner stopped → the DB is closed and the WAL is checkpointed, so a copy is consistent.
+      const dir = options.output ? dirname(options.output) : join(getSlackhiveDir(), 'backups');
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const dest = options.output ?? join(dir, `data-${stamp()}.db`);
+      copyFileSync(dataDb, dest); chmodSync(dest, 0o600);
+      spinner.succeed(`Backup created: ${dest} (${(statSync(dest).size / 1024 / 1024).toFixed(1)} MB)`);
+    }
+  } catch (err) {
+    spinner.fail(`Backup failed: ${(err as Error).message}`); process.exit(1);
+  }
+}
+
+/** `slackhive restore` — the ONLY restore path. Runs with the runner stopped. */
+export async function restore(options: { from: string; recoveryKey?: string; env?: string }): Promise<void> {
+  if (!existsSync(options.from)) { console.log(chalk.red(`  Backup file not found: ${options.from}`)); process.exit(1); }
+  if (options.recoveryKey && !existsSync(options.recoveryKey)) { console.log(chalk.red(`  Recovery-key file not found: ${options.recoveryKey}`)); process.exit(1); }
+  if (options.env && !existsSync(options.env)) { console.log(chalk.red(`  Env file not found: ${options.env}`)); process.exit(1); }
+
+  // Unwrap the recovery key (prompts for the password) BEFORE we touch anything.
+  let encryptionKey: string | null = null;
+  if (options.recoveryKey) {
+    let blob: Parameters<typeof unwrapRecoveryKey>[0];
+    try { blob = JSON.parse(readFileSync(options.recoveryKey, 'utf-8')); }
+    catch { console.log(chalk.red('  Recovery-key file is not valid JSON')); process.exit(1); }
+    // Password via env (CI/non-interactive) or a hidden prompt — never via argv, which
+    // would leak into `ps`/shell history.
+    const pw = process.env.SLACKHIVE_RECOVERY_PASSWORD ?? await promptHidden('  Recovery-key password: ');
+    try {
+      encryptionKey = unwrapRecoveryKey(blob!, pw); // throws on wrong password — abort before any swap
+    } catch (err) {
+      console.log(chalk.red(`  ${(err as Error).message}`)); process.exit(1);
+    }
+    console.log(chalk.green('  Recovery key unwrapped'));
+  }
+
+  if (readPidInfo()) nativeStop();
+
+  const dir = getSlackhiveDir();
+  const dataDb = join(dir, 'data.db');
+  // Safety net: snapshot whatever is currently there before overwriting.
+  if (existsSync(dataDb)) {
+    const pre = join(dir, 'backups', `pre-restore-${stamp()}.db`);
+    mkdirSync(join(dir, 'backups'), { recursive: true, mode: 0o700 });
+    copyFileSync(dataDb, pre); chmodSync(pre, 0o600);
+    console.log(chalk.gray(`  current DB snapshotted → ${pre}`));
+  }
+
+  // Apply the encryption key / env so the restored DB's secrets decrypt.
+  const projectDir = findProjectDir();
+  if (encryptionKey) writeEnvSecretKey(projectDir, encryptionKey);
+  else if (options.env) for (const rel of ['.env', 'apps/web/.env', 'apps/runner/.env']) {
+    const file = join(projectDir, rel);
+    copyFileSync(options.env, file); chmodSync(file, 0o600);
+    console.log(chalk.gray(`  copied env → ${rel}`));
+  }
+
+  // Swap in the backup, clear stale WAL/SHM.
+  copyFileSync(options.from, dataDb); chmodSync(dataDb, 0o600);
+  for (const ext of ['-wal', '-shm']) { try { unlinkSync(dataDb + ext); } catch { /* none */ } }
+
+  console.log(chalk.green(`  Database restored from ${options.from}`));
+  console.log(chalk.gray('  Run `slackhive start` to boot the restored database.'));
 }

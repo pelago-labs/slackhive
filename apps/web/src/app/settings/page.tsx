@@ -11,6 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Bot,
+  DatabaseBackup,
   Grid2X2,
   KeyRound,
   LogIn,
@@ -36,8 +37,9 @@ import { PageShell } from '@/components/patterns';
 import { toast as sonnerToast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import AiProviderSection from './AiProviderSection';
+import BackupSection from './BackupSection';
 
-type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'users';
+type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'users' | 'backups';
 
 interface User {
   id: string;
@@ -77,6 +79,7 @@ export default function SettingsPage() {
     { id: 'ai',      label: 'AI Backend',         Icon: Bot,               show: canManageUsers },
     { id: 'access',  label: 'Access Control',      Icon: ShieldCheck,       show: canManageUsers },
     { id: 'signin',  label: 'Sign in with Slack',  Icon: LogIn,             show: canManageUsers && isSuperadmin },
+    { id: 'backups', label: 'Backups',            Icon: DatabaseBackup,    show: isSuperadmin },
     { id: 'users',   label: 'Users',              Icon: Users,             show: canManageUsers },
   ] as const).filter(n => n.show);
 
@@ -118,6 +121,7 @@ export default function SettingsPage() {
           {active === 'ai'      && canManageUsers && <AITab />}
           {active === 'access'  && canManageUsers && <AccessControlSection />}
           {active === 'signin'  && canManageUsers && isSuperadmin && <AuthTab />}
+          {active === 'backups' && isSuperadmin && <BackupSection />}
           {active === 'users'   && canManageUsers && <UsersTab />}
         </div>
       </div>
