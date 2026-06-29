@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Bot, LayoutGrid, GitBranch, Search, ArrowUpDown, Plus } from 'lucide-react';
 import { PageShell } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/time';
@@ -26,6 +27,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   'status': 'Status',
 };
 const STATUS_RANK: Record<string, number> = { running: 0, error: 1, stopped: 2, stale: 3 };
+const INLINE_TAG_LIMIT = 6;
 
 // Minimalist deterministic avatar palette — soft pastel background + darker
 // foreground letter, à la Linear / Notion. Low saturation so cards feel calm
@@ -187,6 +189,11 @@ export default function Dashboard() {
   const stopped = agents.filter(a => a.status === 'stopped').length;
   const total   = agents.length;
   const bossCount = agents.filter(a => a.isBoss).length;
+  const baseInlineTags = allTags.slice(0, INLINE_TAG_LIMIT);
+  const inlineTags = selectedTag && !baseInlineTags.includes(selectedTag)
+    ? [selectedTag, ...baseInlineTags.slice(0, INLINE_TAG_LIMIT - 1)]
+    : baseInlineTags;
+  const overflowTags = allTags.filter(tag => !inlineTags.includes(tag));
 
   const hasHierarchy = filteredAgents.some(a => a.isBoss) || filteredAgents.some(a => a.reportsTo?.length > 0);
 
@@ -195,7 +202,7 @@ export default function Dashboard() {
     <PageShell maxWidth={1440} className="py-5 md:py-6">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="m-0 text-2xl font-bold tracking-normal text-foreground">
             {title}
@@ -265,7 +272,7 @@ export default function Dashboard() {
       {/* ── Sticky search + sort + tag filter bar ────────────────────────── */}
       {!loading && total > 0 && (
         <div className={cn(
-          'sticky top-0 z-20 mb-4 rounded-lg border border-border bg-background/95 p-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/85 transition-shadow duration-200',
+          'sticky top-0 z-20 mb-4 bg-background/95 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/85 transition-shadow duration-200',
           scrolled && 'shadow-[0_8px_20px_-16px_rgba(16,24,40,0.24)]',
         )}>
           <div className="flex flex-wrap items-center gap-2">
@@ -318,13 +325,33 @@ export default function Dashboard() {
             </span>
 
             {allTags.length > 0 && (
-              <div className="flex max-w-full gap-1.5 overflow-x-auto">
-              <FilterChip active={selectedTag === null} onClick={() => setSelectedTag(null)}>All</FilterChip>
-              {allTags.map(tag => (
-                <FilterChip key={tag} active={selectedTag === tag} onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}>
-                  {tag}
-                </FilterChip>
-              ))}
+              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+                <FilterChip active={selectedTag === null} onClick={() => setSelectedTag(null)}>All</FilterChip>
+                {inlineTags.map(tag => (
+                  <FilterChip key={tag} active={selectedTag === tag} onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}>
+                    {tag}
+                  </FilterChip>
+                ))}
+                {overflowTags.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="inline-flex h-7 shrink-0 cursor-pointer items-center rounded-md border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                        More +{overflowTags.length}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="max-h-[280px] min-w-[190px]">
+                      {overflowTags.map(tag => (
+                        <DropdownMenuCheckboxItem
+                          key={tag}
+                          checked={selectedTag === tag}
+                          onCheckedChange={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                        >
+                          {tag}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             )}
           </div>
