@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Check, ArrowLeft } from 'lucide-react';
+import { Search, Check, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Agent, PersonaTemplate, PersonaCategory } from '@slackhive/shared';
 import { PERSONA_CATALOG, searchPersonas } from '@slackhive/shared/personas';
@@ -61,6 +61,7 @@ const INITIAL: WizardState = {
 export default function NewAgentWizard() {
   const router   = useRouter();
   const [state, setState]     = useState<WizardState>(INITIAL);
+  const [step, setStep]       = useState<1 | 2>(1);
   const [agents, setAgents]   = useState<Agent[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]     = useState('');
@@ -83,6 +84,7 @@ export default function NewAgentWizard() {
     state.name && state.slug &&
     (state.isBoss || state.selectedPersona || state.description.trim() || state.importPayload)
   );
+  const canContinue = !!(state.name && state.slug);
 
   const submit = async () => {
     setSubmitting(true); setError('');
@@ -164,8 +166,6 @@ export default function NewAgentWizard() {
     } finally { setSubmitting(false); }
   };
 
-  const cardClass = 'rounded-lg border border-border bg-card px-6 py-6 shadow-sm';
-
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* Top bar */}
@@ -175,44 +175,114 @@ export default function NewAgentWizard() {
         </a>
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-6 pb-32 pt-11">
-        <div className="fade-up mx-auto max-w-[660px]">
-          {/* Hero */}
-          <div className="mb-6">
-            <h1 className="m-0 text-2xl font-bold tracking-tight text-foreground">Create a new agent</h1>
-            <p className="mt-1.5 text-base leading-relaxed text-muted-foreground">
-              Name it and shape its role. You&apos;ll connect Slack and add tools right after — it takes under a minute.
-            </p>
-          </div>
+      <div className="flex-1 overflow-y-auto px-6 pb-10 pt-8">
+        <div className="fade-up mx-auto grid max-w-[1180px] gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <SetupRail state={state} step={step} />
 
-          <div className="flex flex-col gap-4">
-            <div className={cardClass}>
-              <Step1Identity state={state} update={update} bosses={bosses} />
-            </div>
-            {!state.isBoss && (
-              <div className={cardClass}>
-                <Step2Persona state={state} update={update} />
+          <div className="min-w-0">
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Two-step launch</div>
+                <h1 className="m-0 text-2xl font-semibold tracking-normal text-foreground">Create a new agent</h1>
+                <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                  Define the job, choose the starting brain, then let SlackHive guide the rest.
+                </p>
               </div>
-            )}
-          </div>
-        </div>
-      </div>
+              <div className="flex items-center gap-1.5">
+                <StepPill active={step === 1} done={canContinue} onClick={() => setStep(1)} label="Identity" />
+                <StepPill active={step === 2} done={canCreate} disabled={!canContinue} onClick={() => canContinue && setStep(2)} label={state.isBoss ? 'Launch' : 'Profile'} />
+              </div>
+            </div>
 
-      {/* Sticky action bar */}
-      <div className="sticky bottom-0 border-t border-border bg-card/90 px-6 py-3.5 backdrop-blur">
-        <div className="mx-auto flex max-w-[660px] items-center gap-4">
-          <span className={cn('min-w-0 flex-1 text-xs leading-snug', error ? 'text-destructive' : 'text-muted-foreground')}>
-            {error || 'Slack, tools, model & permissions are configured after creation.'}
-          </span>
-          <Button
-            onClick={submit}
-            disabled={submitting || !canCreate}
-            className="shrink-0"
-          >{submitting ? 'Creating…' : 'Create agent'}</Button>
+            <div className="rounded-lg border border-border bg-card p-6 shadow-card">
+              {step === 1 ? (
+                <Step1Identity state={state} update={update} bosses={bosses} />
+              ) : state.isBoss ? (
+                <Step2Launch state={state} />
+              ) : (
+                <Step2Persona state={state} update={update} />
+              )}
+            </div>
+
+            <div className="mt-4 flex items-center gap-4 rounded-lg border border-border bg-card px-4 py-3 shadow-card">
+              <span className={cn('min-w-0 flex-1 text-xs leading-snug', error ? 'text-destructive' : 'text-muted-foreground')}>
+                {error || (step === 1
+                  ? 'Step 1 sets the agent identity. Step 2 chooses its starting brain.'
+                  : 'After creation, use Coach to build system prompts, skills, memory, and operating rules.')}
+              </span>
+              {step === 2 && (
+                <Button variant="outline" onClick={() => setStep(1)} className="shrink-0">
+                  Back
+                </Button>
+              )}
+              {step === 1 ? (
+                <Button onClick={() => setStep(2)} disabled={!canContinue} className="shrink-0">
+                  Continue <ArrowRight size={14} />
+                </Button>
+              ) : (
+                <Button
+                  onClick={submit}
+                  disabled={submitting || !canCreate}
+                  className="shrink-0"
+                >{submitting ? 'Creating...' : 'Create agent'}</Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function SetupRail({ state, step }: { state: WizardState; step: 1 | 2 }) {
+  return (
+    <aside className="rounded-lg border border-border bg-card p-4 shadow-card lg:sticky lg:top-[84px] lg:self-start">
+      <div className="mb-4">
+        <h2 className="m-0 text-base font-semibold tracking-normal text-foreground">Agent setup</h2>
+        <p className="m-0 mt-1 text-xs leading-5 text-muted-foreground">
+          Start with identity and a useful first prompt. Deeper setup happens after creation.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <RailItem active={step === 1} done={!!state.name && !!state.slug} title="Identity" desc="Name, role, team placement, and tags." />
+        <RailItem active={step === 2} done={state.isBoss || !!state.selectedPersona || !!state.description.trim() || !!state.importPayload} title={state.isBoss ? 'Launch' : 'Profile'} desc={state.isBoss ? 'Create the orchestrator and connect its team.' : 'Pick a persona, import config, or seed Coach from a blank brief.'} />
+      </div>
+      <div className="mt-4 rounded-md border border-border bg-secondary px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+        After this, Coach can help build the system prompt, skills, memory, evaluation cases, and operating rules from plain English.
+      </div>
+    </aside>
+  );
+}
+
+function RailItem({ active, done, title, desc }: { active: boolean; done: boolean; title: string; desc: string }) {
+  return (
+    <div className={cn('rounded-md border px-3 py-2.5', active ? 'border-ring bg-secondary' : 'border-border bg-transparent')}>
+      <div className="flex items-center gap-2">
+        <span className={cn('flex h-5 w-5 items-center justify-center rounded-full border text-[10px]', done ? 'border-green bg-green text-white' : 'border-border text-muted-foreground')}>
+          {done ? <Check size={12} /> : null}
+        </span>
+        <span className="text-sm font-semibold text-foreground">{title}</span>
+      </div>
+      <p className="m-0 mt-1.5 pl-7 text-xs leading-5 text-muted-foreground">{desc}</p>
+    </div>
+  );
+}
+
+function StepPill({ active, done, label, disabled, onClick }: { active: boolean; done: boolean; label: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
+        active ? 'border-foreground bg-foreground text-background' : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground',
+        disabled && 'cursor-not-allowed opacity-50',
+      )}
+    >
+      {done && <Check size={12} />}
+      {label}
+    </button>
   );
 }
 
@@ -315,6 +385,35 @@ function Step1Identity({ state, update, bosses }: {
 
       {/* Tags */}
       <TagInputWizard tags={state.tags} onChange={tags => update({ tags })} />
+    </div>
+  );
+}
+
+function Step2Launch({ state }: { state: WizardState }) {
+  return (
+    <div>
+      <StepHeader
+        title="Launch"
+        desc="Boss agents coordinate specialists. Create it now, then connect Slack and assign its team from the agent page."
+      />
+      <div className="grid gap-3 sm:grid-cols-3">
+        {[
+          ['Orchestrate', 'Routes work to the right specialist and keeps context together.'],
+          ['Observe', 'Tracks tasks, tool calls, and failures from one operational surface.'],
+          ['Coach', 'Use Coach later to improve system prompts, skills, memory, and policies.'],
+        ].map(([title, desc]) => (
+          <div key={title} className="rounded-md border border-border bg-secondary px-3.5 py-3">
+            <div className="text-sm font-semibold text-foreground">{title}</div>
+            <p className="m-0 mt-1 text-xs leading-5 text-muted-foreground">{desc}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 rounded-md border border-border bg-card px-4 py-3">
+        <div className="text-sm font-semibold text-foreground">{state.name || 'Your boss agent'}</div>
+        <p className="m-0 mt-1 text-xs leading-5 text-muted-foreground">
+          It will be created as an orchestrator. After creation, connect Slack, add specialists, and let Coach draft the operating playbook.
+        </p>
+      </div>
     </div>
   );
 }
@@ -440,7 +539,7 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
 
   return (
     <div>
-      <StepHeader title="Profile" desc="Pick a persona (system prompt + skills), start blank with a description, or import an exported config." />
+      <StepHeader title="Profile" desc="Choose a starting point. Coach can refine the prompt, skills, memory, and rules after creation." />
 
       {/* Search + category chips */}
       <div className="mb-2.5">
@@ -468,7 +567,7 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
       </div>
 
       {/* Card grid */}
-      <div className="grid max-h-[290px] grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 overflow-y-auto pr-0.5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2">
         {/* Blank card — always first */}
         {(() => {
           const isBlank = selected === null;
@@ -513,7 +612,7 @@ function Step2Persona({ state, update }: { state: WizardState; update: (p: Parti
               <div className="mb-1.5 inline-block text-2xs font-semibold uppercase tracking-[0.05em]"
                 style={{ color: catColor }}>{p.category}</div>
               <div className="mb-1 text-sm font-semibold leading-tight text-foreground">{p.name}</div>
-              <div className="overflow-hidden text-2xs leading-snug text-muted-foreground [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [display:-webkit-box]">{p.cardDescription}</div>
+              <div className="line-clamp-2 overflow-hidden text-2xs leading-snug text-muted-foreground">{p.cardDescription}</div>
               <div className="mt-1.5 text-2xs text-muted-foreground">
                 {p.skills.length} skills
               </div>
