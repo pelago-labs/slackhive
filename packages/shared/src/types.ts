@@ -142,6 +142,17 @@ export interface Agent {
    * @default true
    */
   verbose: boolean;
+  /** Sensitive-data check mode: off (no detection), deterministic (regex only),
+   *  or smart (regex + LLM confirmation). @default 'deterministic' */
+  sensitivityCheck: 'off' | 'deterministic' | 'smart';
+  /** When true, redact detected sensitive values from the agent's outbound reply
+   *  before it's posted. @default false */
+  enforcementRedaction: boolean;
+  /** How much to mask when redaction is on. @default 'secrets' */
+  redactionLevel: 'secrets' | 'pii' | 'all';
+  /** Free-text "what counts as sensitive for THIS agent" — fed into the Smart
+   *  (LLM) detector prompt to tailor what it flags. Empty = default behavior. */
+  sensitivityGuidance: string;
   /** UUIDs of boss agents this agent reports to. Empty array if this agent is a boss. */
   reportsTo: string[];
   /**
@@ -773,6 +784,10 @@ export interface UpdateAgentRequest {
   reportsTo?: string[];
   tags?: string[];
   verbose?: boolean;
+  sensitivityCheck?: 'off' | 'deterministic' | 'smart';
+  enforcementRedaction?: boolean;
+  redactionLevel?: 'secrets' | 'pii' | 'all';
+  sensitivityGuidance?: string;
 }
 
 /**
@@ -1145,6 +1160,11 @@ export interface Task {
   startedAt: string;
   lastActivityAt: string;
   activityCount: number;
+  /** True when any span in this session was flagged by the sensitivity monitor. */
+  sensitive?: boolean;
+  /** Distinct agent ids that took a turn in this task (within the caller's scope) —
+   *  populated by listTasks so the dashboard avatar stack needs no per-task fetch. */
+  agentIds?: string[];
 }
 
 /** One agent's turn inside a task — the unit that the runner writes. */
@@ -1162,6 +1182,14 @@ export interface Activity {
   status: ActivityStatus;
   error?: string;
   toolCallCount: number;
+  /** Per-turn token usage (captured at the SDK `result` message; absent for
+   * pre-feature rows or turns that never reported usage). */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  /** Model in effect for this turn — drives the by-model token breakdown. */
+  model?: string;
 }
 
 /** One tool invocation captured from the SDK stream. */
@@ -1181,7 +1209,10 @@ export interface ActivityFilter {
   agentId?: string;
   userId?: string;
   status?: 'active' | 'recent' | 'errored';
+  /** Lower time bound (inclusive), stored `YYYY-MM-DD HH:MM:SS`. */
   since?: string;
+  /** Upper time bound (inclusive) — set for explicit custom date ranges. */
+  until?: string;
   /**
    * Restrict results to tasks with at least one activity from one of these
    * agent IDs. `undefined` = no restriction (admin view); empty array = the

@@ -28,6 +28,12 @@ export type {
 export { initDb, getDb, closeDb, setDb } from './db/adapter';
 export type { DbAdapter, DbResult, DbRow } from './db/adapter';
 export { createSqliteAdapter } from './db/sqlite-adapter';
+export { getSessionTrace, getAgentRollup, getInsightsRollup, getSessionSummaries, getSensitiveEvents, getSensitiveFlows, getFeedbackCountsForTasks, getToolStats, pruneTraceData } from './db/trace-repo';
+export type {
+  SessionTrace, SessionRollup, TraceTurn, TraceSpan, SpanKind, ModelUsage, TurnFeedback, AgentRollup,
+  InsightsRollup, InsightsFilter, SessionSummary,
+  SensitiveEvent, SensitiveFeedFilter, SensitiveFlow, ToolStat, ToolErrorGroup,
+} from './db/trace-repo';
 export { encrypt, decrypt } from './db/crypto';
 export { getEventBus, setEventBus, closeEventBus } from './event-bus';
 export type { EventBus } from './event-bus';
@@ -37,12 +43,19 @@ export { PERSONA_CATALOG, getPersonaById, getPersonasByCategory, searchPersonas 
 export type { PersonaTemplate, PersonaSkillSeed, PersonaCategory } from './personas';
 export { deepLinkForTask, deepLinkLabelForPlatform } from './deep-link';
 export {
+  detectSensitive, detectInText, mergeHits, markSensitive, markSensitiveWith, humanizeTag,
+  SENS_COLOR, CAT_LABEL, SCAN_CAP,
+  severityForTag, maxSeverity, SEVERITY_RANK, SEVERITY_COLOR, egressKind, redactSensitive,
+} from './sensitivity';
+export type { SensitiveHit, SensitiveCategory, SensSegment, SensScope, Severity, RedactionLevel, ExtraMark } from './sensitivity';
+export {
   upsertTask, beginActivity, finishActivity,
   beginToolCall, finishToolCall,
   listTasks, getTaskWithDetails, countInProgressByAgent,
   sweepStaleActivities,
   recordActivityUsage, getTokensByAgent, getTopUsers,
   recordMessageFeedback, getFeedbackReport,
+  linkActivityReply, findActivityIdByReply,
 } from './db/activities-repo';
 export type {
   BeginActivityInput, BeginToolCallInput, TaskListColumn, TaskListResult,

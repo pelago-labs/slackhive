@@ -5,6 +5,16 @@
   "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "comment:exports": "'.' is the full barrel (server code lives here). The named subpaths are the CLIENT-SAFE pure modules (no DB/native deps) — import these from the browser so the barrel's server+persona graph isn't pulled into the client bundle. Keeps consumers off raw dist/ paths.",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./mcp-templates": { "types": "./dist/mcp-templates.d.ts", "default": "./dist/mcp-templates.js" },
+    "./sensitivity": { "types": "./dist/sensitivity.d.ts", "default": "./dist/sensitivity.js" },
+    "./deep-link": { "types": "./dist/deep-link.d.ts", "default": "./dist/deep-link.js" },
+    "./models": { "types": "./dist/models.d.ts", "default": "./dist/models.js" },
+    "./personas": { "types": "./dist/personas/index.d.ts", "default": "./dist/personas/index.js" }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch"

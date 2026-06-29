@@ -54,10 +54,12 @@ export function translateItem(item: ThreadItem, finalParts: string[]): BackendMe
       return [assistant([{ type: 'text', text: item.text }])];
 
     case 'reasoning':
-      // Codex reasoning is verbose narration. Drop it from the stream so verbose
-      // mode posts only tool activity + the actual answer (Claude-like). It's
-      // still logged at DEBUG in CodexBackend's event loop for inspection.
-      return [];
+      // Codex reasoning is verbose narration. We do NOT post it (verbose mode
+      // stays "tool activity + answer", Claude-like), but we DO forward it as a
+      // trace-only `reasoning` message so the session trace can show the
+      // model's thinking in between steps. The message-handler routes this to
+      // the TurnTracer and never to the platform.
+      return item.text ? [{ type: 'reasoning', text: item.text }] : [];
 
     case 'command_execution':
       return [

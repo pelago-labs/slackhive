@@ -7,11 +7,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { listTasks, type TaskListColumn, type ActivityFilter } from '@slackhive/shared';
+import { listTasks, getFeedbackCountsForTasks, type TaskListColumn, type ActivityFilter } from '@slackhive/shared';
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
-import { windowFloor } from '@/lib/activity-window';
+import { windowBounds } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,10 +44,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // created or have explicit access to.
     const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
 
+    const { since, until } = windowBounds(searchParams.get('window'), searchParams.get('from'), searchParams.get('to'));
     const filter: ActivityFilter = {
       agentId: searchParams.get('agent') ?? undefined,
       userId: searchParams.get('user') ?? undefined,
-      since: windowFloor(searchParams.get('window')),
+      since,
+      until,
       accessibleAgentIds: accessibleAgentIds ?? undefined,
     };
 
@@ -57,7 +59,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const cursor = column === 'active' ? null : searchParams.get('cursor');
 
     const result = await listTasks(column, filter, limit, cursor);
-    return NextResponse.json(result);
+    // Attach aggregate 👍/👎 (across the session's turns) for the card badges.
+    const fb = await getFeedbackCountsForTasks(result.tasks.map(t => t.id));
+    const tasks = result.tasks.map(t => ({
+      ...t,
+      feedbackUp: fb[t.id]?.up ?? 0,
+      feedbackDown: fb[t.id]?.down ?? 0,
+    }));
+    return NextResponse.json({ tasks, nextCursor: result.nextCursor });
   } catch (err) {
     return apiError('activity-list', err);
   }

@@ -1,9 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { ChevronDown, ChevronRight, FileText, BookOpen, Download, Globe, GitBranch, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, BookOpen, Globe, GitBranch, Pencil, Trash2, RefreshCw, Search, Layers3, FileStack, Clock3 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { MetricCard } from '@/components/patterns';
 
 interface WikiFolder {
   id: string;
@@ -93,7 +100,11 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
   if (isFolder) {
     return (
       <div>
-        <div onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: `6px 6px 2px ${6 + depth * 12}px`, fontSize: 10.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', letterSpacing: '0.02em' }}>
+        <div
+          onClick={() => setOpen(!open)}
+          className="flex cursor-pointer items-center gap-1 rounded-md pb-0.5 pt-1.5 font-mono text-2xs tracking-[0.02em] text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+          style={{ paddingLeft: 6 + depth * 12, paddingRight: 6 }}
+        >
           {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
           {label}/
         </div>
@@ -107,12 +118,14 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
   return (
     <div
       onClick={() => node.path && onSelect(node.path)}
-      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: `4px 8px 4px ${8 + depth * 12}px`, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-mono)', background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent', color: isActive ? 'var(--accent)' : 'var(--muted)', transition: 'background 0.12s, color 0.12s', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
-      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+      className={cn(
+        'flex cursor-pointer items-center gap-1 overflow-hidden truncate whitespace-nowrap rounded-md py-1.5 pr-2 font-mono text-xs transition-colors',
+        isActive ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
+      )}
+      style={{ paddingLeft: 8 + depth * 12 }}
     >
-      <FileText size={12} style={{ flexShrink: 0 }} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name.replace('.md', '')}</span>
+      <FileText size={12} className="shrink-0" />
+      <span className="overflow-hidden truncate whitespace-nowrap">{node.name.replace('.md', '')}</span>
     </div>
   );
 }
@@ -120,7 +133,7 @@ function WikiTreeNode({ node, depth, onSelect, selected }: { node: TreeNode; dep
 function WikiTree({ articles, onSelect, selected }: { articles: WikiPage[]; onSelect: (path: string) => void; selected: string | null }) {
   const tree = buildTree(articles);
   return (
-    <div style={{ padding: '6px', flex: 1, overflow: 'auto' }}>
+    <div className="flex-1 overflow-auto p-2">
       {tree.map(node => (
         <WikiTreeNode key={node.path || node.name} node={node} depth={0} onSelect={onSelect} selected={selected} />
       ))}
@@ -147,6 +160,10 @@ const timeAgo = (iso: string): string => {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 };
+
+function LibraryStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }): React.JSX.Element {
+  return <MetricCard icon={icon} label={label} value={value} className="p-3" />;
+}
 
 const EMPTY_SOURCE_FORM = { type: 'url', name: '', url: '', repoUrl: '', branch: 'main', patEnvRef: '', content: '' };
 
@@ -185,7 +202,7 @@ export default function KnowledgePage() {
   const [showBuildDropdown, setShowBuildDropdown] = useState(false);
   const [syncStatus, setSyncStatus]               = useState<Record<string, string>>({});
   const [envVarKeys, setEnvVarKeys]               = useState<string[]>([]);
-  const [downloading, setDownloading]             = useState(false);
+  const [folderSearch, setFolderSearch]           = useState('');
 
   const isAdmin = role === 'admin' || role === 'superadmin';
   const isOwnerOrAdmin = (f: WikiFolder) => isAdmin || (canEdit && f.createdBy === username);
@@ -424,96 +441,137 @@ export default function KnowledgePage() {
 
   const anySourceBuilding = sources.some(s => s.status === 'building') || syncStatus && Object.values(syncStatus).some(v => v === 'building');
   const folderIsBuilding = buildStatus[selected?.id ?? ''] === 'building' || anySourceBuilding;
+  const visibleFolders = folders.filter(f => {
+    const q = folderSearch.trim().toLowerCase();
+    return !q || f.name.toLowerCase().includes(q) || (f.description ?? '').toLowerCase().includes(q) || f.createdBy.toLowerCase().includes(q);
+  });
+  const libraryStats = folders.reduce((acc, f) => {
+    const st = folderStats[f.id];
+    acc.sources += st?.sources ?? 0;
+    acc.words += st?.words ?? 0;
+    if (st?.lastSynced && (!acc.lastSynced || st.lastSynced > acc.lastSynced)) acc.lastSynced = st.lastSynced;
+    return acc;
+  }, { sources: 0, words: 0, lastSynced: null as string | null });
 
   // ── Folder list view ──────────────────────────────────────────────────────
   if (!selected) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }} className="fade-up">
+      <div className="fade-up min-h-screen">
         {/* Header */}
-        <div style={{ padding: '28px 40px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
-            <div>
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.03em' }}>Knowledge Library</h1>
-              <p style={{ margin: '5px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-                {loading ? 'Loading…' : `${folders.length} shared wiki folder${folders.length !== 1 ? 's' : ''}`}
-              </p>
+        <div className="border-b border-border bg-background/80 px-6 py-6">
+          <div>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="m-0 text-xl font-semibold tracking-normal text-foreground">Knowledge Library</h1>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {loading ? 'Loading…' : `${folders.length} shared wiki folder${folders.length !== 1 ? 's' : ''} for agent context and retrieval.`}
+                </p>
+              </div>
+              {canEdit && (
+                <Button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }}>
+                  + New Folder
+                </Button>
+              )}
             </div>
-            {canEdit && (
-              <button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }} style={primaryBtnStyle}>
-                + New Folder
-              </button>
+
+            {!loading && folders.length > 0 && (
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <LibraryStat icon={<Layers3 size={15} />} label="Folders" value={folders.length.toLocaleString()} />
+                <LibraryStat icon={<FileStack size={15} />} label="Sources" value={libraryStats.sources.toLocaleString()} />
+                <LibraryStat icon={<Clock3 size={15} />} label="Last sync" value={libraryStats.lastSynced ? timeAgo(libraryStats.lastSynced) : 'No syncs'} />
+              </div>
             )}
           </div>
-          {/* Spacer to align with tab bar on agent pages */}
-          <div style={{ height: 1 }} />
         </div>
 
         {/* Folder grid */}
-        <div style={{ padding: '28px 40px' }}>
+        <div className="px-6 py-6">
           {loading ? (
-            <div style={{ color: 'var(--muted)', fontSize: 14 }}>Loading…</div>
+            <div className="text-base text-muted-foreground">Loading…</div>
           ) : folders.length === 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16, textAlign: 'center' }}>
-              <div style={{ width: 60, height: 60, borderRadius: 16, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
+            <div className="flex min-h-[300px] flex-col items-center justify-center gap-4 text-center">
+              <div className="flex h-[60px] w-[60px] items-center justify-center rounded-2xl border border-border bg-secondary">
+                <BookOpen size={28} className="text-muted-foreground" />
               </div>
               <div>
-                <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>No knowledge folders yet</p>
-                <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{canEdit ? 'Create a folder to start building shared wikis for your agents.' : 'No knowledge folders have been created yet.'}</p>
+                <p className="m-0 mb-1 text-md font-semibold text-foreground">No knowledge folders yet</p>
+                <p className="m-0 text-sm text-muted-foreground">{canEdit ? 'Create a folder to start building shared wikis for your agents.' : 'No knowledge folders have been created yet.'}</p>
               </div>
-              {canEdit && <button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }} style={primaryBtnStyle}>Create First Folder</button>}
+              {canEdit && <Button onClick={() => { setFolderForm({ name: '', description: '' }); setShowNewFolder(true); }}>Create First Folder</Button>}
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
-              {folders.map(f => (
+            <>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="relative min-w-[260px] max-w-[420px] flex-1">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={folderSearch}
+                  onChange={e => setFolderSearch(e.target.value)}
+                  placeholder="Search folders..."
+                  className="pl-9"
+                />
+              </div>
+              <div className="text-xs text-muted-foreground">{visibleFolders.length} visible</div>
+            </div>
+            <div className="grid gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+              {visibleFolders.map(f => (
                 <div
                   key={f.id}
                   onClick={() => openFolder(f)}
-                  className="fade-up"
-                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px', cursor: 'pointer', transition: 'box-shadow 0.2s, transform 0.2s, border-color 0.2s', boxShadow: 'var(--shadow-sm)' }}
-                  onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-md)'; el.style.transform = 'translateY(-2px)'; el.style.borderColor = 'var(--border-2)'; }}
-                  onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = 'var(--shadow-sm)'; el.style.transform = 'translateY(0)'; el.style.borderColor = 'var(--border)'; }}
+                  className="fade-up group cursor-pointer rounded-xl border border-border bg-card p-4 shadow-card transition-[border-color,box-shadow,background-color] hover:border-ring/35 hover:bg-secondary/30 hover:shadow-md"
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--text)' }}>
-                      <BookOpen size={18} />
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
+                      <BookOpen size={17} />
                     </div>
                     {folderStats[f.id] && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 99, padding: '2px 9px' }}>
+                      <span className="rounded-md border border-border bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">
                         {folderStats[f.id].sources} source{folderStats[f.id].sources !== 1 ? 's' : ''}
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text)', marginBottom: 4, letterSpacing: '-0.01em' }}>{f.name}</div>
-                  <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, minHeight: 36, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {f.description || <span style={{ fontStyle: 'italic', color: 'var(--subtle)' }}>No description</span>}
+                  <div className="mb-1 text-sm font-semibold tracking-normal text-foreground">{f.name}</div>
+                  <p className="m-0 mb-4 line-clamp-2 min-h-[36px] overflow-hidden text-xs leading-relaxed text-muted-foreground">
+                    {f.description || <span className="italic text-muted-foreground">No description</span>}
                   </p>
-                  <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--subtle)' }}>
+                  <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3 text-2xs text-muted-foreground">
                     {(() => {
                       const st = folderStats[f.id];
                       if (!st) return <span>—</span>;
                       return (
                         <>
                           <span>{st.words >= 1000 ? `${(st.words / 1000).toFixed(1)}k` : st.words} words</span>
-                          {st.lastSynced && <><span style={{ color: 'var(--border-2)' }}>·</span><span>synced {timeAgo(st.lastSynced)}</span></>}
+                          {st.lastSynced && <><span className="text-muted-foreground">·</span><span>synced {timeAgo(st.lastSynced)}</span></>}
                         </>
                       );
                     })()}
-                    <span style={{ marginLeft: 'auto' }}>Owner: {f.createdBy}</span>
+                    <span className="ml-auto">Owner: {f.createdBy}</span>
                   </div>
                 </div>
               ))}
             </div>
+            {visibleFolders.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">
+                No folders match your search.
+              </div>
+            )}
+            </>
           )}
         </div>
 
         {/* Modals */}
         {showNewFolder && (
           <Modal title="New Knowledge Folder" onClose={() => setShowNewFolder(false)}>
-            <label style={labelStyle}>Name</label>
-            <input style={inputStyle} autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createFolder()} placeholder="e.g. Backend API Docs" />
-            <label style={labelStyle}>Description (optional)</label>
-            <input style={inputStyle} value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="folder-name">Name</Label>
+                <Input id="folder-name" autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && createFolder()} placeholder="e.g. Backend API Docs" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="folder-description">Description</Label>
+                <Input id="folder-description" value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+              </div>
+            </div>
             <ModalFooter onCancel={() => setShowNewFolder(false)} onSave={createFolder} saving={saving} saveLabel="Create Folder" disabled={!folderForm.name.trim()} />
           </Modal>
         )}
@@ -523,59 +581,66 @@ export default function KnowledgePage() {
 
   // ── Folder detail view (agent-page style) ─────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh' }} className="fade-up">
+    <div className="fade-up min-h-screen">
 
       {/* Top bar */}
-      <div style={{ padding: '28px 40px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <div className="shrink-0 border-b border-border bg-background/80 px-6 pt-6">
+        <div>
         {/* Breadcrumb */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 12, color: 'var(--muted)' }}>
-          <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, padding: 0 }}>Knowledge Library</button>
-          <span style={{ color: 'var(--subtle)' }}>/</span>
-          <span style={{ color: 'var(--text)' }}>{selected.name}</span>
+        <div className="mb-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <button onClick={() => setSelected(null)} className="cursor-pointer border-none bg-none p-0 text-xs text-muted-foreground">Knowledge Library</button>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-foreground">{selected.name}</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.02em' }}>{selected.name}</h1>
-            {selected.description && <p style={{ margin: '3px 0 0', fontSize: 13, color: 'var(--muted)' }}>{selected.description}</p>}
-            <div style={{ fontSize: 11.5, color: 'var(--subtle)', marginTop: 4 }}>Owner: <span style={{ fontWeight: 500, color: 'var(--muted)' }}>{selected.createdBy}</span></div>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="m-0 text-xl font-semibold tracking-normal text-foreground">{selected.name}</h1>
+            {selected.description && <p className="mt-1 text-sm text-muted-foreground">{selected.description}</p>}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
+              <span>Owner: <span className="font-medium text-foreground">{selected.createdBy}</span></span>
+              <span className="text-border">·</span>
+              <span>{sources.length} source{sources.length === 1 ? '' : 's'}</span>
+              <span className="text-border">·</span>
+              <span>{wikiPages.length} article{wikiPages.length === 1 ? '' : 's'}</span>
+            </div>
           </div>
           {canManageSelected && (
-            <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+            <div className="flex shrink-0 items-center gap-2">
               {/* Edit icon */}
               <button
                 title="Edit folder"
                 onClick={() => { setFolderForm({ name: selected.name, description: selected.description ?? '' }); setEditingFolder(selected); }}
                 disabled={folderIsBuilding}
-                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 7, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', opacity: folderIsBuilding ? 0.4 : 1, color: 'var(--muted)', flexShrink: 0 }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Pencil size={14} />
               </button>
 
               {/* Build Wiki split button */}
-              <div style={{ position: 'relative' }}>
-                <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden' }}>
-                  <button
+              <div className="relative">
+                <div className="flex overflow-hidden rounded-md">
+                  <Button
                     onClick={() => buildFolder(false)}
                     disabled={folderIsBuilding}
-                    style={{ ...primaryBtnStyle, borderRadius: 0, borderRight: '1px solid rgba(255,255,255,0.2)', opacity: folderIsBuilding ? 0.6 : 1 }}
+                    className="rounded-none border-r border-white/20"
                   >
                     {folderIsBuilding ? 'Building…' : 'Build Wiki'}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={() => setShowBuildDropdown(v => !v)}
                     disabled={folderIsBuilding}
-                    style={{ ...primaryBtnStyle, borderRadius: 0, padding: '9px 10px', opacity: folderIsBuilding ? 0.6 : 1 }}
+                    className="rounded-none px-2.5"
                   >
                     <ChevronDown size={14} />
-                  </button>
+                  </Button>
                 </div>
                 {showBuildDropdown && !folderIsBuilding && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-md)', zIndex: 100, minWidth: 200, overflow: 'hidden' }}>
-                    <button onClick={() => buildFolder(false)} style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '10px 16px', textAlign: 'left', fontSize: 13, color: 'var(--text)', cursor: 'pointer' }}>
+                  <div className="absolute right-0 top-full z-[100] mt-1 min-w-[200px] overflow-hidden rounded-md border border-border bg-card shadow-md">
+                    <button onClick={() => buildFolder(false)} className="block w-full cursor-pointer border-none bg-none px-4 py-2.5 text-left text-sm text-foreground hover:bg-secondary">
                       Build pending / stale
                     </button>
-                    <button onClick={() => buildFolder(true)} style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '10px 16px', textAlign: 'left', fontSize: 13, color: 'var(--red)', cursor: 'pointer' }}>
+                    <button onClick={() => buildFolder(true)} className="block w-full cursor-pointer border-none bg-none px-4 py-2.5 text-left text-sm text-red hover:bg-secondary">
                       Rebuild from scratch
                     </button>
                   </div>
@@ -587,7 +652,7 @@ export default function KnowledgePage() {
                 title="Delete folder"
                 onClick={() => deleteFolder(selected.id)}
                 disabled={folderIsBuilding}
-                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 7, cursor: folderIsBuilding ? 'not-allowed' : 'pointer', opacity: folderIsBuilding ? 0.4 : 1, color: 'var(--red)', flexShrink: 0 }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-red hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Trash2 size={14} />
               </button>
@@ -596,12 +661,20 @@ export default function KnowledgePage() {
         </div>
 
         {/* Tab bar */}
-        <div style={{ display: 'flex', gap: 0, overflowX: 'auto' }}>
+        <div className="flex gap-0">
           {(['sources', 'wiki'] as const).map(tab => (
-            <button key={tab} onClick={() => switchTab(tab)} className={detailTab === tab ? 'tab-active' : ''} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', fontSize: 13, color: detailTab === tab ? 'var(--text)' : 'var(--muted)', fontWeight: detailTab === tab ? 500 : 400, transition: 'color 0.15s', fontFamily: 'var(--font-sans)' }}>
+            <button
+              key={tab}
+              onClick={() => switchTab(tab)}
+              className={cn(
+                'cursor-pointer border-none bg-none px-3.5 py-2.5 font-sans text-sm transition-colors',
+                detailTab === tab ? 'tab-active font-medium text-foreground' : 'text-muted-foreground',
+              )}
+            >
               {tab === 'sources' ? `Sources (${sources.length})` : 'Built Wiki'}
             </button>
           ))}
+        </div>
         </div>
       </div>
 
@@ -611,75 +684,87 @@ export default function KnowledgePage() {
       )}
 
       {/* Tab content */}
-      <div style={{ padding: '28px 40px' }}>
+      <div className="px-6 py-6">
 
         {/* ── Sources tab ── */}
         {detailTab === 'sources' && (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Knowledge Sources</div>
-              {canManageSelected && <button onClick={openAddSource} style={outlineBtnStyle}>+ Add Source</button>}
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/45 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                  <FileStack size={15} />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    Knowledge sources
+                    <span className="rounded-md border border-border bg-card px-1.5 py-px text-2xs font-medium text-muted-foreground">{sources.length}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Raw inputs compiled into this folder&apos;s generated wiki.</p>
+                </div>
+              </div>
+              {canManageSelected && <Button variant="outline" size="sm" onClick={openAddSource}>+ Add Source</Button>}
             </div>
             {sourcesLoading ? (
-              <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+              <div className="px-4 py-8 text-sm text-muted-foreground">Loading…</div>
             ) : sources.length === 0 ? (
-              <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+              <div className="px-6 py-10 text-center text-sm text-muted-foreground">
                 {canManageSelected ? 'No sources yet. Add a URL, file, or Git repo, then click Build Wiki.' : 'No sources added yet.'}
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="divide-y divide-border">
                 {sources.map(s => {
                   const isSyncing = syncStatus[s.id] === 'building' || s.status === 'building';
                   const disabled = folderIsBuilding;
-                  const iconBtn = (color = 'var(--muted)'): React.CSSProperties => ({
-                    width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
-                    cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1,
-                    color, flexShrink: 0,
-                  });
+                  const iconBtnClass = cn(
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground',
+                    disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-secondary hover:text-foreground',
+                  );
                   return (
-                    <div key={s.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
+                    <div key={s.id} className="grid gap-3 px-4 py-3.5 transition-colors hover:bg-secondary/35 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
                       {/* Left: info */}
-                      <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="min-w-0">
                         {/* Row 1: type icon + name */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                          <span style={{ color: 'var(--muted)', flexShrink: 0, display: 'flex' }}>{SOURCE_TYPE_ICON[s.type]}</span>
-                          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                        <div className="mb-1 flex items-center gap-2">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">{SOURCE_TYPE_ICON[s.type]}</span>
+                          <span className="overflow-hidden truncate whitespace-nowrap text-sm font-semibold text-foreground">{s.name}</span>
+                          <span className="rounded-md border border-border bg-secondary px-1.5 py-px font-mono text-2xs font-semibold uppercase text-muted-foreground">{s.type}</span>
                         </div>
                         {/* Row 2: url/path */}
-                        <div style={{ fontSize: 11.5, color: 'var(--subtle)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
+                        <div className="mb-1.5 max-w-[700px] overflow-hidden truncate whitespace-nowrap font-mono text-2xs text-muted-foreground">
                           {s.url || s.repoUrl || (s.content ? `${s.content.slice(0, 80)}…` : '—')}
                         </div>
                         {/* Row 3: status dot + word count + last synced */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLOR[s.status] ?? '#a3a3a3', flexShrink: 0, display: 'inline-block' }} />
-                            <span style={{ fontSize: 11.5, color: STATUS_COLOR[s.status] ?? '#a3a3a3', fontWeight: 500 }}>{s.status}</span>
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <span className="flex items-center gap-1.5">
+                            <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[s.status] ?? '#a3a3a3' }} />
+                            <span className="text-2xs font-medium" style={{ color: STATUS_COLOR[s.status] ?? '#a3a3a3' }}>{s.status}</span>
                           </span>
                           {s.wordCount > 0 && (
-                            <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>{s.wordCount.toLocaleString()} words</span>
+                            <span className="text-2xs text-muted-foreground">{s.wordCount.toLocaleString()} words</span>
                           )}
                           {s.lastSynced && (
-                            <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>synced {timeAgo(s.lastSynced)}</span>
+                            <span className="text-2xs text-muted-foreground">synced {timeAgo(s.lastSynced)}</span>
                           )}
                         </div>
                       </div>
                       {/* Right: icon actions */}
                       {canManageSelected && (
-                        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                        <div className="flex shrink-0 items-center justify-end gap-1.5">
                           <button
                             title={isSyncing ? 'Syncing…' : 'Sync source'}
                             onClick={() => !isSyncing && !disabled && syncSource(s.id)}
                             disabled={disabled}
-                            style={iconBtn(isSyncing ? STATUS_COLOR.building : 'var(--muted)')}
+                            className={iconBtnClass}
+                            style={{ color: isSyncing ? STATUS_COLOR.building : undefined }}
                           >
-                            <RefreshCw size={13} style={isSyncing ? { animation: 'spin 1s linear infinite' } : undefined} />
+                            <RefreshCw size={13} className={cn(isSyncing && 'animate-spin')} />
                           </button>
                           <button
                             title="Edit source"
                             onClick={() => openEditSource(s)}
                             disabled={disabled}
-                            style={iconBtn()}
+                            className={cn(iconBtnClass, 'text-muted-foreground')}
                           >
                             <Pencil size={13} />
                           </button>
@@ -687,7 +772,7 @@ export default function KnowledgePage() {
                             title="Delete source"
                             onClick={() => deleteSource(s.id, s.name)}
                             disabled={disabled}
-                            style={iconBtn('var(--red)')}
+                            className={cn(iconBtnClass, 'text-red')}
                           >
                             <Trash2 size={13} />
                           </button>
@@ -698,59 +783,72 @@ export default function KnowledgePage() {
                 })}
               </div>
             )}
+            </section>
           </>
         )}
 
         {/* ── Built Wiki tab ── */}
         {detailTab === 'wiki' && (
-          wikiLoading ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+          wikiLoading ? <div className="text-sm text-muted-foreground">Loading…</div>
           : wikiPages.length === 0 ? (
-            <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-              No wiki pages built yet.{canManageSelected && ' Add sources then click Build Wiki.'}
+            <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground shadow-card">
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
+                <BookOpen size={20} />
+              </div>
+              <p className="m-0 text-sm font-semibold text-foreground">No wiki pages built yet</p>
+              <p className="m-0 mt-1 text-xs text-muted-foreground">{canManageSelected ? 'Add sources, then build the wiki to generate articles.' : 'This folder has not been built yet.'}</p>
             </div>
           ) : (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                <BookOpen size={14} style={{ color: 'var(--muted)' }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Wiki</span>
-                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>{wikiPages.length} articles</span>
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+              <div className="flex items-center justify-between border-b border-border bg-secondary/45 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                    <BookOpen size={15} />
+                  </span>
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Built wiki</div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{wikiPages.length} generated article{wikiPages.length === 1 ? '' : 's'}</p>
+                  </div>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 14, height: 480 }}>
+              <div className="grid min-h-[560px] md:grid-cols-[280px_minmax(0,1fr)]">
                 {/* Sidebar — file tree */}
-                <div style={{ width: 220, flexShrink: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Articles</span>
-                    <span style={{ fontSize: 10, color: 'var(--subtle)' }}>{wikiPages.length}</span>
+                <div className="flex min-h-[320px] flex-col overflow-hidden border-b border-border bg-card md:border-b-0 md:border-r">
+                  <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
+                    <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">Articles</span>
+                    <span className="text-2xs text-muted-foreground">{wikiPages.length}</span>
                   </div>
                   <WikiTree articles={wikiPages} onSelect={viewArticle} selected={selectedArticle} />
                 </div>
 
                 {/* Main — article content */}
-                <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div className="flex min-w-0 flex-col overflow-hidden bg-card">
                   {selectedArticle ? (
                     <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-                        <FileText size={13} style={{ color: 'var(--muted)' }} />
-                        <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, fontFamily: 'var(--font-mono)' }}>{selectedArticle}</span>
+                      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+                        <FileText size={13} className="text-muted-foreground" />
+                        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs font-medium text-foreground">{selectedArticle}</span>
                       </div>
-                      <div style={{ flex: 1, padding: '16px 18px', overflow: 'auto' }}>
+                      <div className="flex-1 overflow-auto px-6 py-5">
                         {loadingArticle ? (
-                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</div>
+                          <div className="text-xs text-muted-foreground">Loading…</div>
                         ) : (
-                          <pre style={{ margin: 0, fontSize: 12.5, lineHeight: 1.7, color: 'var(--text)', fontFamily: 'var(--font-sans)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{articleContent}</pre>
+                          <pre className="m-0 max-w-[820px] whitespace-pre-wrap break-words font-sans text-sm leading-6 text-foreground">{articleContent}</pre>
                         )}
                       </div>
                     </>
                   ) : (
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-                      <BookOpen size={28} style={{ color: 'var(--border-2)' }} />
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Select an article to view</p>
-                      <p style={{ margin: 0, fontSize: 11, color: 'var(--subtle)' }}>Browse the folder tree on the left</p>
+                    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
+                        <BookOpen size={24} />
+                      </div>
+                      <p className="m-0 text-sm font-semibold text-foreground">Select an article</p>
+                      <p className="m-0 max-w-[260px] text-xs text-muted-foreground">Choose a generated page from the article tree to inspect the compiled knowledge.</p>
                     </div>
                   )}
                 </div>
               </div>
-            </div>
+            </section>
           )
         )}
       </div>
@@ -758,62 +856,109 @@ export default function KnowledgePage() {
       {/* ── Edit Folder Modal ── */}
       {editingFolder && (
         <Modal title="Edit Folder" onClose={() => setEditingFolder(null)}>
-          <label style={labelStyle}>Name</label>
-          <input style={inputStyle} autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && saveEditFolder()} />
-          <label style={labelStyle}>Description</label>
-          <input style={inputStyle} value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-folder-name">Name</Label>
+              <Input id="edit-folder-name" autoFocus value={folderForm.name} onChange={e => setFolderForm(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === 'Enter' && saveEditFolder()} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-folder-description">Description</Label>
+              <Input id="edit-folder-description" value={folderForm.description} onChange={e => setFolderForm(p => ({ ...p, description: e.target.value }))} placeholder="What this folder contains" />
+            </div>
+          </div>
           <ModalFooter onCancel={() => setEditingFolder(null)} onSave={saveEditFolder} saving={saving} saveLabel="Save" disabled={!folderForm.name.trim()} />
         </Modal>
       )}
 
       {/* ── Add / Edit Source Modal ── */}
       {showSourceModal && (
-        <Modal title={editingSource ? 'Edit Source' : 'Add Source'} onClose={() => { setShowSourceModal(false); setEditingSource(null); }}>
-          <label style={labelStyle}>Type</label>
-          <select style={inputStyle} value={sourceForm.type} onChange={e => setSourceForm(p => ({ ...p, type: e.target.value }))} disabled={!!editingSource}>
-            <option value="url">URL</option>
-            <option value="file">File</option>
-            <option value="repo">Git Repository</option>
-          </select>
-          <label style={labelStyle}>Name</label>
-          <input style={inputStyle} autoFocus value={sourceForm.name} onChange={e => setSourceForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. API Reference" />
+        <Modal title={editingSource ? 'Edit source' : 'Add source'} subtitle={editingSource ? 'Update this source metadata or content. Source type cannot be changed after creation.' : 'Add a URL, file, or repository for the wiki builder to compile.'} onClose={() => { setShowSourceModal(false); setEditingSource(null); }}>
+          <div className="mb-5 grid grid-cols-3 gap-2 rounded-lg border border-border bg-secondary p-1">
+            {([
+              { id: 'url', label: 'URL', icon: <Globe size={14} /> },
+              { id: 'file', label: 'File', icon: <FileText size={14} /> },
+              { id: 'repo', label: 'Repo', icon: <GitBranch size={14} /> },
+            ] as const).map(t => {
+              const active = sourceForm.type === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={!!editingSource}
+                  onClick={() => setSourceForm(p => ({ ...p, type: t.id }))}
+                  className={cn(
+                    'inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors',
+                    active ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    editingSource && !active && 'cursor-not-allowed opacity-50',
+                  )}
+                >
+                  {t.icon}{t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <FormBlock title="Identity" description="Use a short, scannable name. This appears in source lists and build progress.">
+            <div className="space-y-1.5 pt-3">
+              <Label htmlFor="source-name">Name</Label>
+              <Input id="source-name" autoFocus value={sourceForm.name} onChange={e => setSourceForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. API Reference" />
+            </div>
+          </FormBlock>
 
           {sourceForm.type === 'url' && (
-            <>
-              <label style={labelStyle}>URL</label>
-              <input style={inputStyle} value={sourceForm.url} onChange={e => setSourceForm(p => ({ ...p, url: e.target.value }))} placeholder="https://docs.example.com" />
-            </>
+            <FormBlock title="Web page" description="Use a public page or documentation URL. The builder will fetch and summarize the content.">
+              <div className="space-y-1.5 pt-3">
+                <Label htmlFor="source-url">URL</Label>
+                <Input id="source-url" value={sourceForm.url} onChange={e => setSourceForm(p => ({ ...p, url: e.target.value }))} placeholder="https://docs.example.com" />
+              </div>
+            </FormBlock>
           )}
 
           {sourceForm.type === 'file' && (
-            <>
-              <label style={labelStyle}>Content</label>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
-                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={fileUploading} style={{ background: 'var(--surface-3)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer', color: 'var(--text)', flexShrink: 0 }}>
-                  {fileUploading ? 'Reading…' : 'Upload file'}
-                </button>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                  {sourceForm.content ? `${sourceForm.content.length.toLocaleString()} chars` : 'or paste below'}
-                </span>
+            <FormBlock title="File content" description="Upload a readable text/PDF file or paste source content directly.">
+              <div className="space-y-1.5 pt-3">
+                <Label htmlFor="source-content">Content</Label>
+                <div className="mb-2 rounded-lg border border-dashed border-border bg-secondary px-3 py-3">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={fileUploading} className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-secondary">
+                    <FileText size={13} />
+                    {fileUploading ? 'Reading…' : 'Choose file'}
+                  </button>
+                  <span className="ml-2 text-2xs text-muted-foreground">
+                    {sourceForm.content ? `${sourceForm.content.length.toLocaleString()} chars` : 'or paste below'}
+                  </span>
+                </div>
+                <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.ts,.js,.py,.go,.rb,.java,.c,.cpp,.h,.pdf" className="hidden" onChange={handleFileSelect} />
+                <Textarea id="source-content" className="min-h-[180px] resize-y font-mono text-xs leading-5" value={sourceForm.content} onChange={e => setSourceForm(p => ({ ...p, content: e.target.value }))} placeholder="Paste content here, or upload a file above…" />
               </div>
-              <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.ts,.js,.py,.go,.rb,.java,.c,.cpp,.h,.pdf" style={{ display: 'none' }} onChange={handleFileSelect} />
-              <textarea style={{ ...inputStyle, minHeight: 140, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 12 }} value={sourceForm.content} onChange={e => setSourceForm(p => ({ ...p, content: e.target.value }))} placeholder="Paste content here, or upload a file above…" />
-            </>
+            </FormBlock>
           )}
 
           {sourceForm.type === 'repo' && (
-            <>
-              <label style={labelStyle}>Repository URL</label>
-              <input style={inputStyle} value={sourceForm.repoUrl} onChange={e => setSourceForm(p => ({ ...p, repoUrl: e.target.value }))} placeholder="https://github.com/org/repo" />
-              <label style={labelStyle}>Branch</label>
-              <input style={inputStyle} value={sourceForm.branch} onChange={e => setSourceForm(p => ({ ...p, branch: e.target.value }))} placeholder="main" />
-              <label style={labelStyle}>PAT env var (private repos only)</label>
-              <select style={inputStyle} value={sourceForm.patEnvRef} onChange={e => setSourceForm(p => ({ ...p, patEnvRef: e.target.value }))}>
-                <option value="">— None (public repo) —</option>
-                {envVarKeys.map(k => <option key={k} value={k}>{k}</option>)}
-                {envVarKeys.length === 0 && <option disabled>No accessible env vars</option>}
-              </select>
-            </>
+            <FormBlock title="Git repository" description="Point to a public repo, or choose a PAT env var for private repositories.">
+              <div className="space-y-1.5 pt-3">
+                <Label htmlFor="source-repo-url">Repository URL</Label>
+                <Input id="source-repo-url" value={sourceForm.repoUrl} onChange={e => setSourceForm(p => ({ ...p, repoUrl: e.target.value }))} placeholder="https://github.com/org/repo" />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1.5fr]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="source-branch">Branch</Label>
+                  <Input id="source-branch" value={sourceForm.branch} onChange={e => setSourceForm(p => ({ ...p, branch: e.target.value }))} placeholder="main" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>PAT env var</Label>
+                  <Select value={sourceForm.patEnvRef || '__none__'} onValueChange={value => setSourceForm(p => ({ ...p, patEnvRef: value === '__none__' ? '' : value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Public repo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None (public repo)</SelectItem>
+                      {envVarKeys.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}
+                      {envVarKeys.length === 0 && <SelectItem value="__empty__" disabled>No accessible env vars</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </FormBlock>
           )}
 
           <ModalFooter onCancel={() => { setShowSourceModal(false); setEditingSource(null); }} onSave={saveSource} saving={saving} saveLabel={editingSource ? 'Save Changes' : 'Add Source'} disabled={!sourceForm.name.trim()} />
@@ -863,53 +1008,49 @@ function BuildProgressPanel({ progress }: { progress?: BuildProgress }) {
   }
 
   return (
-    <div style={{
-      margin: '16px 40px 0', padding: '14px 18px',
-      background: 'rgba(37,99,235,0.07)', border: '1px solid rgba(37,99,235,0.2)',
-      borderRadius: 10, fontSize: 13,
-    }}>
+    <div className="mx-10 mt-4 rounded-lg border border-blue/20 bg-blue/[0.07] px-4 py-3.5 text-sm">
       {/* Top row: what's happening */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#2563eb', animation: 'pulse 1.5s ease-in-out infinite' }} />
-        <span style={{ fontWeight: 500, color: 'var(--text)' }}>
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span className="inline-block h-2 w-2 rounded-full bg-blue" style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+        <span className="font-medium text-foreground">
           {progress?.sourceName
             ? `Building wiki for ${progress.sourceName}`
             : (progress?.step ?? 'Building…')}
         </span>
-        {elapsed && <span style={{ marginLeft: 'auto', color: 'var(--subtle)', fontSize: 12 }}>Elapsed: {elapsed}</span>}
+        {elapsed && <span className="ml-auto text-xs text-muted-foreground">Elapsed: {elapsed}</span>}
       </div>
 
       {/* Source progress bar */}
       {sourcesTotal > 1 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>
+        <div className="mb-2">
+          <div className="mb-1 flex justify-between text-2xs text-muted-foreground">
             <span>Source {sourceIdx + 1} of {sourcesTotal}</span>
             {eta && <span>ETA {eta}</span>}
           </div>
-          <div style={{ height: 4, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${sourcePct}%`, background: '#2563eb', borderRadius: 4, transition: 'width 0.5s' }} />
+          <div className="h-1 overflow-hidden rounded bg-border">
+            <div className="h-full rounded bg-blue transition-[width] duration-500" style={{ width: `${sourcePct}%` }} />
           </div>
         </div>
       )}
 
       {/* Chunk progress */}
       {chunksTotal > 1 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 4 }}>
+        <div className="mb-2">
+          <div className="mb-1 flex justify-between text-2xs text-muted-foreground">
             <span>Chunk {chunkIdx + 1} of {chunksTotal} {chunkElapsed ? `(${chunkElapsed} on this chunk)` : ''}</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+            <span className="font-mono text-2xs">
               Each chunk ≈ 100k chars of source code
             </span>
           </div>
-          <div style={{ height: 4, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${Math.round(((chunkIdx) / chunksTotal) * 100)}%`, background: 'rgba(37,99,235,0.5)', borderRadius: 4, transition: 'width 0.5s' }} />
+          <div className="h-1 overflow-hidden rounded bg-border">
+            <div className="h-full rounded bg-blue/50 transition-[width] duration-500" style={{ width: `${Math.round(((chunkIdx) / chunksTotal) * 100)}%` }} />
           </div>
         </div>
       )}
 
       {/* Detail step */}
       {progress?.step && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+        <div className="font-mono text-2xs text-muted-foreground">
           {progress.step}
           {progress.articlesWritten ? ` · ${progress.articlesWritten} articles written so far` : ''}
         </div>
@@ -918,33 +1059,39 @@ function BuildProgressPanel({ progress }: { progress?: BuildProgress }) {
   );
 }
 
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-  if (!mounted) return null;
-  return createPortal(
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 14, padding: '28px 28px 24px', width: 460, maxWidth: '92vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', border: '1px solid var(--border)' }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 20 }}>{title}</div>
-        {children}
+function FormBlock({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-4 rounded-lg border border-border bg-card">
+      <div className="border-b border-border bg-secondary/45 px-3.5 py-3">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        {description && <p className="m-0 mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>}
       </div>
-    </div>,
-    document.body,
+      <div className="px-3.5 pb-3.5 pt-1">{children}</div>
+    </section>
+  );
+}
+
+function Modal({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[90vh] max-w-[560px] overflow-y-auto p-0">
+        <DialogHeader className="border-b border-border px-5 py-4">
+          <DialogTitle>{title}</DialogTitle>
+          {subtitle && <DialogDescription>{subtitle}</DialogDescription>}
+        </DialogHeader>
+        <div className="px-5 py-5">
+        {children}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function ModalFooter({ onCancel, onSave, saving, saveLabel, disabled }: { onCancel: () => void; onSave: () => void; saving: boolean; saveLabel: string; disabled?: boolean }) {
   return (
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 22 }}>
-      <button onClick={onCancel} style={cancelBtnStyle}>Cancel</button>
-      <button onClick={onSave} disabled={saving || disabled} style={{ ...primaryBtnStyle, opacity: (saving || disabled) ? 0.5 : 1 }}>{saving ? 'Saving…' : saveLabel}</button>
-    </div>
+    <DialogFooter className="sticky bottom-0 -mx-5 -mb-5 mt-5 border-t border-border bg-background px-5 py-4">
+      <Button variant="outline" onClick={onCancel}>Cancel</Button>
+      <Button onClick={onSave} disabled={saving || disabled}>{saving ? 'Saving…' : saveLabel}</Button>
+    </DialogFooter>
   );
 }
-
-const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5, marginTop: 14 };
-const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 10px', fontSize: 13.5, color: 'var(--text)', background: 'var(--surface-2)', outline: 'none' };
-const cancelBtnStyle: React.CSSProperties = { background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer', color: 'var(--text)' };
-const primaryBtnStyle: React.CSSProperties = { background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' };
-const outlineBtnStyle: React.CSSProperties = { background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 14px', fontSize: 13, cursor: 'pointer' };

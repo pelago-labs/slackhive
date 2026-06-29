@@ -4,71 +4,169 @@
 
 /* ─── Design Tokens — Light ──────────────────────────────────────────────────── */
 :root, [data-theme="light"] {
-  --bg:        #fafafa;
+  --bg:        #f7f7f6;
   --surface:   #ffffff;
-  --surface-2: #f5f5f5;
-  --surface-3: #ebebeb;
-  --border:    #e5e5e5;
-  --border-2:  #d4d4d4;
-  --accent:    #171717;
-  --accent-2:  #404040;
+  --surface-2: #f2f2f0;
+  --surface-3: #e8e7e4;
+  --border:    #e1dfda;
+  --border-2:  #cac7c1;
+  --accent:    #20201e;
+  --accent-2:  #45443f;
   --accent-fg: #ffffff;
-  --blue:      #2563eb;
-  --green:     #059669;
-  --red:       #dc2626;
-  --amber:     #d97706;
-  --text:      #0a0a0a;
-  --text-2:    #262626;
-  --muted:     #737373;
-  --subtle:    #a3a3a3;
+  --blue:      #3157c9;
+  --green:     #087f5b;
+  --red:       #c92a2a;
+  --amber:     #b7791f;
+  --text:      #20201e;
+  --text-2:    #383732;
+  --muted:     #6f6c64;
+  --subtle:    #99958d;
+  --text-tertiary: #b7b2aa;   /* dimmest ink — timestamps / de-emphasised meta */
   --font-sans: var(--font-inter), 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: var(--font-jb-mono), 'JetBrains Mono', ui-monospace, monospace;
-  --shadow-sm:    0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md:    0 4px 12px rgba(0,0,0,0.06);
-  --shadow-lg:    0 12px 40px rgba(0,0,0,0.08);
-  --shadow-card:  rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.08) 0px 4px 12px;
-  --shadow-hover: rgba(0,0,0,0.10) 0px 8px 24px;
-  --shadow-modal: 0 20px 60px rgba(0,0,0,0.15);
-  --radius:       10px;
+  /* Linear-style: depth from surface + hairline, not heavy drop shadows. Cards
+     stay near-flat (border does the work); only floating overlays get real lift. */
+  --shadow-sm:    0 1px 2px rgba(16,24,40,0.04);
+  --shadow-md:    0 2px 8px rgba(16,24,40,0.06);
+  --shadow-lg:    0 12px 32px rgba(16,24,40,0.10);
+  --shadow-card:  0 1px 2px rgba(16,24,40,0.04), 0 0 0 1px rgba(16,24,40,0.02);
+  --shadow-hover: 0 8px 20px rgba(16,24,40,0.08);
+  --shadow-modal: 0 20px 56px rgba(16,24,40,0.18);
+  --shadow-focus: 0 0 0 3px rgba(49,87,201,0.14);
+  --radius:       8px;
   --radius-sm:    6px;
-  --radius-md:    14px;
-  --radius-lg:    20px;
-  --radius-xl:    28px;
+  --radius-md:    8px;
+  --radius-lg:    12px;
+  --radius-xl:    16px;
   --red-soft-bg:  #fef2f2;
   --red-soft-border: #fecaca;
   --amber-soft-bg: #fffbeb;
   --amber-soft-border: #fde68a;
+
+  /* ── shadcn token contract (HSL channels) — Light ──────────────────────────
+     Backs the Tailwind color map via hsl(var(--sd-*)). This is the "neutral"
+     ramp, which is exactly our existing palette. Kept under `--sd-*` so the
+     legacy hex tokens above stay intact for un-migrated inline styles. */
+  --sd-background: 60 6% 97%;         /* --bg */
+  --sd-foreground: 60 3% 12%;         /* --text */
+  --sd-card: 0 0% 100%;               /* --surface */
+  --sd-card-foreground: 60 3% 12%;
+  --sd-popover: 0 0% 100%;
+  --sd-popover-foreground: 60 3% 12%;
+  --sd-primary: 60 3% 12%;            /* --accent (brand) */
+  --sd-primary-foreground: 0 0% 98%;
+  --sd-secondary: 60 7% 95%;          /* --surface-2 */
+  --sd-secondary-foreground: 60 3% 12%;
+  --sd-muted: 60 7% 95%;
+  --sd-muted-foreground: 45 5% 41%;   /* --muted text */
+  --sd-accent: 60 7% 95%;             /* subtle hover bg = --surface-2 */
+  --sd-accent-foreground: 60 3% 12%;
+  --sd-destructive: 0 65% 48%;        /* desaturated red */
+  --sd-destructive-foreground: 0 0% 98%;
+  --sd-border: 45 9% 87%;             /* --border */
+  --sd-input: 45 9% 87%;
+  --sd-ring: 226 61% 49%;             /* calm focus ring */
+
+  /* ── Type scale (semantic, baked tracking/line-height lives in tailwind) ──── */
+  --text-2xs: 11px;
+  --text-xs:  12px;
+  --text-sm:  13px;
+  --text-base: 14px;
+  --text-md:  16px;
+  --text-lg:  18px;
+  --text-xl:  20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+
+  /* ── Space scale (strict 4px grid) ─────────────────────────────────────────
+     Tailwind's default spacing already enforces this grid (1=4 … 12=48);
+     these vars exist for any inline holdouts during migration. */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+  /* Desaturated semantic palette (calmer than Tailwind 500/600). Defined as HSL
+     channels so the Tailwind aliases can take `/ <alpha-value>` (bg-blue/10 etc);
+     the hex var() forms are derived for inline-style use. */
+  --blue-hsl:  226 61% 49%;
+  --green-hsl: 160 88% 26%;
+  --red-hsl:   0 65% 48%;
+  --amber-hsl: 37 71% 42%;
+  --blue:  hsl(var(--blue-hsl));
+  --green: hsl(var(--green-hsl));
+  --red:   hsl(var(--red-hsl));
+  --amber: hsl(var(--amber-hsl));
 }
 
 /* ─── Design Tokens — Dark ───────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --bg:        #0a0a0a;
-  --surface:   #141414;
-  --surface-2: #1c1c1c;
-  --surface-3: #262626;
-  --border:    #2a2a2a;
-  --border-2:  #3a3a3a;
-  --accent:    #f5f5f5;
-  --accent-2:  #d4d4d4;
-  --accent-fg: #0a0a0a;
-  --blue:      #3b82f6;
-  --green:     #10b981;
-  --red:       #ef4444;
-  --amber:     #f59e0b;
-  --text:      #f5f5f5;
-  --text-2:    #e5e5e5;
-  --muted:     #a3a3a3;
-  --subtle:    #737373;
-  --shadow-sm:    0 1px 2px rgba(0,0,0,0.2);
-  --shadow-md:    0 4px 12px rgba(0,0,0,0.3);
-  --shadow-lg:    0 12px 40px rgba(0,0,0,0.4);
-  --shadow-card:  rgba(255,255,255,0.03) 0px 0px 0px 1px, rgba(0,0,0,0.2) 0px 2px 6px, rgba(0,0,0,0.3) 0px 4px 12px;
-  --shadow-hover: rgba(0,0,0,0.4) 0px 8px 24px;
-  --shadow-modal: 0 20px 60px rgba(0,0,0,0.5);
+  /* Near-neutral warm-dark ramp (the "standard" app dark look) — lifted off pure
+     black with a clear step between each surface so cards read as distinct panels,
+     not one flat black sheet. Hue ~30° at only ~7% saturation: a faint warmth, not
+     an obvious brown. */
+  --bg:        #191715;
+  --surface:   #211f1c;
+  --surface-2: #2c2926;
+  --surface-3: #393632;
+  --border:    #3c3834;
+  --border-2:  #4c4742;
+  --accent:    #faf6ef;
+  --accent-2:  #ded5c6;
+  --accent-fg: #191715;
+  --blue:      #7292f6;
+  --green:     #35c08c;
+  --red:       #ff6b6b;
+  --amber:     #f6bd4b;
+  --text:      #f8f5f2;
+  --text-2:    #e2dbd5;
+  --muted:     #c0b8af;
+  --subtle:    #9c9186;       /* small labels/captions — AA 4.5+ through surface-2 */
+  --text-tertiary: #80756b;   /* dimmest ink (timestamps/meta) — clears the 3:1 large-text floor */
+  /* Softer black halos + a slightly stronger top hairline: the surfaces lifted off
+     near-black, so the old heavier shadows read too dark against the warm brown. */
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.20);
+  --shadow-md:    0 2px 10px rgba(0,0,0,0.24);
+  --shadow-lg:    0 14px 40px rgba(0,0,0,0.34);
+  --shadow-card:  0 1px 2px rgba(0,0,0,0.20), 0 0 0 1px rgba(255,255,255,0.05);
+  --shadow-hover: 0 10px 28px rgba(0,0,0,0.28);
+  --shadow-modal: 0 24px 64px rgba(0,0,0,0.48);
+  --shadow-focus: 0 0 0 3px rgba(114,146,246,0.22);
   --red-soft-bg:  rgba(239,68,68,0.1);
   --red-soft-border: rgba(239,68,68,0.25);
   --amber-soft-bg: rgba(245,158,11,0.1);
   --amber-soft-border: rgba(245,158,11,0.25);
+
+  /* ── shadcn token contract (HSL channels) — Dark ──────────────────────────── */
+  /* Saturation matched to the legacy hex twins (same lightness) so shadcn panels
+     don't render grayer than adjacent var(--surface)/var(--border) panels. */
+  --sd-background: 30 7% 9%;          /* --bg (near-neutral warm dark) */
+  --sd-foreground: 30 14% 96%;        /* --text */
+  --sd-card: 30 7% 12%;               /* --surface */
+  --sd-card-foreground: 30 14% 96%;
+  --sd-popover: 30 7% 12%;
+  --sd-popover-foreground: 30 14% 96%;
+  --sd-primary: 30 14% 96%;           /* --accent (near-white) */
+  --sd-primary-foreground: 30 7% 11%;
+  --sd-secondary: 30 7% 16%;          /* --surface-2 */
+  --sd-secondary-foreground: 30 14% 96%;
+  --sd-muted: 30 7% 16%;
+  --sd-muted-foreground: 30 12% 72%;  /* --muted text */
+  --sd-accent: 30 7% 16%;
+  --sd-accent-foreground: 30 14% 96%;
+  --sd-destructive: 0 100% 71%;       /* bright red (dark) */
+  --sd-destructive-foreground: 221 39% 11%;
+  --sd-border: 30 7% 22%;             /* --border */
+  --sd-input: 30 7% 22%;
+  --sd-ring: 226 87% 71%;
+
+  /* Desaturated semantic palette — dark. */
+  --blue-hsl:  226 87% 71%;
+  --green-hsl: 157 54% 48%;
+  --red-hsl:   0 100% 71%;
+  --amber-hsl: 39 90% 63%;
+  --blue:  hsl(var(--blue-hsl));
+  --green: hsl(var(--green-hsl));
+  --red:   hsl(var(--red-hsl));
+  --amber: hsl(var(--amber-hsl));
 }
 
 /* ─── Form elements — inherit theme ─────────────────────────────────────────── */
@@ -82,8 +180,20 @@ input, textarea, select {
    (Inter) everywhere so inputs/buttons match the rest of the UI. */
 input, textarea, select, button, option { font-family: inherit; }
 
+/* Sidebar width — driven by a pre-paint <head> script setting [data-sidebar] so a
+   collapsed sidebar paints collapsed on first load (no open→collapse flash). */
+:root { --sidebar-w: 240px; }
+[data-sidebar="collapsed"] { --sidebar-w: 56px; }
+/* On mobile the sidebar is an off-canvas overlay (JS sets isMobile post-mount),
+   so the desktop width var must not apply pre-mount — otherwise a persisted
+   collapsed state pushes content in by 56px for a frame on phone reloads. */
+@media (max-width: 768px) { :root, [data-sidebar="collapsed"] { --sidebar-w: 0px; } }
+
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
+/* Default border color = the theme hairline, so bare `border`/`border-t` utilities
+   (and shadcn primitives) don't fall back to Tailwind's `currentColor`. */
+*, *::before, *::after { border-color: hsl(var(--sd-border)); }
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
 body {
@@ -93,10 +203,21 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'cv11', 'ss01';
   text-rendering: optimizeLegibility;
+}
+
+a, button, input, textarea, select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: var(--shadow-focus);
 }
 
 ::selection { background: rgba(23,23,23,0.12); }
@@ -118,9 +239,10 @@ body {
 
 /* ─── Status pulse ───────────────────────────────────────────────────────────── */
 @keyframes pulse-ring {
-  0%   { box-shadow: 0 0 0 0 rgba(5,150,105,0.45); }
-  70%  { box-shadow: 0 0 0 6px rgba(5,150,105,0); }
-  100% { box-shadow: 0 0 0 0 rgba(5,150,105,0); }
+  /* Halo derived from the themed green so it matches the var(--green) dot in both modes. */
+  0%   { box-shadow: 0 0 0 0 hsl(var(--green-hsl) / 0.45); }
+  70%  { box-shadow: 0 0 0 6px hsl(var(--green-hsl) / 0); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--green-hsl) / 0); }
 }
 .status-running { animation: pulse-ring 2s ease-in-out infinite; }
 
@@ -147,15 +269,23 @@ body {
 }
 
 /* ─── UI kit (components/ui.tsx) ─────────────────────────────────────────────── */
-.ui-card { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+.ui-card { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s, background-color 0.15s; }
 .ui-card-hover { cursor: pointer; }
 /* !important so the hover border/shadow win over the inline base border/boxShadow
    that cards set (inline styles otherwise beat class :hover rules). */
 .ui-card-hover:hover {
   border-color: var(--border-2) !important;
-  box-shadow: var(--shadow-md) !important;
+  box-shadow: var(--shadow-hover) !important;
   transform: translateY(-1px);
 }
+
+/* ─── Trace tree node (LLMOps session view) ──────────────────────────────────── */
+.trace-node { transition: background 0.12s; }
+.trace-node:hover { background: var(--surface-2); }
+
+/* Clickable metric card (e.g. the Sensitive KPI → audit feed). */
+.metric-clickable { cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
+.metric-clickable:hover { border-color: var(--border-2) !important; box-shadow: var(--shadow-sm); }
 
 /* ─── Entrance ───────────────────────────────────────────────────────────────── */
 @keyframes fade-up {
@@ -191,6 +321,12 @@ body {
 .log-debug { color: #737373; }
 .log-warn  { color: #d97706; }
 .log-error { color: #dc2626; }
+/* Dark mode: the light-mode hues above drop to ~2.4–3.4:1 on the dark surfaces.
+   Use the theme's brighter semantic ramp so console/log output stays legible. */
+[data-theme="dark"] .log-info  { color: var(--blue); }
+[data-theme="dark"] .log-debug { color: var(--muted); }
+[data-theme="dark"] .log-warn  { color: var(--amber); }
+[data-theme="dark"] .log-error { color: var(--red); }
 
 /* ─── Mobile overlay backdrop ───────────────────────────────────────────────── */
 .sidebar-overlay {

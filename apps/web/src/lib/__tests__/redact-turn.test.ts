@@ -1,0 +1,67 @@
+/**
+ * @fileoverview Tests for redactTurn (the non-admin server-side trace redaction).
+ * Locks in code-review fixes:
+ *  - redaction runs at level 'all' (masks every flagged range — values + labels).
+ *  - statusMessage (tool error text) is redacted too, not just input/output/reasoning.
+ *
+ * @module web/lib/__tests__/redact-turn
+ */
+import { describe, expect, it } from 'vitest';
+import { redactTurn } from '@/lib/activity-redact';
+import type { TraceTurn, TraceSpan } from '@slackhive/shared';
+
+function span(over: Partial<TraceSpan>): TraceSpan {
+  return {
+    spanId: 's1', parentSpanId: null, kind: 'tool', name: 't', model: null, provider: null,
+    startMs: 0, endMs: 1, durationMs: 1, status: 'ok', statusMessage: null, toolName: 't',
+    inputTokens: null, outputTokens: null, reasoningTokens: null, cacheReadTokens: null,
+    cacheCreationTokens: null, costUsd: null, finishReason: null,
+    input: null, output: null, reasoning: null,
+    sensitive: false, sensitiveCategories: [], sensitiveReason: null, sensitiveSeverity: null,
+    sensitiveLlm: false, sensitiveLlmHits: [],
+    ...over,
+  };
+}
+function turn(spans: TraceSpan[], finalAnswer: string | null = null): TraceTurn {
+  return {
+    activityId: 'a1', agentId: 'ag', agentName: 'Ag', agentSlug: 'ag', status: 'done',
+    startedAt: '2026-01-01 00:00:00', finishedAt: '2026-01-01 00:00:01', messagePreview: null,
+    error: null, initiatorKind: 'user', initiatorHandle: null,
+    delegatedByAgentName: null, delegatedByAgentSlug: null, durationMs: 1,
+    inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    costUsd: 0, finalAnswer, sensitive: false, sensitiveCategories: [], feedback: [], spans,
+  };
+}
+
+describe('redactTurn — non-admin server redaction', () => {
+  it('masks secret + PII values in span output for non-admins', () => {
+    const out = redactTurn(turn([span({ output: 'key sk-ABCDEFGHIJKLMNOPQRSTUV for bob@acme.com' })]));
+    expect(out.spans[0].output).not.toContain('sk-ABCDEFGHIJKLMNOPQRSTUV');
+    expect(out.spans[0].output).not.toContain('bob@acme.com');
+    expect(out.spans[0].output).toContain('[redacted:');
+  });
+
+  it('#2 redacts statusMessage (tool error text), not only input/output/reasoning', () => {
+    const out = redactTurn(turn([span({
+      status: 'error',
+      statusMessage: 'connect failed for bob@acme.com using sk-ABCDEFGHIJKLMNOPQRSTUV',
+    })]));
+    expect(out.spans[0].statusMessage).not.toContain('sk-ABCDEFGHIJKLMNOPQRSTUV');
+    expect(out.spans[0].statusMessage).not.toContain('bob@acme.com');
+  });
+
+  it('#2 strips LLM-detector excerpts from statusMessage as well', () => {
+    const out = redactTurn(turn([span({
+      status: 'error',
+      statusMessage: 'failed: five five five oh one two six',
+      sensitiveLlmHits: [{ text: 'five five five oh one two six', category: 'pii', label: 'pii:phone', severity: 'medium' }],
+    })]));
+    expect(out.spans[0].statusMessage).not.toContain('five five five oh one two six');
+    expect(out.spans[0].sensitiveLlmHits).toEqual([]);
+  });
+
+  it('masks values in the final answer too', () => {
+    const out = redactTurn(turn([span({})], 'here is sk-ABCDEFGHIJKLMNOPQRSTUV'));
+    expect(out.finalAnswer).not.toContain('sk-ABCDEFGHIJKLMNOPQRSTUV');
+  });
+});

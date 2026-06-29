@@ -11,8 +11,13 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { Agent } from '@slackhive/shared';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { Bot, LayoutGrid, GitBranch, Search, ArrowUpDown } from 'lucide-react';
-import { IconTile } from '@/components/ui';
+import { Bot, LayoutGrid, GitBranch, Search, ArrowUpDown, Plus } from 'lucide-react';
+import { PageShell } from '@/components/patterns';
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import { relativeTime } from '@/lib/time';
 
 type SortKey = 'boss-first' | 'name' | 'recent' | 'status';
 const SORT_LABELS: Record<SortKey, string> = {
@@ -22,6 +27,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   'status': 'Status',
 };
 const STATUS_RANK: Record<string, number> = { running: 0, error: 1, stopped: 2, stale: 3 };
+const INLINE_TAG_LIMIT = 6;
 
 // Minimalist deterministic avatar palette — soft pastel background + darker
 // foreground letter, à la Linear / Notion. Low saturation so cards feel calm
@@ -42,24 +48,6 @@ function avatarPalette(name: string): { bg: string; fg: string } {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
   return AVATAR_PALETTES[Math.abs(h) % AVATAR_PALETTES.length];
-}
-
-function relativeTime(iso?: string | null): string | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (!t) return null;
-  const sec = Math.max(1, Math.floor((Date.now() - t) / 1000));
-  if (sec < 30) return 'just now';
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  const mo = Math.floor(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(mo / 12)}y ago`;
 }
 
 const InProgressContext = createContext<Record<string, number>>({});
@@ -201,61 +189,56 @@ export default function Dashboard() {
   const stopped = agents.filter(a => a.status === 'stopped').length;
   const total   = agents.length;
   const bossCount = agents.filter(a => a.isBoss).length;
+  const baseInlineTags = allTags.slice(0, INLINE_TAG_LIMIT);
+  const inlineTags = selectedTag && !baseInlineTags.includes(selectedTag)
+    ? [selectedTag, ...baseInlineTags.slice(0, INLINE_TAG_LIMIT - 1)]
+    : baseInlineTags;
+  const overflowTags = allTags.filter(tag => !inlineTags.includes(tag));
 
   const hasHierarchy = filteredAgents.some(a => a.isBoss) || filteredAgents.some(a => a.reportsTo?.length > 0);
 
   return (
     <InProgressContext.Provider value={inProgressByAgent}>
-    <div style={{ padding: '40px 48px', maxWidth: 1440 }} className="fade-up responsive-pad">
+    <PageShell maxWidth={1440} className="py-5 md:py-6">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 style={{
-            margin: 0, fontSize: 26, fontWeight: 700,
-            letterSpacing: '-0.03em', color: 'var(--text)',
-          }}>
+          <h1 className="m-0 text-2xl font-bold tracking-normal text-foreground">
             {title}
           </h1>
-          <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 14 }}>
+          <p className="mt-1.5 text-sm text-muted-foreground">
             {loading ? 'Loading agents…' : `${running} of ${total} agent${total !== 1 ? 's' : ''} online`}
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="flex items-center gap-2.5">
           {/* Active agent-backend status badge */}
           {claudeStatus && (
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => setStatusOpen(!statusOpen)} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                background: 'var(--surface-2)', border: '1px solid var(--border)',
-                borderRadius: 8, padding: '7px 12px', fontSize: 12,
-                cursor: 'pointer', fontFamily: 'var(--font-sans)', color: 'var(--text)',
-              }}>
-                <span style={{
-                  display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-                  background: claudeStatus.status === 'connected' ? '#10b981'
-                            : claudeStatus.status === 'expired' ? '#f59e0b'
-                            : '#dc2626',
-                }} />
+            <div className="relative">
+              <button
+                onClick={() => setStatusOpen(!statusOpen)}
+                className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
+              >
+                <span className={cn(
+                  'inline-block h-2 w-2 rounded-full',
+                  claudeStatus.status === 'connected' ? 'bg-green'
+                    : claudeStatus.status === 'expired' ? 'bg-amber'
+                    : 'bg-red',
+                )} />
                 {claudeStatus.label ?? 'Backend'} {claudeStatus.status === 'connected' ? 'connected' : claudeStatus.status === 'expired' ? 'expired' : 'disconnected'}
               </button>
               {statusOpen && (
-                <div style={{
-                  position: 'absolute', top: '100%', right: 0, marginTop: 6,
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: 8, padding: '12px 14px', minWidth: 260, zIndex: 100,
-                  boxShadow: 'var(--shadow-md)', fontSize: 12,
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 600, color: 'var(--text)' }}>{claudeStatus.label ?? 'Backend'} Status</span>
-                    <button onClick={() => setStatusOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0 }}>×</button>
+                <div className="absolute right-0 top-full z-[100] mt-1.5 min-w-[260px] rounded-md border border-border bg-card p-3 text-xs shadow-lg">
+                  <div className="mb-2 flex justify-between">
+                    <span className="font-semibold text-foreground">{claudeStatus.label ?? 'Backend'} Status</span>
+                    <button onClick={() => setStatusOpen(false)} className="cursor-pointer border-none bg-none p-0 text-muted-foreground">×</button>
                   </div>
-                  <div style={{ color: 'var(--muted)', lineHeight: 1.6 }}>
-                    <div>Status: <strong style={{ color: 'var(--text)' }}>{claudeStatus.status}</strong></div>
-                    {claudeStatus.source && <div>Source: <strong style={{ color: 'var(--text)' }}>{claudeStatus.source}</strong></div>}
-                    {claudeStatus.expiresIn && <div>Expires in: <strong style={{ color: 'var(--text)' }}>{claudeStatus.expiresIn}</strong></div>}
+                  <div className="leading-relaxed text-muted-foreground">
+                    <div>Status: <strong className="text-foreground">{claudeStatus.status}</strong></div>
+                    {claudeStatus.source && <div>Source: <strong className="text-foreground">{claudeStatus.source}</strong></div>}
+                    {claudeStatus.expiresIn && <div>Expires in: <strong className="text-foreground">{claudeStatus.expiresIn}</strong></div>}
                     {claudeStatus.status !== 'connected' && (
-                      <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 11, lineHeight: 1.5 }}>
+                      <div className="mt-2 rounded-md bg-muted px-2.5 py-2 text-2xs leading-relaxed">
                         {claudeStatus.hint ?? 'Configure credentials in Settings → Agent Backend.'}
                       </div>
                     )}
@@ -266,12 +249,7 @@ export default function Dashboard() {
           )}
           {/* View toggle */}
           {!loading && total > 0 && (
-            <div style={{
-              display: 'flex', alignItems: 'center',
-              background: 'var(--surface-2)', borderRadius: 8,
-              padding: 3, gap: 2,
-              border: '1px solid var(--border)',
-            }}>
+            <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted p-[3px] shadow-sm">
               <ViewBtn active={view === 'hierarchy'} onClick={() => setView('hierarchy')} title="Hierarchy">
                 <GitBranch size={14} />
               </ViewBtn>
@@ -281,131 +259,102 @@ export default function Dashboard() {
             </div>
           )}
           {canEdit && (
-            <Link href="/agents/new" style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7,
-              background: 'var(--accent)', color: 'var(--accent-fg)',
-              padding: '10px 20px', borderRadius: 8,
-              fontSize: 13.5, fontWeight: 500, textDecoration: 'none',
-              boxShadow: 'var(--shadow-sm)',
-              transition: 'opacity 0.15s, transform 0.15s',
-            }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; }}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-              </svg>
-              New Agent
-            </Link>
+            <Button asChild>
+              <Link href="/agents/new">
+                <Plus size={14} />
+                New Agent
+              </Link>
+            </Button>
           )}
         </div>
       </div>
 
-      {/* ── Inline stats strip ───────────────────────────────────────────── */}
-      {!loading && total > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap',
-          fontSize: 13, color: 'var(--muted)', marginBottom: 18,
-        }}>
-          <Stat n={total} label={`agent${total !== 1 ? 's' : ''}`} />
-          <span style={{ color: 'var(--border-2)' }}>·</span>
-          <Stat n={running} label="running" color="#059669" />
-          <span style={{ color: 'var(--border-2)' }}>·</span>
-          <Stat n={stopped} label="stopped" color={stopped > 0 ? '#a3a3a3' : undefined} />
-          {bossCount > 0 && (
-            <>
-              <span style={{ color: 'var(--border-2)' }}>·</span>
-              <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} />
-            </>
-          )}
-        </div>
-      )}
-
       {/* ── Sticky search + sort + tag filter bar ────────────────────────── */}
       {!loading && total > 0 && (
-        <div style={{
-          position: 'sticky', top: 0, zIndex: 20,
-          background: 'var(--bg)', paddingTop: 4, paddingBottom: 14, marginBottom: 18,
-          borderBottom: '1px solid var(--border)',
-          boxShadow: scrolled ? '0 4px 12px -8px rgba(0,0,0,0.12)' : 'none',
-          transition: 'box-shadow 0.18s ease',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: allTags.length > 0 ? 12 : 0 }}>
+        <div className={cn(
+          'sticky top-0 z-20 mb-4 bg-background/95 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/85 transition-shadow duration-200',
+          scrolled && 'shadow-[0_8px_20px_-16px_rgba(16,24,40,0.24)]',
+        )}>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+              <Stat n={total} label={`agent${total !== 1 ? 's' : ''}`} />
+              <Stat n={running} label="running" colorClass="text-green" />
+              <Stat n={stopped} label="stopped" colorClass={stopped > 0 ? 'text-muted-foreground' : undefined} />
+              {bossCount > 0 && <Stat n={bossCount} label={bossCount === 1 ? 'boss' : 'bosses'} />}
+            </div>
+
             {/* Search */}
-            <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
-              <Search size={14} style={{
-                position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-                color: 'var(--subtle)', pointerEvents: 'none',
-              }} />
-              <input
+            <div className="relative min-w-[240px] flex-1">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
                 type="search"
                 placeholder="Search agents…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                style={{
-                  width: '100%', height: 34, padding: '0 12px 0 34px',
-                  fontSize: 13, color: 'var(--text)',
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8, outline: 'none',
-                  fontFamily: 'var(--font-sans)',
-                }}
+                className="pl-9"
               />
             </div>
+
             {/* Sort */}
-            <div style={{ position: 'relative' }}>
+            <div className="relative">
               <button
                 onClick={() => setSortOpen(!sortOpen)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  height: 34, padding: '0 12px',
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: 8, cursor: 'pointer',
-                  fontSize: 12.5, color: 'var(--text)', fontFamily: 'var(--font-sans)',
-                }}
+                className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
               >
                 <ArrowUpDown size={13} />
                 {SORT_LABELS[sort]}
               </button>
               {sortOpen && (
-                <div style={{
-                  position: 'absolute', top: '100%', right: 0, marginTop: 4,
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: 8, padding: 4, minWidth: 180, zIndex: 30,
-                  boxShadow: 'var(--shadow-md)',
-                }}>
+                <div className="absolute right-0 top-full z-30 mt-1 min-w-[180px] rounded-md border border-border bg-card p-1 shadow-lg">
                   {(Object.keys(SORT_LABELS) as SortKey[]).map(k => (
                     <button
                       key={k}
                       onClick={() => { setSort(k); setSortOpen(false); }}
-                      style={{
-                        display: 'block', width: '100%', textAlign: 'left',
-                        padding: '7px 10px', fontSize: 12.5,
-                        background: sort === k ? 'var(--surface-2)' : 'transparent',
-                        color: 'var(--text)', border: 'none', borderRadius: 6,
-                        cursor: 'pointer', fontWeight: sort === k ? 600 : 400,
-                      }}
+                      className={cn(
+                        'block w-full rounded-md px-2.5 py-[7px] text-left text-xs text-foreground',
+                        sort === k ? 'bg-muted font-semibold' : 'bg-transparent font-normal',
+                      )}
                     >{SORT_LABELS[k]}</button>
                   ))}
                 </div>
               )}
             </div>
             {/* Match count */}
-            <span style={{ fontSize: 12, color: 'var(--subtle)', marginLeft: 'auto' }}>
+            <span className="ml-auto text-xs text-muted-foreground">
               {filteredAgents.length} of {total}
             </span>
+
+            {allTags.length > 0 && (
+              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+                <FilterChip active={selectedTag === null} onClick={() => setSelectedTag(null)}>All</FilterChip>
+                {inlineTags.map(tag => (
+                  <FilterChip key={tag} active={selectedTag === tag} onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}>
+                    {tag}
+                  </FilterChip>
+                ))}
+                {overflowTags.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="inline-flex h-7 shrink-0 cursor-pointer items-center rounded-md border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                        More +{overflowTags.length}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="max-h-[280px] min-w-[190px]">
+                      {overflowTags.map(tag => (
+                        <DropdownMenuCheckboxItem
+                          key={tag}
+                          checked={selectedTag === tag}
+                          onCheckedChange={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                        >
+                          {tag}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            )}
           </div>
-          {/* Tag chips */}
-          {allTags.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-              <FilterChip active={selectedTag === null} onClick={() => setSelectedTag(null)}>All</FilterChip>
-              {allTags.map(tag => (
-                <FilterChip key={tag} active={selectedTag === tag} onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}>
-                  {tag}
-                </FilterChip>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -419,7 +368,7 @@ export default function Dashboard() {
       ) : (
         <GridView agents={filteredAgents} />
       )}
-    </div>
+    </PageShell>
     </InProgressContext.Provider>
   );
 }
@@ -433,15 +382,10 @@ function ViewBtn({ active, onClick, title, children }: {
     <button
       onClick={onClick}
       title={title}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        width: 30, height: 30, borderRadius: 6, border: 'none',
-        background: active ? 'var(--surface)' : 'transparent',
-        color: active ? 'var(--text)' : 'var(--muted)',
-        cursor: 'pointer',
-        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-        transition: 'all 0.15s',
-      }}
+      className={cn(
+        'flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border-none transition-all',
+        active ? 'bg-card text-foreground shadow' : 'bg-transparent text-muted-foreground',
+      )}
     >
       {children}
     </button>
@@ -465,7 +409,7 @@ function HierarchyView({ agents }: { agents: Agent[] }) {
   if (bosses.length === 0) return <GridView agents={agents} label="All Agents" />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 56 }}>
+    <div className="flex flex-col gap-4">
       {bosses.map(boss => (
         <OrgTree key={boss.id} boss={boss} reports={reportMap.get(boss.id) ?? []} />
       ))}
@@ -473,7 +417,7 @@ function HierarchyView({ agents }: { agents: Agent[] }) {
       {standalone.length > 0 && (
         <div>
           <SectionLabel label="Independent" />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
             {standalone.map(a => <AgentCard key={a.id} agent={a} />)}
           </div>
         </div>
@@ -484,80 +428,50 @@ function HierarchyView({ agents }: { agents: Agent[] }) {
 
 function SectionLabel({ label }: { label: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', color: 'var(--subtle)', textTransform: 'uppercase' }}>
+    <div className="mb-5 flex items-center gap-2.5">
+      <div className="text-2xs font-bold uppercase tracking-[0.09em] text-muted-foreground">
         {label}
       </div>
-      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+      <div className="h-px flex-1 bg-border" />
     </div>
   );
 }
 
 function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
   const n = reports.length;
-  // total width of the reports row
   const rowW = n * CARD_W + Math.max(0, n - 1) * CARD_GAP;
-  const bossW = Math.min(360, Math.max(CARD_W, rowW));
-  const V_DROP = 32; // px from boss card bottom to horizontal bar
-  const STUB_H = 20; // px from horizontal bar down to each report card
+  const treeW = Math.max(CARD_W, rowW);
+  const bossOffset = n > 0 ? (treeW - CARD_W) / 2 : 0;
+  const bossCenter = bossOffset + CARD_W / 2;
+  const connectorH = 40;
+  const barY = 24;
+  const reportCenters = Array.from({ length: n }, (_, i) => i * (CARD_W + CARD_GAP) + CARD_W / 2);
 
   return (
-    <div>
-      {/* Boss card — centered over the reports row */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: n > 0 ? 'center' : 'flex-start' }}>
-        <div style={{ width: bossW, maxWidth: '100%' }}>
+    <div className="overflow-x-auto pb-1">
+      <div className="min-w-[260px]" style={{ width: treeW }}>
+        <div style={{ width: CARD_W, marginLeft: bossOffset }}>
           <AgentCard agent={boss} />
         </div>
 
         {n > 0 && (
           <>
-            {/* SVG connector: vertical stem + horizontal bar + stubs */}
-            <svg
-              width={Math.max(rowW, bossW)}
-              height={V_DROP + STUB_H}
-              style={{ display: 'block', overflow: 'visible' }}
-            >
-              {(() => {
-                const svgW = Math.max(rowW, bossW);
-                const stemX = svgW / 2;
-                const barY = V_DROP;
-                // center of each report card
-                const cardCenters = Array.from({ length: n }, (_, i) =>
-                  i * (CARD_W + CARD_GAP) + CARD_W / 2 + (svgW - rowW) / 2
-                );
-                const barX1 = cardCenters[0];
-                const barX2 = cardCenters[n - 1];
-                return (
-                  <g stroke="var(--border-2)" strokeWidth="1.5" fill="none">
-                    {/* Vertical stem from boss */}
-                    <line x1={stemX} y1={0} x2={stemX} y2={barY} />
-                    {/* Horizontal bar */}
-                    {n > 1 && <line x1={barX1} y1={barY} x2={barX2} y2={barY} />}
-                    {/* Stubs down to each card */}
-                    {cardCenters.map((cx, i) => (
-                      <line key={i} x1={cx} y1={barY} x2={cx} y2={barY + STUB_H} />
-                    ))}
-                  </g>
-                );
-              })()}
+            <svg width={treeW} height={connectorH} className="block overflow-visible">
+              <g stroke="var(--border-2)" strokeWidth="1.5" fill="none">
+                <line x1={bossCenter} y1={0} x2={bossCenter} y2={barY} />
+                {n > 1 && <line x1={reportCenters[0]} y1={barY} x2={reportCenters[n - 1]} y2={barY} />}
+                {reportCenters.map((cx, i) => (
+                  <line key={i} x1={cx} y1={barY} x2={cx} y2={connectorH} />
+                ))}
+              </g>
             </svg>
 
-            {/* Reports row */}
-            <div style={{
-              display: 'flex', gap: CARD_GAP, alignItems: 'flex-start',
-              width: Math.max(rowW, bossW),
-            }}>
-              {/* Offset so cards align under SVG stubs */}
-              <div style={{
-                display: 'flex', gap: CARD_GAP,
-                marginLeft: (Math.max(rowW, bossW) - rowW) / 2,
-              }}>
-                {reports.map(agent => (
-                  <div key={agent.id} style={{ width: CARD_W, flexShrink: 0 }}>
-                    <AgentCard agent={agent} compact multiReport={(agent.reportsTo?.length ?? 0) > 1} />
-                  </div>
-                ))}
-              </div>
+            <div className="flex items-start" style={{ gap: CARD_GAP }}>
+              {reports.map(agent => (
+                <div key={agent.id} className="shrink-0" style={{ width: CARD_W }}>
+                  <AgentCard agent={agent} compact multiReport={(agent.reportsTo?.length ?? 0) > 1} />
+                </div>
+              ))}
             </div>
           </>
         )}
@@ -571,11 +485,7 @@ function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
 function GridView({ agents, label }: { agents: Agent[]; label?: string }) {
   if (agents.length === 0) {
     return (
-      <div style={{
-        textAlign: 'center', padding: '48px 24px', color: 'var(--muted)',
-        fontSize: 13, background: 'var(--surface)', borderRadius: 'var(--radius-lg)',
-        border: '1px dashed var(--border)',
-      }}>
+      <div className="rounded-lg border border-dashed border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">
         No agents match the current filters.
       </div>
     );
@@ -583,19 +493,11 @@ function GridView({ agents, label }: { agents: Agent[]; label?: string }) {
   return (
     <>
       {label && (
-        <div style={{
-          fontSize: 11, fontWeight: 600, letterSpacing: '0.06em',
-          color: 'var(--subtle)', textTransform: 'uppercase',
-          marginBottom: 12, paddingLeft: 2,
-        }}>
+        <div className="mb-3 pl-0.5 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           {label}
         </div>
       )}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-        gap: 16,
-      }} className="stagger agent-grid">
+      <div className="stagger agent-grid grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
         {agents.map(agent => (
           <AgentCard key={agent.id} agent={agent} />
         ))}
@@ -630,30 +532,22 @@ function AgentCard({ agent, compact, multiReport }: {
   return (
     <Link
       href={`/agents/${agent.slug}`}
-      className="fade-up agent-card-v2 ui-card ui-card-hover"
-      style={{
-        display: 'block', textDecoration: 'none',
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
-        padding: compact ? '16px 16px 14px' : '18px',
-        boxShadow: 'var(--shadow-sm)',
-        position: 'relative',
-      }}
+      className={cn(
+        'fade-up agent-card-v2 ui-card ui-card-hover relative block min-h-[128px] rounded-lg border border-border bg-card no-underline shadow-card',
+        compact ? 'px-4 pb-3.5 pt-4' : 'p-[18px]',
+      )}
     >
       {/* Avatar + name + status row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: hasDescription ? 8 : 10 }}>
+      <div className={cn('flex items-center gap-2.5', hasDescription ? 'mb-2' : 'mb-2.5')}>
         {/* Avatar wrapper — relative for status dot, no overflow:hidden so dot can sit outside circle */}
-        <div style={{ position: 'relative', flexShrink: 0, width: 44, height: 44 }}>
-          <div style={{
-            width: 44, height: 44,
-            borderRadius: '50%',
-            background: showSlackImage ? 'var(--surface-2)' : palette.bg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 17, fontWeight: 600,
-            color: palette.fg,
-            overflow: 'hidden',
-          }}>
+        <div className="relative h-11 w-11 shrink-0">
+          <div
+            className={cn(
+              'flex h-11 w-11 items-center justify-center overflow-hidden rounded-full text-md font-semibold shadow-sm',
+              showSlackImage && 'bg-muted',
+            )}
+            style={showSlackImage ? undefined : { background: palette.bg, color: palette.fg }}
+          >
             {showSlackImage ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -662,7 +556,7 @@ function AgentCard({ agent, compact, multiReport }: {
                 width={44}
                 height={44}
                 onError={() => setImgFailed(true)}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                className="block h-full w-full rounded-full object-cover"
               />
             ) : (
               agent.name.charAt(0).toUpperCase()
@@ -670,67 +564,39 @@ function AgentCard({ agent, compact, multiReport }: {
           </div>
           {/* Status dot — bottom-right, outside the clipped avatar so it isn't cut off */}
           <span
-            className={displayStatus === 'running' ? 'status-running' : ''}
-            style={{
-              position: 'absolute', bottom: 0, right: 0,
-              width: 11, height: 11, borderRadius: '50%',
-              background: color, border: '2px solid var(--surface)',
-              boxSizing: 'content-box',
-            }}
+            className={cn(
+              'absolute bottom-0 right-0 box-content h-[11px] w-[11px] rounded-full border-2 border-card',
+              displayStatus === 'running' && 'status-running',
+            )}
+            style={{ background: color }}
             title={statusLabel}
           />
         </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            <span style={{
-              fontSize: 14, fontWeight: 600, color: 'var(--text)',
-              letterSpacing: '-0.01em',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              minWidth: 0,
-            }}>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="min-w-0 truncate text-base font-semibold text-foreground">
               {agent.name}
             </span>
             {agent.isBoss && (
-              <span style={{
-                fontSize: 9, fontWeight: 700, letterSpacing: '0.05em',
-                background: 'var(--accent)', color: 'var(--accent-fg)',
-                padding: '1px 5px', borderRadius: 3, textTransform: 'uppercase',
-                flexShrink: 0,
-              }}>Boss</span>
+              <span className="shrink-0 rounded-sm bg-primary px-[5px] py-px text-[9px] font-bold uppercase tracking-[0.05em] text-primary-foreground">Boss</span>
             )}
             {multiReport && (
-              <span style={{
-                fontSize: 9, fontWeight: 600,
-                background: 'var(--surface-2)', color: 'var(--subtle)',
-                border: '1px solid var(--border)',
-                padding: '1px 4px', borderRadius: 3,
-                flexShrink: 0,
-              }}>×2</span>
+              <span className="shrink-0 rounded-sm border border-border bg-muted px-1 py-px text-[9px] font-semibold text-muted-foreground">×2</span>
             )}
           </div>
-          <div style={{
-            fontSize: 11.5, color: 'var(--muted)',
-            display: 'flex', alignItems: 'center', gap: 6, marginTop: 2,
-          }}>
-            <span style={{ color, fontWeight: 500 }}>{statusLabel}</span>
+          <div className="mt-0.5 flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <span className="font-medium" style={{ color }}>{statusLabel}</span>
             {displayStatus === 'running' && lastActive && (
               <>
-                <span style={{ color: 'var(--border-2)' }}>·</span>
+                <span className="text-border">·</span>
                 <span>{lastActive}</span>
               </>
             )}
           </div>
         </div>
         {inProgress > 0 && (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            fontSize: 10, fontWeight: 600, color: '#2563eb',
-            background: 'rgba(37,99,235,0.08)',
-            padding: '2px 6px', borderRadius: 4, flexShrink: 0,
-          }}>
-            <span className="status-running" style={{ width: 5, height: 5, borderRadius: '50%', background: '#2563eb' }} />
+          <span className="inline-flex shrink-0 items-center gap-[3px] rounded-sm bg-blue/10 px-1.5 py-0.5 text-2xs font-semibold text-blue">
+            <span className="status-running h-[5px] w-[5px] rounded-full bg-blue" />
             {inProgress > 1 ? `×${inProgress}` : ''}
           </span>
         )}
@@ -738,44 +604,25 @@ function AgentCard({ agent, compact, multiReport }: {
 
       {/* Description — only if present, no italic placeholder noise */}
       {hasDescription && (
-        <p style={{
-          margin: '0 0 10px', fontSize: 12, color: 'var(--muted)',
-          lineHeight: 1.45,
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        }} title={agent.description}>
+        <p className="mx-0 mb-3 mt-0 truncate text-xs leading-snug text-muted-foreground" title={agent.description}>
           {agent.description}
         </p>
       )}
 
       {/* Tags row + model badge — single line, model never overflows the card */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minHeight: 18, minWidth: 0 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          flex: '0 1 auto', minWidth: 0, overflow: 'hidden',
-        }}>
+      <div className="flex min-h-[18px] min-w-0 items-center gap-[5px]">
+        <div className="flex min-w-0 flex-[0_1_auto] items-center gap-[5px] overflow-hidden">
           {visibleTags.map(tag => (
-            <span key={tag} style={{
-              fontSize: 10, fontWeight: 500, padding: '2px 6px', borderRadius: 4,
-              background: 'var(--surface-2)', color: 'var(--muted)',
-              border: '1px solid var(--border)',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              maxWidth: 110,
-            }}>{tag}</span>
+            <span key={tag} className="max-w-[110px] truncate rounded-sm border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{tag}</span>
           ))}
           {overflowTags > 0 && (
-            <span style={{ fontSize: 10, color: 'var(--subtle)', flexShrink: 0 }}>+{overflowTags}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">+{overflowTags}</span>
           )}
         </div>
-        <span style={{
-          marginLeft: 'auto',
-          fontSize: 10, color: 'var(--subtle)',
-          fontFamily: 'var(--font-mono)',
-          whiteSpace: 'nowrap', flexShrink: 0,
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-        }}>
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
           {modelShort}
           {agent.slackBotUserId && (
-            <span style={{ color: '#059669' }} title={agent.slackBotHandle ? `@${agent.slackBotHandle}` : 'Slack connected'}>●</span>
+            <span className="text-green" title={agent.slackBotHandle ? `@${agent.slackBotHandle}` : 'Slack connected'}>●</span>
           )}
         </span>
       </div>
@@ -785,13 +632,10 @@ function AgentCard({ agent, compact, multiReport }: {
 
 // ── Inline stat + filter chip helpers ─────────────────────────────────────────
 
-function Stat({ n, label, color }: { n: number; label: string; color?: string }) {
+function Stat({ n, label, colorClass }: { n: number; label: string; colorClass?: string }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
-      <strong style={{
-        fontSize: 14, fontWeight: 700, color: color ?? 'var(--text)',
-        fontVariantNumeric: 'tabular-nums',
-      }}>{n}</strong>
+    <span className="inline-flex h-8 items-center gap-[5px] rounded-md border border-border bg-card px-2.5 text-xs text-muted-foreground">
+      <strong className={cn('text-sm font-bold tabular-nums', colorClass ?? 'text-foreground')}>{n}</strong>
       <span>{label}</span>
     </span>
   );
@@ -803,15 +647,12 @@ function FilterChip({ active, onClick, children }: {
   return (
     <button
       onClick={onClick}
-      style={{
-        flexShrink: 0,
-        fontSize: 12, fontWeight: 500, padding: '4px 12px', borderRadius: 20,
-        border: `1px solid ${active ? 'var(--text)' : 'var(--border-2)'}`,
-        cursor: 'pointer',
-        background: active ? 'var(--text)' : 'var(--surface)',
-        color: active ? 'var(--surface)' : 'var(--muted)',
-        transition: 'all 0.15s',
-      }}
+      className={cn(
+        'shrink-0 cursor-pointer rounded-md border px-3 py-1 text-xs font-medium transition-all',
+        active
+          ? 'border-foreground bg-foreground text-background shadow-sm'
+          : 'border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-muted hover:text-foreground',
+      )}
     >{children}</button>
   );
 }
@@ -820,16 +661,16 @@ function FilterChip({ active, onClick, children }: {
 
 function SkeletonGrid() {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
       {[1, 2, 3, 4, 5, 6].map(i => (
-        <div key={i} style={{
-          background: 'var(--surface)', borderRadius: 14, padding: '14px 16px 12px',
-          border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)',
-          opacity: 1 - (i - 1) * 0.12,
-        }}>
-          <div style={{ display: 'flex', gap: 11, marginBottom: 10 }}>
+        <div
+          key={i}
+          className="rounded-lg border border-border bg-card px-4 pb-3 pt-3.5 shadow-sm"
+          style={{ opacity: 1 - (i - 1) * 0.12 }}
+        >
+          <div className="mb-2.5 flex gap-2.5">
             <Skel w={44} h={44} r={12} />
-            <div style={{ flex: 1, paddingTop: 4 }}>
+            <div className="flex-1 pt-1">
               <Skel w="60%" h={14} r={5} mb={6} />
               <Skel w="40%" h={11} r={4} />
             </div>
@@ -844,10 +685,7 @@ function SkeletonGrid() {
 
 function Skel({ w, h, r = 4, mb = 0 }: { w: number | string; h: number; r?: number; mb?: number }) {
   return (
-    <div style={{
-      width: w, height: h, borderRadius: r,
-      background: 'var(--surface-2)', marginBottom: mb,
-    }} />
+    <div className="bg-muted" style={{ width: w, height: h, borderRadius: r, marginBottom: mb }} />
   );
 }
 
@@ -856,58 +694,35 @@ function Skel({ w, h, r = 4, mb = 0 }: { w: number | string; h: number; r?: numb
 function EmptyState() {
   const { canEdit } = useAuth();
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      minHeight: 400, gap: 20, textAlign: 'center',
-    }}>
-      <IconTile size={64} style={{ borderRadius: 18 }}>
+    <div className="flex min-h-[400px] flex-col items-center justify-center gap-5 text-center">
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
         <Bot size={30} />
-      </IconTile>
+      </div>
       <div>
-        <p style={{
-          margin: '0 0 6px', fontSize: 18, fontWeight: 600,
-          color: 'var(--text)', letterSpacing: '-0.02em',
-        }}>
+        <p className="mx-0 mb-1.5 mt-0 text-lg font-semibold tracking-tight text-foreground">
           No agents yet
         </p>
-        <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)', maxWidth: 300 }}>
+        <p className="m-0 max-w-[300px] text-base text-muted-foreground">
           {canEdit ? 'Create your first Claude Code agent and connect it to Slack to get started.' : 'No agents have been configured yet. Ask an admin to set one up.'}
         </p>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="flex items-center gap-2.5">
         {canEdit && (
-          <Link href="/agents/new" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7,
-            background: 'var(--accent)', color: 'var(--accent-fg)',
-            padding: '10px 22px', borderRadius: 8,
-            fontSize: 14, fontWeight: 500, textDecoration: 'none',
-            boxShadow: 'var(--shadow-sm)',
-            transition: 'opacity 0.15s',
-          }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-            </svg>
-            Create First Agent
-          </Link>
+          <Button asChild size="lg">
+            <Link href="/agents/new">
+              <Plus size={14} />
+              Create First Agent
+            </Link>
+          </Button>
         )}
         <a
           href="https://slackhive.mintlify.app/quickstart"
           target="_blank"
           rel="noopener noreferrer"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            color: 'var(--muted)', fontSize: 13, textDecoration: 'none',
-            padding: '10px 14px', borderRadius: 8,
-            transition: 'color 0.15s, background 0.15s',
-          }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text)'; (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+          className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2.5 text-sm text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
         >
           Read the docs
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" className="shrink-0">
             <path d="M6 3h7v7M13 3L5 11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
         </a>

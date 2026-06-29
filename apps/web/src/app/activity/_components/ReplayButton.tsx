@@ -13,6 +13,7 @@
 
 import React, { useState } from 'react';
 import { RotateCcw, Loader2, CheckCircle2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 type ReplayState = 'idle' | 'replaying' | 'done' | 'error';
 
@@ -68,14 +69,11 @@ export function ReplayButton(props: {
       <button
         onClick={handleReplay}
         disabled={busy}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          padding: '5px 12px', borderRadius: 6, border: 'none',
-          background: ok ? 'rgba(5,150,105,0.1)' : 'rgba(220,38,38,0.08)',
-          color: ok ? '#047857' : '#b91c1c',
-          fontSize: 12, fontWeight: 600, cursor: busy ? 'default' : 'pointer',
-          opacity: busy ? 0.7 : 1,
-        }}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-md border-0 px-3 py-1.5 text-xs font-semibold',
+          ok ? 'bg-green/10 text-green' : 'bg-red/10 text-red',
+          busy ? 'cursor-default opacity-70' : 'cursor-pointer',
+        )}
       >
         {icon}
         {label}
@@ -84,33 +82,20 @@ export function ReplayButton(props: {
   }
 
   return (
-    <div style={{ position: 'relative' }}
-      onMouseEnter={e => { const t = e.currentTarget.querySelector<HTMLElement>('[data-tip]'); if (t) t.style.opacity = '1'; }}
-      onMouseLeave={e => { const t = e.currentTarget.querySelector<HTMLElement>('[data-tip]'); if (t) t.style.opacity = '0'; }}
-    >
+    <div className="group relative">
       <button
         onClick={handleReplay}
         disabled={busy}
         aria-label={label}
-        style={{
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 24, height: 24, borderRadius: 5, border: 'none',
-          background: ok ? 'rgba(5,150,105,0.12)' : 'rgba(220,38,38,0.1)',
-          color: ok ? '#047857' : '#dc2626',
-          cursor: busy ? 'default' : 'pointer',
-          opacity: busy ? 0.5 : 1,
-          flexShrink: 0,
-        }}
+        className={cn(
+          'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-0',
+          ok ? 'bg-green/10 text-green' : 'bg-red/10 text-red',
+          busy ? 'cursor-default opacity-50' : 'cursor-pointer',
+        )}
       >
         {icon}
       </button>
-      <span data-tip style={{
-        position: 'absolute', bottom: '100%', right: 0, marginBottom: 5,
-        background: 'var(--text)', color: 'var(--bg, #fff)',
-        fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-        whiteSpace: 'nowrap', pointerEvents: 'none',
-        opacity: 0, transition: 'opacity 0.12s',
-      }}>
+      <span className="pointer-events-none absolute bottom-full right-0 mb-1 whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 text-2xs font-semibold text-background opacity-0 transition-opacity duration-100 group-hover:opacity-100">
         {label}
       </span>
     </div>

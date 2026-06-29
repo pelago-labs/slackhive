@@ -30,6 +30,7 @@ import type { Codex as CodexClient } from '@openai/codex-sdk';
 import type { Agent, McpServer, McpStdioConfig, Permission, AgentBackend, BackendMessage, AgentPrompt } from '@slackhive/shared';
 import { CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, splitCodexModel, type CodexReasoningEffort } from '@slackhive/shared';
 import { getSession, upsertSession, deleteSession, cleanupStaleSessions, getSetting } from '../db';
+import { reapStaleSessionDirs, markSessionUsed, sessionDirName } from './prune-session-dirs';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
 import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject, CODEX_CAPABILITY_NOTE } from './codex-config';
@@ -163,8 +164,10 @@ export class CodexBackend implements AgentBackend {
    * (Codex skills) copied from the agent root, plus a memory/ dir and knowledge symlink.
    */
   getSessionWorkDir(sessionKey: string): string {
-    const safeName = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeName = sessionDirName(sessionKey);
     const sessionDir = path.join(this.sessionsDir, safeName);
+    // Stamp "last opened" so the 7-day idle prune never reaps an in-use session.
+    markSessionUsed(sessionDir);
 
     if (!fs.existsSync(sessionDir)) {
       fs.mkdirSync(sessionDir, { recursive: true });
@@ -524,6 +527,19 @@ export class CodexBackend implements AgentBackend {
       }
     } catch (error) {
       this.log.warn('Codex session cleanup failed', { error });
+    }
+    try {
+      // Reap idle session dirs (git clones); protect live sessions and evict the
+      // Codex thread cache + doc-mtime cache for anything reaped so a later turn
+      // rebuilds the dir from scratch (AGENTS.md + skills + a fresh thread).
+      const { removed } = reapStaleSessionDirs(
+        this.sessionsDir,
+        this.sessionCache.keys(),
+        [this.sessionCache, this.lastSyncedDocMtime],
+      );
+      if (removed > 0) this.log.info('Reclaimed stale Codex session dirs (git clones)', { count: removed });
+    } catch (error) {
+      this.log.warn('Codex session dir prune failed', { error });
     }
   }
 }

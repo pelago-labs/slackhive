@@ -21,7 +21,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: `
           (function(){var t=localStorage.getItem('slackhive-theme');
           if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
-          document.documentElement.setAttribute('data-theme',t)})()
+          document.documentElement.setAttribute('data-theme',t);
+          try{if(localStorage.getItem('slackhive-sidebar-collapsed')==='1')document.documentElement.setAttribute('data-sidebar','collapsed')}catch(e){}})()
         `}} />
         {/*
           ChunkLoadError auto-recovery for stale tabs after a deploy.

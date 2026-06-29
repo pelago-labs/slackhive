@@ -29,3 +29,39 @@ export function windowFloor(w: string | null): string | undefined {
                   30 * 24 * 60 * 60 * 1000;
   return new Date(Date.now() - ms).toISOString().replace('T', ' ').slice(0, 19);
 }
+
+/**
+ * Turn a UI date/time value into a stored `YYYY-MM-DD HH:MM:SS` (UTC) bound.
+ * Accepts a date (`YYYY-MM-DD`) or a `datetime-local` value
+ * (`YYYY-MM-DDTHH:MM[:SS]`), both interpreted in the runtime's local timezone
+ * (the standalone host's), then normalized to UTC to match stored timestamps.
+ */
+function toBound(d: string | null, endOfDayIfDateOnly: boolean): string | undefined {
+  if (!d) return undefined;
+  const raw = d.length <= 10 ? `${d}T${endOfDayIfDateOnly ? '23:59:59' : '00:00:00'}` : d;
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms)) return undefined;
+  return new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+}
+
+/**
+ * Resolve the time filter from the UI: a preset `window`, or an explicit
+ * `from`/`to` range when `window === 'custom'`. Returns `{ since, until }`
+ * for an ActivityFilter (`until` only set for custom ranges).
+ */
+export function windowBounds(
+  window: string | null,
+  from: string | null,
+  to: string | null,
+): { since?: string; until?: string } {
+  // An explicit from/to range takes precedence over any preset window — the
+  // client may send the dates without a `window=custom` param.
+  // Tolerate a reversed range (e.g. a hand-crafted URL) by swapping the RAW inputs
+  // before deriving bounds, so the start keeps 00:00:00 and the end 23:59:59 (a
+  // post-toBound swap would instead lop ~a day off each end).
+  if (from && to && from > to) { const t = from; from = to; to = t; }
+  const since = toBound(from, false);
+  const until = toBound(to, true);
+  if (since || until) return { since, until };
+  return { since: windowFloor(window) };
+}

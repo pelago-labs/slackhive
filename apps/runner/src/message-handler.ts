@@ -23,6 +23,7 @@ import {
   finishToolCall,
   recordActivityUsage,
   getDb,
+  redactSensitive,
 } from '@slackhive/shared';
 import { getSetting } from './db';
 
@@ -50,6 +51,8 @@ import { isShuttingDown } from './shutdown-signal';
 import { VERBOSE_NARRATION_DIRECTIVE } from './compile-instructions';
 import { getKnownAgentsByBotId } from './agent-registry';
 import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
+import { TurnTracer } from './tracing/turn-tracer';
+import { verifySmartFindings, detectSmartFindings } from './tracing/smart-verify';
 import type { Logger } from 'winston';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 
@@ -249,6 +252,37 @@ export class MessageHandler {
     const recorder = await this.openActivity(msg, text);
     const toolUseIdToDbId = new Map<string, string>();
 
+    // OpenTelemetry span tree for this turn (reasoning → tools → final answer).
+    // Lives alongside the recorder; null when the dashboard is off. Best-effort:
+    // every call is guarded so tracing never breaks the Slack hot path.
+    let turn: TurnTracer | null = null;
+    if (recorder) {
+      try {
+        turn = new TurnTracer({
+          sessionId: recorder.taskId,
+          activityId: recorder.activityId,
+          agentId: this.agent.id,
+          agentName: this.agent.name,
+          provider: this.backend.backend,
+          model: this.agent.model,
+          userMessage: text,
+          initiatorKind: recorder.initiatorKind,
+          initiatorUserId: recorder.initiatorUserId,
+          initiatorHandle: recorder.initiatorHandle,
+          sensitivityCheck: this.agent.sensitivityCheck,
+        });
+      } catch (err) {
+        this.log.warn('trace: begin turn failed', { error: (err as Error).message });
+      }
+    }
+    // Codex emits reasoning as standalone messages before the assistant step;
+    // buffer it and flush into the next generation span.
+    let pendingReasoning = '';
+    // Captured at the `result` message, applied when the turn span closes.
+    let turnUsage: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
+    let turnCostUsd: number | undefined;
+    let turnFinalAnswer: string | undefined;
+
     const sentMessages: string[] = [];
     let lastAssistantText: string | null = null;
     let lastToolResultText: string | null = null;
@@ -262,7 +296,16 @@ export class MessageHandler {
         // Backend reset the conversation (e.g. Codex context overflow) — tell the
         // user, since the agent has lost the earlier thread history.
         if (message.type === 'system' && (message as any).subtype === 'context_reset') {
+          try { turn?.recordEvent('context_reset'); } catch { /* trace best-effort */ }
           await this.adapter.postMessage(channelId, '_Note: I hit my context limit and had to reset this thread — earlier messages are no longer in my memory. Continuing from your latest message._', threadId).catch(() => {});
+          continue;
+        }
+
+        // Trace-only reasoning narration (Codex). Buffer until the next
+        // assistant step, then attach it to that generation span. Never posted.
+        if (message.type === 'reasoning') {
+          const t = (message as any).text;
+          if (typeof t === 'string' && t.trim()) pendingReasoning += (pendingReasoning ? '\n\n' : '') + t;
           continue;
         }
 
@@ -285,6 +328,19 @@ export class MessageHandler {
             .join('');
           if (textContent) lastAssistantText = textContent;
 
+          // Trace this LLM step as a generation span: reasoning (Claude
+          // `thinking` blocks or buffered Codex reasoning) + text + the tools it
+          // decided to call. Spans the gap since the previous step.
+          try {
+            const toolNames = content.filter((b: any) => b.type === 'tool_use').map((b: any) => String(b.name ?? 'unknown'));
+            turn?.recordGeneration({
+              reasoning: thinkingContent || pendingReasoning || undefined,
+              text: textContent || undefined,
+              toolNames,
+            });
+          } catch { /* trace best-effort */ }
+          pendingReasoning = '';
+
           if (hasToolUse) {
             await this.swapReaction(channelId, messageId, sessionKey, 'gear');
             // Record each tool_use — paired with its tool_result below via tool_use_id.
@@ -298,6 +354,7 @@ export class MessageHandler {
                     argsPreview: safeJsonPreview(block.input),
                   });
                   toolUseIdToDbId.set(block.id, tcId);
+                  try { turn?.beginTool(block.id, String(block.name ?? 'unknown'), block.input); } catch { /* trace best-effort */ }
                 } catch (err) {
                   this.log.warn('activity: beginToolCall failed', { error: (err as Error).message });
                 }
@@ -366,6 +423,10 @@ export class MessageHandler {
                   }
                 }
               }
+              // Close the matching tool span (independent of preview text).
+              if (part.type === 'tool_result' && typeof part.tool_use_id === 'string') {
+                try { turn?.endTool(part.tool_use_id, resultText, !!part.is_error); } catch { /* trace best-effort */ }
+              }
             }
           }
         } else if (message.type === 'result') {
@@ -384,12 +445,16 @@ export class MessageHandler {
             const usage = (message as any).usage;
             if (usage) {
               try {
-                await recordActivityUsage(recorder.activityId, usage);
+                await recordActivityUsage(recorder.activityId, usage, this.agent.model);
               } catch (err) {
                 this.log.warn('activity: recordActivityUsage failed', { error: (err as Error).message });
               }
             }
           }
+          // Stash result-level data; applied when the turn span closes below.
+          turnUsage = (message as any).usage ?? turnUsage;
+          if (typeof (message as any).total_cost_usd === 'number') turnCostUsd = (message as any).total_cost_usd;
+          if (typeof resultText === 'string' && resultText.trim()) turnFinalAnswer = resultText;
 
           if ((message as any).subtype === 'success') {
             const finalResult = (message as any).result as string | undefined;
@@ -447,6 +512,20 @@ export class MessageHandler {
       }
 
       if (recorder) await this.closeActivity(recorder.activityId, 'done');
+      try {
+        // Flush any reasoning that arrived after the last assistant step so it
+        // isn't dropped from the trace.
+        if (turn && pendingReasoning) { try { turn.recordGeneration({ reasoning: pendingReasoning }); } catch { /* trace best-effort */ } pendingReasoning = ''; }
+        turn?.end({
+          status: 'ok',
+          finalAnswer: turnFinalAnswer ?? lastAssistantText ?? undefined,
+          inputTokens: turnUsage?.input_tokens,
+          outputTokens: turnUsage?.output_tokens,
+          cacheReadTokens: turnUsage?.cache_read_input_tokens,
+          cacheCreationTokens: turnUsage?.cache_creation_input_tokens,
+          costUsd: turnCostUsd,
+        });
+      } catch { /* trace best-effort */ }
 
     } catch (error: any) {
       if (error?.name === 'AbortError') {
@@ -469,7 +548,37 @@ export class MessageHandler {
         await this.swapReaction(channelId, messageId, sessionKey, 'x');
         if (recorder) await this.closeActivity(recorder.activityId, 'error', error?.message ?? 'unknown error');
       }
+      try {
+        // Capture reasoning emitted right before the failure (the "thinking
+        // before it broke") so the failed turn's trace isn't empty.
+        if (turn && pendingReasoning) { try { turn.recordGeneration({ reasoning: pendingReasoning }); } catch { /* trace best-effort */ } pendingReasoning = ''; }
+        turn?.end({
+          status: 'error',
+          errorMessage: error?.name === 'AbortError' ? 'aborted' : (error?.message ?? 'unknown error'),
+          finalAnswer: turnFinalAnswer ?? lastAssistantText ?? undefined,
+          inputTokens: turnUsage?.input_tokens,
+          outputTokens: turnUsage?.output_tokens,
+          costUsd: turnCostUsd,
+        });
+      } catch { /* trace best-effort */ }
     } finally {
+      // Smart mode (off the hot path, after the reply is sent): (1) confirm the
+      // regex hits and downgrade false positives; (2) independently scan the turn's
+      // content for sensitive data regex missed, flagged "caught by LLM" (report-only).
+      if (turn) {
+        const cands = turn.smartCandidates();
+        const scans = turn.smartScanTargets();
+        // Run verify BEFORE detect (sequentially): both can UPDATE the same span, and
+        // detect's real findings (sensitive=1) must land last so a concurrent verify
+        // downgrade (sensitive=0) can't clobber a genuine LLM-caught value.
+        if (cands.length || scans.length) {
+          const guidance = this.agent.sensitivityGuidance;
+          void (async () => {
+            if (cands.length) await verifySmartFindings(cands);
+            if (scans.length) await detectSmartFindings(scans, guidance);
+          })();
+        }
+      }
       // Only clear the slot if it still holds OUR controller. A newer message for
       // the same session aborts us and overwrites the slot with its own controller;
       // an unconditional delete-by-key here would wipe that live turn's handle, so
@@ -490,7 +599,13 @@ export class MessageHandler {
   private async openActivity(
     msg: IncomingMessage,
     text: string,
-  ): Promise<{ activityId: string } | null> {
+  ): Promise<{
+    activityId: string;
+    taskId: string;
+    initiatorKind: 'user' | 'agent';
+    initiatorUserId?: string;
+    initiatorHandle?: string;
+  } | null> {
     if (!activityDashboardEnabled()) return null;
     const rawPlatform = msg.platform || this.adapter.platform || 'slack';
     if (rawPlatform === 'test') return null;
@@ -522,10 +637,12 @@ export class MessageHandler {
         platform,
         initiatorKind,
         initiatorUserId: msg.userId,
+        initiatorHandle,
         messageRef: msg.id,
         messagePreview: text,
+        model: this.agent.model,
       });
-      return { activityId };
+      return { activityId, taskId, initiatorKind, initiatorUserId: msg.userId, initiatorHandle };
     } catch (err) {
       this.log.warn('activity: openActivity failed', { error: (err as Error).message });
       return null;
@@ -553,14 +670,26 @@ export class MessageHandler {
    * caller can attach feedback controls to that final reply.
    */
   private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<{ ts: string; payload: MessagePayload }> {
-    const payloads = this.adapter.buildPayloads(text);
+    const out = this.maybeRedact(text);
+    const payloads = this.adapter.buildPayloads(out);
     let last: { ts: string; payload: MessagePayload } | undefined;
     for (const payload of payloads) {
       const ts = await this.adapter.postPayload(channelId, payload, threadId);
       last = { ts, payload };
     }
     // buildPayloads always yields ≥1 payload; the fallback keeps the return honest.
-    return last ?? { ts: '', payload: { text } };
+    return last ?? { ts: '', payload: { text: out } };
+  }
+
+  /**
+   * Opt-in enforcement: mask detected secrets / critical+high values in the
+   * agent's outbound reply before it reaches Slack (enabled per-agent via
+   * `enforcementRedaction`). The stored trace keeps the real output; only the
+   * posted message is redacted. Medium-severity PII (email/phone) is left intact.
+   */
+  private maybeRedact(text: string): string {
+    if (!text || !this.agent.enforcementRedaction || this.agent.sensitivityCheck === 'off') return text;
+    return redactSensitive(text, 'text', this.agent.redactionLevel ?? 'secrets');
   }
 
   /** Swap reaction — remove old, add new. */

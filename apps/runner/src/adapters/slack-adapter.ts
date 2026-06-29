@@ -21,7 +21,7 @@ import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment, MessagePayload,
   SlackCredentials,
 } from '@slackhive/shared';
-import { recordMessageFeedback, PAYLOAD_BREAK } from '@slackhive/shared';
+import { recordMessageFeedback, linkActivityReply, findActivityIdByReply, PAYLOAD_BREAK } from '@slackhive/shared';
 import { agentLogger } from '../logger';
 import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
@@ -216,7 +216,9 @@ export class SlackAdapter implements PlatformAdapter {
       if (!userId || !ts) { this.log.warn('Feedback click missing user/ts', { userId, ts }); return; }
       // The clicked button's value, set in feedbackButtonsBlock ('up' | 'down').
       const sentiment: 'up' | 'down' = a.value === 'down' ? 'down' : 'up';
-      const activityId = this.feedbackTargets.get(`${channel}:${ts}`)?.activityId ?? null;
+      // Synchronous map hit only — NO await before the modal opens (trigger_id is
+      // valid only briefly). The durable DB fallback runs after the modal.
+      const mapActivityId = this.feedbackTargets.get(`${channel}:${ts}`)?.activityId ?? null;
       const threadTs: string | undefined = b.message?.thread_ts;
       // On 👎, open the note modal FIRST — trigger_id is valid only briefly. The
       // note path re-upserts the row, so it needs only ts/channel/activity; the
@@ -228,7 +230,7 @@ export class SlackAdapter implements PlatformAdapter {
             view: {
               type: 'modal',
               callback_id: 'fb_note',
-              private_metadata: JSON.stringify({ ts, channel, activityId }),
+              private_metadata: JSON.stringify({ ts, channel, activityId: mapActivityId }),
               title: { type: 'plain_text', text: 'Feedback' },
               submit: { type: 'plain_text', text: 'Send' },
               close: { type: 'plain_text', text: 'Cancel' },
@@ -241,6 +243,9 @@ export class SlackAdapter implements PlatformAdapter {
           });
         } catch (err) { this.log.warn('Feedback modal open failed', { error: (err as Error).message }); }
       }
+      // Now (after the modal) resolve the turn durably: map hit, else the reply→
+      // activity link so a click still attributes correctly after a restart.
+      const activityId = mapActivityId ?? await findActivityIdByReply(ts).catch(() => null);
       // Resolve a permalink lazily, now that someone actually rated (against the
       // thread root so it lands on the conversation). Only clicks pay this cost.
       let permalink: string | null = null;
@@ -285,12 +290,14 @@ export class SlackAdapter implements PlatformAdapter {
         const meta = JSON.parse(view.private_metadata || '{}');
         const userId = (body as any).user?.id;
         if (!userId || !meta.ts) return;
+        // Resolve the turn durably if the click-time map had no hit (post-restart).
+        const activityId = meta.activityId ?? await findActivityIdByReply(meta.ts).catch(() => null);
         // Full upsert (not UPDATE-only): if the click-record hasn't landed yet —
         // or failed — this still writes the 👎 row with the note; otherwise the
         // ON CONFLICT merge attaches the note. The permalink is set by the
         // click-record and preserved here by COALESCE (note path omits it).
         await recordMessageFeedback({
-          agentId: this.agentId, activityId: meta.activityId ?? null,
+          agentId: this.agentId, activityId,
           channel: meta.channel, messageTs: meta.ts,
           raterUserId: userId, raterHandle: await this.handleFor(client, userId),
           sentiment: 'down', note,
@@ -438,12 +445,15 @@ export class SlackAdapter implements PlatformAdapter {
     return blocks.length + 1 > 50 ? null : blocks; // +1 for the feedback control
   }
 
-  /** Remember which message carries the buttons so a click maps to the activity. */
+  /** Remember which message carries the buttons so a click maps to the activity.
+   *  Also persists the link on the activity so a click still resolves after a
+   *  runner restart wipes this in-memory map. */
   private rememberFeedbackTarget(channelId: string, ts: string, activityId: string | null): void {
     if (this.feedbackTargets.size > 2000) {
       this.feedbackTargets.delete(this.feedbackTargets.keys().next().value as string);
     }
     this.feedbackTargets.set(`${channelId}:${ts}`, { activityId });
+    if (activityId) linkActivityReply(activityId, ts).catch(() => { /* best-effort */ });
   }
 
   /**

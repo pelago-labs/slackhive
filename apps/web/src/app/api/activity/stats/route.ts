@@ -12,7 +12,7 @@ import { listTasks, countInProgressByAgent, type ActivityFilter } from '@slackhi
 import { apiError } from '@/lib/api-error';
 import { getSessionFromRequest } from '@/lib/auth';
 import { listAccessibleAgentIds } from '@/lib/db';
-import { windowFloor } from '@/lib/activity-window';
+import { windowBounds } from '@/lib/activity-window';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,15 +34,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const accessibleAgentIds = await listAccessibleAgentIds(session.username, session.role);
 
     const { searchParams } = new URL(req.url);
+    const { since, until } = windowBounds(searchParams.get('window'), searchParams.get('from'), searchParams.get('to'));
     const filter: ActivityFilter = {
       agentId: searchParams.get('agent') ?? undefined,
       userId: searchParams.get('user') ?? undefined,
-      since: windowFloor(searchParams.get('window')),
+      since,
+      until,
       accessibleAgentIds: accessibleAgentIds ?? undefined,
     };
 
     // Fetch up to 500 per column — plenty for the badge number. Filters apply
-    // so the count matches the kanban the user is looking at.
+    // so the count matches the kanban the user is looking at. (The per-agent
+    // analytics panel this route used to feed via getAgentRollup was removed; the
+    // Observability page now provides equivalent rollups through getInsightsRollup.)
     const [active, recent, errored, inProgressByAgent] = await Promise.all([
       listTasks('active', filter, 500, null),
       listTasks('recent', filter, 500, null),

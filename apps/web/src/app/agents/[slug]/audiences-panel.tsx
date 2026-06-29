@@ -10,6 +10,12 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Users, Plus, Trash2, ChevronDown, ChevronRight, Loader2, Save, X, Sparkles, Search, Check, MessageSquareMore } from 'lucide-react';
 import type { AgentGroup } from '@slackhive/shared';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Spinner, EmptyState } from '@/components/patterns';
 
 interface BasicUser {
   id: string;
@@ -56,63 +62,17 @@ function Avatar({ name, size = 28 }: { name: string; size?: number }) {
   return (
     <span
       aria-hidden
+      className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold tracking-[0.02em]"
       style={{
         width: size,
         height: size,
-        borderRadius: 999,
         background: bg,
         color: fg,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
         fontSize: Math.round(size * 0.4),
-        fontWeight: 600,
-        flexShrink: 0,
-        letterSpacing: '0.02em',
       }}
     >
       {initials(name)}
     </span>
-  );
-}
-
-// ─── Switch toggle ────────────────────────────────────────────────────────
-function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => !disabled && onChange(!checked)}
-      style={{
-        width: 36,
-        height: 20,
-        borderRadius: 999,
-        border: 'none',
-        background: checked ? 'var(--accent)' : 'var(--surface-3)',
-        position: 'relative',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        transition: 'background 120ms ease',
-        flexShrink: 0,
-        padding: 0,
-        opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      <span
-        style={{
-          position: 'absolute',
-          top: 2,
-          left: checked ? 18 : 2,
-          width: 16,
-          height: 16,
-          borderRadius: 999,
-          background: '#fff',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-          transition: 'left 120ms ease',
-        }}
-      />
-    </button>
   );
 }
 
@@ -159,41 +119,50 @@ export function AudiencesPanel({ agentId, canEdit }: { agentId: string; canEdit:
   useEffect(() => { refresh(); }, [agentId]);
 
   return (
-    <div style={{ width: '100%' }}>
+    <div className="w-full">
       {/* ── Page header ─────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, marginBottom: 22 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="mb-[22px] flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
             <Users size={20} strokeWidth={2.2} /> Audiences
           </h2>
-          <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13.5, lineHeight: 1.5, maxWidth: 640 }}>
+          <p className="mt-1.5 max-w-[640px] text-sm leading-normal text-muted-foreground">
             Group users so the agent answers them in a different style. Each group's
             instructions are appended in priority order when one of its members messages
             the agent — lower number applies first.
           </p>
         </div>
         {canEdit && (
-          <button onClick={() => setCreating(true)} style={{ ...btnPrimary, flexShrink: 0 }}>
+          <Button onClick={() => setCreating(true)} className="shrink-0">
             <Plus size={14} strokeWidth={2.5} /> New audience
-          </button>
+          </Button>
         )}
       </div>
 
       {error && (
-        <div style={{ padding: '10px 14px', background: 'var(--red-soft-bg)', color: 'var(--red)', border: '1px solid var(--red-soft-border)', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+        <div className="mb-3.5 rounded-md border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive">
           Couldn't load audiences: {error}
         </div>
       )}
 
       {/* ── Group list ──────────────────────────────────────────────── */}
       {loading ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', padding: 24, fontSize: 13 }}>
-          <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Loading…
+        <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+          <Spinner size={16} /> Loading…
         </div>
       ) : groups.length === 0 ? (
-        <EmptyState canEdit={canEdit} onCreate={() => setCreating(true)} />
+        <EmptyState
+          icon={<MessageSquareMore size={20} />}
+          title="No audiences yet"
+          hint="Create your first audience to make the agent respond differently to specific groups of users."
+          action={canEdit && (
+            <Button onClick={() => setCreating(true)}>
+              <Plus size={14} strokeWidth={2.5} /> New audience
+            </Button>
+          )}
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="flex flex-col gap-2.5">
           {groups.map(g => (
             <GroupRow
               key={g.id}
@@ -219,37 +188,6 @@ export function AudiencesPanel({ agentId, canEdit }: { agentId: string; canEdit:
   );
 }
 
-// ─── Empty state ──────────────────────────────────────────────────────────
-function EmptyState({ canEdit, onCreate }: { canEdit: boolean; onCreate: () => void }) {
-  return (
-    <div style={{
-      padding: '48px 24px',
-      textAlign: 'center',
-      border: '1px dashed var(--border-2)',
-      borderRadius: 12,
-      background: 'var(--surface)',
-    }}>
-      <div style={{
-        width: 44, height: 44, borderRadius: 999,
-        background: 'var(--surface-2)', display: 'inline-flex',
-        alignItems: 'center', justifyContent: 'center',
-        marginBottom: 12, color: 'var(--muted)',
-      }}>
-        <MessageSquareMore size={20} />
-      </div>
-      <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text)' }}>No audiences yet</div>
-      <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, maxWidth: 380, marginLeft: 'auto', marginRight: 'auto' }}>
-        Create your first audience to make the agent respond differently to specific groups of users.
-      </div>
-      {canEdit && (
-        <button onClick={onCreate} style={{ ...btnPrimary, marginTop: 16 }}>
-          <Plus size={14} strokeWidth={2.5} /> New audience
-        </button>
-      )}
-    </div>
-  );
-}
-
 // ─── Group row ────────────────────────────────────────────────────────────
 function GroupRow({
   agentId,
@@ -266,43 +204,30 @@ function GroupRow({
   canEdit: boolean;
   onChanged: () => void;
 }) {
-  const [hover, setHover] = useState(false);
   return (
-    <div style={{
-      border: '1px solid var(--border)',
-      borderRadius: 10,
-      background: 'var(--surface)',
-      boxShadow: expanded ? 'var(--shadow-md)' : 'var(--shadow-sm)',
-      transition: 'box-shadow 120ms ease, border-color 120ms ease',
-      overflow: 'hidden',
-    }}>
+    <div
+      className={cn(
+        'overflow-hidden rounded-lg border border-border bg-card transition-shadow',
+        expanded ? 'shadow-md' : 'shadow-sm',
+      )}
+    >
       <button
         onClick={onToggle}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-        style={{
-          all: 'unset',
-          boxSizing: 'border-box',
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '14px 16px',
-          cursor: 'pointer',
-          background: hover && !expanded ? 'var(--surface-2)' : 'transparent',
-          transition: 'background 100ms ease',
-        }}
+        className={cn(
+          'flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors',
+          !expanded && 'hover:bg-secondary',
+        )}
       >
-        <span style={{ color: 'var(--muted)', display: 'inline-flex' }}>
+        <span className="inline-flex text-muted-foreground">
           {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </span>
         <Avatar name={group.name} size={32} />
-        <span style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-base font-semibold text-foreground">
             {group.name}
           </span>
           {group.description && (
-            <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span className="truncate text-xs text-muted-foreground">
               {group.description}
             </span>
           )}
@@ -320,22 +245,14 @@ function GroupRow({
 
 // ─── Pill ─────────────────────────────────────────────────────────────────
 function Pill({ children, tone }: { children: React.ReactNode; tone: 'accent' | 'muted' | 'success' | 'warning' }) {
-  const tones: Record<string, React.CSSProperties> = {
-    accent:  { background: 'var(--surface-3)', color: 'var(--text)' },
-    muted:   { background: 'transparent',      color: 'var(--muted)', border: '1px solid var(--border)' },
-    success: { background: 'rgba(5,150,105,0.10)',  color: 'var(--green)' },
-    warning: { background: 'var(--amber-soft-bg)',  color: 'var(--amber)' },
+  const tones: Record<string, string> = {
+    accent:  'bg-secondary text-foreground',
+    muted:   'bg-transparent text-muted-foreground border border-border',
+    success: 'bg-green/10 text-green',
+    warning: 'bg-amber/10 text-amber',
   };
   return (
-    <span style={{
-      ...tones[tone],
-      fontSize: 11,
-      fontWeight: 500,
-      padding: '3px 9px',
-      borderRadius: 999,
-      whiteSpace: 'nowrap',
-      lineHeight: 1.4,
-    }}>
+    <span className={cn('whitespace-nowrap rounded-full px-2.5 py-[3px] text-2xs font-medium leading-tight', tones[tone])}>
       {children}
     </span>
   );
@@ -347,21 +264,16 @@ function Pill({ children, tone }: { children: React.ReactNode; tone: 'accent' | 
 // per-agent grant (edit / view / trigger). Without this, the picker rendered
 // the user's *platform role* (viewer/editor) — which says nothing about
 // whether they can actually trigger this agent.
-const ACCESS_LEVEL_STYLE: Record<'admin' | 'owner' | 'edit' | 'view' | 'trigger', { bg: string; fg: string }> = {
-  admin:   { bg: 'rgba(220,38,38,0.10)',     fg: '#dc2626' },
-  owner:   { bg: 'rgba(217,119,6,0.10)',     fg: '#d97706' },
-  edit:    { bg: 'rgba(37,99,235,0.10)',     fg: '#2563eb' },
-  view:    { bg: 'var(--surface-3)',         fg: 'var(--text)' },
-  trigger: { bg: 'rgba(5,150,105,0.10)',     fg: 'var(--green)' },
+const ACCESS_LEVEL_STYLE: Record<'admin' | 'owner' | 'edit' | 'view' | 'trigger', string> = {
+  admin:   'bg-red/10 text-red',
+  owner:   'bg-amber/10 text-amber',
+  edit:    'bg-blue/10 text-blue',
+  view:    'bg-secondary text-foreground',
+  trigger: 'bg-green/10 text-green',
 };
 function AccessLevelPill({ level }: { level: 'admin' | 'owner' | 'edit' | 'view' | 'trigger' }) {
-  const s = ACCESS_LEVEL_STYLE[level];
   return (
-    <span style={{
-      background: s.bg, color: s.fg,
-      fontSize: 10.5, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-      padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', lineHeight: 1.4,
-    }}>
+    <span className={cn('whitespace-nowrap rounded-full px-2 py-[3px] text-[10.5px] font-semibold uppercase leading-tight tracking-[0.04em]', ACCESS_LEVEL_STYLE[level])}>
       {level}
     </span>
   );
@@ -557,33 +469,25 @@ function GroupEditor({
   );
 
   return (
-    <div style={{
-      borderTop: '1px solid var(--border)',
-      padding: 22,
-      background: 'var(--surface-2)',
-      display: 'grid',
-      gridTemplateColumns: 'minmax(0, 1fr) minmax(300px, 380px)',
-      gap: 18,
-      alignItems: 'start',
-    }}>
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(300px,380px)] items-start gap-[18px] border-t border-border bg-secondary p-[22px]">
       {/* ── Settings card ──────────────────────────────────────────── */}
-      <section style={card}>
+      <section className={cn(card, 'min-w-0')}>
         {/* Identity */}
         <CardHeader title="Identity" />
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+        <div className="grid grid-cols-[2fr_1fr] gap-3">
           <Field label="Name">
-            <input
+            <Input
               value={draft.name ?? ''}
               disabled={!canEdit}
               onChange={e => { patchDraft({ name: e.target.value }); setSaveError(null); }}
-              style={{ ...inp, border: `1px solid ${saveError?.field === 'name' ? 'var(--red)' : 'var(--border-2)'}` }}
+              className={cn(saveError?.field === 'name' && 'border-destructive')}
             />
             {saveError?.field === 'name' && (
-              <span style={{ color: 'var(--red)', fontSize: 12 }}>{saveError.message}</span>
+              <span className="text-xs text-destructive">{saveError.message}</span>
             )}
           </Field>
           <Field label="Priority" hint="must be unique · lower applies first">
-            <input
+            <Input
               type="number"
               value={draft.priority ?? 100}
               disabled={!canEdit}
@@ -592,19 +496,18 @@ function GroupEditor({
                 patchDraft({ priority: Number.isFinite(n) ? n : 100 });
                 setSaveError(null);
               }}
-              style={{ ...inp, border: `1px solid ${saveError?.field === 'priority' ? 'var(--red)' : 'var(--border-2)'}` }}
+              className={cn(saveError?.field === 'priority' && 'border-destructive')}
             />
             {saveError?.field === 'priority' && (
-              <span style={{ color: 'var(--red)', fontSize: 12 }}>{saveError.message}</span>
+              <span className="text-xs text-destructive">{saveError.message}</span>
             )}
           </Field>
         </div>
         <Field label="Description" hint="optional, internal note">
-          <input
+          <Input
             value={draft.description ?? ''}
             disabled={!canEdit}
             onChange={e => patchDraft({ description: e.target.value })}
-            style={inp}
             placeholder="What sets this audience apart"
           />
         </Field>
@@ -617,26 +520,27 @@ function GroupEditor({
           label="Instructions"
           hint="appended to the agent's prompt for members"
           right={canEdit && (
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={polish}
               disabled={polishing || saving}
-              style={{ ...btnGhost, padding: '5px 10px', height: 28, fontSize: 12 }}
               title={saving ? 'Save in progress…' : (draft.instructions ?? '').trim().length < 8 ? 'Generate from audience name' : 'Polish the current draft'}
             >
-              {polishing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={12} />}
+              {polishing ? <Spinner size={12} /> : <Sparkles size={12} />}
               {polishing ? 'Drafting…' : (draft.instructions ?? '').trim().length < 8 ? 'Generate with AI' : 'Polish with AI'}
-            </button>
+            </Button>
           )}
         >
-          <textarea
+          <Textarea
             value={draft.instructions ?? ''}
             disabled={!canEdit || polishing}
             onChange={e => patchDraft({ instructions: e.target.value })}
             rows={6}
-            style={{ ...inp, fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.55 }}
+            className="resize-y leading-relaxed"
             placeholder="e.g. Keep replies under 3 sentences. Avoid jargon. Address the user as 'Dear colleague'."
           />
-          {polishError && <span style={{ color: 'var(--red)', fontSize: 12 }}>AI polish failed: {polishError}</span>}
+          {polishError && <span className="text-xs text-destructive">AI polish failed: {polishError}</span>}
         </Field>
 
         <ToggleRow
@@ -649,71 +553,66 @@ function GroupEditor({
 
         {/* Footer */}
         {canEdit && (
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: 6,
-            paddingTop: 14,
-            borderTop: '1px solid var(--border)',
-          }}>
-            <button onClick={() => setConfirmDelete(true)} style={btnTextDanger}>
+          <div className="mt-1.5 flex items-center justify-between border-t border-border pt-3.5">
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
               <Trash2 size={13} /> Delete audience
             </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="flex items-center gap-2.5">
               {savedFlash && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--green)' }}>
+                <span className="inline-flex items-center gap-1 text-xs text-green">
                   <Check size={13} strokeWidth={2.5} /> Saved
                 </span>
               )}
               {saveError && !saveError.field && (
-                <span style={{ fontSize: 12, color: 'var(--red)' }}>{saveError.message}</span>
+                <span className="text-xs text-destructive">{saveError.message}</span>
               )}
-              <button
+              <Button
                 onClick={saveMeta}
                 disabled={saving || polishing}
-                style={btnPrimary}
                 title={polishing ? 'AI polish in progress…' : undefined}
               >
-                {saving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />}
+                {saving ? <Spinner size={14} className="text-primary-foreground" /> : <Save size={14} />}
                 Save changes
-              </button>
+              </Button>
             </div>
           </div>
         )}
       </section>
 
       {/* ── Members card ───────────────────────────────────────────── */}
-      <section style={{ ...card, position: 'sticky', top: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+      <section className={cn(card, 'sticky top-4')}>
+        <div className="mb-1 flex items-center justify-between">
           <CardHeader title="Members" inline />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="flex items-center gap-2">
             <Pill tone="muted">{members.length} of {allUsers.length}</Pill>
-            {savingMembers && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />}
+            {savingMembers && <Spinner size={14} />}
           </div>
         </div>
 
-        <div style={{ position: 'relative' }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--subtle)' }} />
-          <input
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
             placeholder="Search users…"
             value={memberSearch}
             onChange={e => setMemberSearch(e.target.value)}
-            style={{ ...inp, paddingLeft: 30 }}
+            className="pl-8"
           />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+        <div className="mt-1 flex flex-col gap-0.5">
           {membersStatus === 'idle' ? (
-            <div style={{ padding: 16, color: 'var(--muted)', fontSize: 13, textAlign: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading members…
+            <div className="inline-flex items-center justify-center gap-1.5 p-4 text-center text-sm text-muted-foreground">
+              <Spinner size={14} /> Loading members…
             </div>
           ) : membersStatus === 'error' ? (
-            <div style={{ padding: 12, color: 'var(--red)', fontSize: 13, textAlign: 'center', background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)', borderRadius: 6 }}>
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-center text-sm text-destructive">
               Couldn't load members. Toggling is disabled until this loads — try collapsing and re-expanding the row.
             </div>
           ) : filtered.length === 0 ? (
-            <div style={{ padding: 16, color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>
+            <div className="p-4 text-center text-sm text-muted-foreground">
               {allUsers.length === 0
                 ? 'No users can trigger this agent yet. Grant access from the Overview tab first.'
                 : 'No matching users.'}
@@ -725,36 +624,24 @@ function GroupEditor({
                 key={u.id}
                 onClick={() => toggleMember(u.id)}
                 disabled={!canEdit}
-                style={{
-                  all: 'unset',
-                  boxSizing: 'border-box',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  cursor: canEdit ? 'pointer' : 'default',
-                  background: selected ? 'var(--surface-2)' : 'transparent',
-                  transition: 'background 100ms ease',
-                }}
-                onMouseEnter={e => { if (canEdit && !selected) e.currentTarget.style.background = 'var(--surface-2)'; }}
-                onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'transparent'; }}
+                className={cn(
+                  'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors',
+                  canEdit ? 'cursor-pointer' : 'cursor-default',
+                  selected ? 'bg-secondary' : 'bg-transparent',
+                  canEdit && !selected && 'hover:bg-secondary',
+                )}
               >
                 <Avatar name={u.username} size={28} />
-                <span style={{ flex: 1, fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{u.username}</span>
+                <span className="flex-1 text-sm font-medium text-foreground">{u.username}</span>
                 {/* Effective access on this agent — admin/owner/edit/view/trigger.
                     listAgentEligibleUsers always populates accessLevel. */}
                 <AccessLevelPill level={u.accessLevel} />
-                <span style={{
-                  width: 18, height: 18, borderRadius: 5,
-                  border: selected ? '1px solid var(--accent)' : '1px solid var(--border-2)',
-                  background: selected ? 'var(--accent)' : 'transparent',
-                  color: 'var(--accent-fg)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}>
+                <span
+                  className={cn(
+                    'inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border text-primary-foreground',
+                    selected ? 'border-primary bg-primary' : 'border-input bg-transparent',
+                  )}
+                >
                   {selected && <Check size={12} strokeWidth={3} />}
                 </span>
               </button>
@@ -764,15 +651,15 @@ function GroupEditor({
       </section>
 
       {confirmDelete && (
-        <div style={modalBackdrop} onClick={() => setConfirmDelete(false)}>
-          <div style={modalCard} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Delete "{group.name}"?</h3>
-            <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 18px', lineHeight: 1.5 }}>
+        <div className={modalBackdrop} onClick={() => setConfirmDelete(false)}>
+          <div className={modalCard} onClick={e => e.stopPropagation()}>
+            <h3 className="text-md font-semibold">Delete "{group.name}"?</h3>
+            <p className="mb-[18px] mt-2.5 text-sm leading-normal text-muted-foreground">
               Members will lose this group's instructions on their next message. This can't be undone.
             </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={() => setConfirmDelete(false)} style={btnGhost}>Cancel</button>
-              <button onClick={deleteGroup} style={btnDanger}>Delete</button>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={deleteGroup}>Delete</Button>
             </div>
           </div>
         </div>
@@ -784,14 +671,7 @@ function GroupEditor({
 // ─── Card primitives ──────────────────────────────────────────────────────
 function CardHeader({ title, inline }: { title: string; inline?: boolean }) {
   return (
-    <div style={{
-      fontSize: 11,
-      fontWeight: 600,
-      color: 'var(--muted)',
-      letterSpacing: '0.06em',
-      textTransform: 'uppercase',
-      marginBottom: inline ? 0 : 6,
-    }}>
+    <div className={cn('text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground', !inline && 'mb-1.5')}>
       {title}
     </div>
   );
@@ -799,11 +679,11 @@ function CardHeader({ title, inline }: { title: string; inline?: boolean }) {
 
 function Field({ label, hint, right, children }: { label: string; hint?: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)' }}>
+    <label className="flex flex-col gap-1.5">
+      <span className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-foreground">
           {label}
-          {hint && <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>· {hint}</span>}
+          {hint && <span className="ml-1.5 font-normal text-muted-foreground">· {hint}</span>}
         </span>
         {right}
       </span>
@@ -820,29 +700,18 @@ function ToggleRow({ checked, onChange, disabled, title, subtitle }: {
   subtitle: string;
 }) {
   return (
-    <div
-      role="group"
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 14,
-        padding: 14,
-        border: '1px solid var(--border)',
-        borderRadius: 8,
-        background: 'var(--surface)',
-      }}
-    >
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{title}</span>
-        <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{subtitle}</span>
+    <div role="group" className="flex items-start gap-3.5 rounded-md border border-border bg-card p-3.5">
+      <div className="flex flex-1 flex-col gap-1">
+        <span className="text-sm font-medium text-foreground">{title}</span>
+        <span className="text-xs leading-normal text-muted-foreground">{subtitle}</span>
       </div>
-      <Switch checked={checked} onChange={onChange} disabled={disabled} />
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
     </div>
   );
 }
 
 function Divider() {
-  return <div style={{ height: 1, background: 'var(--border)', margin: '4px -2px' }} />;
+  return <div className="mx-[-2px] my-1 h-px bg-border" />;
 }
 
 // ─── Create modal ─────────────────────────────────────────────────────────
@@ -915,42 +784,48 @@ function CreateGroupModal({ agentId, onClose, onCreated }: { agentId: string; on
   }
 
   return (
-    <div style={modalBackdrop} onClick={onClose}>
-      <div style={{ ...modalCard, width: 560 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>New audience</h3>
-          <button onClick={onClose} style={iconBtn}><X size={16} /></button>
+    <div className={modalBackdrop} onClick={onClose}>
+      <div className={cn(modalCard, 'w-[560px]')} onClick={e => e.stopPropagation()}>
+        <div className="mb-3.5 flex items-center justify-between">
+          <h3 className="text-md font-semibold">New audience</h3>
+          <button
+            onClick={onClose}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <X size={16} />
+          </button>
         </div>
-        <div style={{ display: 'grid', gap: 12 }}>
+        <div className="grid gap-3">
           <Field label="Name">
-            <input value={name} onChange={e => setName(e.target.value)} style={inp} placeholder="e.g. Marketing" />
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Marketing" />
           </Field>
           <Field label="Description" hint="optional">
-            <input value={description} onChange={e => setDescription(e.target.value)} style={inp} />
+            <Input value={description} onChange={e => setDescription(e.target.value)} />
           </Field>
           <Field label="Priority" hint="lower applies first">
-            <input type="number" value={priority} onChange={e => setPriority(Number(e.target.value))} style={inp} />
+            <Input type="number" value={priority} onChange={e => setPriority(Number(e.target.value))} />
           </Field>
           <Field
             label="Instructions"
             right={(
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={polish}
                 disabled={polishing || saving}
-                style={{ ...btnGhost, padding: '5px 10px', height: 28, fontSize: 12 }}
                 title={instructions.trim().length < 8 ? 'Generate from audience name' : 'Polish the current draft'}
               >
-                {polishing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={12} />}
+                {polishing ? <Spinner size={12} /> : <Sparkles size={12} />}
                 {polishing ? 'Drafting…' : instructions.trim().length < 8 ? 'Generate with AI' : 'Polish with AI'}
-              </button>
+              </Button>
             )}
           >
-            <textarea
+            <Textarea
               value={instructions}
               onChange={e => setInstructions(e.target.value)}
               rows={4}
               disabled={polishing}
-              style={{ ...inp, fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.55 }}
+              className="resize-y leading-relaxed"
               placeholder="e.g. Keep replies brief and avoid technical jargon."
             />
           </Field>
@@ -960,13 +835,13 @@ function CreateGroupModal({ agentId, onClose, onCreated }: { agentId: string; on
             title="Verbose for this audience"
             subtitle="ON: detailed reply for members (overrides agent default). OFF: agent default applies."
           />
-          {error && <div style={{ color: 'var(--red)', fontSize: 13 }}>{error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-            <button onClick={onClose} style={btnGhost}>Cancel</button>
-            <button onClick={submit} disabled={saving} style={btnPrimary}>
-              {saving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />}
+          {error && <div className="text-sm text-destructive">{error}</div>}
+          <div className="mt-2 flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={submit} disabled={saving}>
+              {saving ? <Spinner size={14} className="text-primary-foreground" /> : <Plus size={14} />}
               Create
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -974,109 +849,7 @@ function CreateGroupModal({ agentId, onClose, onCreated }: { agentId: string; on
   );
 }
 
-// ─── Inline styles ────────────────────────────────────────────────────────
-const card: React.CSSProperties = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 10,
-  padding: 18,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 14,
-  minWidth: 0,
-  boxShadow: 'var(--shadow-sm)',
-};
-
-const inp: React.CSSProperties = {
-  padding: '8px 10px',
-  border: '1px solid var(--border-2)',
-  borderRadius: 6,
-  background: 'var(--surface)',
-  color: 'var(--text)',
-  fontSize: 13.5,
-  fontFamily: 'var(--font-sans)',
-  width: '100%',
-  boxSizing: 'border-box',
-  outline: 'none',
-  transition: 'border-color 100ms ease, box-shadow 100ms ease',
-};
-
-const btnBase: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '7px 12px',
-  height: 32,
-  border: '1px solid var(--border-2)',
-  borderRadius: 6,
-  background: 'var(--surface)',
-  color: 'var(--text)',
-  fontSize: 13,
-  fontFamily: 'var(--font-sans)',
-  fontWeight: 500,
-  lineHeight: 1,
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-  transition: 'background 100ms ease, border-color 100ms ease',
-};
-const btnPrimary: React.CSSProperties = {
-  ...btnBase,
-  background: 'var(--accent)',
-  color: 'var(--accent-fg)',
-  border: '1px solid transparent',
-  boxShadow: 'var(--shadow-sm)',
-};
-const btnDanger: React.CSSProperties = {
-  ...btnBase,
-  color: 'var(--red)',
-  borderColor: 'var(--red-soft-border)',
-  background: 'var(--red-soft-bg)',
-};
-const btnTextDanger: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '6px 8px',
-  background: 'transparent',
-  border: 'none',
-  color: 'var(--muted)',
-  fontSize: 12.5,
-  cursor: 'pointer',
-  fontFamily: 'var(--font-sans)',
-  borderRadius: 6,
-};
-const btnGhost: React.CSSProperties = { ...btnBase };
-const iconBtn: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 28,
-  height: 28,
-  border: 'none',
-  background: 'transparent',
-  cursor: 'pointer',
-  color: 'var(--muted)',
-  borderRadius: 6,
-};
-const modalBackdrop: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.4)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 100,
-  backdropFilter: 'blur(2px)',
-};
-const modalCard: React.CSSProperties = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius, 10px)',
-  padding: 22,
-  minWidth: 420,
-  maxWidth: '90vw',
-  maxHeight: '90vh',
-  overflowY: 'auto',
-  boxShadow: 'var(--shadow-modal, 0 20px 60px rgba(0,0,0,0.15))',
-  color: 'var(--text)',
-};
+// ─── Shared className tokens ──────────────────────────────────────────────
+const card = 'flex flex-col gap-3.5 rounded-lg border border-border bg-card p-[18px] shadow-sm';
+const modalBackdrop = 'fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-[2px]';
+const modalCard = 'max-h-[90vh] min-w-[420px] max-w-[90vw] overflow-y-auto rounded-lg border border-border bg-card p-[22px] text-foreground shadow-lg';

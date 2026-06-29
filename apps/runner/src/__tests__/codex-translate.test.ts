@@ -84,18 +84,20 @@ describe('codex-translate / translateEvent', () => {
     // thread.started → system init with session_id
     expect(out[0]).toMatchObject({ type: 'system', subtype: 'init', session_id: 'th_123' });
 
-    // reasoning is dropped entirely (not posted) — no thinking message emitted.
+    // reasoning → a trace-only `reasoning` message (never posted, but emitted so
+    // the session trace can show the model's thinking); no `thinking` block.
+    expect(out[1]).toMatchObject({ type: 'reasoning', text: 'thinking...' });
     expect(out.some((m) => (m as any).message?.content?.[0]?.type === 'thinking')).toBe(false);
 
     // command_execution → tool_use (Bash) + tool_result (not error)
-    expect((out[1] as any).message.content[0]).toMatchObject({ type: 'tool_use', name: 'Bash', id: 'c1', input: { command: 'ls' } });
-    expect((out[2] as any).message.content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'c1', is_error: false, content: 'file.txt' });
+    expect((out[2] as any).message.content[0]).toMatchObject({ type: 'tool_use', name: 'Bash', id: 'c1', input: { command: 'ls' } });
+    expect((out[3] as any).message.content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'c1', is_error: false, content: 'file.txt' });
 
     // agent_message → assistant text, accumulated into final result
-    expect((out[3] as any).message.content[0]).toMatchObject({ type: 'text', text: 'Done.' });
+    expect((out[4] as any).message.content[0]).toMatchObject({ type: 'text', text: 'Done.' });
 
     // turn.completed → result with mapped usage + accumulated final text
-    const result = out[4] as any;
+    const result = out[5] as any;
     expect(result).toMatchObject({ type: 'result', subtype: 'success', result: 'Done.', num_turns: 1, total_cost_usd: 0 });
     expect(result.usage).toEqual({ input_tokens: 10, output_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 });
   });

@@ -9,12 +9,14 @@
  * @module web/app/layout-shell
  */
 
-import { useContext, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { Sidebar, SidebarContext } from './sidebar';
+import { Menu } from 'lucide-react';
+import { Sidebar } from './sidebar';
 import { BackendBanner } from './backend-banner';
 import { AuthProvider } from '@/lib/auth-context';
 import { ThemeProvider } from '@/lib/theme-context';
+import { Toaster } from '@/components/ui/sonner';
 
 /**
  * Renders auth provider + sidebar + main content.
@@ -33,6 +35,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       <AuthProvider>
         <ResponsiveLayout>{children}</ResponsiveLayout>
+        <Toaster position="bottom-right" />
       </AuthProvider>
     </ThemeProvider>
   );
@@ -63,28 +66,21 @@ function ResponsiveLayout({ children }: { children: React.ReactNode }) {
 }
 
 function Main({ children, isMobile, onHamburger }: { children: React.ReactNode; isMobile: boolean; onHamburger: () => void }) {
-  const { width } = useContext(SidebarContext);
+  // Margin follows the same --sidebar-w var (set pre-paint) so content doesn't
+  // flash/slide on a collapsed reload.
   return (
     <main style={{
-      marginLeft: isMobile ? 0 : width,
+      marginLeft: isMobile ? 0 : 'var(--sidebar-w)',
       transition: 'margin-left 0.25s cubic-bezier(0.16,1,0.3,1)',
     }}>
       {/* Mobile hamburger */}
       {isMobile && (
         <button
           onClick={onHamburger}
-          style={{
-            position: 'fixed', top: 12, left: 12, zIndex: 48,
-            width: 36, height: 36, borderRadius: 8,
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-md)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', color: 'var(--text)',
-          }}
+          aria-label="Open navigation"
+          className="fixed left-3 top-3 z-[48] flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-foreground shadow-md"
         >
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-          </svg>
+          <Menu size={18} strokeWidth={1.75} />
         </button>
       )}
       <BackendBanner />

@@ -25,8 +25,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { Agent, PlatformAdapter, ThreadMessage, AgentBackend } from '@slackhive/shared';
-import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
+import { type AgentEvent, getEventBus, type EventBus, sweepStaleActivities, pruneTraceData, AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND } from '@slackhive/shared';
 import { generateText } from './backends/generate-text';
+import { loadFingerprintSalt } from './tracing/fingerprint';
 import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
@@ -414,6 +415,24 @@ export class AgentRunner {
   /** Interval handle for the periodic stale-activity sweep — cleared on stop(). */
   private sweepTimer: NodeJS.Timeout | null = null;
 
+  /** Last time the retention prune ran — throttles it to ~once/day even though
+   * the sweep interval fires every 2h. */
+  private lastPruneMs = 0;
+
+  /** Prune old trace data, at most once per ~23h unless forced. Best-effort. */
+  private async maybePrune(force: boolean): Promise<void> {
+    if (!force && Date.now() - this.lastPruneMs < 23 * 60 * 60 * 1000) return;
+    try {
+      const pruned = await pruneTraceData();
+      // Only advance the throttle on success, so a failed prune is retried on the
+      // next sweep instead of being silently skipped for ~23h.
+      this.lastPruneMs = Date.now();
+      if (pruned.spans || pruned.tasks || pruned.feedback) logger.info('Pruned old trace data', pruned);
+    } catch (err) {
+      logger.warn('Failed to prune old trace data', { error: (err as Error).message });
+    }
+  }
+
   constructor() {
     this.jobScheduler = new JobScheduler((agentId: string) => this.getRunningAgent(agentId));
   }
@@ -576,6 +595,10 @@ export class AgentRunner {
     } catch (err) {
       logger.warn('Failed to sweep stale activities', { error: (err as Error).message });
     }
+    // Retention: drop activity/trace data older than ~6 months (TRACE_RETENTION_DAYS).
+    await this.maybePrune(true);
+    // Load the stable per-install salt for sensitive-data flow fingerprints.
+    await loadFingerprintSalt().catch(() => { /* falls back to an in-memory salt */ });
     await this.startInternalServer();
     await this.loadAllAgents();
     await this.jobScheduler.start();
@@ -626,6 +649,7 @@ export class AgentRunner {
       } catch (err) {
         logger.warn('Periodic sweep failed', { error: (err as Error).message });
       }
+      await this.maybePrune(false);
     }, 2 * 60 * 60 * 1000); // 2 hours
     this.sweepTimer.unref?.();
   }

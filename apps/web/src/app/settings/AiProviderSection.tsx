@@ -10,6 +10,9 @@
 import { useEffect, useState } from 'react';
 import type { BackendDescriptor } from '@slackhive/shared';
 import { ChevronDown, Check } from 'lucide-react';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 interface ApiResponse {
   descriptors: BackendDescriptor[];
@@ -19,13 +22,10 @@ interface ApiResponse {
   detected?: Record<string, { status: string; source: string }>;
 }
 
-const labelStyle = { display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 5 } as const;
-const controlStyle = {
-  width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 7, padding: '8px 11px', color: 'var(--text)', fontSize: 13,
-  fontFamily: 'var(--font-sans)', outline: 'none', boxSizing: 'border-box' as const,
-};
-const hintStyle = { margin: '4px 0 0', fontSize: 11, color: 'var(--subtle)' } as const;
+const labelClass = 'block text-xs font-medium text-muted-foreground mb-1';
+const controlClass =
+  'w-full bg-card border border-border rounded-md px-3 py-2 text-sm text-foreground outline-none box-border';
+const hintClass = 'mt-1 text-2xs text-muted-foreground';
 
 export default function AiProviderSection({ onSaved }: { onSaved?: () => void } = {}) {
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -35,7 +35,6 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
   const [authModes, setAuthModes] = useState<Record<string, string>>({});
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState('');
   const [connStatus, setConnStatus] = useState<{ label?: string; status: string } | null>(null);
   const [detecting, setDetecting] = useState(false);
 
@@ -98,15 +97,14 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
       setSecretInputs({});
       // reflect newly-set secrets without a refetch
       setData(d => d ? { ...d, secretsSet: { ...d.secretsSet, ...Object.fromEntries(Object.keys(secrets).map(k => [k, !!secrets[k]])) } } : d);
-      setToast('Saved — agents reloading');
+      toast.success('Saved — agents reloading');
       loadStatus();
       loadBackends(); // re-run credential detection so the card reflects the new state
       onSaved?.(); // let the parent (AI tab) refresh coach model / dependent state
     } catch {
-      setToast('Save failed');
+      toast.error('Save failed');
     } finally {
       setSaving(false);
-      setTimeout(() => setToast(''), 3000);
     }
   }
 
@@ -129,31 +127,31 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
       : 'your login';
     const showAdv = showFields[d.id];
 
-    const codeChip: React.CSSProperties = { fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', display: 'inline-block', color: 'var(--text)', userSelect: 'all' };
+    const codeChipClass = 'font-mono text-xs bg-card border border-border rounded-md px-2.5 py-1.5 inline-block text-foreground select-all';
 
     const credentialFields = (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--border)' }}>
+      <div className="flex flex-col gap-3 mt-3 pt-3 border-t border-dashed border-border">
         <div>
-          <label style={labelStyle}>Authentication</label>
-          <select style={{ ...controlStyle, cursor: 'pointer' }} value={mode} onChange={e => setAuthModes(m => ({ ...m, [d.id]: e.target.value }))}>
+          <label className={labelClass}>Authentication</label>
+          <select className={cn(controlClass, 'cursor-pointer')} value={mode} onChange={e => setAuthModes(m => ({ ...m, [d.id]: e.target.value }))}>
             {d.authOptions.map(o => <option key={o.mode} value={o.mode}>{o.label}</option>)}
           </select>
-          {activeAuth?.hint && <p style={hintStyle}>{activeAuth.hint}</p>}
+          {activeAuth?.hint && <p className={hintClass}>{activeAuth.hint}</p>}
         </div>
         {activeAuth?.fields.map(field => {
           const isSet = data.secretsSet[field.secretKey];
           const val = secretInputs[field.secretKey] ?? '';
           return (
             <div key={field.secretKey}>
-              <label style={labelStyle}>
-                {field.label}{isSet && !val ? <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓ saved</span> : ''}
+              <label className={labelClass}>
+                {field.label}{isSet && !val ? <span className="text-primary ml-1.5">✓ saved</span> : ''}
               </label>
               {field.kind === 'json' ? (
-                <textarea style={{ ...controlStyle, minHeight: 90, fontFamily: 'var(--font-mono, monospace)', resize: 'vertical' }}
+                <textarea className={cn(controlClass, 'min-h-[90px] font-mono resize-y')}
                   placeholder={isSet ? '•••••• (saved — paste to replace)' : field.placeholder}
                   value={val} onChange={e => setSecretInputs(s => ({ ...s, [field.secretKey]: e.target.value }))} />
               ) : (
-                <input type="password" style={controlStyle}
+                <input type="password" className={controlClass}
                   placeholder={isSet ? '•••••• (saved — type to replace)' : field.placeholder}
                   value={val} onChange={e => setSecretInputs(s => ({ ...s, [field.secretKey]: e.target.value }))} />
               )}
@@ -164,65 +162,48 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
     );
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', paddingTop: 14 }}>
+      <div className="flex flex-col pt-3.5">
         {isDetected ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text)' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <span className="w-2 h-2 rounded-full bg-green shrink-0" />
             Connected — using {sourceText}.
-            <button onClick={() => disconnect(d.id, d.label)} style={{
-              marginLeft: 'auto', background: 'none', border: 'none', padding: 0,
-              color: 'var(--red)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}>Disconnect</button>
+            <button onClick={() => disconnect(d.id, d.label)} className="ml-auto bg-transparent border-none p-0 text-red text-xs cursor-pointer">Disconnect</button>
           </div>
         ) : isExpired ? (
-          <div style={{ border: '1px solid color-mix(in srgb, var(--amber, #f59e0b) 45%, var(--border))', borderRadius: 8, padding: '14px 16px', background: 'color-mix(in srgb, var(--amber, #f59e0b) 8%, var(--surface))' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
+          <div className="border border-amber/45 rounded-lg px-4 py-3.5 bg-amber/[0.08]">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber shrink-0" />
               {d.label} session expired
             </div>
-            <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+            <p className="mt-0 mb-2.5 text-xs text-muted-foreground leading-normal">
               The saved login is no longer valid. Re-authenticate on the machine running SlackHive, then click Detect:
             </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <code style={codeChip}>{loginCmd}</code>
-              <button onClick={detect} disabled={detecting} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--surface-2)', color: 'var(--text)',
-                border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px', fontSize: 12.5, fontWeight: 500,
-                cursor: detecting ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
-              }}>{detecting ? 'Detecting…' : 'Detect login'}</button>
-              <button onClick={() => disconnect(d.id, d.label)} style={{
-                marginLeft: 'auto', background: 'none', border: 'none', padding: 0,
-                color: 'var(--red)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              }}>Disconnect</button>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <code className={codeChipClass}>{loginCmd}</code>
+              <Button variant="secondary" size="sm" onClick={detect} disabled={detecting}>{detecting ? 'Detecting…' : 'Detect login'}</Button>
+              <button onClick={() => disconnect(d.id, d.label)} className="ml-auto bg-transparent border-none p-0 text-red text-xs cursor-pointer">Disconnect</button>
             </div>
-            <p style={{ ...hintStyle, marginTop: 10 }}>
+            <p className={cn(hintClass, 'mt-2.5')}>
               On a remote box? Use <strong>Advanced</strong> below to paste fresh credentials or an API key.
             </p>
           </div>
         ) : (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px', background: 'var(--surface)' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Log in from your terminal</div>
-            <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          <div className="border border-border rounded-lg px-4 py-3.5 bg-card">
+            <div className="text-sm font-semibold text-foreground mb-1.5">Log in from your terminal</div>
+            <p className="mt-0 mb-2.5 text-xs text-muted-foreground leading-normal">
               Run this once on the machine running SlackHive, then click Detect:
             </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <code style={codeChip}>{loginCmd}</code>
-              <button onClick={detect} disabled={detecting} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--surface-2)', color: 'var(--text)',
-                border: '1px solid var(--border)', borderRadius: 7, padding: '6px 12px', fontSize: 12.5, fontWeight: 500,
-                cursor: detecting ? 'default' : 'pointer', fontFamily: 'var(--font-sans)',
-              }}>{detecting ? 'Detecting…' : 'Detect login'}</button>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <code className={codeChipClass}>{loginCmd}</code>
+              <Button variant="secondary" size="sm" onClick={detect} disabled={detecting}>{detecting ? 'Detecting…' : 'Detect login'}</Button>
             </div>
-            <p style={{ ...hintStyle, marginTop: 10 }}>
+            <p className={cn(hintClass, 'mt-2.5')}>
               No {d.label} installed (or running on a remote box)? Use <strong>Advanced</strong> below to paste credentials or an API key.
             </p>
           </div>
         )}
 
-        <button onClick={() => setShowFields(s => ({ ...s, [d.id]: !s[d.id] }))} style={{
-          alignSelf: 'flex-start', marginTop: 10, background: 'none', border: 'none', padding: 0,
-          color: 'var(--muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', textDecoration: 'underline', textUnderlineOffset: 3,
-        }}>
+        <button onClick={() => setShowFields(s => ({ ...s, [d.id]: !s[d.id] }))} className="self-start mt-2.5 bg-transparent border-none p-0 text-muted-foreground text-xs cursor-pointer underline underline-offset-[3px]">
           {showAdv ? 'Hide advanced' : isDetected ? 'Replace credentials' : 'Advanced — paste credentials / API key'}
         </button>
 
@@ -232,74 +213,70 @@ export default function AiProviderSection({ onSaved }: { onSaved?: () => void } 
   };
 
   return (
-    <div style={{ marginBottom: 22, paddingBottom: 22, borderBottom: '1px solid var(--border)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+    <div className="mb-5 pb-5 border-b border-border">
+      <div className="flex items-center justify-between gap-3 mb-1.5">
+        <div className="text-xs font-semibold text-muted-foreground tracking-[0.06em] uppercase">
           Agent Backend
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {toast && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{toast}</span>}
-          <button onClick={save} disabled={saving} style={{
-            background: saving ? 'var(--border)' : 'var(--accent)', color: 'var(--accent-fg)',
-            border: 'none', borderRadius: 7, padding: '7px 16px', fontSize: 13, fontWeight: 500,
-            cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
-          }}>{saving ? 'Saving…' : 'Save Backend'}</button>
+        <div className="flex items-center gap-2.5 shrink-0">
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Backend'}</Button>
         </div>
       </div>
-      <p style={{ ...hintStyle, marginBottom: 14 }}>The runtime all agents run on — only one is active at a time. Switching reloads every agent. Model is chosen per agent on each agent&apos;s page.</p>
+      <p className={cn(hintClass, 'mb-3.5')}>The runtime all agents run on — only one is active at a time. Switching reloads every agent. Model is chosen per agent on each agent&apos;s page.</p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="flex flex-col gap-2.5">
         {data.descriptors.map(d => {
           const isActive = backend === d.id;
           const isOpen = expandedId === d.id;
           const mode = authModes[d.id] ?? d.authOptions[0]?.mode;
           const subLabel = d.authOptions.find(o => o.mode === mode)?.label ?? '';
           return (
-            <div key={d.id} style={{
-              border: isActive ? '1px solid var(--border-2)' : '1px solid var(--border)',
-              borderRadius: 12, background: isActive ? 'var(--surface-2)' : 'var(--surface)',
-              overflow: 'hidden', transition: 'border-color .15s, background .15s',
-            }}>
+            <div key={d.id} className={cn(
+              'border rounded-lg overflow-hidden transition-colors',
+              isActive ? 'border-border bg-secondary' : 'border-border bg-card',
+            )}>
               <div
                 onClick={() => setExpandedId(isOpen ? null : d.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}
+                className="flex items-center gap-3 px-4 py-3.5 cursor-pointer"
               >
                 {/* Active radio */}
                 <button
                   onClick={e => { e.stopPropagation(); setBackend(d.id); setExpandedId(d.id); }}
                   aria-label={`Set ${d.label} as active backend`}
-                  style={{
-                    width: 18, height: 18, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: 'pointer',
-                    border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border-2)'}`,
-                    background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
+                  className={cn(
+                    'w-[18px] h-[18px] rounded-full shrink-0 p-0 cursor-pointer bg-transparent flex items-center justify-center border-2',
+                    isActive ? 'border-primary' : 'border-border',
+                  )}
                 >
-                  {isActive && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' }} />}
+                  {isActive && <span className="w-2 h-2 rounded-full bg-primary" />}
                 </button>
 
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{d.label}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-semibold text-foreground">{d.label}</span>
                     {isActive && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 600, color: 'var(--green)', background: 'color-mix(in srgb, var(--green) 12%, transparent)', padding: '1px 7px', borderRadius: 999 }}>
+                      <span className="inline-flex items-center gap-1 text-2xs font-semibold text-green bg-green/[0.12] px-1.5 py-px rounded-full">
                         <Check size={11} /> Active
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{subLabel}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{subLabel}</div>
                 </div>
 
                 {isActive && connStatus && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: connStatus.status === 'connected' ? '#10b981' : connStatus.status === 'expired' ? '#f59e0b' : '#dc2626' }} />
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                    <span className={cn(
+                      'w-2 h-2 rounded-full',
+                      connStatus.status === 'connected' ? 'bg-green' : connStatus.status === 'expired' ? 'bg-amber' : 'bg-red',
+                    )} />
                     {connStatus.status}
                   </span>
                 )}
-                <ChevronDown size={16} style={{ color: 'var(--subtle)', flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+                <ChevronDown size={16} className="text-muted-foreground shrink-0 transition-transform duration-150" style={{ transform: isOpen ? 'rotate(180deg)' : 'none' }} />
               </div>
 
               {isOpen && (
-                <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border)' }}>
+                <div className="px-4 pb-4 border-t border-border">
                   {renderAuthConfig(d)}
                 </div>
               )}

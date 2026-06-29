@@ -13,10 +13,13 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Activity as ActivityIcon, Users, AlertTriangle, CheckCircle2, CircleDashed } from 'lucide-react';
+import { Activity as ActivityIcon, AlertTriangle, CheckCircle2, CircleDashed, ThumbsUp, ThumbsDown, ShieldAlert, UserRound } from 'lucide-react';
 import { TabSwitcher } from './_components/TabSwitcher';
-import { FilterRow, type WindowKey } from './_components/FilterRow';
+import { FilterRow, parseWindowKey, timeParams, type WindowKey } from './_components/FilterRow';
 import { ReplayButton } from './_components/ReplayButton';
+import { relativeTime } from '@/lib/time';
+import { cn } from '@/lib/utils';
+import { PageShell, EmptyState } from '@/components/patterns';
 
 interface Task {
   id: string;
@@ -30,6 +33,10 @@ interface Task {
   startedAt: string;
   lastActivityAt: string;
   activityCount: number;
+  feedbackUp?: number;
+  feedbackDown?: number;
+  sensitive?: boolean;
+  agentIds?: string[];
 }
 
 interface TaskListResult {
@@ -46,41 +53,10 @@ interface AgentLite {
 type Column = 'active' | 'recent' | 'errored';
 
 const COLUMNS: { key: Column; label: string; icon: React.ReactNode; accent: string }[] = [
-  { key: 'active',  label: 'Active',  icon: <CircleDashed size={13} />,   accent: '#2563eb' },
-  { key: 'recent',  label: 'Recent',  icon: <CheckCircle2 size={13} />,   accent: '#059669' },
-  { key: 'errored', label: 'Errors',  icon: <AlertTriangle size={13} />,  accent: '#dc2626' },
+  { key: 'active',  label: 'Active',  icon: <CircleDashed size={13} />,   accent: 'var(--blue)' },
+  { key: 'recent',  label: 'Recent',  icon: <CheckCircle2 size={13} />,   accent: 'var(--green)' },
+  { key: 'errored', label: 'Errors',  icon: <AlertTriangle size={13} />,  accent: 'var(--red)' },
 ];
-
-/** Relative time string ("4m", "2h", "3d") for dense card UIs. */
-function relativeTime(isoLike: string): string {
-  const ts = Date.parse(isoLike.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(ts)) return '';
-  const delta = Math.max(0, Date.now() - ts);
-  const s = Math.floor(delta / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  return `${d}d`;
-}
-
-/** Initials from an agent/user name, max 2 chars. */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-/** Deterministic pastel color per agent for avatar stacks. */
-function agentColor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) & 0xffffffff;
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 55%, 55%)`;
-}
 
 export default function ActivityPage(): React.JSX.Element {
   // useSearchParams forces dynamic rendering — wrap in Suspense so the
@@ -108,21 +84,27 @@ function ActivityPageBody(): React.JSX.Element {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [agentFilter, setAgentFilter] = useState<string>(searchParams?.get('agent') ?? '');
+  const [from, setFrom] = useState<string>(searchParams?.get('from') ?? '');
+  const [to, setTo] = useState<string>(searchParams?.get('to') ?? '');
   const [windowKey, setWindowKey] = useState<WindowKey>(
-    ((): WindowKey => {
-      const w = searchParams?.get('window');
-      return w === '1h' || w === '5h' || w === '24h' || w === '7d' || w === '30d' ? w : '24h';
-    })(),
+    parseWindowKey(searchParams?.get('window') ?? (searchParams?.get('from') && searchParams?.get('to') ? 'custom' : '7d')),
   );
-  // Per-activity agent participation map, populated lazily from task detail.
-  const [agentsByTask, setAgentsByTask] = useState<Record<string, string[]>>({});
-  // Ref mirror of `agentsByTask` so `load` can read the latest value without
-  // taking it as a dependency — otherwise every hydrated task rebuilds `load`,
-  // re-fires the mount effect, tears down & recreates the 4s polling interval,
-  // and kicks off an extra fetch. Keep the state for rendering, the ref for
-  // checks inside `load`.
-  const agentsByTaskRef = useRef(agentsByTask);
-  useEffect(() => { agentsByTaskRef.current = agentsByTask; }, [agentsByTask]);
+  const timeQs = () => timeParams(windowKey, from, to);
+  // Agent participation per task now comes straight from the list response
+  // (Task.agentIds) — no per-card trace fetch needed.
+  // Mirror how many rows each column currently shows, so the 4s poll can re-fetch
+  // the SAME expanded count (one page) instead of clobbering "Load more" back to
+  // the first page. Ref (not dep) so it doesn't rebuild `load`/restart the poll.
+  const shownCountRef = useRef<Record<Column, number>>({ active: 0, recent: 0, errored: 0 });
+  useEffect(() => {
+    shownCountRef.current = {
+      active: lists.active.tasks.length,
+      recent: lists.recent.tasks.length,
+      errored: lists.errored.tasks.length,
+    };
+  }, [lists]);
+  // Changing filter/window collapses back to the first page.
+  useEffect(() => { shownCountRef.current = { active: 0, recent: 0, errored: 0 }; }, [agentFilter, windowKey, from, to]);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -136,20 +118,24 @@ function ActivityPageBody(): React.JSX.Element {
   }, [agents]);
 
   const fetchColumn = useCallback(async (col: Column): Promise<TaskListResult> => {
-    const params = new URLSearchParams({ column: col, window: windowKey });
+    const params = new URLSearchParams({ column: col, ...timeQs() });
     if (agentFilter) params.set('agent', agentFilter);
+    // Keep a "Load more"-expanded column expanded across polls: ask for as many
+    // rows as are shown now (capped at the route's 100), as a single page.
+    const shown = shownCountRef.current[col] ?? 0;
+    if (shown > 20) params.set('limit', String(Math.min(100, shown)));
     const r = await fetch(`/api/activity?${params.toString()}`);
     if (!r.ok) return { tasks: [], nextCursor: null };
     return r.json();
-  }, [agentFilter, windowKey]);
+  }, [agentFilter, windowKey, from, to]);
 
   const fetchStats = useCallback(async (): Promise<StatsResponse | null> => {
-    const params = new URLSearchParams({ window: windowKey });
+    const params = new URLSearchParams({ ...timeQs() });
     if (agentFilter) params.set('agent', agentFilter);
     const r = await fetch(`/api/activity/stats?${params.toString()}`);
     if (!r.ok) return null;
     return r.json();
-  }, [agentFilter, windowKey]);
+  }, [agentFilter, windowKey, from, to]);
 
   const load = useCallback(async () => {
     const [active, recent, errored, s] = await Promise.all([
@@ -161,25 +147,6 @@ function ActivityPageBody(): React.JSX.Element {
     setLists({ active, recent, errored });
     setStats(s);
     setLoaded(true);
-
-    // Hydrate per-task agent lists for avatar stacks — only for visible tasks.
-    const visible = [...active.tasks, ...recent.tasks, ...errored.tasks];
-    const cache = agentsByTaskRef.current;
-    const needDetail = visible.filter(t => !cache[t.id] && t.activityCount > 1).slice(0, 12);
-    if (needDetail.length > 0) {
-      const detailed = await Promise.all(needDetail.map(async t => {
-        const r = await fetch(`/api/activity/${encodeURIComponent(t.id)}`);
-        if (!r.ok) return [t.id, [] as string[]] as const;
-        const body = await r.json();
-        const ids = Array.from(new Set((body.activities ?? []).map((a: { agentId: string }) => a.agentId))) as string[];
-        return [t.id, ids] as const;
-      }));
-      setAgentsByTask(prev => {
-        const next = { ...prev };
-        for (const [id, ids] of detailed) next[id] = ids;
-        return next;
-      });
-    }
   }, [fetchColumn, fetchStats]);
 
   useEffect(() => {
@@ -192,7 +159,7 @@ function ActivityPageBody(): React.JSX.Element {
   const loadMore = async (col: Column) => {
     const cursor = lists[col].nextCursor;
     if (!cursor) return;
-    const params = new URLSearchParams({ column: col, window: windowKey, cursor });
+    const params = new URLSearchParams({ column: col, ...timeQs(), cursor });
     if (agentFilter) params.set('agent', agentFilter);
     const r = await fetch(`/api/activity?${params.toString()}`);
     if (!r.ok) return;
@@ -206,26 +173,26 @@ function ActivityPageBody(): React.JSX.Element {
   const activeCount = lists.active.tasks.length;
 
   return (
-    <div className="fade-up" style={{ padding: '36px 40px', maxWidth: 1600, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <ActivityIcon size={20} /> Activity
+    <PageShell>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
+        <div className="min-w-0">
+          <h1 className="m-0 flex items-center gap-2.5 text-2xl font-bold tracking-normal text-foreground">
+            <ActivityIcon size={20} strokeWidth={1.9} />
+            Activity
           </h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Every task your agents worked on, live.
-          </p>
+          <p className="mt-1.5 text-sm text-muted-foreground">Live task queue across every agent.</p>
         </div>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          fontSize: 12, fontWeight: 500, color: activeCount > 0 ? '#2563eb' : 'var(--muted)',
-        }}>
-          <span style={{
-            width: 7, height: 7, borderRadius: '50%',
-            background: activeCount > 0 ? '#2563eb' : 'var(--border-2)',
-            boxShadow: activeCount > 0 ? '0 0 0 3px rgba(37,99,235,0.15)' : 'none',
-          }} />
-          {activeCount > 0 ? `${activeCount} active` : 'Idle'}
+        <div className="pt-1">
+          <div className={cn(
+            'inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-medium shadow-sm',
+            activeCount > 0 ? 'text-blue' : 'text-muted-foreground',
+          )}>
+            <span className={cn(
+              'h-[7px] w-[7px] rounded-full',
+              activeCount > 0 ? 'bg-blue shadow-[0_0_0_3px_rgba(37,99,235,0.15)]' : 'bg-border',
+            )} />
+            {activeCount > 0 ? `${activeCount} active` : 'Idle'}
+          </div>
         </div>
       </div>
 
@@ -239,13 +206,15 @@ function ActivityPageBody(): React.JSX.Element {
         windowKey={windowKey}
         onAgentChange={setAgentFilter}
         onWindowChange={setWindowKey}
+        from={from}
+        to={to}
+        onRangeChange={(f, t) => { setFrom(f); setTo(t); }}
       />
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-        gap: 14,
-      }}>
+      {/* Per-agent analytics (KPIs / tokens / tools / models) moved to the
+          Observability page — Activity stays the task kanban. */}
+
+      <div className="grid grid-cols-3 gap-4">
         {COLUMNS.map(col => (
           <ColumnView
             key={col.key}
@@ -254,12 +223,11 @@ function ActivityPageBody(): React.JSX.Element {
             hasMore={!!lists[col.key].nextCursor}
             loaded={loaded}
             agentById={agentById}
-            agentsByTask={agentsByTask}
             onLoadMore={() => loadMore(col.key)}
           />
         ))}
       </div>
-    </div>
+    </PageShell>
   );
 }
 
@@ -269,56 +237,37 @@ function ColumnView(props: {
   hasMore: boolean;
   loaded: boolean;
   agentById: Map<string, AgentLite>;
-  agentsByTask: Record<string, string[]>;
   onLoadMore: () => void;
 }): React.JSX.Element {
-  const { column, tasks, hasMore, loaded, agentById, agentsByTask, onLoadMore } = props;
+  const { column, tasks, hasMore, loaded, agentById, onLoadMore } = props;
 
   return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 12, overflow: 'hidden',
-      display: 'flex', flexDirection: 'column',
-    }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '12px 14px', borderBottom: '1px solid var(--border)',
-        color: column.accent, fontWeight: 600, fontSize: 13,
-      }}>
-        {column.icon}
-        <span style={{ color: 'var(--text)' }}>{column.label}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>
-          {tasks.length}{hasMore ? '+' : ''}
-        </span>
+    <div
+      className="flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm"
+    >
+      <div className="flex items-center gap-2 border-b border-border bg-muted/35 px-3.5 py-2.5">
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: column.accent }} />
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">{column.icon}{column.label}</span>
+        <span className="ml-auto rounded-md border border-border bg-card px-1.5 py-px text-2xs font-semibold tabular-nums text-muted-foreground">{tasks.length}{hasMore ? '+' : ''}</span>
       </div>
-      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 120 }}>
-        {!loaded && <div style={{ padding: 20, color: 'var(--muted)', fontSize: 12, textAlign: 'center' }}>Loading…</div>}
+      <div className="flex min-h-[120px] flex-col gap-1.5 bg-background/45 px-2.5 pb-2.5 pt-2.5">
+        {!loaded && <div className="p-5 text-center text-xs text-muted-foreground">Loading…</div>}
         {loaded && tasks.length === 0 && (
-          <div style={{
-            padding: 24, color: 'var(--subtle)', fontSize: 12, textAlign: 'center',
-            border: '1px dashed var(--border)', borderRadius: 8,
-          }}>
-            No tasks
-          </div>
+          <EmptyState title="No tasks" className="border-border/80 bg-card px-6 py-6 shadow-none" />
         )}
         {tasks.map(t => (
           <TaskCard
             key={t.id}
             task={t}
             agentById={agentById}
-            agentIds={agentsByTask[t.id] ?? (t.initialAgentId ? [t.initialAgentId] : [])}
+            agentIds={t.agentIds ?? (t.initialAgentId ? [t.initialAgentId] : [])}
             isErrored={column.key === 'errored'}
           />
         ))}
         {hasMore && (
           <button
             onClick={onLoadMore}
-            style={{
-              marginTop: 4, padding: '8px 10px', fontSize: 12, fontWeight: 500,
-              color: 'var(--muted)', background: 'transparent',
-              border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-            }}
+            className="mt-1 cursor-pointer rounded-md border border-border bg-card px-2.5 py-2 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
           >
             Load more
           </button>
@@ -335,83 +284,80 @@ function TaskCard(props: {
   isErrored?: boolean;
 }): React.JSX.Element {
   const { task, agentById, agentIds, isErrored } = props;
-  const initiatorLabel = task.initiatorHandle || task.initiatorUserId || 'unknown';
+  // Card opens the full turn-by-turn trace for this thread.
+  const primaryAgent = agentIds[0] ?? task.initialAgentId;
+  const primaryAgentName = primaryAgent ? agentById.get(primaryAgent)?.name : undefined;
+  const href = `/activity/${encodeURIComponent(task.id)}`;
+  const initiator = displayInitiator(task);
 
   return (
     <Link
-      href={`/activity/${encodeURIComponent(task.id)}`}
-      style={{
-        textDecoration: 'none', color: 'inherit',
-        display: 'block', padding: '10px 12px',
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        borderRadius: 8, boxShadow: 'var(--shadow-sm)',
-        transition: 'box-shadow 0.12s, transform 0.12s',
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-hover)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; }}
+      href={href}
+      className="block rounded-md border border-border bg-card px-3 py-2.5 text-inherit no-underline shadow-sm transition-[background-color,border-color,box-shadow] duration-150 hover:border-ring/40 hover:bg-secondary/35 hover:shadow-md"
     >
-      <div style={{
-        fontSize: 13, fontWeight: 500, color: 'var(--text)',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
+      {/* Top row: stable ref + requester + time */}
+      <div className="mb-2 flex items-center gap-1.5">
+        <span className="font-mono text-2xs font-semibold tracking-normal text-muted-foreground/85">{shortRef(task.id)}</span>
+        {task.sensitive && (
+          <ShieldAlert size={12} className="shrink-0 text-amber" aria-label="Contains sensitive data"><title>Contains sensitive data</title></ShieldAlert>
+        )}
+        <span className="ml-auto shrink-0 text-2xs text-muted-foreground/80">{relativeTime(task.lastActivityAt)}</span>
+      </div>
+
+      {/* Title — up to two lines, like a Linear issue */}
+      <div
+        className="overflow-hidden text-xs font-medium leading-5 text-foreground"
+        style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+      >
         {task.summary || '(empty message)'}
       </div>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, marginTop: 6,
-        fontSize: 11, color: 'var(--muted)',
-      }}>
-        <span style={{ fontWeight: 500 }}>@{initiatorLabel}</span>
-        <span>·</span>
-        <span>{relativeTime(task.lastActivityAt)}</span>
-        <span>·</span>
-        <span style={{ color: 'var(--subtle)' }}>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-        {agentIds.length > 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <AvatarStack agentIds={agentIds} agentById={agentById} />
-            <Users size={11} style={{ color: 'var(--subtle)', marginLeft: 4 }} />
-          </div>
-        ) : <span />}
-        {isErrored && <ReplayButton taskId={task.id} variant="icon" />}
+
+      {/* Footer: compact metadata chips */}
+      <div className="mt-2.5 flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+          <UserRound size={11} className="shrink-0" />
+          <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{initiator}</span>
+          {primaryAgentName && (
+            <>
+              <span className="shrink-0 text-border">·</span>
+              <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{primaryAgentName}</span>
+            </>
+          )}
+        </div>
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
+          {!!task.feedbackUp && <Chip color="#16a34a"><ThumbsUp size={10} />{task.feedbackUp}</Chip>}
+          {!!task.feedbackDown && <Chip color="#dc2626"><ThumbsDown size={10} />{task.feedbackDown}</Chip>}
+          <Chip>{task.activityCount} turn{task.activityCount === 1 ? '' : 's'}</Chip>
+          {isErrored && <ReplayButton taskId={task.id} variant="icon" />}
+        </span>
       </div>
     </Link>
   );
 }
 
-function AvatarStack(props: {
-  agentIds: string[];
-  agentById: Map<string, AgentLite>;
-}): React.JSX.Element {
-  const { agentIds, agentById } = props;
-  const visible = agentIds.slice(0, 3);
-  const extra = agentIds.length - visible.length;
+function displayInitiator(task: Task): string {
+  if (task.initiatorHandle) return task.initiatorHandle.replace(/^@/, '');
+  if (task.initiatorUserId) return task.initiatorUserId;
+  return 'Unknown user';
+}
+
+/** Linear-style short, stable, human-readable ref from the (ugly) task id. Cosmetic. */
+function shortRef(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
+  return 'T-' + h.toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
+}
+
+/** Small rounded meta chip (Linear-style badge). */
+function Chip({ children, color }: { children: React.ReactNode; color?: string }): React.JSX.Element {
   return (
-    <div style={{ display: 'flex', alignItems: 'center' }}>
-      {visible.map((id, i) => {
-        const a = agentById.get(id);
-        const label = a?.name ?? id.slice(0, 6);
-        return (
-          <div
-            key={id}
-            title={label}
-            style={{
-              width: 20, height: 20, borderRadius: '50%',
-              background: agentColor(id), color: 'white',
-              fontSize: 9, fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              marginLeft: i === 0 ? 0 : -6,
-              border: '2px solid var(--surface-2)',
-            }}
-          >
-            {initials(label)}
-          </div>
-        );
-      })}
-      {extra > 0 && (
-        <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--muted)' }}>+{extra}</span>
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 rounded-md border px-1.5 py-px text-2xs font-medium leading-4',
+        !color && 'border-border bg-secondary text-muted-foreground',
       )}
-    </div>
+      style={color ? { color, background: `${color}14`, borderColor: `${color}33` } : undefined}
+    >{children}</span>
   );
 }
 
@@ -430,55 +376,30 @@ function StatsStrip(props: { stats: StatsResponse | null; agentCount: number }):
   const total   = active + recent + errored;
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-      gap: 10,
-      marginBottom: 14,
-    }}>
-      <StatCard label="Active"     value={active}  color="#2563eb" pulse={active > 0}
+    <div className="mb-4 grid grid-cols-4 gap-3">
+      <StatCard label="Active" value={active} color="var(--blue)" pulse={active > 0}
                 sub={agentCount > 0 ? `${agentCount} agent${agentCount === 1 ? '' : 's'} working` : 'No agents in-flight'} />
-      <StatCard label="Completed"  value={recent}  color="#059669"
-                sub="Finished in window" />
-      <StatCard label="Errors"     value={errored} color={errored > 0 ? '#dc2626' : 'var(--muted)'}
+      <StatCard label="Completed" value={recent} color="var(--green)" sub="Finished in window" />
+      <StatCard label="Errors" value={errored} color={errored > 0 ? 'var(--red)' : 'var(--muted)'}
                 sub={errored > 0 ? 'Needs attention' : 'No errors'} />
-      <StatCard label="Total"      value={total}
-                sub="In selected window" />
+      <StatCard label="Total" value={total} sub="In selected window" />
     </div>
   );
 }
 
-function StatCard(props: {
-  label: string; value: number; color?: string; sub?: string; pulse?: boolean;
-}): React.JSX.Element {
+function StatCard(props: { label: string; value: number; color?: string; sub?: string; pulse?: boolean }): React.JSX.Element {
   const { label, value, color, sub, pulse } = props;
   return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 10, padding: '12px 14px',
-    }}>
-      <div style={{
-        fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
-        color: 'var(--subtle)', textTransform: 'uppercase',
-        display: 'flex', alignItems: 'center', gap: 6,
-      }}>
-        {pulse && (
-          <span className="status-running" style={{
-            width: 6, height: 6, borderRadius: '50%', background: color ?? '#2563eb',
-          }} />
-        )}
+    <div className="rounded-lg border border-border bg-card px-3.5 py-3 shadow-card">
+      <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        {pulse && <span className="status-running h-1.5 w-1.5 rounded-full" style={{ background: color ?? '#2563eb' }} />}
         {label}
       </div>
-      <div style={{
-        fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em',
-        color: color ?? 'var(--text)', marginTop: 4, lineHeight: 1,
-        fontVariantNumeric: 'tabular-nums',
-      }}>
-        {value}
-      </div>
-      {sub && (
-        <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 5 }}>{sub}</div>
-      )}
+      <div
+        className={cn('mt-1.5 text-2xl font-bold leading-none tabular-nums tracking-normal', !color && 'text-foreground')}
+        style={color ? { color } : undefined}
+      >{value}</div>
+      {sub && <div className="mt-1 text-2xs text-muted-foreground">{sub}</div>}
     </div>
   );
 }

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { assertSafeSkillPath } from '../coach-handler';
+import { assertSafeSkillPath, resumeSessionFor, resolveCoachBackend } from '../coach-handler';
 
 describe('assertSafeSkillPath', () => {
   it('accepts safe category + filename pairs', () => {
@@ -41,5 +41,46 @@ describe('assertSafeSkillPath', () => {
   it('rejects null bytes and whitespace', () => {
     expect(() => assertSafeSkillPath('nlq', 'has space.md')).toThrow(/invalid filename/);
     expect(() => assertSafeSkillPath('nlq', 'has\0null.md')).toThrow(/invalid filename/);
+  });
+});
+
+describe('resumeSessionFor', () => {
+  it('resumes when the backend is unchanged', () => {
+    expect(resumeSessionFor('claude', 'claude', 'sess-1')).toBe('sess-1');
+    expect(resumeSessionFor('codex', 'codex', 'thread-9')).toBe('thread-9');
+  });
+
+  it('drops the stale id when the backend was switched (the coach-break bug)', () => {
+    // Claude session id resumed under Codex → would break; start fresh instead.
+    expect(resumeSessionFor('codex', 'claude', 'claude-uuid')).toBeUndefined();
+    // …and the reverse.
+    expect(resumeSessionFor('claude', 'codex', 'codex-thread')).toBeUndefined();
+  });
+
+  it('starts fresh for an untagged (pre-fix) session — never guesses the backend', () => {
+    // No backend tag → unknown origin → drop the id (start fresh) on ANY backend,
+    // since resuming a possibly-foreign id hard-errors.
+    expect(resumeSessionFor('claude', undefined, 'sess-2')).toBeUndefined();
+    expect(resumeSessionFor('codex', undefined, 'legacy-id')).toBeUndefined();
+  });
+
+  it('returns undefined when there is no session id', () => {
+    expect(resumeSessionFor('claude', 'codex', undefined)).toBeUndefined();
+    expect(resumeSessionFor('claude', 'claude', undefined)).toBeUndefined();
+  });
+});
+
+describe('resolveCoachBackend', () => {
+  it('resolves each registered backend to its own distinct runner', () => {
+    const claude = resolveCoachBackend('claude');
+    const codex = resolveCoachBackend('codex');
+    expect(typeof claude).toBe('function');
+    expect(typeof codex).toBe('function');
+    expect(claude).not.toBe(codex);
+  });
+
+  it('falls back to the default backend for an unknown name (modular/extensible)', () => {
+    // A future backend not yet registered must not throw — it degrades to the default.
+    expect(resolveCoachBackend('some-future-backend')).toBe(resolveCoachBackend('claude'));
   });
 });

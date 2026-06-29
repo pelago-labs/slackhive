@@ -18,6 +18,7 @@ import { X, Send, Loader2, RotateCcw, Wand2, ChevronDown, ChevronRight, Check, F
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { CoachMessage, CoachProposal, Skill, Memory, KnowledgeSource, CheckConfig } from '@slackhive/shared';
+import { cn } from '@/lib/utils';
 
 /** Shape of one archived conversation returned by `/coach?archive=1`. */
 interface ArchivedConversation {
@@ -96,32 +97,25 @@ function computeSuggestions({ hasClaudeMd, skillCount, memoryCount, agentName }:
  * inline code chips on bubble background, `pre` blocks with a soft card look.
  */
 const MD_COMPONENTS: Components = {
-  p: ({ children }) => <p style={{ margin: '0 0 6px', lineHeight: 1.55 }}>{children}</p>,
-  ul: ({ children }) => <ul style={{ margin: '0 0 6px', paddingLeft: 18, lineHeight: 1.55 }}>{children}</ul>,
-  ol: ({ children }) => <ol style={{ margin: '0 0 6px', paddingLeft: 18, lineHeight: 1.55 }}>{children}</ol>,
-  li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
-  h1: ({ children }) => <h1 style={{ fontSize: 14, fontWeight: 600, margin: '4px 0 4px' }}>{children}</h1>,
-  h2: ({ children }) => <h2 style={{ fontSize: 13.5, fontWeight: 600, margin: '4px 0 4px' }}>{children}</h2>,
-  h3: ({ children }) => <h3 style={{ fontSize: 13, fontWeight: 600, margin: '4px 0 4px' }}>{children}</h3>,
+  p: ({ children }) => <p className="mb-1.5 leading-[1.55]">{children}</p>,
+  ul: ({ children }) => <ul className="mb-1.5 pl-[18px] leading-[1.55]">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-1.5 pl-[18px] leading-[1.55]">{children}</ol>,
+  li: ({ children }) => <li className="mb-0.5">{children}</li>,
+  h1: ({ children }) => <h1 className="my-1 text-base font-semibold">{children}</h1>,
+  h2: ({ children }) => <h2 className="my-1 text-sm font-semibold">{children}</h2>,
+  h3: ({ children }) => <h3 className="my-1 text-sm font-semibold">{children}</h3>,
   code: ({ className, children, ...props }) => {
     const isBlock = className?.startsWith('language-');
     if (isBlock) {
       return (
-        <code className={className} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} {...props}>
+        <code className={cn(className, 'font-mono text-xs')} {...props}>
           {children}
         </code>
       );
     }
     return (
       <code
-        style={{
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 3,
-          padding: '1px 5px',
-          fontSize: 12,
-          fontFamily: 'var(--font-mono)',
-        }}
+        className="rounded-[3px] border border-border bg-surface px-[5px] py-px font-mono text-xs"
         {...props}
       >
         {children}
@@ -152,12 +146,12 @@ const MD_COMPONENTS: Components = {
       URL.revokeObjectURL(url);
     };
     return (
-      <div style={{ position: 'relative', margin: '4px 0 6px' }}>
-        <pre style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: 10, margin: 0, fontSize: 12, lineHeight: 1.5, overflow: 'auto', whiteSpace: 'pre' }}>
+      <div className="relative my-1">
+        <pre className="m-0 overflow-auto whitespace-pre rounded-md border border-border bg-surface p-2.5 text-xs leading-normal">
           {children}
         </pre>
         {isWikiContent && (
-          <button onClick={download} title="Download as .md file" style={{ position: 'absolute', top: 6, right: 6, display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 5, padding: '3px 8px', fontSize: 11, cursor: 'pointer', color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>
+          <button onClick={download} title="Download as .md file" className="absolute right-1.5 top-1.5 inline-flex cursor-pointer items-center gap-1 rounded-[5px] border border-border bg-surface-2 px-2 py-[3px] font-sans text-2xs text-muted-foreground">
             <Download size={11} /> Download
           </button>
         )}
@@ -165,32 +159,21 @@ const MD_COMPONENTS: Components = {
     );
   },
   a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-brand">
       {children}
     </a>
   ),
   table: ({ children }) => (
-    <div style={{ overflowX: 'auto', margin: '4px 0 6px' }}>
-      <table style={{
-        borderCollapse: 'collapse', fontSize: 12, lineHeight: 1.5,
-        width: '100%',
-      }}>{children}</table>
+    <div className="my-1 overflow-x-auto">
+      <table className="w-full border-collapse text-xs leading-normal">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead style={{ background: 'var(--surface)' }}>{children}</thead>,
+  thead: ({ children }) => <thead className="bg-surface">{children}</thead>,
   th: ({ children }) => (
-    <th style={{
-      textAlign: 'left', padding: '6px 8px',
-      borderBottom: '1px solid var(--border)',
-      fontWeight: 600, color: 'var(--text)',
-    }}>{children}</th>
+    <th className="border-b border-border px-2 py-1.5 text-left font-semibold text-foreground">{children}</th>
   ),
   td: ({ children }) => (
-    <td style={{
-      padding: '6px 8px',
-      borderBottom: '1px solid var(--border)',
-      verticalAlign: 'top',
-    }}>{children}</td>
+    <td className="border-b border-border px-2 py-1.5 align-top">{children}</td>
   ),
 };
 
@@ -645,66 +628,51 @@ export function CoachPanel({
     <>
       <div
         onClick={onClose}
-        style={{
-          // Stronger backdrop for proper separation — light mode gets a soft
-          // darken, dark mode gets noticeably more dim so the elevated panel
-          // reads as a distinct surface against the page behind.
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 49,
-          backdropFilter: 'blur(2px)',
-          animation: 'fadeIn 0.15s ease-out',
-        }}
+        // Stronger backdrop for proper separation — light mode gets a soft
+        // darken, dark mode gets noticeably more dim so the elevated panel
+        // reads as a distinct surface against the page behind.
+        className="fixed inset-0 z-[49] bg-black/45 backdrop-blur-[2px]"
+        style={{ animation: 'fadeIn 0.15s ease-out' }}
       />
       <aside
         role="dialog"
         aria-modal="true"
         aria-label={`Coach — tuning ${agentName}`}
-        style={{
-          // Explicit height: 100vh + top: 0 belt-and-suspenders — some browsers
-          // don't resolve `top: 0 + bottom: 0` during the slide-in animation,
-          // causing the composer to land below the viewport.
-          position: 'fixed', top: 0, right: 0, height: '100vh', width: 520, maxWidth: '100vw', zIndex: 50,
-          // `--surface-2` is one step elevated from the page background — the
-          // panel reads as a distinct card in both light and dark themes. The
-          // strong left border + shadow seal the boundary.
-          background: 'var(--surface-2)', borderLeft: '1px solid var(--border-2, var(--border))',
-          display: 'flex', flexDirection: 'column',
-          boxShadow: 'var(--shadow-modal, -12px 0 36px rgba(0,0,0,0.18))',
-          animation: 'slideInRight 0.18s ease-out',
-        }}
+        // Explicit height: 100vh + top: 0 belt-and-suspenders — some browsers
+        // don't resolve `top: 0 + bottom: 0` during the slide-in animation,
+        // causing the composer to land below the viewport.
+        // `--surface-2` is one step elevated from the page background — the
+        // panel reads as a distinct card in both light and dark themes. The
+        // strong left border + shadow seal the boundary.
+        className="fixed right-0 top-0 z-50 flex h-screen w-[520px] max-w-[100vw] flex-col border-l border-border bg-surface-2 shadow-modal"
+        style={{ animation: 'slideInRight 0.18s ease-out' }}
       >
         {/* Header — wand icon + stacked label on the left ("Coach" over
             "tuning {agentName}"); icon buttons on the right. The subtitle
             stays because the agent name is easily lost once a conversation
             starts and the empty-state hero disappears. */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 14px', borderBottom: '1px solid var(--border)',
-          flexShrink: 0,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Wand2 size={16} style={{ color: 'var(--accent)' }} />
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-3.5 py-3">
+          <div className="flex items-center gap-2">
+            <Wand2 size={16} className="text-brand" />
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Coach</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>tuning {agentName}</div>
+              <div className="text-sm font-semibold text-foreground">Coach</div>
+              <div className="text-2xs text-muted-foreground">tuning {agentName}</div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div className="flex gap-1">
             {view.mode === 'current' && messages.length > 0 && (
-              <button onClick={startNewConversation} title="New conversation (archives this one)" style={iconBtn}>
+              <button onClick={startNewConversation} title="New conversation (archives this one)" className={iconBtn}>
                 <RotateCcw size={14} />
               </button>
             )}
             <button
               onClick={view.mode === 'current' ? openHistory : () => setView({ mode: 'current' })}
               title={view.mode === 'current' ? 'Show past conversations' : 'Back to current'}
-              style={{
-                ...iconBtn,
-                background: view.mode !== 'current' ? 'var(--surface-3)' : 'transparent',
-              }}
+              className={cn(iconBtn, view.mode !== 'current' ? 'bg-surface-3' : 'bg-transparent')}
             >
               <History size={14} />
             </button>
-            <button onClick={onClose} title="Close" style={iconBtn}><X size={15} /></button>
+            <button onClick={onClose} title="Close" className={iconBtn}><X size={15} /></button>
           </div>
         </div>
 
@@ -712,7 +680,7 @@ export function CoachPanel({
         {/* minHeight: 0 is load-bearing — without it, flex-items default to
             min-height: auto and refuse to shrink below their content, pushing
             the composer below the viewport on long conversations. */}
-        <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '12px 14px' }}>
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-3.5 py-3">
           {view.mode === 'list' && (
             <HistoryList
               archive={archive}
@@ -726,7 +694,7 @@ export function CoachPanel({
             const entry = archive.find(a => a.id === view.archiveId);
             if (!entry) {
               return (
-                <div style={{ padding: 16, color: 'var(--muted)', fontSize: 13 }}>
+                <div className="p-4 text-sm text-muted-foreground">
                   Archived conversation not found.
                 </div>
               );
@@ -735,21 +703,11 @@ export function CoachPanel({
               <>
                 <button
                   onClick={() => setView({ mode: 'list' })}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    background: 'transparent', border: '1px solid var(--border)',
-                    borderRadius: 6, padding: '5px 10px', fontSize: 12,
-                    color: 'var(--muted)', cursor: 'pointer', marginBottom: 10,
-                    fontFamily: 'var(--font-sans)',
-                  }}
+                  className="mb-2.5 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-transparent px-2.5 py-[5px] font-sans text-xs text-muted-foreground"
                 >
                   <ArrowLeft size={12} /> Back to history
                 </button>
-                <div style={{
-                  fontSize: 11, color: 'var(--subtle)', marginBottom: 10,
-                  padding: '6px 10px', background: 'var(--surface)',
-                  border: '1px solid var(--border)', borderRadius: 6,
-                }}>
+                <div className="mb-2.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-2xs text-subtle">
                   Archived {new Date(entry.archivedAt).toLocaleString()} · {entry.messages.length} messages · read-only
                 </div>
                 {entry.messages.map(m => (
@@ -771,39 +729,19 @@ export function CoachPanel({
             // Antigravity-inspired empty state: big centered greeting, the
             // composer below is the main input. Suggestions are smart chips
             // tailored to whether the agent is blank or already set up.
-            <div style={{
-              height: '100%', display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: '24px 8px',
-            }}>
-              <div style={{
-                fontSize: 22, fontWeight: 600, color: 'var(--text)',
-                letterSpacing: '-0.01em',
-              }}>{agentName}</div>
-              <p style={{
-                fontSize: 13, color: 'var(--muted)', lineHeight: 1.5,
-                margin: 0, textAlign: 'center', maxWidth: 360,
-              }}>
+            <div className="flex h-full flex-col items-center justify-center gap-2.5 px-2 py-6">
+              <div className="text-xl font-semibold tracking-[-0.01em] text-foreground">{agentName}</div>
+              <p className="m-0 max-w-[360px] text-center text-sm leading-normal text-muted-foreground">
                 {hasClaudeMd || skillCount > 0
                   ? `I can review ${agentName}'s setup, propose changes, or diagnose failed conversations. Nothing is applied until you click Apply.`
                   : `Describe what ${agentName} should do. I'll draft a system prompt and suggest skills. Nothing is applied until you click Apply.`}
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginTop: 14 }}>
+              <div className="mt-3.5 flex w-full flex-col gap-1.5">
                 {computeSuggestions({ hasClaudeMd, skillCount, memoryCount, agentName }).map((q, i) => (
                   <button
                     key={i}
                     onClick={() => setInput(q)}
-                    style={{
-                      textAlign: 'left',
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8, padding: '10px 12px',
-                      fontSize: 13, color: 'var(--text)', cursor: 'pointer',
-                      fontFamily: 'var(--font-sans)', lineHeight: 1.45,
-                      transition: 'background 0.12s, border-color 0.12s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-3)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)'; }}
+                    className="cursor-pointer rounded-lg border border-border bg-surface px-3 py-2.5 text-left font-sans text-sm leading-[1.45] text-foreground transition-colors hover:bg-surface-3"
                   >{q}</button>
                 ))}
               </div>
@@ -823,16 +761,16 @@ export function CoachPanel({
           ))}
 
           {view.mode === 'current' && error && (
-            <div style={{
-              background: 'var(--red-soft-bg)', border: '1px solid var(--red-soft-border)',
-              color: 'var(--red)', borderRadius: 6, padding: '8px 12px', fontSize: 13, marginTop: 8,
-            }}>{error}</div>
+            <div
+              className="mt-2 rounded-md border px-3 py-2 text-sm text-red"
+              style={{ background: 'var(--red-soft-bg)', borderColor: 'var(--red-soft-border)' }}
+            >{error}</div>
           )}
         </div>
 
         {/* Composer — flexShrink: 0 so it's always pinned to the bottom and
             never collapses under content pressure from the messages flex child. */}
-        <div style={{ borderTop: '1px solid var(--border)', padding: '10px 12px', flexShrink: 0, background: 'var(--surface-2)' }}>
+        <div className="flex-shrink-0 border-t border-border bg-surface-2 px-3 py-2.5">
           {/* Antigravity-style unified composer: textarea on top, action row
               inside the same bordered container. Whole thing reads as a single
               input affordance, not three glued-together widgets. */}
@@ -840,29 +778,19 @@ export function CoachPanel({
             ref={fileInputRef}
             type="file"
             accept=".txt,.md,.csv,.json,.yaml,.yml,.xml,.html,.rst,.log,.pdf"
-            style={{ display: 'none' }}
+            className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) setAttachedFile(f); e.target.value = ''; }}
           />
-          <div style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            padding: '8px 10px 6px',
-            display: 'flex', flexDirection: 'column', gap: 4,
-          }}>
+          <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface px-2.5 pb-1.5 pt-2">
             {attachedFile && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  fontSize: 11.5, background: 'var(--surface-3)', borderRadius: 4,
-                  padding: '2px 7px', color: 'var(--text)', border: '1px solid var(--border)',
-                }}>
+              <div className="flex items-center gap-[5px]">
+                <span className="inline-flex items-center gap-1 rounded border border-border bg-surface-3 px-[7px] py-0.5 text-2xs text-foreground">
                   <Paperclip size={10} />
                   {attachedFile.name}
                 </span>
                 <button
                   onClick={() => setAttachedFile(null)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, lineHeight: 1 }}
+                  className="cursor-pointer border-none bg-none p-0 leading-none text-muted-foreground"
                   title="Remove attachment"
                 >
                   <X size={11} />
@@ -888,64 +816,50 @@ export function CoachPanel({
               }
               disabled={composerDisabled}
               rows={2}
-              style={{
-                width: '100%', resize: 'none', maxHeight: 200, minHeight: 44,
-                background: 'transparent', border: 'none',
-                padding: '4px 2px', fontSize: 14,
-                lineHeight: 1.5,
-                fontFamily: 'var(--font-sans)', color: 'var(--text)', outline: 'none',
-              }}
+              className="max-h-[200px] min-h-[44px] w-full resize-none border-none bg-transparent px-0.5 py-1 font-sans text-base leading-normal text-foreground outline-none"
             />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={composerDisabled}
                 title="Attach a file"
-                style={{
-                  background: 'none', border: 'none', cursor: composerDisabled ? 'not-allowed' : 'pointer',
-                  color: attachedFile ? 'var(--accent)' : 'var(--muted)', padding: '2px 4px', lineHeight: 1,
-                }}
+                className={cn(
+                  'border-none bg-none px-1 py-0.5 leading-none',
+                  composerDisabled ? 'cursor-not-allowed' : 'cursor-pointer',
+                  attachedFile ? 'text-brand' : 'text-muted-foreground',
+                )}
               >
                 <Paperclip size={14} />
               </button>
-              <span style={{ flex: 1 }} />
+              <span className="flex-1" />
               {(sending || bootstrapDrafting) ? (
                 <span
                   title="Coach is replying"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    fontSize: 11, fontWeight: 600, color: 'var(--accent)',
-                    fontFamily: 'var(--font-sans)',
-                  }}
+                  className="inline-flex items-center gap-1.5 font-sans text-2xs font-semibold text-brand"
                 >
                   <DraftingIndicator color="var(--accent)" size={5} />
                   Coach is replying
                 </span>
               ) : (
-                <span style={{ fontSize: 11, color: 'var(--subtle)', fontFamily: 'var(--font-sans)' }}>
+                <span className="font-sans text-2xs text-subtle">
                   ↵ send · ⇧↵ newline
                 </span>
               )}
               <button
                 onClick={() => send(input)}
                 disabled={composerDisabled || !input.trim()}
-                style={{
-                  padding: '6px 12px', borderRadius: 6, border: 'none',
-                  background: !composerDisabled && input.trim() ? 'var(--accent)' : 'var(--surface-3)',
-                  color: !composerDisabled && input.trim() ? 'var(--accent-fg)' : 'var(--muted)',
-                  cursor: !composerDisabled && input.trim() ? 'pointer' : 'not-allowed',
-                  display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 500,
-                  fontFamily: 'var(--font-sans)',
-                }}
+                className={cn(
+                  'inline-flex items-center gap-[5px] rounded-md border-none px-3 py-1.5 font-sans text-xs font-medium',
+                  !composerDisabled && input.trim()
+                    ? 'cursor-pointer bg-brand text-brand-fg'
+                    : 'cursor-not-allowed bg-surface-3 text-muted-foreground',
+                )}
               >
                 {(sending || bootstrapDrafting) ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />}
               </button>
             </div>
           </div>
-          <div style={{
-            fontSize: 10.5, color: 'var(--subtle)', textAlign: 'center',
-            marginTop: 6, fontFamily: 'var(--font-sans)',
-          }}>
+          <div className="mt-1.5 text-center font-sans text-2xs text-subtle">
             Coach may make mistakes — review proposals before applying.
           </div>
         </div>
@@ -963,11 +877,7 @@ export function CoachPanel({
   ), document.body);
 }
 
-const iconBtn: React.CSSProperties = {
-  background: 'transparent', border: '1px solid var(--border)', borderRadius: 6,
-  padding: 6, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex',
-  alignItems: 'center', justifyContent: 'center',
-};
+const iconBtn = 'inline-flex cursor-pointer items-center justify-center rounded-md border border-border bg-transparent p-1.5 text-muted-foreground';
 
 function MessageBubble({
   message, canEdit, onApply, onReject, isStreaming, getBefore,
@@ -982,21 +892,18 @@ function MessageBubble({
 }) {
   const isUser = message.role === 'user';
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start',
-      marginBottom: 12,
-    }}>
-      <div style={{
-        maxWidth: '88%', background: isUser ? 'var(--accent)' : 'var(--surface-2)',
-        color: isUser ? 'var(--accent-fg)' : 'var(--text)',
-        border: isUser ? 'none' : '1px solid var(--border)',
-        borderRadius: 10, padding: '9px 13px', fontSize: 13.5, lineHeight: 1.55,
-        // User bubbles stay literal text (pre-wrap respects their newlines).
-        // Assistant bubbles render markdown — the wrapper doesn't need pre-wrap
-        // because ReactMarkdown produces its own block-level <p>/<ul>/<pre>.
-        whiteSpace: isUser ? 'pre-wrap' : 'normal',
-        wordBreak: 'break-word',
-      }}>
+    <div className={cn('mb-3 flex flex-col', isUser ? 'items-end' : 'items-start')}>
+      <div
+        className={cn(
+          'max-w-[88%] break-words rounded-lg px-3 py-2 text-sm leading-[1.55]',
+          // User bubbles stay literal text (pre-wrap respects their newlines).
+          // Assistant bubbles render markdown — the wrapper doesn't need pre-wrap
+          // because ReactMarkdown produces its own block-level <p>/<ul>/<pre>.
+          isUser
+            ? 'whitespace-pre-wrap bg-brand text-brand-fg'
+            : 'whitespace-normal border border-border bg-surface-2 text-foreground',
+        )}
+      >
         {message.text
           ? (isUser
               ? message.text
@@ -1005,11 +912,7 @@ function MessageBubble({
             ? <DraftingIndicator />
             : ''}
         {isUser && message.attachmentName && (
-          <div style={{
-            marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontSize: 11.5, background: 'rgba(0,0,0,0.15)', borderRadius: 4, padding: '2px 7px',
-            color: 'var(--accent-fg)', opacity: 0.85,
-          }}>
+          <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-black/15 px-[7px] py-0.5 text-2xs text-brand-fg opacity-85">
             <Paperclip size={10} />
             {message.attachmentName}
           </div>
@@ -1018,13 +921,16 @@ function MessageBubble({
 
       {/* Tool-call chips */}
       {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
-        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        <div className="mt-1.5 flex flex-wrap gap-1">
           {message.toolCalls.map((t, i) => (
-            <span key={i} title={JSON.stringify(t.input)} style={{
-              fontSize: 11.5, fontFamily: 'var(--font-mono)', color: t.ok ? 'var(--muted)' : 'var(--red)',
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 4, padding: '2px 6px',
-            }}>
+            <span
+              key={i}
+              title={JSON.stringify(t.input)}
+              className={cn(
+                'rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-2xs',
+                t.ok ? 'text-muted-foreground' : 'text-red',
+              )}
+            >
               {t.name.replace(/^mcp__coach__/, '')}
             </span>
           ))}
@@ -1033,7 +939,7 @@ function MessageBubble({
 
       {/* Proposal cards */}
       {!isUser && message.proposals && message.proposals.length > 0 && (
-        <div style={{ marginTop: 8, width: '100%' }}>
+        <div className="mt-2 w-full">
           {message.proposals.map(p => (
             p.kind === 'eval-case-check' ? (
               <EvalCheckProposalCard
@@ -1104,28 +1010,21 @@ function ProposalCard({
   const isFileSource = proposal.kind === 'file-source';
 
   return (
-    <div style={{
-      border: '1px solid var(--border)', borderRadius: 8,
-      background: 'var(--surface)',
-      padding: 10, marginBottom: 8,
-      opacity: rejected ? 0.55 : 1,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+    <div className={cn('mb-2 rounded-lg border border-border bg-surface p-2.5', rejected && 'opacity-55')}>
+      <div className="mb-1 flex items-center gap-1.5">
         {isFileSource
-          ? <BookOpen size={13} style={{ color: 'var(--muted)' }} />
-          : <FileText size={13} style={{ color: 'var(--muted)' }} />}
-        <span style={{
-          fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
-          background: isDestructive
-            ? 'var(--red-soft-bg)'
-            : isFileSource ? 'rgba(99,102,241,0.12)' : 'rgba(16,185,129,0.1)',
-          color: isDestructive
-            ? 'var(--red)'
-            : isFileSource ? 'var(--accent)' : 'var(--green)',
-        }}>{actionLabel}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 500, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{label}</span>
+          ? <BookOpen size={13} className="text-muted-foreground" />
+          : <FileText size={13} className="text-muted-foreground" />}
+        <span
+          className={cn(
+            'rounded-[3px] px-1.5 py-px text-2xs font-bold',
+            isDestructive ? 'text-red' : isFileSource ? 'bg-brand/10 text-brand' : 'bg-green/10 text-green',
+          )}
+          style={isDestructive ? { background: 'var(--red-soft-bg)' } : undefined}
+        >{actionLabel}</span>
+        <span className="font-mono text-xs font-medium text-foreground">{label}</span>
       </div>
-      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '2px 0 6px', lineHeight: 1.5 }}>
+      <p className="mb-1.5 mt-0.5 text-xs leading-normal text-muted-foreground">
         {proposal.rationale}
       </p>
 
@@ -1133,12 +1032,9 @@ function ProposalCard({
           change does NOT auto-sync the wiki — the user runs that from the
           Knowledge tab where the progress UI lives. */}
       {isFileSource && proposal.action !== 'delete' && (
-        <p style={{
-          fontSize: 11.5, color: 'var(--muted)', margin: '0 0 6px',
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-        }}>
+        <p className="mb-1.5 inline-flex items-center gap-1 text-2xs text-muted-foreground">
           <BookOpen size={11} />
-          Stored as <code style={{ fontFamily: 'var(--font-mono)' }}>knowledge/sources/{proposal.name}.md</code>
+          Stored as <code className="font-mono">knowledge/sources/{proposal.name}.md</code>
           {' — open the Knowledge tab and click Sync to refresh the wiki.'}
         </p>
       )}
@@ -1146,11 +1042,7 @@ function ProposalCard({
       {hasExpandableContent && (
         <button
           onClick={() => setExpanded(v => !v)}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3,
-            fontFamily: 'var(--font-sans)',
-          }}
+          className="inline-flex cursor-pointer items-center gap-0.5 border-none bg-none p-0 font-sans text-xs text-muted-foreground"
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           {expanded ? 'Hide content' : 'Show content'}
@@ -1176,45 +1068,34 @@ function ProposalCard({
         );
       })()}
 
-      <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+      <div className="mt-2 flex items-center gap-1.5">
         {applied ? (
           <>
-            <span style={{
-              fontSize: 12, fontWeight: 500, color: 'var(--green)',
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-            }}><Check size={13} /> Applied</span>
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-green"><Check size={13} /> Applied</span>
             {isFileSource && (
               <>
-                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>·</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                <span className="text-xs text-subtle">·</span>
+                <span className="text-xs text-muted-foreground">
                   Sync from the Knowledge tab to refresh the wiki.
                 </span>
               </>
             )}
           </>
         ) : rejected ? (
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Rejected</span>
+          <span className="text-xs text-subtle">Rejected</span>
         ) : (
           <>
             <button
               onClick={onApply}
               disabled={!canEdit}
-              style={{
-                fontSize: 12, fontWeight: 500, padding: '5px 13px', borderRadius: 5,
-                background: canEdit ? 'var(--accent)' : 'var(--surface-2)',
-                color: canEdit ? 'var(--accent-fg)' : 'var(--muted)',
-                border: 'none', cursor: canEdit ? 'pointer' : 'not-allowed',
-                fontFamily: 'var(--font-sans)',
-              }}
+              className={cn(
+                'rounded-[5px] border-none px-3 py-[5px] font-sans text-xs font-medium',
+                canEdit ? 'cursor-pointer bg-brand text-brand-fg' : 'cursor-not-allowed bg-surface-2 text-muted-foreground',
+              )}
             >Apply</button>
             <button
               onClick={onReject}
-              style={{
-                fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 5,
-                background: 'transparent', color: 'var(--muted)',
-                border: '1px solid var(--border)', cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-              }}
+              className="cursor-pointer rounded-[5px] border border-border bg-transparent px-2.5 py-[5px] font-sans text-xs font-medium text-muted-foreground"
             >Reject</button>
           </>
         )}
@@ -1243,66 +1124,42 @@ function EvalCheckProposalCard({
     : 'Real failure';
 
   return (
-    <div style={{
-      border: '1px solid var(--border)', borderRadius: 8,
-      background: 'var(--surface)',
-      padding: 10, marginBottom: 8,
-      opacity: rejected ? 0.55 : 1,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-        <FileText size={13} style={{ color: 'var(--muted)' }} />
-        <span style={{
-          fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
-          background: 'rgba(99,102,241,0.12)', color: 'var(--accent)',
-        }}>{triageLabel.toUpperCase()}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)' }}>
+    <div className={cn('mb-2 rounded-lg border border-border bg-surface p-2.5', rejected && 'opacity-55')}>
+      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+        <FileText size={13} className="text-muted-foreground" />
+        <span className="rounded-[3px] bg-brand/10 px-1.5 py-px text-2xs font-bold text-brand">{triageLabel.toUpperCase()}</span>
+        <span className="text-xs font-medium text-foreground">
           Test case checks
         </span>
       </div>
-      <div style={{
-        fontSize: 12, color: 'var(--text-2)', margin: '2px 0 6px',
-        fontFamily: 'var(--font-mono)',
-        background: 'var(--surface-2)', padding: '4px 8px', borderRadius: 4,
-        border: '1px solid var(--border)',
-      }}>
+      <div className="mb-1.5 mt-0.5 rounded border border-border bg-surface-2 px-2 py-1 font-mono text-xs text-text-2">
         &ldquo;{proposal.caseQuestion}&rdquo;
       </div>
-      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '2px 0 8px', lineHeight: 1.5 }}>
+      <p className="mb-2 mt-0.5 text-xs leading-normal text-muted-foreground">
         {proposal.rationale}
       </p>
 
       <CheckList label="Before" variant="before" checks={proposal.before} />
       <CheckList label="After"  variant="after"  checks={proposal.after} />
 
-      <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+      <div className="mt-2 flex items-center gap-1.5">
         {applied ? (
-          <span style={{
-            fontSize: 12, fontWeight: 500, color: 'var(--green)',
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-          }}><Check size={13} /> Applied</span>
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green"><Check size={13} /> Applied</span>
         ) : rejected ? (
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Rejected</span>
+          <span className="text-xs text-subtle">Rejected</span>
         ) : (
           <>
             <button
               onClick={onApply}
               disabled={!canEdit}
-              style={{
-                fontSize: 12, fontWeight: 500, padding: '5px 13px', borderRadius: 5,
-                background: canEdit ? 'var(--accent)' : 'var(--surface-2)',
-                color: canEdit ? 'var(--accent-fg)' : 'var(--muted)',
-                border: 'none', cursor: canEdit ? 'pointer' : 'not-allowed',
-                fontFamily: 'var(--font-sans)',
-              }}
+              className={cn(
+                'rounded-[5px] border-none px-3 py-[5px] font-sans text-xs font-medium',
+                canEdit ? 'cursor-pointer bg-brand text-brand-fg' : 'cursor-not-allowed bg-surface-2 text-muted-foreground',
+              )}
             >Apply</button>
             <button
               onClick={onReject}
-              style={{
-                fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 5,
-                background: 'transparent', color: 'var(--muted)',
-                border: '1px solid var(--border)', cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-              }}
+              className="cursor-pointer rounded-[5px] border border-border bg-transparent px-2.5 py-[5px] font-sans text-xs font-medium text-muted-foreground"
             >Reject</button>
           </>
         )}
@@ -1318,46 +1175,36 @@ function CheckList({ label, variant, checks }: {
 }) {
   if (checks.length === 0) {
     return (
-      <div style={{ marginTop: 8 }}>
-        <div style={sectionLabelStyle}>{label}</div>
-        <div style={{ fontSize: 12, color: 'var(--subtle)', fontStyle: 'italic', padding: '4px 0' }}>
+      <div className="mt-2">
+        <div className={sectionLabelClass}>{label}</div>
+        <div className="py-1 text-xs italic text-subtle">
           (no checks)
         </div>
       </div>
     );
   }
   return (
-    <div style={{ marginTop: 8 }}>
-      <div style={sectionLabelStyle}>{label}</div>
+    <div className="mt-2">
+      <div className={sectionLabelClass}>{label}</div>
       {checks.map((c, i) => <CheckRow key={i} check={c} variant={variant} />)}
     </div>
   );
 }
 
-const sectionLabelStyle: React.CSSProperties = {
-  fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em',
-  color: 'var(--muted)', fontWeight: 700, marginBottom: 4,
-};
+const sectionLabelClass = 'mb-1 text-2xs font-bold uppercase tracking-[0.04em] text-muted-foreground';
 
 function CheckRow({ check, variant }: { check: CheckConfig; variant: 'before' | 'after' }) {
+  // Left stripe + soft background tint per side: red for "before", green for
+  // "after". The soft tints have no design-system token, so they stay inline.
   const stripe = variant === 'before' ? 'var(--red)' : 'var(--green)';
   const bg = variant === 'before' ? 'var(--red-soft-bg, rgba(239,68,68,0.06))' : 'rgba(16,185,129,0.06)';
   return (
-    <div style={{
-      border: '1px solid var(--border)',
-      borderLeft: `3px solid ${stripe}`,
-      borderRadius: 6, padding: '7px 10px',
-      background: bg,
-      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-      marginBottom: 4,
-    }}>
-      <span style={{
-        fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)',
-        background: 'rgba(99,102,241,0.12)', color: 'var(--accent)',
-        border: '1px solid rgba(99,102,241,0.25)',
-        padding: '1px 6px', borderRadius: 4, flexShrink: 0,
-      }}>{check.primitive}</span>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, flex: 1, fontSize: 12 }}>
+    <div
+      className="mb-1 flex flex-wrap items-center gap-2 rounded-md border border-border px-2.5 py-1.5"
+      style={{ borderLeft: `3px solid ${stripe}`, background: bg }}
+    >
+      <span className="flex-shrink-0 rounded border border-brand/25 bg-brand/10 px-1.5 py-px font-mono text-2xs font-semibold text-brand">{check.primitive}</span>
+      <div className="flex flex-1 flex-wrap items-center gap-[5px] text-xs">
         {renderCheckValue(check)}
       </div>
     </div>
@@ -1372,18 +1219,18 @@ function renderCheckValue(check: CheckConfig): React.ReactNode {
       <>
         {must.map((t, i) => (
           <React.Fragment key={`mc-${i}`}>
-            {i > 0 && <span style={connectorStyle}>or</span>}
-            <span style={toolChipStyle}>{t}</span>
+            {i > 0 && <span className={connectorClass}>or</span>}
+            <span className={toolChipClass}>{t}</span>
           </React.Fragment>
         ))}
         {not.map((t, i) => (
           <React.Fragment key={`nc-${i}`}>
-            <span style={connectorStyle}>not</span>
-            <span style={toolChipStyle}>{t}</span>
+            <span className={connectorClass}>not</span>
+            <span className={toolChipClass}>{t}</span>
           </React.Fragment>
         ))}
         {must.length === 0 && not.length === 0 && (
-          <span style={{ color: 'var(--subtle)', fontStyle: 'italic' }}>(no tools)</span>
+          <span className="italic text-subtle">(no tools)</span>
         )}
       </>
     );
@@ -1395,14 +1242,14 @@ function renderCheckValue(check: CheckConfig): React.ReactNode {
       <>
         {must.map((s, i) => (
           <React.Fragment key={`mc-${i}`}>
-            {i > 0 && <span style={connectorStyle}>and</span>}
-            <span style={toolChipStyle}>contains &ldquo;{s}&rdquo;</span>
+            {i > 0 && <span className={connectorClass}>and</span>}
+            <span className={toolChipClass}>contains &ldquo;{s}&rdquo;</span>
           </React.Fragment>
         ))}
         {not.map((s, i) => (
           <React.Fragment key={`nc-${i}`}>
-            <span style={connectorStyle}>not</span>
-            <span style={toolChipStyle}>&ldquo;{s}&rdquo;</span>
+            <span className={connectorClass}>not</span>
+            <span className={toolChipClass}>&ldquo;{s}&rdquo;</span>
           </React.Fragment>
         ))}
       </>
@@ -1410,23 +1257,14 @@ function renderCheckValue(check: CheckConfig): React.ReactNode {
   }
   // llm_judge
   return (
-    <span style={{ fontStyle: 'italic', color: 'var(--text)' }}>
+    <span className="italic text-foreground">
       &ldquo;{check.rubric}&rdquo;
     </span>
   );
 }
 
-const toolChipStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center',
-  padding: '2px 7px', borderRadius: 4,
-  background: 'var(--surface-2)', border: '1px solid var(--border)',
-  color: 'var(--text)',
-  fontFamily: 'var(--font-mono)', fontSize: 11.5,
-};
-const connectorStyle: React.CSSProperties = {
-  fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em',
-  color: 'var(--subtle)', fontWeight: 700,
-};
+const toolChipClass = 'inline-flex items-center rounded border border-border bg-surface-2 px-[7px] py-0.5 font-mono text-2xs text-foreground';
+const connectorClass = 'text-2xs font-bold uppercase tracking-[0.04em] text-subtle';
 
 /** Three-dot thinking indicator (iMessage/Slack style). Keyframes for the
  *  dot animation live in the <style> block at the bottom of the panel. */
@@ -1439,7 +1277,7 @@ function DraftingIndicator({ color = 'var(--muted)', size = 6 }: { color?: strin
   return (
     <span
       aria-label="Thinking"
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 0' }}
+      className="inline-flex items-center gap-1 py-0.5"
     >
       <span style={{ ...dot, animationDelay: '0s' }} />
       <span style={{ ...dot, animationDelay: '0.2s' }} />
@@ -1462,27 +1300,21 @@ function HistoryList({
     <div>
       <button
         onClick={onBack}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          background: 'transparent', border: '1px solid var(--border)',
-          borderRadius: 6, padding: '5px 10px', fontSize: 12,
-          color: 'var(--muted)', cursor: 'pointer', marginBottom: 10,
-          fontFamily: 'var(--font-sans)',
-        }}
+        className="mb-2.5 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-transparent px-2.5 py-[5px] font-sans text-xs text-muted-foreground"
       >
         <ArrowLeft size={12} /> Back to current
       </button>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+      <div className="mb-2 text-sm font-semibold text-foreground">
         Past conversations
       </div>
       {!loaded ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 2px' }}>Loading…</div>
+        <div className="px-0.5 py-2 text-sm text-muted-foreground">Loading…</div>
       ) : archive.length === 0 ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 2px', lineHeight: 1.5 }}>
-          No past conversations yet. Click <RotateCcw size={11} style={{ verticalAlign: 'middle' }} /> to archive the current one and start fresh — archived threads show up here.
+        <div className="px-0.5 py-2 text-sm leading-normal text-muted-foreground">
+          No past conversations yet. Click <RotateCcw size={11} className="align-middle" /> to archive the current one and start fresh — archived threads show up here.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="flex flex-col gap-1.5">
           {archive.map(entry => {
             const firstUser = entry.messages.find(m => m.role === 'user');
             const excerpt = (firstUser?.text ?? '(no user message)').replace(/\s+/g, ' ').slice(0, 80);
@@ -1490,19 +1322,12 @@ function HistoryList({
               <button
                 key={entry.id}
                 onClick={() => onOpen(entry.id)}
-                style={{
-                  textAlign: 'left', background: 'var(--surface)',
-                  border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px',
-                  cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                  display: 'flex', flexDirection: 'column', gap: 2,
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-3)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)'; }}
+                className="flex cursor-pointer flex-col gap-0.5 rounded-lg border border-border bg-surface px-2.5 py-2 text-left font-sans transition-colors hover:bg-surface-3"
               >
-                <div style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.45 }}>
+                <div className="text-xs leading-[1.45] text-foreground">
                   {excerpt}{excerpt.length >= 80 ? '…' : ''}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                <div className="text-2xs text-subtle">
                   {new Date(entry.archivedAt).toLocaleString()} · {entry.messages.length} messages
                 </div>
               </button>
@@ -1516,12 +1341,7 @@ function HistoryList({
 
 function ContentBlock({ text }: { text: string }) {
   return (
-    <pre style={{
-      marginTop: 6, background: 'var(--surface-2)', border: '1px solid var(--border)',
-      borderRadius: 6, padding: '8px 10px', fontSize: 12, color: 'var(--text)',
-      whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5,
-      fontFamily: 'var(--font-mono)', maxHeight: 260, overflow: 'auto',
-    }}>{text}</pre>
+    <pre className="mt-1.5 max-h-[260px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-normal text-foreground">{text}</pre>
   );
 }
 
@@ -1560,35 +1380,30 @@ function DiffBlock({ before, after }: { before: string; after: string }) {
   const added = lines.filter(l => l.type === 'add').length;
   const removed = lines.filter(l => l.type === 'del').length;
   return (
-    <div style={{
-      marginTop: 6, background: 'var(--surface-2)', border: '1px solid var(--border)',
-      borderRadius: 6, fontSize: 12, lineHeight: 1.5, fontFamily: 'var(--font-mono)',
-      maxHeight: 320, overflow: 'auto',
-    }}>
-      <div style={{
-        padding: '4px 10px', borderBottom: '1px solid var(--border)',
-        fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)',
-        display: 'flex', gap: 10,
-      }}>
-        <span style={{ color: 'var(--green)' }}>+{added}</span>
-        <span style={{ color: 'var(--red)' }}>−{removed}</span>
+    <div className="mt-1.5 max-h-[320px] overflow-auto rounded-md border border-border bg-surface-2 font-mono text-xs leading-normal">
+      <div className="flex gap-2.5 border-b border-border px-2.5 py-1 font-sans text-2xs text-muted-foreground">
+        <span className="text-green">+{added}</span>
+        <span className="text-red">−{removed}</span>
       </div>
-      <div style={{ padding: '6px 0' }}>
+      <div className="py-1.5">
         {lines.map((l, i) => {
+          // Per-line add/del tint. The green add-tint and red soft-bg have no
+          // design-system token, so the background stays inline.
           const bg = l.type === 'add' ? 'rgba(16,185,129,0.12)'
             : l.type === 'del' ? 'var(--red-soft-bg)'
               : 'transparent';
-          const color = l.type === 'add' ? 'var(--green)'
-            : l.type === 'del' ? 'var(--red)'
-              : 'var(--text)';
+          const colorClass = l.type === 'add' ? 'text-green'
+            : l.type === 'del' ? 'text-red'
+              : 'text-foreground';
           const marker = l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' ';
           return (
-            <div key={i} style={{
-              display: 'flex', background: bg, color,
-              padding: '0 10px', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            }}>
-              <span style={{ width: 14, flexShrink: 0, userSelect: 'none', opacity: 0.7 }}>{marker}</span>
-              <span style={{ flex: 1 }}>{l.text || ' '}</span>
+            <div
+              key={i}
+              className={cn('flex whitespace-pre-wrap break-words px-2.5', colorClass)}
+              style={{ background: bg }}
+            >
+              <span className="w-3.5 flex-shrink-0 select-none opacity-70">{marker}</span>
+              <span className="flex-1">{l.text || ' '}</span>
             </div>
           );
         })}

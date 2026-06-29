@@ -20,9 +20,11 @@ import type { Agent } from '@slackhive/shared';
  * public Slack identifier used for `<@Uxxx>` mentions, not a secret.
  */
 export function toAgentPublic(agent: Agent): Agent {
-  const hasSlackCreds = Boolean(
-    agent.slackBotToken && agent.slackAppToken && agent.slackSigningSecret
-  );
+  // "Connected" for the runner is Socket Mode, which needs the bot + app-level
+  // tokens; the signing secret is only for the HTTP Events API and is unused. Match
+  // that definition so the viewer-facing flag agrees with the editor-facing check
+  // (which derives the same indicator from the raw bot/app tokens).
+  const hasSlackCreds = Boolean(agent.slackBotToken && agent.slackAppToken);
   const {
     slackBotToken: _botToken,
     slackAppToken: _appToken,

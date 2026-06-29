@@ -217,6 +217,12 @@ CREATE TABLE IF NOT EXISTS agents (
   enabled              INTEGER NOT NULL DEFAULT 1,
   is_boss              INTEGER NOT NULL DEFAULT 0,
   verbose              INTEGER NOT NULL DEFAULT 1,
+  sensitivity_check    TEXT NOT NULL DEFAULT 'deterministic'
+                                     CHECK (sensitivity_check IN ('off','deterministic','smart')),
+  enforcement_redaction INTEGER NOT NULL DEFAULT 0,
+  redaction_level      TEXT NOT NULL DEFAULT 'secrets'
+                                     CHECK (redaction_level IN ('secrets','pii','all')),
+  sensitivity_guidance TEXT NOT NULL DEFAULT '',
   reports_to           TEXT NOT NULL DEFAULT '[]',
   claude_md            TEXT NOT NULL DEFAULT '',
   created_by           TEXT NOT NULL DEFAULT 'system',
@@ -434,8 +440,10 @@ CREATE TABLE IF NOT EXISTS activities (
   platform               TEXT NOT NULL DEFAULT 'slack',
   initiator_kind         TEXT NOT NULL CHECK (initiator_kind IN ('user','agent')),
   initiator_user_id      TEXT,
+  initiator_handle       TEXT,
   message_ref            TEXT,
   message_preview        TEXT,
+  reply_ts               TEXT,
   started_at             TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at            TEXT,
   status                 TEXT NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress','done','error')),
@@ -444,7 +452,11 @@ CREATE TABLE IF NOT EXISTS activities (
   input_tokens           INTEGER,
   output_tokens          INTEGER,
   cache_read_tokens      INTEGER,
-  cache_creation_tokens  INTEGER
+  cache_creation_tokens  INTEGER,
+  -- Model actually in effect when this turn ran. Stamped at begin so the
+  -- token-by-model breakdown survives later model switches (grouping by the
+  -- agent's CURRENT model would retroactively relabel history).
+  model                  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tool_calls (
@@ -624,6 +636,59 @@ CREATE TABLE IF NOT EXISTS message_feedback (
   UNIQUE (message_ts, rater_user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_message_feedback_agent ON message_feedback(agent_id, created_at DESC);
+
+-- ── LLM trace spans (OpenTelemetry GenAI semantic conventions) ──────────────
+-- One row per observation in a turn's span tree: the turn itself (kind='agent',
+-- = an activity / invoke_agent span), each LLM step (kind='generation', carries
+-- reasoning + text + per-step model/tokens), each tool execution
+-- (kind='tool' / execute_tool, full args + result), and system markers
+-- (kind='event', e.g. context_reset). session_id is the task id (the thread).
+-- Timestamps are epoch MILLISECONDS for exact, sub-second durations. Content
+-- columns (input/output/reasoning) are gated by TRACE_CAPTURE_CONTENT at write
+-- time. Written by the runner's DbSpanExporter (OTel SimpleSpanProcessor).
+CREATE TABLE IF NOT EXISTS spans (
+  span_id               TEXT PRIMARY KEY,
+  trace_id              TEXT NOT NULL,
+  parent_span_id        TEXT,
+  session_id            TEXT NOT NULL,
+  activity_id           TEXT,
+  kind                  TEXT NOT NULL CHECK (kind IN ('agent','generation','tool','event')),
+  name                  TEXT NOT NULL,
+  agent_id              TEXT,
+  provider              TEXT,
+  model                 TEXT,
+  start_ms              INTEGER NOT NULL,
+  end_ms                INTEGER,
+  status                TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','error')),
+  status_message        TEXT,
+  input_tokens          INTEGER,
+  output_tokens         INTEGER,
+  reasoning_tokens      INTEGER,
+  cache_read_tokens     INTEGER,
+  cache_creation_tokens INTEGER,
+  cost_usd              REAL,
+  finish_reason         TEXT,
+  tool_name             TEXT,
+  input                 TEXT,
+  output                TEXT,
+  reasoning             TEXT,
+  sensitive             INTEGER NOT NULL DEFAULT 0,
+  sensitive_categories  TEXT,
+  sensitive_reason      TEXT,
+  sensitive_severity    TEXT,
+  sensitive_fps         TEXT,
+  sensitive_llm         INTEGER NOT NULL DEFAULT 0,
+  sensitive_llm_hits    TEXT,
+  attributes            TEXT,
+  created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_spans_session  ON spans(session_id, start_ms);
+CREATE INDEX IF NOT EXISTS idx_spans_activity ON spans(activity_id, start_ms);
+CREATE INDEX IF NOT EXISTS idx_spans_trace    ON spans(trace_id);
+-- Covers the per-agent rollup / tool / sensitive aggregate queries (agent_id + window).
+CREATE INDEX IF NOT EXISTS idx_spans_agent_start ON spans(agent_id, start_ms);
+-- Lets the per-task EXISTS(spans … sensitive=1) check terminate on the index.
+CREATE INDEX IF NOT EXISTS idx_spans_session_sensitive ON spans(session_id, sensitive);
 `;
 
 // =============================================================================
@@ -671,6 +736,20 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const agentCols = (db.pragma('table_info(agents)') as { name: string }[]).map(c => c.name);
   if (!agentCols.includes('verbose')) {
     db.exec('ALTER TABLE agents ADD COLUMN verbose INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!agentCols.includes('sensitivity_check')) {
+    db.exec("ALTER TABLE agents ADD COLUMN sensitivity_check TEXT NOT NULL DEFAULT 'deterministic'");
+  }
+  if (!agentCols.includes('enforcement_redaction')) {
+    db.exec('ALTER TABLE agents ADD COLUMN enforcement_redaction INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!agentCols.includes('redaction_level')) {
+    db.exec("ALTER TABLE agents ADD COLUMN redaction_level TEXT NOT NULL DEFAULT 'secrets'");
+  }
+  // sensitivity_guidance — free-text "what counts as sensitive for THIS agent",
+  // fed into the Smart (LLM) detector prompt.
+  if (!agentCols.includes('sensitivity_guidance')) {
+    db.exec("ALTER TABLE agents ADD COLUMN sensitivity_guidance TEXT NOT NULL DEFAULT ''");
   }
   if (!agentCols.includes('last_error')) {
     db.exec('ALTER TABLE agents ADD COLUMN last_error TEXT');
@@ -858,6 +937,51 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   if (!activityCols.includes('cache_creation_tokens')) {
     db.exec('ALTER TABLE activities ADD COLUMN cache_creation_tokens INTEGER');
   }
+  if (!activityCols.includes('initiator_handle')) {
+    db.exec('ALTER TABLE activities ADD COLUMN initiator_handle TEXT');
+  }
+  // Durable link from a posted reply (Slack message ts) to its activity, so
+  // feedback clicks resolve the turn even after a runner restart clears the
+  // in-memory feedback-target map.
+  if (!activityCols.includes('reply_ts')) {
+    db.exec('ALTER TABLE activities ADD COLUMN reply_ts TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_activities_reply_ts ON activities(reply_ts)');
+  }
+  // Per-turn model, for an accurate token-by-model breakdown. New turns stamp it
+  // at begin; pre-existing rows are best-effort backfilled to the agent's CURRENT
+  // model (the real model wasn't recorded, so a prior Claude period folds into the
+  // current model for history only — going forward each turn is attributed correctly).
+  if (!activityCols.includes('model')) {
+    // Atomic ALTER + backfill: if the (potentially slow) UPDATE is interrupted, the
+    // whole thing rolls back so the column-add guard above stays false and the
+    // migration retries next boot — rather than leaving the column added but rows
+    // permanently NULL (→ a stuck 'unknown' bucket) with no recovery path.
+    db.transaction(() => {
+      db.exec('ALTER TABLE activities ADD COLUMN model TEXT');
+      db.exec(`UPDATE activities
+                  SET model = (SELECT a.model FROM agents a WHERE a.id = activities.agent_id)
+                WHERE model IS NULL`);
+    })();
+  }
+
+  // spans.sensitive* — added after the spans table shipped (sensitive-access monitor).
+  const spanCols = (db.pragma('table_info(spans)') as { name: string }[]).map(c => c.name);
+  if (spanCols.length > 0) {
+    if (!spanCols.includes('sensitive')) db.exec('ALTER TABLE spans ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0');
+    if (!spanCols.includes('sensitive_categories')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_categories TEXT');
+    if (!spanCols.includes('sensitive_reason')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_reason TEXT');
+    if (!spanCols.includes('sensitive_severity')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_severity TEXT');
+    // Per-match privacy-safe fingerprints + role (source/sink) for flow lineage.
+    if (!spanCols.includes('sensitive_fps')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_fps TEXT');
+    // sensitive_llm — marks a span the Smart (LLM) detector flagged independently
+    // of regex (e.g. obfuscated PII). Surfaced as a "caught by LLM" badge.
+    if (!spanCols.includes('sensitive_llm')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_llm INTEGER NOT NULL DEFAULT 0');
+    // sensitive_llm_hits — JSON [{text,category,label,severity}] of the excerpts the
+    // Smart detector flagged, so the trace can highlight which part + what type.
+    if (!spanCols.includes('sensitive_llm_hits')) db.exec('ALTER TABLE spans ADD COLUMN sensitive_llm_hits TEXT');
+  }
+  // Partial index for the audit feed (only flagged rows).
+  db.exec("CREATE INDEX IF NOT EXISTS idx_spans_sensitive ON spans(start_ms DESC) WHERE sensitive = 1");
 
   // Perf: drop unused index that no query touches (users.created_at). The new
   // hot-path indexes (idx_agent_access_user, idx_agents_created_by) are

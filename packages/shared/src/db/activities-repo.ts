@@ -61,6 +61,12 @@ function rowToTask(row: Record<string, unknown>): Task {
     startedAt: row.started_at as string,
     lastActivityAt: row.last_activity_at as string,
     activityCount: Number(row.activity_count ?? 0),
+    sensitive: row.sensitive ? true : undefined,
+    // agent_ids is a GROUP_CONCAT(DISTINCT …) string when listTasks supplied it;
+    // absent (undefined) on the plain `SELECT * FROM tasks` paths.
+    agentIds: typeof row.agent_ids === 'string' && row.agent_ids
+      ? (row.agent_ids as string).split(',').filter(Boolean)
+      : undefined,
   };
 }
 
@@ -79,6 +85,11 @@ function rowToActivity(row: Record<string, unknown>): Activity {
     status: row.status as ActivityStatus,
     error: (row.error as string | null) ?? undefined,
     toolCallCount: Number(row.tool_call_count ?? 0),
+    inputTokens: row.input_tokens == null ? undefined : Number(row.input_tokens),
+    outputTokens: row.output_tokens == null ? undefined : Number(row.output_tokens),
+    cacheReadTokens: row.cache_read_tokens == null ? undefined : Number(row.cache_read_tokens),
+    cacheCreationTokens: row.cache_creation_tokens == null ? undefined : Number(row.cache_creation_tokens),
+    model: (row.model as string | null) ?? undefined,
   };
 }
 
@@ -146,8 +157,11 @@ export interface BeginActivityInput {
   platform: Platform;
   initiatorKind: Activity['initiatorKind'];
   initiatorUserId?: string;
+  initiatorHandle?: string;
   messageRef?: string;
   messagePreview?: string;
+  /** Model in effect for this turn — stamped so by-model analytics survive switches. */
+  model?: string;
 }
 
 /** Insert an activity row in `status='in_progress'` and return its id. */
@@ -157,9 +171,9 @@ export async function beginActivity(input: BeginActivityInput): Promise<string> 
   await db.query(
     `INSERT INTO activities (
        id, task_id, agent_id, platform,
-       initiator_kind, initiator_user_id,
-       message_ref, message_preview, status
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'in_progress')`,
+       initiator_kind, initiator_user_id, initiator_handle,
+       message_ref, message_preview, model, status
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'in_progress')`,
     [
       id,
       input.taskId,
@@ -167,8 +181,10 @@ export async function beginActivity(input: BeginActivityInput): Promise<string> 
       input.platform,
       input.initiatorKind,
       input.initiatorUserId ?? null,
+      input.initiatorHandle ?? null,
       input.messageRef ?? null,
       truncate(input.messagePreview),
+      input.model ?? null,
     ],
   );
   // Bump the task summary counters. We do this on begin (not finish) so the
@@ -272,6 +288,10 @@ export interface ActivityUsageInput {
 export async function recordActivityUsage(
   activityId: string,
   usage: ActivityUsageInput,
+  /** Model in effect at completion. Refreshes the begin-time stamp so the
+   *  recorded model is consistent with the moment tokens are written (handles a
+   *  mid-turn model change). COALESCE keeps the begin stamp when not provided. */
+  model?: string,
 ): Promise<void> {
   const db = getDb();
   await db.query(
@@ -279,13 +299,15 @@ export async function recordActivityUsage(
         SET input_tokens          = $1,
             output_tokens         = $2,
             cache_read_tokens     = $3,
-            cache_creation_tokens = $4
-      WHERE id = $5`,
+            cache_creation_tokens = $4,
+            model                 = COALESCE($5, model)
+      WHERE id = $6`,
     [
       Number(usage.input_tokens ?? 0),
       Number(usage.output_tokens ?? 0),
       Number(usage.cache_read_input_tokens ?? 0),
       Number(usage.cache_creation_input_tokens ?? 0),
+      model ?? null,
       activityId,
     ],
   );
@@ -340,12 +362,29 @@ export async function listTasks(
     cteParams.push(filter.agentId);
   }
 
+  // Captured so the sensitive-span CTE below can reuse the SAME $N placeholders
+  // (translateParams maps each $N -> params[N-1] independently, so reuse is safe).
+  let accessAgentPlaceholders = '';
   if (filter.accessibleAgentIds !== undefined) {
-    const placeholders = filter.accessibleAgentIds
+    accessAgentPlaceholders = filter.accessibleAgentIds
       .map((_, i) => `$${cteParams.length + 1 + i}`)
       .join(', ');
-    cteWheres.push(`agent_id IN (${placeholders})`);
+    cteWheres.push(`agent_id IN (${accessAgentPlaceholders})`);
     cteParams.push(...filter.accessibleAgentIds);
+  }
+
+  // Time window filters the ACTIVITIES (by started_at), not the task's
+  // last_activity_at — so a task is listed when it has a turn in the window,
+  // matching how the usage/stats aggregates scope the same range. (Otherwise a
+  // custom range's upper bound could hide a task from the list while its in-range
+  // turn still shows in the totals.)
+  if (filter.since) {
+    cteWheres.push(`started_at >= $${cteParams.length + 1}`);
+    cteParams.push(filter.since);
+  }
+  if (filter.until) {
+    cteWheres.push(`started_at <= $${cteParams.length + 1}`);
+    cteParams.push(filter.until);
   }
 
   const cteWhereSql = cteWheres.length ? `WHERE ${cteWheres.join(' AND ')}` : '';
@@ -356,10 +395,7 @@ export async function listTasks(
     taskParams.push(filter.userId);
   }
 
-  if (filter.since) {
-    taskWheres.push(`t.last_activity_at >= $${cteParams.length + taskParams.length + 1}`);
-    taskParams.push(filter.since);
-  }
+  // (since/until are applied in the CTE above, on activity started_at.)
 
   // Column filter against pre-aggregated CTE columns
   if (column === 'active') {
@@ -399,10 +435,33 @@ export async function listTasks(
      agg AS (
        SELECT task_id, has_active, status AS latest_status
        FROM ranked WHERE rn = 1
+     ),
+     -- Distinct agents per task (scope-respecting) for the avatar stack — so the
+     -- dashboard no longer fetches a full trace per card just to read agent ids.
+     agents_agg AS (
+       SELECT task_id, GROUP_CONCAT(DISTINCT agent_id) agent_ids
+       FROM activities a
+       ${cteWhereSql}
+       GROUP BY task_id
+     ),
+     -- Sensitive sessions computed ONCE (not a correlated per-row EXISTS scan),
+     -- BOUNDED to this page's scoped+windowed task set (session_id IN agg) so it
+     -- never scans all sensitive spans in history, and SCOPED to the caller's
+     -- accessible agents so a sensitive span from an agent the caller can't see
+     -- (and won't be shown in the trace) doesn't light up the badge.
+     sensitive_sessions AS (
+       SELECT DISTINCT session_id FROM spans
+        WHERE sensitive = 1
+          AND session_id IN (SELECT task_id FROM agg)
+          ${accessAgentPlaceholders ? `AND agent_id IN (${accessAgentPlaceholders})` : ''}
      )
-     SELECT t.*
+     SELECT t.*,
+            aa.agent_ids AS agent_ids,
+            (ss.session_id IS NOT NULL) AS sensitive
        FROM tasks t
        JOIN agg ON agg.task_id = t.id
+       LEFT JOIN agents_agg aa ON aa.task_id = t.id
+       LEFT JOIN sensitive_sessions ss ON ss.session_id = t.id
       WHERE 1=1 ${taskWhereSql}
       ORDER BY t.last_activity_at DESC, t.id DESC
       LIMIT $${limitIdx}`,
@@ -432,7 +491,9 @@ export async function getTaskWithDetails(taskId: string): Promise<TaskWithDetail
   const task = rowToTask(taskRes.rows[0]);
 
   const actRes = await db.query(
-    `SELECT * FROM activities WHERE task_id = $1 ORDER BY started_at ASC, id ASC`,
+    // Tiebreak on rowid (insert order) — started_at is 1-second resolution and id is
+    // a random UUID, so same-second activities would otherwise sort arbitrarily.
+    `SELECT * FROM activities WHERE task_id = $1 ORDER BY started_at ASC, rowid ASC`,
     [taskId],
   );
   const activities = actRes.rows.map(rowToActivity);
@@ -567,6 +628,10 @@ export async function getTokensByAgent(filter: ActivityFilter = {}): Promise<Age
     wheres.push(`a.started_at >= $${params.length + 1}`);
     params.push(filter.since);
   }
+  if (filter.until) {
+    wheres.push(`a.started_at <= $${params.length + 1}`);
+    params.push(filter.until);
+  }
 
   if (filter.agentId) {
     wheres.push(`a.agent_id = $${params.length + 1}`);
@@ -627,6 +692,10 @@ export async function getTopUsers(
   if (filter.since) {
     wheres.push(`a.started_at >= $${params.length + 1}`);
     params.push(filter.since);
+  }
+  if (filter.until) {
+    wheres.push(`a.started_at <= $${params.length + 1}`);
+    params.push(filter.until);
   }
 
   if (filter.agentId) {
@@ -694,6 +763,9 @@ export interface FeedbackRating {
   note: string | null;
   permalink: string | null;
   createdAt: string;
+  /** Session (task) the rated turn belongs to — links to the trace view.
+   * Null for older ratings whose activity link is missing. */
+  sessionId: string | null;
 }
 
 export interface AgentFeedbackReport {
@@ -714,6 +786,21 @@ export interface AgentFeedbackReport {
  * with the note, which is merged onto the existing row. Best-effort — never
  * break the Slack interaction path.
  */
+/** Record which posted reply (Slack message ts) belongs to an activity, so a later
+ *  feedback click can resolve the turn durably (survives a runner restart). */
+export async function linkActivityReply(activityId: string, replyTs: string): Promise<void> {
+  await getDb().query(`UPDATE activities SET reply_ts = $1 WHERE id = $2`, [replyTs, activityId]);
+}
+
+/** Resolve the activity a reply belongs to, by the reply's Slack message ts. */
+export async function findActivityIdByReply(replyTs: string): Promise<string | null> {
+  const { rows } = await getDb().query(
+    `SELECT id FROM activities WHERE reply_ts = $1 ORDER BY started_at DESC LIMIT 1`,
+    [replyTs],
+  );
+  return rows.length ? (rows[0].id as string) : null;
+}
+
 export async function recordMessageFeedback(input: MessageFeedbackInput): Promise<void> {
   const db = getDb();
   const id = randomUUID();
@@ -788,17 +875,18 @@ export async function getFeedbackReport(
 
   let recentRatings: FeedbackRating[] = [];
   if (wantList) {
-    const listWheres = [...wheres];
-    const listParams = [...params];
-    if (opts.sentiment) {
-      listWheres.push(`sentiment = $${listParams.length + 1}`);
-      listParams.push(opts.sentiment);
-    }
+    // Join activities to resolve the session (task) id for the "View session"
+    // link. Columns are f-qualified since agent_id exists on both tables.
+    const listWheres = [`f.agent_id = $1`];
+    const listParams: unknown[] = [agentId];
+    if (opts.since) { listWheres.push(`f.created_at >= $${listParams.length + 1}`); listParams.push(opts.since); }
+    if (opts.sentiment) { listWheres.push(`f.sentiment = $${listParams.length + 1}`); listParams.push(opts.sentiment); }
     const listRes = await db.query(
-      `SELECT sentiment, rater_handle, note, permalink, created_at
-         FROM message_feedback
+      `SELECT f.sentiment, f.rater_handle, f.note, f.permalink, f.created_at, a.task_id
+         FROM message_feedback f
+         LEFT JOIN activities a ON a.id = f.activity_id
         WHERE ${listWheres.join(' AND ')}
-        ORDER BY created_at DESC, id DESC
+        ORDER BY f.created_at DESC, f.id DESC
         LIMIT $${listParams.length + 1} OFFSET $${listParams.length + 2}`,
       [...listParams, limit, offset],
     );
@@ -808,6 +896,7 @@ export async function getFeedbackReport(
       note: (n.note as string | null) ?? null,
       permalink: (n.permalink as string | null) ?? null,
       createdAt: n.created_at as string,
+      sessionId: (n.task_id as string | null) ?? null,
     }));
   }
 
