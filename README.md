@@ -204,6 +204,8 @@ Every agent has tools, memory, identity, and instructions. When you @mention one
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type - feedback, user, project, reference. |
 | 📡 **Activity** | Live board of active, completed, and errored work, with initiator, agent, replay, and trace drill-down. |
 | 🔎 **Observability** | Operational view for sessions, tokens, model usage, latency, tool reliability, sensitive access, satisfaction, and replay. |
+| 🧪 **Agent Evals** | Static healthchecks plus approved regression cases with phrase, tool-call, and LLM-judge checks. |
+| 🛡️ **Sensitive Data Controls** | Per-agent detection modes, Smart sensitivity checks, redaction levels, and sensitive-event audit trails. |
 | 🌐 **Multi-Workspace** | Connect multiple Slack workspaces to a single SlackHive instance. Each workspace gets its own agents and configurations. |
 | 📚 **Knowledge Library** | Platform-level catalog of Karpathy-style wiki folders. Owners ingest a repo / file / URL into a folder; assign one folder to many agents. The agent's `/wiki` skill auto-enables when at least one assigned folder has built content. |
 
