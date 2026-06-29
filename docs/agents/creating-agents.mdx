@@ -49,6 +49,8 @@ The creation flow sets the agent identity and starting profile. Everything opera
 | System prompt, skills, memory | Agent page → Instructions |
 | Wiki folders | Agent page → Wiki |
 | Access control | Agent page → Settings / access controls |
+| Sensitive-data monitoring | Agent page → Settings → General |
+| Evals and regression cases | Agent page → Settings → Evals |
 | Test conversation | Agent page → Test |
 
 This keeps creation fast while keeping each setup area easy to find.
@@ -61,8 +63,9 @@ SlackHive opens the agent page. A typical setup sequence is:
 2. **Tune with Coach** - ask Coach to build or improve the system prompt and skills.
 3. **Assign tools** - add MCP servers and capabilities from the Tools tab.
 4. **Assign knowledge** - attach shared Knowledge Library folders.
-5. **Test** - use Test Mode before inviting the bot to a live channel.
-6. **Invite to Slack** - invite the bot and start mentioning it.
+5. **Set safety controls** - configure sensitive-data monitoring and redaction for agents that touch private data.
+6. **Test and evaluate** - use Test Mode, then add eval cases for behavior that must not regress.
+7. **Invite to Slack** - invite the bot and start mentioning it.
 
 ## Agent page tabs
 
@@ -100,5 +103,11 @@ See [Boss Agents](/agents/boss-agents) for delegation patterns and team registry
   </Card>
   <Card title="Tools & Permissions" icon="shield" href="/agents/tools">
     Configure MCP servers, internet access, shell access, and tool safety.
+  </Card>
+  <Card title="Agent Evals" icon="shield-check" href="/agents/evals">
+    Add healthchecks and regression cases before going live.
+  </Card>
+  <Card title="Sensitive Data" icon="shield-alert" href="/features/sensitive-data">
+    Configure detection, redaction, and audit workflows.
   </Card>
 </CardGroup>

@@ -52,6 +52,8 @@ Sensitive markers are redacted by default. Admins can reveal details when needed
 - Redaction level: secrets, PII, or all
 - Custom guidance for what counts as sensitive for that agent
 
+See [Sensitive Data](/features/sensitive-data) for setup, modes, categories, and redaction behavior.
+
 ## Tools
 
 The Tools tab shows tool reliability across the selected window:
@@ -112,7 +114,13 @@ Start on Activity when you want a work queue. Open Observability when you need t
   <Card title="Activity" icon="wave-pulse" href="/features/activity">
     Live board for active, completed, and errored tasks.
   </Card>
+  <Card title="Sensitive Data" icon="shield-alert" href="/features/sensitive-data">
+    Configure detection modes, redaction, and audit workflows.
+  </Card>
   <Card title="Debugging" icon="bug" href="/operations/debugging">
     Operational checklist for failed or slow agents.
+  </Card>
+  <Card title="Agent Evals" icon="shield-check" href="/agents/evals">
+    Healthcheck and regression-test agent behavior.
   </Card>
 </CardGroup>

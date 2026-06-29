@@ -65,6 +65,7 @@
               "agents/tools",
               "agents/audiences",
               "agents/testing",
+              "agents/evals",
               "agents/boss-agents"
             ]
           },
@@ -78,6 +79,7 @@
               "features/history",
               "features/activity",
               "features/observability",
+              "features/sensitive-data",
               "features/users"
             ]
           },
@@ -85,6 +87,7 @@
             "group": "Operations",
             "pages": [
               "operations/cli",
+              "operations/backup-recovery",
               "operations/debugging",
               "operations/troubleshooting"
             ]

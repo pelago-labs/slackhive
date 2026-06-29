@@ -180,6 +180,7 @@ Every agent has tools, memory, identity, and instructions. When you @mention one
 | 🧵 **Full Thread Context** | Agents fetch the entire Slack thread on every invocation - zero context lost in handoffs. |
 | 💾 **Session Continuity** | Slack thread ↔ agent session mapping survives restarts. Pick up exactly where you left off. |
 | 🔐 **Encrypted Secret Store** | API keys encrypted at rest (AES-256). MCPs reference secrets by name - raw values never touch the API or UI. |
+| 🧯 **Backup & Recovery** | Scheduled SQLite backups, manual backup/download, password-wrapped recovery key export, and CLI-only restore with pre-restore safety snapshots. |
 | 🔁 **Hot Reload** | Edit instructions, skills, or tools and the agent picks up changes within seconds. No restart needed. |
 
 ### 👑 Boss + Specialist Hierarchy
@@ -204,6 +205,8 @@ Every agent has tools, memory, identity, and instructions. When you @mention one
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type - feedback, user, project, reference. |
 | 📡 **Activity** | Live board of active, completed, and errored work, with initiator, agent, replay, and trace drill-down. |
 | 🔎 **Observability** | Operational view for sessions, tokens, model usage, latency, tool reliability, sensitive access, satisfaction, and replay. |
+| 🧪 **Agent Evals** | Static healthchecks plus approved regression cases with phrase, tool-call, and LLM-judge checks. |
+| 🛡️ **Sensitive Data Controls** | Per-agent detection modes, Smart sensitivity checks, redaction levels, and sensitive-event audit trails. |
 | 🌐 **Multi-Workspace** | Connect multiple Slack workspaces to a single SlackHive instance. Each workspace gets its own agents and configurations. |
 | 📚 **Knowledge Library** | Platform-level catalog of Karpathy-style wiki folders. Owners ingest a repo / file / URL into a folder; assign one folder to many agents. The agent's `/wiki` skill auto-enables when at least one assigned folder has built content. |
 

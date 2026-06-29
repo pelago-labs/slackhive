@@ -147,51 +147,43 @@ slackhive stop
 slackhive start
 ```
 
-## Backup
+## Backup and recovery
 
-Everything that matters is on disk under `~/.slackhive/`. Back up the whole directory:
+SQLite CLI installs include built-in database backups.
+
+Default behavior:
+
+| Setting | Default |
+|---|---|
+| Automatic backups | Enabled |
+| Schedule | Every 24 hours |
+| Retention | Keep latest 5 backups |
+| Location | `~/.slackhive/backups/` |
+
+SlackHive creates consistent live snapshots with SQLite `VACUUM INTO`, so scheduled backups can run while agents are active.
+
+Use **Settings -> Backups** to:
+
+- Enable or disable scheduled backups
+- Change the backup interval and retention count
+- Trigger **Back up now**
+- Download backup files
+- Export the password-protected recovery key
+
+From the CLI:
 
 ```bash
-tar czf slackhive-backup-$(date +%Y%m%d).tar.gz ~/.slackhive
-```
-
-For a live install, stop first to guarantee a consistent SQLite snapshot:
-
-```bash
-slackhive stop
-tar czf slackhive-backup-$(date +%Y%m%d).tar.gz ~/.slackhive
+slackhive backup
+slackhive restore -f ~/.slackhive/backups/data-20260629-093000.db \
+  --recovery-key ~/Downloads/slackhive-recovery-20260629-093100.json
 slackhive start
 ```
 
-Or use SQLite's online backup API:
-
-```bash
-sqlite3 ~/.slackhive/data.db ".backup '/backups/slackhive-$(date +%Y%m%d).db'"
-```
-
-The online backup is atomic and safe while SlackHive is running.
-
-### What's in the backup
-
-| Path | Contents |
-|---|---|
-| `~/.slackhive/data.db` | All agents, memories, skills, history, MCP catalog, users, settings |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace - instructions, sessions, copies of assigned wiki folders |
-| `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wikis for the Knowledge Library (source of truth) |
-| `~/.slackhive/.env` | Encryption keys, admin password, and optional backend credentials |
-
 <Warning>
-  The `.env` is required to read encrypted secrets in `data.db`. Back up both or store `.env` separately in a secret manager.
+  A database backup is not enough to recover encrypted Slack tokens, MCP env vars, and backend credentials. Export the recovery-key file and store its password separately from the backup.
 </Warning>
 
-### Automated daily backup
-
-```bash
-# /etc/cron.daily/slackhive-backup
-sqlite3 /home/slackhive/.slackhive/data.db \
-  ".backup '/backups/slackhive-$(date +%Y%m%d).db'"
-find /backups -name 'slackhive-*.db' -mtime +30 -delete
-```
+See [Backup & Recovery](/operations/backup-recovery) for the full restore flow, safety snapshots, recovery-key handling, and optional host-level artifacts.
 
 ## Update
 

@@ -111,7 +111,9 @@ Coach **cannot** add, edit, or delete wiki sources. Wiki content belongs to the 
 
 ## Backup and restore
 
-Each folder's compiled wiki lives at `~/.slackhive/knowledge/<folderId>/wiki/` on the host. Snapshot that directory alongside your `data.db` for disaster recovery; folder ownership and assignments are restored from the database.
+Each folder's compiled wiki lives at `~/.slackhive/knowledge/<folderId>/wiki/` on the host. Built-in database backups preserve folder ownership and assignments. Snapshot the `knowledge/` directory as an additional host artifact if you want to keep compiled wiki files without rebuilding them.
+
+See [Backup & Recovery](/operations/backup-recovery) for the database backup and restore workflow.
 
 ## Next steps
 

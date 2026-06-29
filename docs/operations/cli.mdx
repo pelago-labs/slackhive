@@ -1,9 +1,9 @@
 ---
 title: "CLI Reference"
-description: "Manage a running SlackHive install with slackhive status / start / stop / logs / update."
+description: "Manage a running SlackHive install with slackhive status / start / stop / logs / update / backup / restore."
 ---
 
-Once you've installed SlackHive, the `slackhive` command is your day-to-day control surface - simple verbs for start, stop, status, logs, and update.
+Once you've installed SlackHive, the `slackhive` command is your day-to-day control surface - simple verbs for start, stop, status, logs, update, backup, and restore.
 
 ## `slackhive status`
 
@@ -86,18 +86,58 @@ Rebuilds and restarts SlackHive. Your data (`~/.slackhive/data.db`) is preserved
 
 If `git pull` fails (e.g. local changes), stash them first: `git stash && slackhive update`.
 
+## `slackhive backup`
+
+Create a database backup.
+
+```bash
+slackhive backup
+```
+
+When SlackHive is running, the CLI asks the runner to create a consistent live snapshot. When SlackHive is stopped, the CLI copies the closed database file.
+
+Write to a specific path:
+
+```bash
+slackhive backup --output /secure/backups/slackhive.db
+```
+
+Default backups live in `~/.slackhive/backups/`.
+
+## `slackhive restore`
+
+Restore the database from a backup. Restore is CLI-only and stops SlackHive before replacing the local SQLite database.
+
+```bash
+slackhive restore -f ~/.slackhive/backups/data-20260629-093000.db \
+  --recovery-key ~/Downloads/slackhive-recovery-20260629-093100.json
+slackhive start
+```
+
+The recovery-key password is prompted without echoing. For automation, set `SLACKHIVE_RECOVERY_PASSWORD` in the environment.
+
+If you have the original `.env` instead of a recovery-key file:
+
+```bash
+slackhive restore -f /backups/data.db --env /secure/slackhive.env
+slackhive start
+```
+
+See [Backup & Recovery](/operations/backup-recovery) for the full disaster-recovery flow.
+
 ## Where data lives
 
 | Path | What it holds |
 |---|---|
 | `~/.slackhive/data.db` | SQLite DB - agents, memories, skills, history, settings |
+| `~/.slackhive/backups/` | SQLite backup files and pre-restore safety snapshots |
 | `~/.slackhive/agents/<slug>/` | Per-agent workspace (instructions, sessions, copies of assigned wiki folders) |
 | `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wikis for the Knowledge Library (source of truth) |
 | `~/.slackhive/logs/runner.log` | Full runner log stream |
 | `~/.slackhive/runner.lock` | Singleton lock - JSON with `pid`, `startedAt`, `mode` |
 | `~/.slackhive/slackhive.pid` | Web-server PID file |
 
-Back up `~/.slackhive/` to preserve your entire install.
+Use [Backup & Recovery](/operations/backup-recovery) for database backups and recovery-key export. Snapshot `~/.slackhive/` separately if you also want generated workspaces, compiled wiki files, and logs.
 
 ## Running from any directory
 
