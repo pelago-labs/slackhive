@@ -394,6 +394,9 @@ function ViewBtn({ active, onClick, title, children }: {
 
 // ── Hierarchy view ────────────────────────────────────────────────────────────
 
+const CARD_W = 260;
+const CARD_GAP = 16;
+
 function HierarchyView({ agents }: { agents: Agent[] }) {
   const bosses = agents.filter(a => a.isBoss);
   const nonBosses = agents.filter(a => !a.isBoss);
@@ -435,29 +438,44 @@ function SectionLabel({ label }: { label: string }) {
 }
 
 function OrgTree({ boss, reports }: { boss: Agent; reports: Agent[] }) {
+  const n = reports.length;
+  const rowW = n * CARD_W + Math.max(0, n - 1) * CARD_GAP;
+  const treeW = Math.max(CARD_W, rowW);
+  const bossCenter = CARD_W / 2;
+  const connectorH = 40;
+  const barY = 24;
+  const reportCenters = Array.from({ length: n }, (_, i) => i * (CARD_W + CARD_GAP) + CARD_W / 2);
+
   return (
-    <section className="rounded-lg border border-border bg-card/40 p-3 shadow-sm">
-      <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="min-w-0">
-          <div className="mb-2 px-1 text-2xs font-bold uppercase tracking-[0.08em] text-muted-foreground">Boss</div>
+    <div className="overflow-x-auto pb-1">
+      <div className="min-w-[260px]" style={{ width: treeW }}>
+        <div style={{ width: CARD_W }}>
           <AgentCard agent={boss} />
         </div>
 
-        {reports.length > 0 && (
-          <div className="min-w-0">
-            <div className="mb-2 flex items-center justify-between gap-2 px-1">
-              <div className="text-2xs font-bold uppercase tracking-[0.08em] text-muted-foreground">Reports</div>
-              <div className="text-2xs text-muted-foreground">{reports.length}</div>
-            </div>
-            <div className="agent-grid grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+        {n > 0 && (
+          <>
+            <svg width={treeW} height={connectorH} className="block overflow-visible">
+              <g stroke="var(--border-2)" strokeWidth="1.5" fill="none">
+                <line x1={bossCenter} y1={0} x2={bossCenter} y2={barY} />
+                {n > 1 && <line x1={reportCenters[0]} y1={barY} x2={reportCenters[n - 1]} y2={barY} />}
+                {reportCenters.map((cx, i) => (
+                  <line key={i} x1={cx} y1={barY} x2={cx} y2={connectorH} />
+                ))}
+              </g>
+            </svg>
+
+            <div className="flex items-start" style={{ gap: CARD_GAP }}>
               {reports.map(agent => (
-                <AgentCard key={agent.id} agent={agent} compact multiReport={(agent.reportsTo?.length ?? 0) > 1} />
+                <div key={agent.id} className="shrink-0" style={{ width: CARD_W }}>
+                  <AgentCard agent={agent} compact multiReport={(agent.reportsTo?.length ?? 0) > 1} />
+                </div>
               ))}
             </div>
-          </div>
+          </>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 
