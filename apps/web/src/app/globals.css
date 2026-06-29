@@ -99,30 +99,35 @@
 
 /* ─── Design Tokens — Dark ───────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --bg:        #0f0e0d;
-  --surface:   #171513;
-  --surface-2: #201d19;
-  --surface-3: #2b2721;
-  --border:    #2d2924;
-  --border-2:  #403a32;
-  --accent:    #faf8f4;
-  --accent-2:  #ded8ce;
-  --accent-fg: #0a0a0a;
+  /* Warm "espresso" dark ramp — lifted off pure black with a clear step between
+     each surface so cards read as distinct panels, not one flat black sheet.
+     Hue ~33° (brown) with low saturation keeps it warm without going muddy. */
+  --bg:        #1b1611;
+  --surface:   #251f17;
+  --surface-2: #322a20;
+  --surface-3: #3e3429;
+  --border:    #443a2d;
+  --border-2:  #574b3b;
+  --accent:    #faf6ef;
+  --accent-2:  #ded5c6;
+  --accent-fg: #1b1611;
   --blue:      #7292f6;
   --green:     #35c08c;
   --red:       #ff6b6b;
   --amber:     #f6bd4b;
-  --text:      #faf8f4;
-  --text-2:    #e3ddd3;
-  --muted:     #a59d91;
-  --subtle:    #746d63;
-  --text-tertiary: #554f47;   /* dimmest ink — timestamps / de-emphasised meta */
-  --shadow-sm:    0 1px 2px rgba(0,0,0,0.28);
-  --shadow-md:    0 2px 10px rgba(0,0,0,0.32);
-  --shadow-lg:    0 14px 40px rgba(0,0,0,0.42);
-  --shadow-card:  0 1px 2px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.02);
-  --shadow-hover: 0 10px 28px rgba(0,0,0,0.36);
-  --shadow-modal: 0 24px 64px rgba(0,0,0,0.55);
+  --text:      #f7f1e6;
+  --text-2:    #e6ddcf;
+  --muted:     #b3a896;
+  --subtle:    #a09686;       /* small labels/captions — AA 4.5+ through surface-2 */
+  --text-tertiary: #8f8475;   /* dimmest ink (timestamps/meta) — clears the 3:1 large-text floor */
+  /* Softer black halos + a slightly stronger top hairline: the surfaces lifted off
+     near-black, so the old heavier shadows read too dark against the warm brown. */
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.20);
+  --shadow-md:    0 2px 10px rgba(0,0,0,0.24);
+  --shadow-lg:    0 14px 40px rgba(0,0,0,0.34);
+  --shadow-card:  0 1px 2px rgba(0,0,0,0.20), 0 0 0 1px rgba(255,255,255,0.05);
+  --shadow-hover: 0 10px 28px rgba(0,0,0,0.28);
+  --shadow-modal: 0 24px 64px rgba(0,0,0,0.48);
   --shadow-focus: 0 0 0 3px rgba(114,146,246,0.22);
   --red-soft-bg:  rgba(239,68,68,0.1);
   --red-soft-border: rgba(239,68,68,0.25);
@@ -130,24 +135,26 @@
   --amber-soft-border: rgba(245,158,11,0.25);
 
   /* ── shadcn token contract (HSL channels) — Dark ──────────────────────────── */
-  --sd-background: 30 7% 5%;          /* --bg */
-  --sd-foreground: 40 38% 97%;        /* --text */
-  --sd-card: 30 9% 8%;                /* --surface */
-  --sd-card-foreground: 40 38% 97%;
-  --sd-popover: 30 9% 8%;
-  --sd-popover-foreground: 40 38% 97%;
-  --sd-primary: 40 38% 97%;           /* --accent (near-white) */
-  --sd-primary-foreground: 36 9% 11%;
-  --sd-secondary: 34 12% 11%;         /* --surface-2 */
-  --sd-secondary-foreground: 40 38% 97%;
-  --sd-muted: 34 12% 11%;
-  --sd-muted-foreground: 33 10% 61%;  /* --muted text */
-  --sd-accent: 34 12% 11%;
-  --sd-accent-foreground: 40 38% 97%;
-  --sd-destructive: 0 100% 71%;       /* desaturated red */
+  /* Saturation matched to the legacy hex twins (same lightness) so shadcn panels
+     don't render grayer than adjacent var(--surface)/var(--border) panels. */
+  --sd-background: 30 23% 9%;         /* --bg (warm espresso, not black) */
+  --sd-foreground: 40 38% 96%;        /* --text */
+  --sd-card: 34 23% 12%;              /* --surface */
+  --sd-card-foreground: 40 38% 96%;
+  --sd-popover: 34 23% 12%;
+  --sd-popover-foreground: 40 38% 96%;
+  --sd-primary: 40 38% 96%;           /* --accent (near-white) */
+  --sd-primary-foreground: 30 23% 11%;
+  --sd-secondary: 33 22% 16%;         /* --surface-2 */
+  --sd-secondary-foreground: 40 38% 96%;
+  --sd-muted: 33 22% 16%;
+  --sd-muted-foreground: 36 14% 64%;  /* --muted text, lifted for legibility */
+  --sd-accent: 33 22% 16%;
+  --sd-accent-foreground: 40 38% 96%;
+  --sd-destructive: 0 100% 71%;       /* bright red (dark) */
   --sd-destructive-foreground: 221 39% 11%;
-  --sd-border: 33 11% 16%;            /* --border */
-  --sd-input: 33 11% 16%;
+  --sd-border: 34 20% 22%;            /* --border */
+  --sd-input: 34 20% 22%;
   --sd-ring: 226 87% 71%;
 
   /* Desaturated semantic palette — dark. */
@@ -231,9 +238,10 @@ a, button, input, textarea, select {
 
 /* ─── Status pulse ───────────────────────────────────────────────────────────── */
 @keyframes pulse-ring {
-  0%   { box-shadow: 0 0 0 0 rgba(5,150,105,0.45); }
-  70%  { box-shadow: 0 0 0 6px rgba(5,150,105,0); }
-  100% { box-shadow: 0 0 0 0 rgba(5,150,105,0); }
+  /* Halo derived from the themed green so it matches the var(--green) dot in both modes. */
+  0%   { box-shadow: 0 0 0 0 hsl(var(--green-hsl) / 0.45); }
+  70%  { box-shadow: 0 0 0 6px hsl(var(--green-hsl) / 0); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--green-hsl) / 0); }
 }
 .status-running { animation: pulse-ring 2s ease-in-out infinite; }
 
@@ -312,6 +320,12 @@ a, button, input, textarea, select {
 .log-debug { color: #737373; }
 .log-warn  { color: #d97706; }
 .log-error { color: #dc2626; }
+/* Dark mode: the light-mode hues above drop to ~2.4–3.4:1 on the dark surfaces.
+   Use the theme's brighter semantic ramp so console/log output stays legible. */
+[data-theme="dark"] .log-info  { color: var(--blue); }
+[data-theme="dark"] .log-debug { color: var(--muted); }
+[data-theme="dark"] .log-warn  { color: var(--amber); }
+[data-theme="dark"] .log-error { color: var(--red); }
 
 /* ─── Mobile overlay backdrop ───────────────────────────────────────────────── */
 .sidebar-overlay {
