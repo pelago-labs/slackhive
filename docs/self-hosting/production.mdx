@@ -57,11 +57,11 @@ launchctl load ~/Library/LaunchAgents/co.pelago.slackhive.plist
 
 ### Linux - systemd
 
-For OAuth subscription mode on Linux, make sure the service user has access to either:
+For Claude subscription auth on Linux, make sure the service user has access to either:
 - A running keyring daemon (`secret-tool` works for that user), **or**
 - A pre-populated `~/.claude/.credentials.json` in the service user's home
 
-Headless servers almost always want option 2 - run `claude login` once as that user before enabling the service.
+Headless servers that use Claude subscription auth almost always want option 2 - run `claude login` once as that user before enabling the service. If you use API-key billing instead, store the relevant key in `.env` or **Settings → AI Backend**.
 
 Create `/etc/systemd/system/slackhive.service`:
 
@@ -176,9 +176,9 @@ The online backup is atomic and safe while SlackHive is running.
 | Path | Contents |
 |---|---|
 | `~/.slackhive/data.db` | All agents, memories, skills, history, MCP catalog, users, settings |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace - CLAUDE.md, sessions, copies of assigned wiki folders |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace - instructions, sessions, copies of assigned wiki folders |
 | `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wikis for the Knowledge Library (source of truth) |
-| `~/.slackhive/.env` | Encryption keys, admin password, Claude auth |
+| `~/.slackhive/.env` | Encryption keys, admin password, and optional backend credentials |
 
 <Warning>
   The `.env` is required to read encrypted secrets in `data.db`. Back up both or store `.env` separately in a secret manager.

@@ -1,19 +1,20 @@
 ---
 title: "Debugging Agents"
-description: "Agent not responding? Start here - a quick path from symptom to fix using Logs, Activity, and Version History."
+description: "Agent not responding? Start here - a quick path from symptom to fix using Activity, Observability, Logs, and Version History."
 ---
 
-## Three tools, one flow
+## Four tools, one flow
 
-When an agent doesn't behave as expected, SlackHive gives you three places to look. Each one answers a different question:
+When an agent doesn't behave as expected, SlackHive gives you four places to look. Each one answers a different question:
 
 | Tool | Where | Answers |
 |---|---|---|
-| **Logs** | Agent → Logs tab | What did the agent actually do, step by step? |
 | **Activity** | Sidebar → Activity | Is the agent currently running? Did it error? |
+| **Observability** | Sidebar → Observability | What happened in the session trace, tokens, tools, latency, and replay? |
+| **Logs** | Agent → Logs tab | What did the runner log while processing the agent? |
 | **Version History** | Agent → History tab | Did a recent change break something? |
 
-Start with Activity for a quick status check. Go to Logs for the full trace. Use History to roll back if a change caused the issue.
+Start with Activity for a quick status check. Open Observability for the session trace. Use Logs for raw runner detail, then History if a recent edit caused the issue.
 
 ---
 
@@ -26,7 +27,7 @@ Go to **Activity** in the sidebar. This is the live kanban of every task your ag
 - **Errors** — something went wrong
 
 If the job shows **Error**, click into it. The error summary tells you:
-- Was it a Claude error (model timeout, rate limit)?
+- Was it an AI backend error (model timeout, rate limit)?
 - Was it an MCP failure (tool server down, credentials expired)?
 - Was it a Slack API failure (bot not in channel, token expired)?
 
@@ -34,14 +35,15 @@ Most errors are in one of these three buckets and the fix is quick.
 
 ---
 
-## Step 2 — Read the Logs
+## Step 2 — Open the trace
 
-Activity gives you the error. Logs give you the full story.
+Activity gives you the error. Observability gives you the session trace.
 
-Open the agent → **Logs tab**. Each conversation is an expandable trace with:
+Open **Observability → Sessions**, or click a task from Activity. Each trace can show:
 - The incoming message
-- Every tool call the agent made (MCP, memory read, skill invocation)
-- The agent's reasoning at each step
+- Every tool call the agent made
+- Model attribution, token usage, and latency
+- Sensitive-data markers
 - The final response
 
 Look for where the trace stops or goes sideways. Common patterns:
@@ -52,6 +54,8 @@ Look for where the trace stops or goes sideways. Common patterns:
 | Agent stops mid-run | MCP server error or timeout |
 | Agent says "I don't have access to that" | Tool not assigned to the agent |
 | No trace at all | Agent wasn't running when the message arrived |
+
+Use the agent **Logs** tab when you need the raw runner stream: startup errors, Slack delivery failures, MCP process crashes, or backend exceptions.
 
 ---
 
@@ -71,15 +75,16 @@ Find the last version that worked, click **Restore**, and you're back to the kno
 
 ### Agent not responding in Slack
 
-1. Check that the agent's Slack bot token is valid — Settings → Slack Apps
+1. Check that the agent's Slack connection is healthy — agent → **Overview** → **Manage Slack**
 2. Confirm the agent process is running — Activity should show recent pings
 3. Verify the bot has been invited to the channel (`/invite @agent-name`)
 
 ### Scheduled job ran but posted nothing
 
 1. Open Activity → find the job run → check status
-2. If Success but silent: the agent decided nothing was worth posting (check your prompt - add "post a one-line summary even if nothing changed")
-3. If Error: check the MCP server the agent depends on
+2. If Skipped: the skip-notification condition matched, so SlackHive intentionally did not post
+3. If Success but silent: check the target channel/DM, Slack delivery errors, and whether your prompt asked for a Slack-visible summary
+4. If Error: check the MCP server the agent depends on
 
 ### Agent gives outdated answers
 

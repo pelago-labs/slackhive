@@ -8,16 +8,15 @@ This guide takes you from a fresh machine to a working SlackHive setup with a li
 <Note>
   **Before you begin, you'll need:**
   - **Node.js 20 or later** - `node --version` to check
-  - **[Claude Code](https://claude.ai/code)** installed (the agents run on top of it)
-  - A **Slack workspace** where you can install apps (admin, or permission to install apps)
-  - One of:
-    - An [Anthropic API key](https://console.anthropic.com) - pay per token, best for teams
-    - A Claude Pro or Max subscription - already signed in via `claude login`
+  - A **Slack workspace** where you can install apps
+  - One AI backend:
+    - **OpenAI Codex / ChatGPT** - use `codex login` or an OpenAI API key
+    - **Claude Code / Anthropic** - use `claude login` or an Anthropic API key
 </Note>
 
 ## Install SlackHive
 
-The `slackhive` CLI handles everything - checks your environment, clones the repo, walks you through configuration, and starts the services.
+The `slackhive` CLI checks your environment, clones the repo, walks you through configuration, and starts the services.
 
 <Steps>
   <Step title="Install the CLI">
@@ -34,7 +33,7 @@ The `slackhive` CLI handles everything - checks your environment, clones the rep
       source ~/.zshrc
       ```
 
-      Then retry `npm install -g slackhive`. Full troubleshooting in [Install the CLI](/getting-started/install-cli).
+      Then retry `npm install -g slackhive`.
     </Tip>
   </Step>
   <Step title="Run the setup wizard">
@@ -42,16 +41,7 @@ The `slackhive` CLI handles everything - checks your environment, clones the rep
     slackhive init
     ```
 
-    The wizard asks a few questions:
-
-    | Prompt | What to enter |
-    |---|---|
-    | **Install directory** | Where to put SlackHive (default: `./slackhive`) |
-    | **Admin username** | Your login name for the dashboard |
-    | **Admin password** | A strong password |
-    | **Claude auth** | Pick API key or OAuth from Claude Code |
-
-    Everything else (encryption keys, ports) is generated automatically. First run takes 2–3 minutes while dependencies install and the apps build.
+    The wizard asks for an install directory and admin login. Backend credentials are connected after first launch in **Settings → AI Backend**.
   </Step>
   <Step title="Open the dashboard">
     Navigate to:
@@ -60,94 +50,82 @@ The `slackhive` CLI handles everything - checks your environment, clones the rep
     http://localhost:3001
     ```
 
-    Log in with the admin credentials you set. You'll see the SlackHive dashboard.
+    Log in with the admin credentials you set.
   </Step>
 </Steps>
 
-See [Install with the CLI](/getting-started/install-cli) for more detail.
+## Connect an AI backend
+
+Open **Settings → AI Backend** and choose the runtime your agents should use.
+
+| Backend | Best path | Also supported |
+|---|---|---|
+| **OpenAI Codex** | ChatGPT login / device auth | `OPENAI_API_KEY`, `CODEX_AUTH_JSON`, `CODEX_PATH` |
+| **Claude Code** | `claude login` | `ANTHROPIC_API_KEY`, `CLAUDE_CREDENTIALS_JSON`, `CLAUDE_BIN` |
+
+The dashboard header shows the active backend status. If the badge is disconnected or expired, open Settings, run Detect, or paste fresh credentials.
+
+See [AI Backends](/configuration/ai-backends) for the full reference.
 
 ## Create your first agent
 
-Click **New Agent** in the sidebar. This opens a 5-step wizard.
+Click **New Agent**. The current flow is two steps:
 
 <Steps>
-  <Step title="Name & Description">
-    - **Name** - shown in Slack (e.g. "Data Analyst" or "Ava")
-    - **Description** - what this agent does, in one sentence. Boss uses this to know who to delegate to.
-    - **Model** - `claude-sonnet-4-6` is a good default
-
-    Leave the **Boss** toggle off for now.
+  <Step title="Identity">
+    Give the agent a name, choose whether it is a **Specialist** or **Boss**, optionally assign it to a Boss, and add tags for dashboard filtering.
   </Step>
-  <Step title="Pick a Persona">
-    Browse the **Persona Library** - 26 research-backed starters (Data Analyst, Backend Engineer, Product Manager, Technical Writer, and more). Pick one that fits.
-
-    The persona seeds the agent's system prompt, skills, and recommended MCPs. You can customize everything later with [Coach](/agents/coach). If none fit, pick **Blank**.
-  </Step>
-  <Step title="Create a Slack App">
-    Each SlackHive agent needs its own Slack app. The wizard generates everything you need.
-
-    1. Click **Generate Manifest** in the wizard
-    2. Open [api.slack.com/apps](https://api.slack.com/apps) in a new tab
-    3. Click **Create New App** → **From an app manifest**
-    4. Select your Slack workspace
-    5. Paste the manifest JSON from the wizard
-    6. Click **Create**
-    7. On the next screen, click **Install to Workspace** → **Allow**
-  </Step>
-  <Step title="Enter Credentials">
-    You need three values from your Slack app:
-
-    **Bot Token** - OAuth & Permissions → **Bot User OAuth Token** (starts with `xoxb-`)
-
-    **App Token** - Basic Information → App-Level Tokens → **Generate Token and Scopes** → add `connections:write` → copy (starts with `xapp-`)
-
-    **Signing Secret** - Basic Information → App Credentials → Signing Secret → **Show** → copy
-
-    Paste all three and click **Verify Connection**. See [Slack app setup](/configuration/slack-app) if verification fails.
-  </Step>
-  <Step title="Tools & Review">
-    Assign any **MCP servers** you've added to the catalog. You can skip this and add them later.
-
-    Review the summary and click **Create Agent**. The runner picks up the new agent within a few seconds - status flips to **Active** on the dashboard.
+  <Step title="Profile">
+    Pick a persona, start from a blank brief, or import an existing agent config. Persona templates seed the system prompt and starter skills.
   </Step>
 </Steps>
 
-## Test your agent in Slack
-
-<Steps>
-  <Step title="Invite the bot to a channel">
-    ```
-    /invite @your-agent-name
-    ```
-  </Step>
-  <Step title="Send a message">
-    ```
-    @your-agent-name hello, what can you help me with?
-    ```
-
-    You should see a typing indicator, then a reply in the thread.
-  </Step>
-</Steps>
+Slack, tools, model choice, permissions, wiki folders, and deeper instructions are configured after creation from the agent page.
 
 <Tip>
-  You can also DM the bot directly - open a new DM in Slack, find the agent by name, start chatting.
+  Do not try to get the whole prompt perfect in the creation flow. After creation, open **Coach** and describe what you want in plain English. Coach can draft and refine system prompts, skills, memory, evaluation cases, and operating rules.
 </Tip>
 
-Before posting in a live channel, try [Test Mode](/agents/testing) - it's a sandboxed conversation pane with real MCPs.
+## Connect Slack
+
+After creation, SlackHive opens the agent page with Slack setup ready.
+
+1. Create a Slack app from the generated manifest.
+2. Install it to your workspace.
+3. Paste the bot token, app-level token, and signing secret.
+4. Save, then start or reload the agent.
+
+See [Slack App Setup](/configuration/slack-app) for detailed Slack-side instructions.
+
+## Test your agent
+
+Before posting in a live channel, use [Test Mode](/agents/testing) from the agent page. It runs the real agent with its real tools without sending anything to Slack.
+
+When ready, invite the bot to a Slack channel:
+
+```bash
+/invite @your-agent-name
+```
+
+Then mention it:
+
+```bash
+@your-agent-name hello, what can you help me with?
+```
 
 ## What's next
 
 <CardGroup cols={2}>
+  <Card title="AI Backends" icon="server" href="/configuration/ai-backends">
+    Choose Codex/OpenAI or Claude/Anthropic and understand auth modes.
+  </Card>
   <Card title="Tune with Coach" icon="comments" href="/agents/coach">
-    Interactive prompt, skill, and knowledge tuning.
+    Build and refine prompts, skills, memory, and operating rules.
   </Card>
   <Card title="Knowledge Library" icon="book" href="/agents/knowledge-base">
-    Shared wiki folders. Anyone can build one; agents are assigned the folders they need.
+    Build shared wiki folders from repos, files, or URLs.
   </Card>
-  <Card title="Boss Agents" icon="sitemap" href="/agents/boss-agents">
-    Set up an orchestrator that routes to the right specialist.
-  </Card>
-  <Card title="Connect MCP Servers" icon="plug" href="/configuration/mcp-servers">
-    Give your agent real tools - query databases, read files, call APIs.
+  <Card title="Observability" icon="chart-line" href="/features/observability">
+    Inspect sessions, traces, tool calls, tokens, replay, and sensitive-access signals.
   </Card>
 </CardGroup>

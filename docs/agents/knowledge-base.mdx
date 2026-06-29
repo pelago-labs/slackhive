@@ -5,8 +5,6 @@ description: "A platform-level catalog of shared wiki folders. Owners ingest rep
 
 The **Knowledge Library** is a workspace-wide catalog of wiki folders that any agent can be assigned. A folder is owned by the person who created it; that owner ingests sources (repos, files, URLs), builds the wiki, and decides which agents get it. The same folder can power one agent or twenty — no duplication, no per-agent rebuilds.
 
-<img src="/images/knowledge-library.png" alt="Knowledge Library showing three shared wiki folders with their owners" style={{borderRadius: "12px", marginBottom: "24px"}} />
-
 ## Why Karpathy-style?
 
 [Andrej Karpathy's observation](https://x.com/karpathy/status/1979644538185752935): LLMs read best when content is pre-organized as a wiki — overview, concepts, flows, modules — rather than dumped as raw files. A human codebase has hidden structure; a wiki makes it explicit.
@@ -68,8 +66,8 @@ Repo-type sources track the last successfully ingested commit SHA. On the **next
 
 | HEAD vs `last_synced_sha` | What runs | Token cost |
 |---|---|---|
-| HEAD unchanged | **Skip Claude entirely.** Just bump `last_synced` timestamp. | Near zero |
-| HEAD moved, diff computable | **Diff-focused content.** Only the bodies of changed/added/renamed files plus a small README context block. Deleted files become a path list so Claude can clean up the corresponding wiki articles. | ~5–10% of a full snapshot on small diffs |
+| HEAD unchanged | **Skip the AI step entirely.** Just bump `last_synced` timestamp. | Near zero |
+| HEAD moved, diff computable | **Diff-focused content.** Only the bodies of changed/added/renamed files plus a small README context block. Deleted files become a path list so the builder can clean up the corresponding wiki articles. | ~5-10% of a full snapshot on small diffs |
 | HEAD moved, diff unreachable (force-push, branch swap, deepen failed) | **Full snapshot fallback.** Same as today's first-time ingest. | Same as a normal build |
 
 You can see which path ran in the runner log:
@@ -82,18 +80,14 @@ Repo content read … chars: 466382      ← snapshot fallback
 
 The `Wiki source compiled` line includes `mode: incremental` or `mode: snapshot` so you can verify after the fact. **File-type and URL-type sources don't track a SHA** — re-syncs always re-process the full content for those. **Build from scratch** ignores incremental tracking entirely and zeros every source's `last_synced_sha`, `word_count`, and `last_synced` so the wiki rebuilds from a clean slate.
 
-<img src="/images/engineering-knowledge-wiki-diversity.png" alt="A built wiki folder with the article tree on the left and concepts/diversity.md open on the right" style={{borderRadius: "12px", marginBottom: "24px"}} />
-
 ## Assign folders to an agent
 
 Open the agent and switch to the **Wiki** tab. You'll see every folder in the library with an **Assign** button.
 
-<img src="/images/argus-wiki-folders.png" alt="Agent's Wiki tab showing assignable wiki folders from the Knowledge Library" style={{borderRadius: "12px", marginBottom: "24px"}} />
-
 When you assign a folder:
 
 - The folder's compiled wiki is copied into the agent's workspace at `knowledge/wiki/{folder-slug}/`
-- The agent's `CLAUDE.md` gets a `# Knowledge Base` section listing every assigned folder and its articles
+- The agent's instructions get a Knowledge Base section listing every assigned folder and its articles
 - The `/wiki` slash skill is auto-enabled when at least one assigned folder has built content
 
 Reload the agent (or wait for the auto-reload) and it can immediately consult the wiki. To unassign, click **Unassign** in the same place — the folder stays in the library, only this agent loses access.
@@ -103,7 +97,7 @@ Reload the agent (or wait for the auto-reload) and it can immediately consult th
 When a user asks a question:
 
 1. Agent runs `/wiki` (built-in skill)
-2. The skill reads the `# Knowledge Base` index in `CLAUDE.md`
+2. The skill reads the Knowledge Base index in the agent's instructions
 3. Agent picks the relevant folder and article(s), Reads them
 4. Agent answers, grounded in the wiki
 
@@ -111,7 +105,7 @@ No configuration needed. It just works.
 
 ## Coach access
 
-Coach can **read** wiki sources for context — `list_file_sources` tells it what file content is available across the agent's assigned folders, and `read_file_source` returns one source's verbatim text. This is useful when Coach is auditing claude.md or skills against actual reference material.
+Coach can **read** wiki sources for context — `list_file_sources` tells it what file content is available across the agent's assigned folders, and `read_file_source` returns one source's verbatim text. This is useful when Coach is auditing system prompts or skills against actual reference material.
 
 Coach **cannot** add, edit, or delete wiki sources. Wiki content belongs to the folder owner and is shared across many agents — edits go through the Knowledge Library UI so the owner stays in the loop.
 
@@ -126,6 +120,6 @@ Each folder's compiled wiki lives at `~/.slackhive/knowledge/<folderId>/wiki/` o
     How the Knowledge Library fits with system prompt, skills, and memory.
   </Card>
   <Card title="Coach" icon="comments" href="/agents/coach">
-    The interactive panel that tunes claude.md, skills, and memory.
+    The interactive panel that tunes prompts, skills, and memory.
   </Card>
 </CardGroup>

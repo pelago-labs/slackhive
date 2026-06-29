@@ -3,8 +3,6 @@ title: "MCP Servers"
 description: "Connect your agents to databases, APIs, and external services using the Model Context Protocol."
 ---
 
-<img src="/images/mcp-library.png" alt="MCP Server Library with pre-configured servers" style={{borderRadius: "12px", marginBottom: "24px"}} />
-
 ## What is MCP?
 
 **MCP (Model Context Protocol)** is a standard that lets AI agents connect to external tools and data sources. Think of MCP servers as plugins for your agents - they give agents the ability to actually *do* things beyond just having a conversation.
@@ -45,12 +43,12 @@ Browse the catalog, assign an Official template, fill in env vars, and you're do
 
 <Steps>
   <Step title="Open MCP Servers">
-    Sidebar → **MCP Servers** (under Settings).
+    Sidebar → **MCP Catalog**.
   </Step>
   <Step title="Pick a starting point">
     Three options:
-    - **Browse Templates** - pick from 40+ Official and Community templates
-    - **Import from Claude Code CLI** - one-click add any MCP already registered in your local `claude` CLI (shows a **CLI** badge on the card)
+    - **Browse Library** - pick from the curated server library
+    - **Import from Claude Code CLI** - add MCPs already registered in your local `claude` CLI when that backend is available
     - **Custom Server** - paste a Cursor / Claude Desktop / VS Code config, or fill in fields
   </Step>
   <Step title="Fill in the blanks">
@@ -68,7 +66,7 @@ Browse the catalog, assign an Official template, fill in env vars, and you're do
 
 If you've already set up MCPs via the `claude` CLI (`claude mcp add ...`), SlackHive can import them one-click.
 
-1. In **MCP Servers**, click **Import from Claude Code**
+1. In **MCP Catalog**, click **Import from Claude Code**
 2. You see the full list from `claude mcp list`
 3. Click **Import** on any server - it's added to the catalog with a **CLI** badge
 4. Adjust the env and config as needed
@@ -217,8 +215,9 @@ This is ideal for simple tools you want to prototype quickly, or for internal ut
 ## Assigning servers to agents
 
 Once a server is in the catalog, you can assign it to agents:
-- **During agent creation** - Step 4 (Tools) of the wizard
-- **After creation** - from the agent's **Tools** tab
+- Open the agent
+- Go to the **Tools** tab
+- Assign one or more MCP servers from the catalog
 
 An agent can have any number of MCP servers assigned. All tools from all assigned servers become available to the agent.
 
@@ -231,7 +230,7 @@ The catalog is workspace-wide — every authenticated user sees every MCP — bu
 | **Editor** | Only MCPs they created (`createdBy = themselves`) |
 | **Admin / Superadmin** | Any MCP regardless of owner |
 
-This applies both during agent creation and on the per-agent Tools tab. In the wizard's Step 4, MCPs you can't assign show a `🔒 owned by <user>` badge with a disabled checkbox; the API rejects unauthorized assignment with a 403 naming the specific MCP. The intent is that an MCP holding production credentials (a private database PAT, a paid API key) can only be wired into agents by the person who configured it — or an admin who has explicit authority.
+This applies on the per-agent Tools tab. MCPs you can't assign are disabled, and SlackHive rejects unauthorized assignments. The intent is that an MCP holding production credentials (a private database PAT, a paid API key) can only be wired into agents by the person who configured it — or an admin who has explicit authority.
 
 To hand off ownership, the current owner deletes their MCP and the new owner re-creates it, or an admin updates the `created_by` column directly.
 
@@ -273,7 +272,7 @@ The raw secret never appears in API responses, browser dev tools, or log files. 
 
 ## Testing a server
 
-From **Settings → MCP Servers**, any user with an **editor role or above** can click the **Test** button next to any server — regardless of who created it. SlackHive runs a full MCP handshake:
+From **MCP Catalog**, any user with an **editor role or above** can click the **Test** button next to any server — regardless of who created it. SlackHive runs a full MCP handshake:
 
 1. Launches the server process (or connects to the remote URL)
 2. Sends `initialize`

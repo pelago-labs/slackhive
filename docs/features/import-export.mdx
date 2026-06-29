@@ -7,9 +7,9 @@ description: "Export an agent's configuration as a JSON file and import it into 
 
 The export captures the full agent configuration:
 
-- **Persona** - the starter persona slug (if one was picked in the wizard)
+- **Persona** - the starter persona slug (if one was picked in the Profile step)
 - **Description** - the one-line description shown to boss agents
-- **CLAUDE.md** - identity, instructions, and behavior rules
+- **System prompt** - identity, instructions, and behavior rules
 - **Skills** - all Markdown skill files (category, filename, content, sort order)
 
 Slack credentials, memories, wiki content, and scheduled jobs are **not** included. This keeps exports portable - you can import a config into any agent without overwriting live credentials, ingested wiki, or accumulated memory.
@@ -44,19 +44,19 @@ The file looks like:
 
 ## Importing a config
 
-Import applies an exported config to an **existing** agent - it overwrites that agent's CLAUDE.md and upserts its skills. Persona and description are applied if present in the export.
+Import applies an exported config to an **existing** agent - it overwrites that agent's system prompt and upserts its skills. Persona and description are applied if present in the export.
 
 1. Open the target agent in the dashboard
 2. Click the **Upload** icon in the top-right
 3. Select the `.json` export file
 4. A confirmation modal shows what will be applied:
    - Persona and description (if present)
-   - The new CLAUDE.md content
+   - The new system prompt content
    - How many skills will be upserted
 5. Click **Apply Import** to confirm
 
 <Note>
-  Import **overwrites** the agent's current CLAUDE.md. Skills are upserted - existing skills with the same name are updated, new ones are added, and skills not in the import are left untouched.
+  Import **overwrites** the agent's current system prompt. Skills are upserted - existing skills with the same name are updated, new ones are added, and skills not in the import are left untouched.
 </Note>
 
 ---
@@ -67,7 +67,7 @@ Import applies an exported config to an **existing** agent - it overwrites that 
 |----------|-----|
 | **Clone an agent** | Export agent A → create agent B → import into B |
 | **Promote staging → prod** | Export from a test agent, import into the live one |
-| **Backup before a big edit** | Export before making large changes to CLAUDE.md |
+| **Backup before a big edit** | Export before making large changes to an agent's instructions |
 | **Share agent templates** | Export and send the JSON to a teammate to import |
 | **Roll back instructions** | Use [Version History](/features/history) for full snapshots, or re-import an old export |
 

@@ -1,0 +1,118 @@
+---
+title: "Observability"
+description: "Understand agent health, usage, sensitive access, tool reliability, sessions, and traces."
+---
+
+Observability is the operational command center for SlackHive agents. It answers the questions teams ask after agents become part of real work:
+
+- What ran?
+- Who started it?
+- Which agent and model handled it?
+- Which tools were called?
+- How many tokens were used?
+- Where did it fail?
+- Did the agent touch sensitive data?
+
+Open **Observability** from the sidebar.
+
+## Overview
+
+The Overview tab summarizes the selected time window:
+
+- **Sessions and turns** - total work volume
+- **Errors** - failed or interrupted work
+- **Latency** - response speed and tail latency
+- **Tool calls** - how often agents used MCP or shell tools
+- **Sensitive events** - places where sensitive data was detected
+- **Tokens** - usage by day and by model
+- **Recent sessions** - the latest work with quick drill-down
+- **Satisfaction** - thumbs-up/down feedback across agent replies
+
+Use the agent and date filters to narrow the data.
+
+## Tokens & Cost
+
+Use the Tokens & Cost tab to see where model usage is coming from. It breaks usage down by day, model, agent, and session so you can answer questions like:
+
+- Which agents are driving most usage?
+- Did a launch or incident create a spike?
+- Are long-running jobs consuming more than expected?
+- Did a backend or model migration change usage patterns?
+
+Token charts use the model reported for each turn, so mixed OpenAI and Claude deployments can still be compared in one place.
+
+## Sensitive
+
+The Sensitive tab collects sensitive-data events across sessions. Use it to audit where agents saw data such as customer identifiers, secrets, financial details, or other categories you configure.
+
+Sensitive markers are redacted by default. Admins can reveal details when needed. Agent-level settings control:
+
+- Detection mode: off, deterministic, or smart
+- Redaction enforcement
+- Redaction level: secrets, PII, or all
+- Custom guidance for what counts as sensitive for that agent
+
+## Tools
+
+The Tools tab shows tool reliability across the selected window:
+
+- Tool call volume
+- Erroring tools
+- Latest sessions where a tool failed
+- Agents that rely on each tool
+
+This is the quickest way to separate "the agent reasoned poorly" from "the database, API, or MCP server failed."
+
+## Sessions
+
+The Sessions tab groups activity by Slack thread or test session. Expand a session to inspect the turn chain and open the trace page.
+
+Each session shows:
+
+- Request text
+- Agent
+- Initiator
+- State
+- Updated time
+- Token usage
+- Tool and error counts
+
+## Trace page
+
+The trace page shows one session in detail. Open it from Activity, Observability, or a session row when you need to understand a specific answer.
+
+- User turns
+- Assistant responses
+- Reasoning blocks where available
+- MCP and shell tool calls
+- Model attribution
+- Latency bars
+- Token counts
+- Sensitive-data markers
+- Replay controls for failed turns
+
+Expand a row to inspect input/output details, then use the properties rail for status, assignee, initiator, start time, sensitivity, and Slack links.
+
+## Replay
+
+Failed turns can be replayed from Activity or trace views. Replay is scoped to the accessible agent and the failed turn. It is useful when the failure was transient, such as a tool timeout or backend interruption.
+
+## Activity vs Observability
+
+| Page | Use it for |
+|---|---|
+| **Activity** | Live board of active, recent, and errored work |
+| **Observability** | Deep operational analysis across sessions, tokens, tools, sensitive events, and traces |
+
+Start on Activity when you want a work queue. Open Observability when you need to understand behavior, cost, latency, or failures.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Activity" icon="wave-pulse" href="/features/activity">
+    Live board for active, completed, and errored tasks.
+  </Card>
+  <Card title="Debugging" icon="bug" href="/operations/debugging">
+    Operational checklist for failed or slow agents.
+  </Card>
+</CardGroup>

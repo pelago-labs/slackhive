@@ -6,7 +6,7 @@
 # SlackHive
 
 ### Build your AI-first company on Slack
-#### A Karpathy-inspired team of humans and AI specialists, powered by Claude Code
+#### A Karpathy-inspired team of humans and AI specialists, powered by Codex/OpenAI or Claude/Anthropic
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![npm](https://img.shields.io/npm/v/slackhive?color=cb3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/slackhive)
@@ -92,10 +92,10 @@ slackhive init
 ```
 
 The CLI will:
-1. Check prerequisites (Git, Node.js ≥ 20, Claude Code)
+1. Check prerequisites (Git and Node.js ≥ 20)
 2. Clone the repository
-3. Auto-detect your Claude installation (cross-platform compatible)
-4. Walk you through configuration (API key or subscription, admin credentials)
+3. Walk you through admin credentials and local configuration
+4. Tell you where to connect Codex/OpenAI or Claude/Anthropic in Settings
 5. Build and start the services natively - no Docker required
 
 Open `http://localhost:3001` and create your first agent.
@@ -127,7 +127,10 @@ Installing Node via [nvm](https://github.com/nvm-sh/nvm) or Homebrew (`brew inst
 
 ### Option B: Manual setup
 
-**Prerequisites:** Node.js ≥ 20, Git, [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup) on your PATH
+**Prerequisites:** Node.js ≥ 20, Git, and one AI backend:
+
+- OpenAI Codex / ChatGPT via `codex login` or `OPENAI_API_KEY`
+- Claude Code / Anthropic via `claude login` or `ANTHROPIC_API_KEY`
 
 ```bash
 git clone https://github.com/pelago-labs/slackhive.git
@@ -138,7 +141,8 @@ cp .env.example .env
 Edit `.env` with your credentials:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...        # or use Claude Pro/Max subscription
+OPENAI_API_KEY=sk-...               # optional: OpenAI API billing
+ANTHROPIC_API_KEY=sk-ant-...        # optional: Anthropic API billing
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=<strong-random-password>
 AUTH_SECRET=                        # generate: openssl rand -hex 32
@@ -156,6 +160,8 @@ npx slackhive start
 
 Open `http://localhost:3001`, log in, and create your first agent.
 
+Choose the active runtime in **Settings → AI Backend**. API keys in `.env` are available there, but the backend choice itself is managed in the dashboard.
+
 > Full setup guide → [slackhive.mintlify.app/quickstart](https://slackhive.mintlify.app/quickstart)
 
 ---
@@ -164,7 +170,7 @@ Open `http://localhost:3001`, log in, and create your first agent.
 
 ### 🤖 Real AI Agents
 
-Every agent is a full **Claude Code** agent - with tools, memory, identity, and instructions. When you @mention one in Slack, you're running a real AI agent that can use tools, take action, and get smarter over time.
+Every agent has tools, memory, identity, and instructions. When you @mention one in Slack, you're running a real AI agent that can use tools, take action, and get smarter over time. SlackHive can run agents through OpenAI Codex/ChatGPT or Claude Code/Anthropic while keeping the same Slack, MCP, memory, jobs, and observability layers.
 
 | | |
 |---|---|
@@ -172,7 +178,7 @@ Every agent is a full **Claude Code** agent - with tools, memory, identity, and 
 | 🔌 **MCP Tool Integration** | Connect any MCP server (Redshift, GitHub, Notion, Figma, custom APIs) - stdio, SSE, or HTTP transports. |
 | 📝 **Inline TypeScript MCPs** | Paste TypeScript source directly into the UI - no deployment needed. The runner compiles and executes it. |
 | 🧵 **Full Thread Context** | Agents fetch the entire Slack thread on every invocation - zero context lost in handoffs. |
-| 💾 **Session Continuity** | Slack thread ↔ Claude session mapping survives restarts. Pick up exactly where you left off. |
+| 💾 **Session Continuity** | Slack thread ↔ agent session mapping survives restarts. Pick up exactly where you left off. |
 | 🔐 **Encrypted Secret Store** | API keys encrypted at rest (AES-256). MCPs reference secrets by name - raw values never touch the API or UI. |
 | 🔁 **Hot Reload** | Edit instructions, skills, or tools and the agent picks up changes within seconds. No restart needed. |
 
@@ -183,20 +189,21 @@ Every agent is a full **Claude Code** agent - with tools, memory, identity, and 
 | 👑 **Boss Orchestration** | Boss reads your message, finds the right specialist, delegates by @mention in the same thread, and summarizes the result. |
 | 🏢 **Multi-Boss Support** | Run multiple Boss agents for different domains (engineering, data, support). Specialists can report to more than one boss. |
 | 📋 **Auto-Generated Registries** | Every Boss gets a live team roster auto-regenerated whenever the team changes. No manual maintenance. |
-| 🛠 **Skills** | Markdown files deployed as Claude Code slash commands. Give agents SQL rules, writing guidelines, or domain playbooks. |
-| ⏰ **Scheduled Jobs** | Cron-based recurring tasks - daily reports, weekly digests, monitoring alerts - posted to any Slack channel or DM. |
+| 🛠 **Skills** | Markdown playbooks that travel with an agent. Give agents SQL rules, writing guidelines, or domain workflows. |
+| ⏰ **Scheduled Jobs** | Cron-based recurring tasks - daily reports, weekly digests, monitoring alerts - posted to any Slack channel or DM. Jobs can skip quiet notifications when nothing needs attention. |
 
 ### ⚙️ Platform
 
 | | |
 |---|---|
-| 🧙 **Onboarding Wizard** | 5-step guided setup: identity → Slack app → credentials → tools & skills → review. |
+| 🧙 **Agent Launch Wizard** | Two-step setup: define identity, then choose a starting profile or blank brief. Tune prompts, skills, tools, Slack, and access after creation. |
 | 🕓 **Version Control** | Every save auto-snapshots the full agent state. Browse history with line-level diffs, restore any version in one click. |
 | 🔒 **Auth & RBAC** | 4 roles (superadmin / admin / editor / viewer), HMAC-signed sessions, per-agent access grants (View or Edit). Agents are hidden by default — admins grant access explicitly. No external auth provider needed. |
 | 🚦 **Channel Restrictions** | Lock agents to specific Slack channels. Bot auto-leaves uninvited channels with a notice. |
 | 📊 **Live Logs** | SSE-streamed log output per agent - with level filters and search. |
 | 🧠 **Memory Viewer** | Browse, inspect, and delete agent memories by type - feedback, user, project, reference. |
-| 📡 **Activity Dashboard** | Live kanban of every task your agents are working on - Active, Completed, Errors - with drill-down to every tool call. A superadmin-only **Usage** tab breaks down token consumption per agent and ranks power users by tasks started. Admins see everything; editors see only agents they own or are granted access to; viewers are blocked. |
+| 📡 **Activity** | Live board of active, completed, and errored work, with initiator, agent, replay, and trace drill-down. |
+| 🔎 **Observability** | Operational view for sessions, tokens, model usage, latency, tool reliability, sensitive access, satisfaction, and replay. |
 | 🌐 **Multi-Workspace** | Connect multiple Slack workspaces to a single SlackHive instance. Each workspace gets its own agents and configurations. |
 | 📚 **Knowledge Library** | Platform-level catalog of Karpathy-style wiki folders. Owners ingest a repo / file / URL into a folder; assign one folder to many agents. The agent's `/wiki` skill auto-enables when at least one assigned folder has built content. |
 
@@ -228,7 +235,7 @@ Slack Workspace (@boss, @data-bot, @writer, ...)
 **How a message flows:**
 1. User @mentions an agent in Slack
 2. Runner receives the event via Bolt Socket Mode
-3. Claude Code processes the message with the agent's compiled `CLAUDE.md`
+3. The selected AI backend processes the message with the agent's instructions and skills
 4. Agent uses MCP tools if needed (Redshift, GitHub, Notion, etc.)
 5. Response is formatted as Slack Block Kit and posted to the thread
 6. Memory files written during the session are synced to SQLite
@@ -236,17 +243,24 @@ Slack Workspace (@boss, @data-bot, @writer, ...)
 
 ---
 
-## 🔑 Claude Code Authentication
+## 🔑 AI Backend Authentication
 
-Two options - use whichever fits your setup:
+Use one backend to start; teams can migrate later without recreating agents.
 
-**Option A - API Key**
+**OpenAI Codex / ChatGPT**
+```env
+OPENAI_API_KEY=sk-...
+```
+
+Then choose **OpenAI Codex** in **Settings → AI Backend**. You can also use a local Codex login when available on your machine.
+
+**Claude Code / Anthropic**
 ```env
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 Billed per token via the Anthropic API. Best for teams and production.
 
-**Option B - Claude Pro or Max Subscription**
+Then choose **Claude Code** in **Settings → AI Backend**. You can also use Claude Pro or Max subscription auth:
 
 First, install Claude Code on your host machine:
 
@@ -283,9 +297,10 @@ Leave `ANTHROPIC_API_KEY` unset - the runner picks up credentials from the syste
 - [x] Encrypted environment variables
 - [x] Channel restrictions
 - [x] Multi-workspace support
+- [x] Multi-backend AI support
+- [x] Observability, traces, replay, tokens, and sensitive-access review
 - [ ] Webhook triggers (GitHub, Jira, PagerDuty → agent actions)
 - [ ] Agent-to-agent direct messaging
-- [ ] Analytics dashboard
 - [ ] Custom tool builder (no MCP server needed)
 - [ ] Agent templates marketplace
 - [ ] RAG integration - connect agents to document stores
@@ -343,5 +358,5 @@ Use [GitHub's private vulnerability reporting](https://github.com/pelago-labs/sl
 MIT © 2026 [Pelago Labs](https://github.com/pelago-labs)
 
 <div align="center">
-  <sub>Built with Claude Code, Slack Bolt, and a lot of ☕</sub>
+  <sub>Built with AI backends, Slack Bolt, and a lot of coffee</sub>
 </div>

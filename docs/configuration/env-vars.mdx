@@ -1,114 +1,122 @@
 ---
 title: "Environment Variables"
-description: "Reference for every SlackHive configuration variable in .env."
+description: "Reference for SlackHive configuration variables and AI backend credentials."
 ---
 
-SlackHive stores configuration in a `.env` file in the install directory. `slackhive init` generates this file with safe defaults - you rarely need to edit it by hand.
+SlackHive stores configuration in a `.env` file in the install directory. `slackhive init` generates this file with safe defaults. Most secrets can also be managed in the dashboard under **Settings → AI Backend** or **Settings → Env Vars**.
 
 <Warning>
-  `.env` contains encryption keys and the admin password. Never commit it. It's already in `.gitignore` but double-check before pushing.
+  `.env` contains encryption keys and admin credentials. Never commit it.
 </Warning>
 
-## Claude Authentication
+## AI backend credentials
 
-Pick one option. If both are set, the API key wins.
+SlackHive supports multiple agent runtimes. The active runtime is selected in **Settings → AI Backend** and persisted in the database, while credentials can come from login files, CLI-detected auth, or API keys.
 
-### Option A: Anthropic API key
+### OpenAI Codex / ChatGPT
 
-Best for teams, production, predictable billing.
+Use one of these paths:
+
+| Method | Variable / file | Notes |
+|---|---|---|
+| ChatGPT login | `~/.codex/auth.json` or `CODEX_AUTH_JSON` | Preferred for subscription auth. The Settings page can start device auth and persist the resulting file. |
+| API key | `OPENAI_API_KEY` | Best for server deployments and predictable billing. |
+| Custom binary | `CODEX_PATH` | Optional. Points SlackHive at a specific `codex` binary. |
+
+Example:
+
+```bash
+OPENAI_API_KEY=sk-...
+# CODEX_PATH=/usr/local/bin/codex
+```
+
+### Claude Code / Anthropic
+
+Use one of these paths:
+
+| Method | Variable / file | Notes |
+|---|---|---|
+| Claude login | `~/.claude/.credentials.json` or `CLAUDE_CREDENTIALS_JSON` | Preferred for Claude Pro/Max subscription auth. |
+| API key | `ANTHROPIC_API_KEY` | Best for teams and server deployments. |
+| Custom binary | `CLAUDE_BIN` | Optional. Points SlackHive at a specific `claude` binary. |
+
+Example:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-api03-...
+# CLAUDE_BIN=/usr/local/bin/claude
 ```
 
-All agents share this key. Billed per token via the [Anthropic API](https://console.anthropic.com).
+<Note>
+  If both a provider API key and subscription login are available, the explicit API key path is treated as deliberate server auth for that provider.
+</Note>
 
-### Option B: Claude Pro or Max subscription
+## Backend status and detection
 
-Best for individual developers.
+The dashboard header shows the active backend status:
 
-```bash
-# Leave ANTHROPIC_API_KEY unset
-CLAUDE_BIN=/usr/local/bin/claude     # macOS (Intel) or Linux
-# CLAUDE_BIN=/opt/homebrew/bin/claude  # macOS (Apple Silicon, Homebrew)
-# CLAUDE_BIN=/usr/bin/claude           # Linux (package install)
-```
+| Status | Meaning |
+|---|---|
+| **Connected** | SlackHive can use the active backend now. |
+| **Expired** | A login token exists but must be refreshed. Run the provider login command or paste fresh auth in Settings. |
+| **Disconnected** | No usable credentials were found for the active backend. |
 
-Requirements:
+Use **Settings → AI Backend → Detect** after running `codex login` or `claude login` on the host.
 
-1. Run `claude login` on the host machine
-2. Set `CLAUDE_BIN` to the path returned by `which claude`
+## Dashboard authentication
 
-**Token refresh behavior:**
-
-| Platform | Source of truth | Refresh |
-|---|---|---|
-| macOS | Keychain → `~/.claude/.credentials.json` | SlackHive auto-syncs from Keychain on 401 |
-| Linux (GNOME) | `secret-tool` → `~/.claude/.credentials.json` | Re-run `claude login` when it expires |
-| Linux (headless) | `~/.claude/.credentials.json` directly | Re-run `claude login` when it expires |
-
-See [OAuth MCPs](/configuration/mcp-oauth) for how this flows through to MCP connections.
-
-## Dashboard Authentication
-
-`slackhive init` sets these from the prompts - you don't typically need to touch them:
+`slackhive init` sets these from the prompts:
 
 | Variable | Purpose |
 |---|---|
 | `ADMIN_USERNAME` | Superadmin login |
 | `ADMIN_PASSWORD` | Superadmin password |
-| `AUTH_SECRET` | Signs session cookies (rotating logs everyone out) |
-| `ENV_SECRET_KEY` | Encrypts the secret store (rotating breaks all stored secrets) |
+| `AUTH_SECRET` | Signs session cookies. Rotating logs everyone out. |
+| `ENV_SECRET_KEY` | Encrypts stored secrets. Rotating breaks existing stored secrets. |
 
-`AUTH_SECRET` and `ENV_SECRET_KEY` are generated automatically on first install with `openssl rand -hex 32`. If you need to regenerate:
+Generate replacement secrets with:
 
 ```bash
 openssl rand -hex 32
 ```
 
 <Warning>
-  Do not rotate `ENV_SECRET_KEY` after initial setup without a plan. All stored secrets become unreadable - every MCP server referencing `${env:NAME}` will fail until you re-enter each secret in **Settings → Env Vars**.
+  Do not rotate `ENV_SECRET_KEY` after initial setup without a migration plan. Stored AI backend credentials, Slack tokens, and MCP env vars become unreadable.
 </Warning>
 
 ## Platform
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `NODE_ENV` | `production` | Affects log verbosity and error handling |
-| `PORT` | auto | Web server port (default 3001, auto-negotiates if taken) |
-| `RUNNER_INTERNAL_PORT` | auto | Runner port (default 3002, auto-negotiates) |
-| `AGENTS_TMP_DIR` | `~/.slackhive/agents` | Where per-agent workspaces live |
-| `DATABASE_TYPE` | `sqlite` | Always `sqlite` on CLI installs |
-| `ACTIVITY_DASHBOARD` | unset | Set to `1` to enable the [Activity Dashboard](/features/activity). When unset, the writer hooks short-circuit and no tasks/activities/tool calls are recorded. |
+| `NODE_ENV` | `production` | Runtime mode |
+| `PORT` | auto | Web server port, usually 3001 |
+| `RUNNER_INTERNAL_PORT` | auto | Runner control port, usually 3002 |
+| `AGENTS_TMP_DIR` | `~/.slackhive/agents` | Per-agent workspaces and session directories |
+| `DATABASE_TYPE` | `sqlite` | SQLite for CLI installs |
+| `ACTIVITY_DASHBOARD` | unset | Legacy flag for activity collection. Current installs normally keep tracing enabled through the app defaults. |
 
 ## Where data lives
 
-Everything is on disk under `~/.slackhive/`:
-
 | Path | Contents |
 |---|---|
-| `~/.slackhive/data.db` | SQLite database - agents, memories, skills, history, settings |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace (CLAUDE.md, sessions, copies of assigned wiki folders) |
-| `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wiki for one Knowledge Library folder (source of truth; copied to assigned agents) |
+| `~/.slackhive/data.db` | SQLite database: agents, memories, skills, activities, traces, settings |
+| `~/.slackhive/agents/<slug>/` | Agent workspace, sessions, instructions, skills, assigned wiki copies |
+| `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wiki for one Knowledge Library folder |
 | `~/.slackhive/logs/runner.log` | Runner log stream |
-| `~/.slackhive/runner.lock` | Singleton runner lock - JSON with `pid`, `startedAt`, `mode` |
+| `~/.slackhive/runner.lock` | Singleton runner lock |
 | `~/.slackhive/slackhive.pid` | Web server PID file |
 
-Back up `~/.slackhive/` to preserve your full install.
+Back up `~/.slackhive/` to preserve your install.
 
-## The `.slackhive-native` marker
-
-The install directory contains a `.slackhive-native` file. It tells the CLI this is a CLI-managed install - `slackhive` commands will target it from any directory.
-
-## Complete .env.example
+## Complete `.env.example`
 
 ```bash
-# --- Claude Authentication (choose ONE) ---
+# --- OpenAI Codex / ChatGPT ---
+# OPENAI_API_KEY=sk-...
+# CODEX_PATH=/usr/local/bin/codex
 
-# Option A: API key
+# --- Claude Code / Anthropic ---
 # ANTHROPIC_API_KEY=sk-ant-api03-...
-
-# Option B: Pro/Max subscription
 # CLAUDE_BIN=/usr/local/bin/claude
 
 # --- Dashboard ---
@@ -120,16 +128,13 @@ ENV_SECRET_KEY=generate-with-openssl-rand-hex-32
 # --- Platform ---
 NODE_ENV=production
 DATABASE_TYPE=sqlite
-
-# --- Feature flags ---
-# ACTIVITY_DASHBOARD=1
 ```
 
 ## Next steps
 
 <CardGroup cols={2}>
-  <Card title="Slack App Setup" icon="slack" href="/configuration/slack-app">
-    Create the Slack app for each agent.
+  <Card title="AI Backends" icon="server" href="/configuration/ai-backends">
+    Configure Codex/OpenAI or Claude/Anthropic.
   </Card>
   <Card title="MCP Servers" icon="plug" href="/configuration/mcp-servers">
     Use the encrypted env store to pass secrets to MCP tools.

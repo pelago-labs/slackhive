@@ -3,7 +3,13 @@ title: "Settings & Users"
 description: "Brand the dashboard, manage users, assign roles, import from Slack, and control per-agent access."
 ---
 
-The **Settings** page is only visible to **superadmins**. It has three tabs: **General** (platform branding), **Users** (accounts and roles), and **Authentication** (Slack OAuth — superadmin only).
+The **Settings** page is visible to admins and superadmins. It is split into:
+
+- **General** - branding and dashboard copy
+- **AI Backend** - active runtime, backend credentials, Coach model, eval judge model
+- **Access Control** - workspace-wide Slack trigger policy
+- **Sign in with Slack** - Slack OAuth login, superadmin only
+- **Users** - accounts, roles, imports, and per-agent access
 
 ## General — platform branding
 
@@ -34,7 +40,7 @@ The **superadmin** account is configured via `ADMIN_USERNAME` / `ADMIN_PASSWORD`
 
 ### Sign in with Slack
 
-To enable Slack OAuth login, go to **Settings → General → Authentication** and enter your Slack app's **Client ID** and **Client Secret** (found in the Slack API console under **Basic Information → App Credentials**).
+To enable Slack OAuth login, go to **Settings → Sign in with Slack** and enter your Slack app's **Client ID** and **Client Secret** (found in the Slack API console under **Basic Information → App Credentials**).
 
 Once configured, users see a **Sign in with Slack** button on the login page.
 
@@ -51,7 +57,7 @@ SlackHive has four roles with escalating permissions:
 | Role | View agents | Edit agents | Scheduled Jobs | Settings | Manage users | Activity |
 |------|-------------|-------------|----------------|----------|--------------|----------|
 | **Superadmin** | All | All | All jobs | ✅ | ✅ | All |
-| **Admin** | All | All | All jobs | ❌ | ❌ | All |
+| **Admin** | All | All | All jobs | Most settings | ✅ | All |
 | **Editor** | Granted only | Own + granted | Own jobs | ❌ | ❌ | Granted agents |
 | **Viewer** | Granted only | ❌ | Granted agents (read-only) | ❌ | ❌ | ❌ |
 
@@ -61,7 +67,7 @@ Configured via `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`. This account is 
 
 ### Admin
 
-Full access equivalent to superadmin except Settings. Stored in the database and manageable via the Users page. Admins can create users, change roles, and grant per-agent access to editors and viewers.
+Full operational access to agents, jobs, users, Activity, Observability, MCP catalog, env vars, and most Settings sections. Stored in the database and manageable via the Users page. Admins can create users, change roles, and grant per-agent access to editors and viewers. Slack sign-in settings remain superadmin-only.
 
 ### Editor
 
@@ -75,7 +81,7 @@ Editors can create and manage scheduled jobs for agents they have edit access to
 
 Agents are **hidden by default**. Viewers only see agents an admin has explicitly granted them (View access only).
 
-On a granted agent, viewers can browse all content tabs (Overview, Instructions, Skills, Tools, Knowledge, Memory) but cannot make changes. The **Test**, **Export**, **Download wiki**, **Logs**, and **History** tabs are hidden.
+On a granted agent, viewers can browse read-only content such as **Overview**, **Instructions**, **Tools**, **Wiki**, **Audiences**, and **Settings** but cannot make changes. The **Test**, **Export**, **Download wiki**, **Logs**, and **History** controls are hidden.
 
 Viewers can see the **Scheduled Jobs** page in read-only mode — they see jobs for the agents they have access to, but cannot create, edit, or delete jobs.
 
@@ -119,7 +125,7 @@ Imported users start with the **viewer** role and no agent access — assign rol
 
 By default, any Slack workspace member can trigger agents — no user import or access grant needed. This is the easiest way to get started.
 
-To restrict access to specific users, turn off **Open to Workspace** in **Settings → General → Access Control**. Once restricted:
+To restrict access to specific users, turn off **Open to Workspace** in **Settings → Access Control**. Once restricted:
 
 1. Go to **Settings → Users → Import from Slack** and import your team
 2. Grant each user a **Trigger**, **View**, or **Edit** access level on the agents they should be able to use

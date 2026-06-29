@@ -46,6 +46,7 @@
             "group": "Configuration",
             "pages": [
               "configuration/env-vars",
+              "configuration/ai-backends",
               "configuration/slack-app",
               "configuration/networking",
               "configuration/mcp-servers",
@@ -76,6 +77,7 @@
               "features/logs",
               "features/history",
               "features/activity",
+              "features/observability",
               "features/users"
             ]
           },

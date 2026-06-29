@@ -1,6 +1,6 @@
 ---
 title: "Scheduled Jobs"
-description: "Trigger any agent on a schedule - get proactive alerts, reports, and monitoring delivered to Slack automatically."
+description: "Trigger any agent on a schedule and deliver reports, alerts, or digests to Slack automatically."
 ---
 
 ## Your agents don't just wait to be asked
@@ -40,7 +40,7 @@ No dashboards to check. No reports to pull. The insight comes to you.
 
 <Steps>
   <Step title="You set up a job">
-    Pick an agent, write a prompt, set a schedule (cron), and choose where results go - a Slack channel or a direct message.
+    Pick an agent, write a prompt, set a schedule, and choose where results go - a Slack channel or a direct message.
   </Step>
   <Step title="The schedule fires">
     At the configured time, SlackHive sends your prompt to the agent - exactly like a Slack message, but automated.
@@ -49,7 +49,7 @@ No dashboards to check. No reports to pull. The insight comes to you.
     The agent executes fully - it can run queries, call APIs, check metrics, compare against thresholds, and reason about the results.
   </Step>
   <Step title="Results posted to Slack">
-    The response is posted to the channel or DM you configured. If nothing notable happened, the agent can say so. If something needs attention, it flags it.
+    The response is posted to the channel or DM you configured. Long reports are organized into a parent message and thread so channels stay readable.
   </Step>
 </Steps>
 
@@ -136,6 +136,15 @@ Go to **Jobs** in the sidebar → **New Job**.
       </Tab>
     </Tabs>
   </Step>
+  <Step title="Optionally skip quiet notifications">
+    Add a **Skip notification when...** condition when you only want Slack messages for meaningful results.
+
+    ```
+    there are no fraud cases to report
+    ```
+
+    If the run completes and that condition is true, SlackHive records the run as skipped and does not post a message.
+  </Step>
 </Steps>
 
 ---
@@ -179,6 +188,14 @@ The prompt is the most important part. A few principles:
    what changed, and your best hypothesis for why.
 ```
 
+**Use skip notifications for noisy checks**
+```
+Prompt: Check failed payments in the last hour and summarize any customer impact.
+Skip notification when: there are zero failed payments or no action is needed.
+```
+
+This keeps monitoring jobs useful without filling channels with "nothing happened" messages.
+
 **Give it context it might need**
 ```
 ✅ Note: Tuesday is always lower due to our weekly maintenance window.
@@ -209,11 +226,11 @@ When to use:
 
 For simple one-line alerts, plain text is still best. Reserve rich formatting for reports with structure.
 
-### Control the parent/thread split
+### Keep long reports readable
 
-A long report is posted as several messages: the first becomes the channel-visible **parent**, the rest **thread** beneath it. By default SlackHive breaks the message at each table, and any text *before* a table rides along with it — so a leading summary and the first table land in the parent together.
+A long report is posted as several messages: the first becomes the channel-visible **parent**, and the rest goes into a thread beneath it. Use the parent for the headline, status, and "what changed"; put detailed tables and evidence in the thread.
 
-To put the summary alone in the parent (and thread every table beneath it), emit a break marker on its own line where you want the split:
+If you want exact control over where the thread starts, ask the agent to put this break marker on its own line:
 
 ```
 {your headline summary}
@@ -222,7 +239,7 @@ To put the summary alone in the parent (and thread every table beneath it), emit
 | ... |
 ```
 
-SlackHive starts a new message at the marker and removes it from the output. Use as many as you need. Without the marker, the default table-based splitting applies — nothing changes for existing jobs.
+SlackHive removes the marker before posting.
 
 ---
 
@@ -233,8 +250,8 @@ Every job run is logged - status, output, duration, and timestamp - visible in *
 | Status | Meaning |
 |--------|---------|
 | ✅ Success | Agent ran and posted to Slack |
-| ❌ Error | Agent not running, Claude error, or Slack API failure |
-| ⏭ Skipped | Agent was offline when the job fired |
+| ⏭ Skipped | Agent ran successfully, but the skip-notification condition matched |
+| ❌ Error | Agent not running, backend error, or Slack API failure |
 
 <Note>
   If a job fails, the error is logged in run history. Common causes: the agent's Slack app token expired, the agent wasn't running, or the MCP server the agent needed was down.
@@ -252,9 +269,10 @@ Here's a complete setup for a GMV monitoring job:
 | **Agent** | `@data-analyst` |
 | **Schedule** | `0 * * * *` (every hour) |
 | **Target** | DM → CEO's Slack user ID |
-| **Prompt** | Compare GMV for the last hour vs the same hour last week. If it's down more than 15%, send an urgent alert with a breakdown by channel, device type, and acquisition source. If it's within normal range, send a single line: "GMV on track - $X this hour vs $Y last week." |
+| **Prompt** | Compare GMV for the last hour vs the same hour last week. If it's down more than 15%, send an urgent alert with a breakdown by channel, device type, and acquisition source. |
+| **Skip notification when** | GMV is within the normal range and no action is needed |
 
-The CEO gets a DM every hour. 99% of the time it's one line. When something breaks, they know immediately - with the breakdown already in their pocket.
+The CEO only gets a DM when something needs attention. When something breaks, they know immediately - with the breakdown already in their pocket.
 
 ---
 

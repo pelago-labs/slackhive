@@ -11,7 +11,7 @@ This gives you a safety net: experiment freely, and roll back cleanly if somethi
 
 | Captured | Not captured |
 |---|---|
-| System Prompt (`CLAUDE.md`) | Name |
+| System prompt | Name |
 | All skill files | Slug |
 | Tool allowlist and denylist | Description |
 | MCP server assignments | Slack credentials (stored separately) |
@@ -63,10 +63,10 @@ To preserve a specific version permanently, export the agent config (see [Import
 
 ## Conversation history
 
-Separate from version history - each Slack thread has its own persistent Claude session.
+Separate from version history - each Slack thread has its own persistent agent session.
 
 - Sessions identified by `userId + channelId + threadTs`
-- Session context survives runner restarts (the Claude session ID is stored in SQLite and reloaded on start)
+- Session context survives runner restarts
 - Same thread next week? Same session - full context preserved, including tool results and prior exchanges
 - Sessions expire after **30 minutes of inactivity**
 - The runner runs a cleanup job every 10 minutes to prune stale sessions

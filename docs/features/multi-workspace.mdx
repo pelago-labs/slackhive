@@ -36,7 +36,7 @@ Each workspace needs its own Slack app. For each workspace:
 
 <Steps>
   <Step title="Create a Slack app for that workspace">
-    During agent creation, the onboarding wizard generates a manifest. Install that manifest into the target workspace - **not** your main workspace.
+    Create the agent in SlackHive, then open its **Overview** tab and generate a Slack app manifest. Install that manifest into the target workspace - **not** your main workspace.
 
     → See [Slack App Setup](/configuration/slack-app) for the full manifest install steps.
   </Step>
@@ -48,8 +48,8 @@ Each workspace needs its own Slack app. For each workspace:
 
     These are workspace-specific. An app installed in workspace A cannot connect to workspace B.
   </Step>
-  <Step title="Create the agent in SlackHive">
-    Paste the credentials into the agent wizard. The runner will connect to that workspace automatically on the next start (or within seconds if already running).
+  <Step title="Connect the agent in SlackHive">
+    Paste the credentials into the agent's **Overview** tab. The runner will connect to that workspace automatically on the next start, or within seconds if already running.
   </Step>
 </Steps>
 
@@ -68,7 +68,7 @@ Users and roles in SlackHive are platform-wide - there's no per-workspace access
 | Platform settings | Agent skills and tools |
 | | Slack thread sessions |
 
-An admin can see and manage agents in all workspaces from the same dashboard. Use [per-agent write access grants](/features/users#per-agent-write-access-for-editors) if you need to restrict editors to specific workspaces' agents.
+An admin can see and manage agents in all workspaces from the same dashboard. Use [per-agent access grants](/features/users#per-agent-access-grants) if you need to restrict editors to specific workspaces' agents.
 
 ---
 
@@ -85,6 +85,6 @@ A Boss and all its specialists **must be in the same Slack workspace**. Boss del
     How to create and install a Slack app for each workspace.
   </Card>
   <Card title="Creating Agents" icon="robot" href="/agents/creating-agents">
-    Walk through the full agent creation wizard.
+    Create an agent with the two-step launch flow.
   </Card>
 </CardGroup>

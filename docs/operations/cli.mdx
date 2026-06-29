@@ -91,7 +91,7 @@ If `git pull` fails (e.g. local changes), stash them first: `git stash && slackh
 | Path | What it holds |
 |---|---|
 | `~/.slackhive/data.db` | SQLite DB - agents, memories, skills, history, settings |
-| `~/.slackhive/agents/<slug>/` | Per-agent workspace (CLAUDE.md, sessions, copies of assigned wiki folders) |
+| `~/.slackhive/agents/<slug>/` | Per-agent workspace (instructions, sessions, copies of assigned wiki folders) |
 | `~/.slackhive/knowledge/<folderId>/wiki/` | Compiled wikis for the Knowledge Library (source of truth) |
 | `~/.slackhive/logs/runner.log` | Full runner log stream |
 | `~/.slackhive/runner.lock` | Singleton lock - JSON with `pid`, `startedAt`, `mode` |
