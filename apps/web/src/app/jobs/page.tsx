@@ -489,16 +489,23 @@ function JobFormModal({ job, agents, onClose, onSaved }: {
         {/* Agent */}
         <div>
           <Label className={labelClass}>Agent</Label>
-          <Select value={agentId} onValueChange={setAgentId}>
-            <SelectTrigger>
-              <SelectValue placeholder="No agents available" />
-            </SelectTrigger>
-            <SelectContent>
-              {agents.map(a => (
-                <SelectItem key={a.id} value={a.id}>{a.name}{a.isBoss ? ' (Boss)' : ''}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {agents.length === 0 ? (
+            <p className="rounded-md border border-amber/30 bg-amber/10 px-3 py-2 text-2xs text-foreground">
+              You don&apos;t have edit access to any agent, so there&apos;s nothing to schedule.
+              Ask a superadmin for edit access to an agent to create a job.
+            </p>
+          ) : (
+            <Select value={agentId} onValueChange={setAgentId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select an agent" />
+              </SelectTrigger>
+              <SelectContent>
+                {agents.map(a => (
+                  <SelectItem key={a.id} value={a.id}>{a.name}{a.isBoss ? ' (Boss)' : ''}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <p className="mt-1 text-2xs text-muted-foreground">
             The agent that will receive and execute this prompt.
           </p>

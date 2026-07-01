@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
-import { getJobById, updateJob, deleteJob, publishAgentEvent } from '@/lib/db';
+import { getJobById, updateJob, deleteJob, publishAgentEvent, userCanWriteAgent } from '@/lib/db';
 import { getSessionFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -47,6 +47,12 @@ export async function PATCH(req: Request, { params }: Ctx): Promise<NextResponse
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (!canAccessJob(session, existing)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const body = await req.json();
+  // Re-pointing a job at a *different* agent requires edit access to that agent.
+  // (Editing other fields of an existing job is gated by canAccessJob above.)
+  if (body.agentId && body.agentId !== existing.agentId
+      && !(await userCanWriteAgent(body.agentId, session.username, session.role))) {
+    return NextResponse.json({ error: 'You need edit access to that agent.' }, { status: 403 });
+  }
   const job = await updateJob(id, body);
   await publishAgentEvent({ type: 'reload-jobs' });
   return NextResponse.json(job);
