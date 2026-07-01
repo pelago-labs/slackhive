@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { guardAdmin } from '@/lib/api-guard';
-import { getAllJobs, createJob, publishAgentEvent, listAccessibleAgentIds } from '@/lib/db';
+import { getAllJobs, createJob, publishAgentEvent, listAccessibleAgentIds, userCanWriteAgent } from '@/lib/db';
 import { getSessionFromRequest } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -41,6 +41,12 @@ export async function POST(req: Request): Promise<NextResponse> {
   const body = await req.json();
   if (!body.name || !body.prompt || !body.cronSchedule || !body.targetId || !body.agentId) {
     return NextResponse.json({ error: 'agentId, name, prompt, cronSchedule, and targetId are required' }, { status: 400 });
+  }
+
+  // A job makes the agent run a prompt on a schedule — require edit access to that
+  // agent (superadmin/admin pass automatically). Mirrors the form's writable filter.
+  if (!(await userCanWriteAgent(body.agentId, session.username, session.role))) {
+    return NextResponse.json({ error: 'You need edit access to this agent to schedule a job for it.' }, { status: 403 });
   }
 
   const job = await createJob({ ...body, createdBy: session.username });
