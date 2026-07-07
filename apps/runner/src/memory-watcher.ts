@@ -28,7 +28,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Agent, Memory } from '@slackhive/shared';
-import { upsertMemorySafe } from './db';
+import { upsertMemorySafe, getAgentGroupIdByName } from './db';
 import { agentLogger } from './logger';
 import { getAgentWorkDir } from './compile-claude-md';
 
@@ -147,12 +147,33 @@ export class MemoryWatcher {
       return;
     }
 
-    await upsertMemorySafe(this.agent.id, parsed.type, parsed.name, content);
+    // Resolve the optional tier fields. `scope_group` is a group NAME → look up
+    // its id; `scope_user` is expected to be the sender's slack user id (as shown
+    // in the [Sender: … (Uxxx) …] header), with a leading '@' tolerated.
+    let scopeGroupId: string | null = null;
+    if (parsed.scopeGroup) {
+      scopeGroupId = await getAgentGroupIdByName(this.agent.id, parsed.scopeGroup);
+      if (!scopeGroupId) {
+        this.log.warn('Memory scope_group not found — storing as global', {
+          group: parsed.scopeGroup, name: parsed.name,
+        });
+      }
+    }
+    const scopeUserId = parsed.scopeUser ? (parsed.scopeUser.replace(/^@/, '').trim() || null) : null;
+
+    await upsertMemorySafe(this.agent.id, parsed.type, parsed.name, content, {
+      pinned: parsed.pinned,
+      scopeUserId,
+      scopeGroupId,
+      source: 'agent',
+    });
 
     this.log.info('Memory synced to DB', {
       filePath,
       name: parsed.name,
       type: parsed.type,
+      pinned: parsed.pinned,
+      scoped: !!(scopeUserId || scopeGroupId),
     });
   }
 }
@@ -167,6 +188,12 @@ export class MemoryWatcher {
 interface ParsedMemoryFrontmatter {
   name: string;
   type: Memory['type'];
+  /** "Remember always" tier. */
+  pinned: boolean;
+  /** Sender slack user id this memory is scoped to (null = not user-scoped). */
+  scopeUser: string | null;
+  /** Audience group NAME this memory is scoped to (resolved to an id at sync). */
+  scopeGroup: string | null;
 }
 
 /**
@@ -198,7 +225,12 @@ export function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null
   const validTypes: Memory['type'][] = ['user', 'feedback', 'project', 'reference'];
   if (!validTypes.includes(type)) return null;
 
-  return { name, type };
+  const pinnedRaw = extractField(frontmatter, 'pinned');
+  const pinned = pinnedRaw ? /^(true|yes|1)$/i.test(pinnedRaw) : false;
+  const scopeUser = extractField(frontmatter, 'scope_user');
+  const scopeGroup = extractField(frontmatter, 'scope_group');
+
+  return { name, type, pinned, scopeUser, scopeGroup };
 }
 
 /**

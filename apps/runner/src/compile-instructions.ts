@@ -28,10 +28,8 @@ import * as path from 'path';
 import type { Agent, Memory, Skill } from '@slackhive/shared';
 import { getDb, agentIdentityBody } from '@slackhive/shared';
 import { getAgentSkills, getAgentMemories, getAgentWikiFolders } from './db';
+import { selectInlineMemories, renderMemoryBlock, MAX_INLINED_MEMORY_BYTES } from './memory-retrieval';
 import { logger } from './logger';
-
-/** Soft cap on inlined memory bytes in CLAUDE.md. Anything above this is truncated with a log. */
-const MAX_INLINED_MEMORY_BYTES = 32 * 1024;
 
 /**
  * Verbose narration directive. Injected into the per-message user turn by
@@ -478,62 +476,26 @@ export function writeAgentsSkills(targetDir: string, skills: Skill[], wikiBody: 
  * runaway token cost.
  */
 function buildInlinedMemoriesSection(memories: Memory[]): string | null {
-  if (memories.length === 0) return null;
+  // Only GLOBAL memories (no per-sender scope) go into CLAUDE.md — scoped
+  // memories are injected per-turn for the matching sender. Pinned memories are
+  // kept first and never dropped; overflow is deferred to the per-turn retrieved
+  // tier (keyword-ranked against the message), not lost.
+  const global = memories.filter(m => !m.scopeUserId && !m.scopeGroupId);
+  if (global.length === 0) return null;
 
-  const groups: Record<Memory['type'], Memory[]> = {
-    feedback: [], user: [], project: [], reference: [],
-  };
-  for (const m of memories) {
-    if (groups[m.type]) groups[m.type].push(m);
-  }
-
-  const typeHeadings: Record<Memory['type'], string> = {
-    feedback: 'Feedback (behavioral rules — apply unconditionally)',
-    user: 'User (facts about people)',
-    project: 'Project (current initiatives)',
-    reference: 'Reference (domain knowledge)',
-  };
-
-  const parts: string[] = [
-    '# Learned Memories (active)',
-    '',
-    'These are facts and rules you learned in prior conversations. They are active',
-    'for EVERY turn — apply any that match the current context without being asked.',
-    'If a memory contradicts what the user just said, flag it by name and ask whether to update.',
-    '',
-  ];
-
-  let bytes = Buffer.byteLength(parts.join('\n'), 'utf-8');
-  let dropped = 0;
-
-  for (const type of ['feedback', 'user', 'project', 'reference'] as const) {
-    const rows = groups[type];
-    if (rows.length === 0) continue;
-    const heading = `## ${typeHeadings[type]}`;
-    parts.push(heading);
-    bytes += Buffer.byteLength(heading + '\n', 'utf-8');
-
-    for (const m of rows) {
-      const block = `\n### ${m.name}\n${m.content.trim()}\n`;
-      const blockBytes = Buffer.byteLength(block, 'utf-8');
-      if (bytes + blockBytes > MAX_INLINED_MEMORY_BYTES) {
-        dropped += 1;
-        continue;
-      }
-      parts.push(block);
-      bytes += blockBytes;
-    }
-    parts.push('');
-  }
-
-  if (dropped > 0) {
-    logger.warn('Memory inlining exceeded cap — some memories dropped', {
-      dropped,
+  const { included, overflow } = selectInlineMemories(global, MAX_INLINED_MEMORY_BYTES);
+  if (overflow.length > 0) {
+    logger.warn('Memory inlining exceeded cap — overflow deferred to per-turn retrieval', {
+      overflow: overflow.length,
       cap: MAX_INLINED_MEMORY_BYTES,
     });
   }
 
-  return parts.join('\n');
+  return renderMemoryBlock(included, '# Learned Memories (active)', [
+    'These are facts and rules you learned in prior conversations. They are active',
+    'for EVERY turn — apply any that match the current context without being asked.',
+    'If a memory contradicts what the user just said, flag it by name and ask whether to update.',
+  ]);
 }
 
 /**
@@ -742,9 +704,22 @@ Use the Write tool to create \`memory/{type}_{name}.md\`:
 name: {short_descriptive_name}
 type: {feedback | user | project | reference}
 description: {one line summary}
+pinned: {true only if this must be remembered on EVERY turn — omit otherwise}
+scope_user: {a specific sender's id from the [Sender: … (Uxxx) …] header, if this memory is only about/for that person — omit for everyone}
+scope_group: {an audience group name, if this memory only applies when a member of that group is asking — omit for everyone}
 ---
 {1–3 sentences. The rule, the why, the trigger. Pointer to the full source if it lives elsewhere.}
 \`\`\`
+
+## Memory tiers (pinned / scope) — use sparingly
+- **Default (omit all three)**: a global memory — available to everyone, surfaced
+  when relevant. This is almost always what you want.
+- **\`pinned: true\`** — "remember always": inlined every single turn, never dropped.
+  Reserve for a FEW critical, universal rules; over-pinning bloats every prompt.
+- **\`scope_user: Uxxx\`** — "only about/for this person": use the sender id shown in
+  the \`[Sender: name (Uxxx) …]\` header, not a display name.
+- **\`scope_group: <name>\`** — "only when a member of this audience asks": use an
+  existing group name exactly.
 
 ## Memory ≠ documentation
 

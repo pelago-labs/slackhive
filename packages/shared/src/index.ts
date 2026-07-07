@@ -58,14 +58,14 @@ export {
   listTasks, getTaskWithDetails, countInProgressByAgent,
   sweepStaleActivities,
   recordActivityUsage, getTokensByAgent, getTopUsers,
-  recordMessageFeedback, getFeedbackReport,
+  recordMessageFeedback, getFeedbackReport, getFeedbackForThread, buildTaskId,
   linkActivityReply, findActivityIdByReply,
 } from './db/activities-repo';
 export type {
   BeginActivityInput, BeginToolCallInput, TaskListColumn, TaskListResult,
   TaskWithDetails,
   ActivityUsageInput, AgentTokenUsage, UserActivitySummary,
-  MessageFeedbackInput, AgentFeedbackReport, FeedbackRating,
+  MessageFeedbackInput, AgentFeedbackReport, FeedbackRating, ThreadFeedback,
 } from './db/activities-repo';
 export {
   MODELS,

@@ -40,7 +40,7 @@ function truncate(text: string | null | undefined, max = PREVIEW_LIMIT): string 
 }
 
 /** Build the deterministic task id for a platform thread. */
-function buildTaskId(platform: Platform, channelId: string, threadTs: string): string {
+export function buildTaskId(platform: Platform, channelId: string, threadTs: string): string {
   return `${platform}:${channelId}:${threadTs}`;
 }
 
@@ -799,6 +799,32 @@ export async function findActivityIdByReply(replyTs: string): Promise<string | n
     [replyTs],
   );
   return rows.length ? (rows[0].id as string) : null;
+}
+
+/** One 👍/👎 rating on a reply in a thread — the signal the reflection pass uses. */
+export interface ThreadFeedback {
+  sentiment: 'up' | 'down';
+  note: string | null;
+}
+
+/**
+ * All 👍/👎 feedback for a thread (task), oldest first. Joins message_feedback →
+ * activities so it's scoped to this conversation. Used by the memory-reflection
+ * pass — a 👎 with a note is its strongest extraction signal.
+ */
+export async function getFeedbackForThread(agentId: string, taskId: string): Promise<ThreadFeedback[]> {
+  const { rows } = await getDb().query(
+    `SELECT mf.sentiment, mf.note
+       FROM message_feedback mf
+       JOIN activities a ON a.id = mf.activity_id
+      WHERE a.task_id = $1 AND mf.agent_id = $2
+      ORDER BY mf.created_at ASC`,
+    [taskId, agentId],
+  );
+  return rows.map(r => ({
+    sentiment: r.sentiment as 'up' | 'down',
+    note: (r.note as string | null) ?? null,
+  }));
 }
 
 export async function recordMessageFeedback(input: MessageFeedbackInput): Promise<void> {
