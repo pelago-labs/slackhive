@@ -10,7 +10,7 @@
  * @module runner/memory-extraction
  */
 import type { Agent, Memory, ThreadFeedback } from '@slackhive/shared';
-import { DEFAULT_EVAL_JUDGE_MODEL } from '@slackhive/shared';
+import { DEFAULT_EVAL_JUDGE_MODEL, LIGHT_CODEX_MODEL } from '@slackhive/shared';
 import { generateText } from './backends/generate-text';
 import { upsertMemory, getAgentGroupIdByName } from './db';
 import { jaccard } from './memory-retrieval';
@@ -24,9 +24,6 @@ export interface ExtractionGroup { name: string; description?: string | null; }
 const MAX_EXTRACTED_PER_RUN = 3;
 /** A proposal this similar to an existing memory is treated as an UPDATE of it. */
 const DEDUP_JACCARD_THRESHOLD = 0.6;
-/** Lightest Codex tier (no Haiku-equivalent exists on Codex) — keeps the
- *  reflection cheap when the agent's backend is Codex. */
-const EXTRACTION_CODEX_MODEL = 'gpt-5.5:low';
 
 const VALID_TYPES = new Set<Memory['type']>(['user', 'feedback', 'project', 'reference']);
 const SLACK_ID = /^[UW][A-Z0-9]{6,}$/;
@@ -148,7 +145,7 @@ export async function extractMemories(
     reply = await generateText(userPrompt, {
       systemPrompt: SYSTEM_PROMPT,
       claudeModel: DEFAULT_EVAL_JUDGE_MODEL,
-      codexModel: EXTRACTION_CODEX_MODEL,
+      codexModel: LIGHT_CODEX_MODEL,
     });
   } catch (err) {
     logger.warn('memory-extraction: generateText failed', { agent: agent.slug, error: (err as Error).message });

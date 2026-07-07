@@ -10,15 +10,13 @@
  * @module runner/memory-reconcile
  */
 import type { Agent, Memory } from '@slackhive/shared';
-import { DEFAULT_EVAL_JUDGE_MODEL } from '@slackhive/shared';
+import { DEFAULT_EVAL_JUDGE_MODEL, LIGHT_CODEX_MODEL } from '@slackhive/shared';
 import { generateText } from './backends/generate-text';
 import { upsertMemory, deleteMemory } from './db';
 import { logger } from './logger';
 
 /** Max ops applied per run — a runaway prompt can't gut the store. */
 const MAX_OPS_PER_RUN = 8;
-/** Lightest Codex tier (keeps reconcile cheap on the Codex backend). */
-const RECONCILE_CODEX_MODEL = 'gpt-5.5:low';
 
 export interface ReconcileOp {
   action: 'DELETE' | 'UPDATE' | 'NOOP';
@@ -71,7 +69,7 @@ export async function reconcileMemories(
     reply = await generateText(`Current memories:\n${list}`, {
       systemPrompt: SYSTEM_PROMPT,
       claudeModel: DEFAULT_EVAL_JUDGE_MODEL,
-      codexModel: RECONCILE_CODEX_MODEL,
+      codexModel: LIGHT_CODEX_MODEL,
     });
   } catch (err) {
     logger.warn('memory-reconcile: generateText failed', { agent: agent.slug, error: (err as Error).message });

@@ -28,7 +28,8 @@ describe('selectInlineMemories', () => {
   it('overflows non-pinned when over budget, in order', () => {
     const big = 'z'.repeat(200);
     const mems = [mem('a', big), mem('b', big), mem('c', big)];
-    const { included, overflow } = selectInlineMemories(mems, 300); // ~fits one block
+    // 800B section-overhead reserve + room for ~one ~210B block.
+    const { included, overflow } = selectInlineMemories(mems, 800 + 210);
     expect(included.map(m => m.name)).toEqual(['a']);
     expect(overflow.map(m => m.name)).toEqual(['b', 'c']);
   });

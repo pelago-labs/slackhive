@@ -36,6 +36,12 @@ function memoryBlockBytes(m: Memory): number {
   return Buffer.byteLength(`\n### ${m.name}\n${m.content.trim()}\n`, 'utf-8');
 }
 
+/** Reserve for the rendered section's title + intro + up to four `## ` group
+ *  headings, so the whole block (not just raw memory content) stays under the
+ *  caller's budget. Applied inside selectInlineMemories so compile-time and
+ *  per-turn use the identical effective budget (no selector drift). */
+const SECTION_OVERHEAD_BYTES = 800;
+
 /**
  * Split memories into what fits the inline budget vs the overflow.
  * Pinned memories are ALWAYS included (the "remember always" tier, never
@@ -48,6 +54,9 @@ export function selectInlineMemories(
   memories: Memory[],
   budgetBytes: number,
 ): { included: Memory[]; overflow: Memory[] } {
+  // Reserve headroom for the section title/intro/headings so the RENDERED block
+  // stays within budgetBytes (pinned are still never dropped, by design).
+  const effectiveBudget = Math.max(0, budgetBytes - SECTION_OVERHEAD_BYTES);
   const pinned = memories.filter(m => m.pinned);
   const rest = memories.filter(m => !m.pinned);
   const included: Memory[] = [...pinned];
@@ -55,7 +64,7 @@ export function selectInlineMemories(
   let bytes = pinned.reduce((sum, m) => sum + memoryBlockBytes(m), 0);
   for (const m of rest) {
     const b = memoryBlockBytes(m);
-    if (bytes + b > budgetBytes) { overflow.push(m); continue; }
+    if (bytes + b > effectiveBudget) { overflow.push(m); continue; }
     included.push(m);
     bytes += b;
   }
