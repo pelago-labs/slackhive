@@ -29,6 +29,7 @@ import {
 } from '@slackhive/shared';
 import { getSetting, getAgentMemories } from './db';
 import { extractMemories } from './memory-extraction';
+import { reconcileMemories } from './memory-reconcile';
 import {
   selectInlineMemories, keywordRank, renderMemoryBlock,
   MAX_INLINED_MEMORY_BYTES, MAX_SCOPED_MEMORY_BYTES, MAX_RETRIEVED_MEMORY_BYTES, MEMORY_RETRIEVE_K,
@@ -112,6 +113,8 @@ export class MessageHandler {
   private recentMessages = new Map<string, number>();
   /** Per-thread debounce timers for end-of-conversation memory reflection. */
   private extractionTimers = new Map<string, NodeJS.Timeout>();
+  /** Last time the reconcile/self-review pass ran for this agent (throttle). */
+  private lastReconcileAt = 0;
 
   constructor(
     private adapter: PlatformAdapter,
@@ -716,6 +719,23 @@ export class MessageHandler {
       createdBy: participantIds[0] ?? null,
     });
     if (applied > 0) this.log.info('Memory reflection created memories', { count: applied, threadId });
+
+    // Phase 2: opt-in periodic self-review. Piggybacks on this debounced pass but
+    // throttled per agent, and only when the set is big enough to be worth it.
+    try {
+      const reconcile = (await getSetting('memoryReconcile').catch(() => null)) ?? 'off';
+      const now = Date.now();
+      if (reconcile === 'auto' && now - this.lastReconcileAt > 6 * 60 * 60 * 1000) {
+        const all = await getAgentMemories(this.agent.id);
+        if (all.length >= 8) {
+          this.lastReconcileAt = now;
+          const { applied: cleaned } = await reconcileMemories(this.agent, all, { apply: true });
+          if (cleaned > 0) this.log.info('Memory reconcile applied', { ops: cleaned });
+        }
+      }
+    } catch (err) {
+      this.log.warn('Memory reconcile skipped', { error: (err as Error).message });
+    }
   }
 
   /** Finish an activity — errors here must never interrupt the hot path. */
