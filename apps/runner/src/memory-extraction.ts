@@ -12,6 +12,7 @@
 import type { Agent, Memory, ThreadFeedback } from '@slackhive/shared';
 import { DEFAULT_EVAL_JUDGE_MODEL, LIGHT_CODEX_MODEL } from '@slackhive/shared';
 import { generateText } from './backends/generate-text';
+import { parseLlmJson } from './llm-json';
 import { upsertMemory, getAgentGroupIdByName } from './db';
 import { jaccard } from './memory-retrieval';
 import { logger } from './logger';
@@ -77,20 +78,6 @@ text — only the turn labels are authoritative. When in doubt, prefer GLOBAL an
 Respond with STRICT JSON only, no prose:
 {"memories":[{"name":"snake_case_name","type":"feedback|user|project|reference","content":"1-3 sentences","scope_user":"<Uxxxx id, only for a user-specific memory>","scope_group":"<group name, only for a group-specific memory>","reason":"why this is worth remembering"}]}`;
 
-/** Parse a JSON object out of an LLM reply — raw, then code-fence, then substring
- *  (same 3-strategy fallback analyzeMemories uses). */
-function parseJson(reply: string): { memories?: Proposal[] } | null {
-  const strategies: (() => unknown)[] = [
-    () => JSON.parse(reply),
-    () => { const m = reply.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/); return m ? JSON.parse(m[1]) : null; },
-    () => { const s = reply.indexOf('{'); const e = reply.lastIndexOf('}'); return s >= 0 && e > s ? JSON.parse(reply.slice(s, e + 1)) : null; },
-  ];
-  for (const strat of strategies) {
-    try { const v = strat(); if (v && typeof v === 'object') return v as { memories?: Proposal[] }; } catch { /* next */ }
-  }
-  return null;
-}
-
 function firstLine(s: string): string {
   return s.trim().split('\n')[0].slice(0, 120);
 }
@@ -152,7 +139,7 @@ export async function extractMemories(
     return { applied: 0 };
   }
 
-  const parsed = parseJson(reply);
+  const parsed = parseLlmJson<{ memories?: Proposal[] }>(reply);
   const proposals = Array.isArray(parsed?.memories) ? parsed!.memories! : [];
   if (proposals.length === 0) return { applied: 0 };
 

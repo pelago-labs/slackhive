@@ -13,6 +13,7 @@ import type { Agent, Memory } from '@slackhive/shared';
 import { DEFAULT_EVAL_JUDGE_MODEL, LIGHT_CODEX_MODEL } from '@slackhive/shared';
 import { generateText } from './backends/generate-text';
 import { upsertMemory, deleteMemory } from './db';
+import { parseLlmJson } from './llm-json';
 import { logger } from './logger';
 
 /** Max ops applied per run — a runaway prompt can't gut the store. */
@@ -37,17 +38,6 @@ deleting a memory marked "(pinned)". When unsure, use NOOP. Propose at most 8 op
 Respond with STRICT JSON only, no prose:
 {"ops":[{"action":"DELETE|UPDATE|NOOP","id":"<the id= value of the memory>","content":"<new text, UPDATE only>","reason":"why"}]}`;
 
-function parseOps(reply: string): ReconcileOp[] {
-  const strategies: (() => unknown)[] = [
-    () => JSON.parse(reply),
-    () => { const m = reply.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/); return m ? JSON.parse(m[1]) : null; },
-    () => { const s = reply.indexOf('{'); const e = reply.lastIndexOf('}'); return s >= 0 && e > s ? JSON.parse(reply.slice(s, e + 1)) : null; },
-  ];
-  for (const strat of strategies) {
-    try { const v = strat() as { ops?: ReconcileOp[] } | null; if (v && Array.isArray(v.ops)) return v.ops; } catch { /* next */ }
-  }
-  return [];
-}
 
 /**
  * Review + optionally clean an agent's memory set. Best-effort; never throws.
@@ -76,7 +66,8 @@ export async function reconcileMemories(
     return { ops: [], applied: 0 };
   }
 
-  const ops = parseOps(reply);
+  const parsed = parseLlmJson<{ ops?: ReconcileOp[] }>(reply);
+  const ops = Array.isArray(parsed?.ops) ? parsed!.ops! : [];
   if (!opts.apply) return { ops, applied: 0 };
 
   const byId = new Map(memories.map(m => [m.id, m]));
