@@ -56,7 +56,7 @@ import type { AgentBackend } from '@slackhive/shared';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
 import { isShuttingDown } from './shutdown-signal';
-import { VERBOSE_NARRATION_DIRECTIVE } from './compile-instructions';
+import { VERBOSE_NARRATION_DIRECTIVE, compileAgentWorkspace } from './compile-instructions';
 import { getKnownAgentsByBotId } from './agent-registry';
 import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import { TurnTracer } from './tracing/turn-tracer';
@@ -718,6 +718,7 @@ export class MessageHandler {
       participantIds,
       createdBy: participantIds[0] ?? null,
     });
+    let changed = applied > 0;
     if (applied > 0) this.log.info('Memory reflection created memories', { count: applied, threadId });
 
     // Phase 2: opt-in periodic self-review. Piggybacks on this debounced pass but
@@ -730,11 +731,25 @@ export class MessageHandler {
         if (all.length >= 8) {
           this.lastReconcileAt = now;
           const { applied: cleaned } = await reconcileMemories(this.agent, all, { apply: true });
-          if (cleaned > 0) this.log.info('Memory reconcile applied', { ops: cleaned });
+          if (cleaned > 0) { changed = true; this.log.info('Memory reconcile applied', { ops: cleaned }); }
         }
       }
     } catch (err) {
       this.log.warn('Memory reconcile skipped', { error: (err as Error).message });
+    }
+
+    // Global memories live in CLAUDE.md (compiled at agent start). Reflection/
+    // reconcile write straight to the DB, so without a recompile a new global
+    // memory would surface nowhere until the next restart. Recompile now (same
+    // path /correct uses; it also refreshes every live session dir). Runs
+    // post-conversation (debounced), so it doesn't disrupt an in-flight turn.
+    if (changed) {
+      try {
+        await compileAgentWorkspace(this.agent);
+        this.log.info('Recompiled workspace after memory changes', { agent: this.agent.slug });
+      } catch (err) {
+        this.log.warn('Recompile after memory change failed', { error: (err as Error).message });
+      }
     }
   }
 
