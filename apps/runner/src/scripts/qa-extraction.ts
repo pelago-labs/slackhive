@@ -60,6 +60,8 @@ async function main(): Promise<void> {
   fs.copyFileSync(real, tmp);
   for (const ext of ['-wal', '-shm']) if (fs.existsSync(real + ext)) fs.copyFileSync(real + ext, tmp + ext);
   setDb(createSqliteAdapter(tmp));
+  // Clean the DB copy on ANY exit (incl. errors) so a failed run never leaks it.
+  process.once('exit', () => { for (const p of [tmp, tmp + '-wal', tmp + '-shm']) { try { fs.rmSync(p, { force: true }); } catch { /* ignore */ } } });
 
   // Fresh isolated agent + a real 'finance' group.
   const agentId = randomUUID();

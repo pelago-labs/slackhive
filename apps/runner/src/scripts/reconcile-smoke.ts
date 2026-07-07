@@ -17,6 +17,8 @@ async function main(): Promise<void> {
   fs.copyFileSync(real, tmp);
   for (const ext of ['-wal', '-shm']) if (fs.existsSync(real + ext)) fs.copyFileSync(real + ext, tmp + ext);
   setDb(createSqliteAdapter(tmp));
+  // Clean the DB copy on ANY exit (incl. errors) so a failed run never leaks it.
+  process.once('exit', () => { for (const p of [tmp, tmp + '-wal', tmp + '-shm']) { try { fs.rmSync(p, { force: true }); } catch { /* ignore */ } } });
 
   const id = randomUUID();
   await getDb().query('INSERT INTO agents (id, slug, name, model) VALUES ($1,$2,$3,$4)', [id, `rc-${id.slice(0, 6)}`, 'RC', 'claude-opus-4-8']);

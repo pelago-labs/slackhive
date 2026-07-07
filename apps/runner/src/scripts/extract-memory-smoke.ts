@@ -19,6 +19,8 @@ async function main(): Promise<void> {
   fs.copyFileSync(real, tmp);
   for (const ext of ['-wal', '-shm']) if (fs.existsSync(real + ext)) fs.copyFileSync(real + ext, tmp + ext);
   setDb(createSqliteAdapter(tmp));
+  // Clean the DB copy on ANY exit (incl. errors) so a failed run never leaks it.
+  process.once('exit', () => { for (const p of [tmp, tmp + '-wal', tmp + '-shm']) { try { fs.rmSync(p, { force: true }); } catch { /* ignore */ } } });
 
   const { rows } = await getDb().query('SELECT id, slug FROM agents LIMIT 1');
   if (!rows.length) throw new Error('no agents in DB');
