@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { Memory } from '@slackhive/shared';
-import { selectInlineMemories, keywordRank, renderMemoryBlock } from '../memory-retrieval';
+import { selectForPrompt, renderMemoryBlock } from '../memory-retrieval';
+
+const NO_GROUPS = new Set<string>();
 
 function mem(name: string, content: string, opts: Partial<Memory> = {}): Memory {
   return {
@@ -17,60 +19,49 @@ function mem(name: string, content: string, opts: Partial<Memory> = {}): Memory 
   };
 }
 
-describe('selectInlineMemories', () => {
-  it('includes everything when under budget (no overflow)', () => {
+describe('selectForPrompt', () => {
+  const A = 'U_AAAAAA1';
+  const B = 'U_BBBBBB2';
+
+  it('includes all globals when they fit the budget', () => {
     const mems = [mem('a', 'x'), mem('b', 'y')];
-    const { included, overflow } = selectInlineMemories(mems, 32 * 1024);
-    expect(included).toHaveLength(2);
-    expect(overflow).toHaveLength(0);
+    const out = selectForPrompt(mems, { userId: A, groupIds: NO_GROUPS, queryText: '' });
+    expect(out.map(m => m.name).sort()).toEqual(['a', 'b']);
   });
 
-  it('overflows non-pinned when over budget, in order', () => {
-    const big = 'z'.repeat(200);
-    const mems = [mem('a', big), mem('b', big), mem('c', big)];
-    // 800B section-overhead reserve + room for ~one ~210B block.
-    const { included, overflow } = selectInlineMemories(mems, 800 + 210);
-    expect(included.map(m => m.name)).toEqual(['a']);
-    expect(overflow.map(m => m.name)).toEqual(['b', 'c']);
+  it('always includes pinned + sender-scoped; excludes scoped-to-others', () => {
+    const mems = [
+      mem('pin', 'p', { pinned: true }),
+      mem('mine', 'm', { scopeUserId: A }),
+      mem('theirs', 't', { scopeUserId: B }),
+      mem('grp', 'g', { scopeGroupId: 'g1' }),
+    ];
+    const out = selectForPrompt(mems, { userId: A, groupIds: new Set(['g1']), queryText: '' });
+    const names = out.map(m => m.name).sort();
+    expect(names).toContain('pin');
+    expect(names).toContain('mine');
+    expect(names).toContain('grp');       // sender is in g1
+    expect(names).not.toContain('theirs'); // scoped to B → excluded
   });
 
-  it('never drops pinned memories, even over budget', () => {
+  it('over budget, keeps the most keyword-relevant globals', () => {
+    // Equal-length bodies so RELEVANCE, not block size, decides what fits.
+    const body = (kw: string) => `${kw} ${'z'.repeat(400 - kw.length)}`; // 401 chars each
+    const mems = [
+      mem('refunds', body('refunds cancellation')),
+      mem('shipping', body('shipping warehouse')),
+      mem('gmv', body('gmv revenue')),
+    ];
+    // Effective budget (after the 800B reserve) fits exactly one ~415B block.
+    const out = selectForPrompt(mems, { userId: A, groupIds: NO_GROUPS, queryText: 'how are refunds and cancellation handled', budgetBytes: 800 + 430 });
+    expect(out.map(m => m.name)).toEqual(['refunds']);
+  });
+
+  it('pinned survive even when over budget', () => {
     const big = 'z'.repeat(500);
     const mems = [mem('p1', big, { pinned: true }), mem('p2', big, { pinned: true }), mem('n1', big)];
-    const { included, overflow } = selectInlineMemories(mems, 100); // budget too small for any
-    expect(included.map(m => m.name).sort()).toEqual(['p1', 'p2']);
-    expect(overflow.map(m => m.name)).toEqual(['n1']);
-  });
-});
-
-describe('keywordRank', () => {
-  const mems = [
-    mem('refund_policy', 'refunds are processed within 7 days of a cancellation'),
-    mem('shipping', 'orders ship from the warehouse in two business days'),
-    mem('gmv_rule', 'GMV excludes cancelled bookings and uses gross_total_sgd'),
-  ];
-
-  it('ranks by token overlap with the query', () => {
-    const out = keywordRank(mems, 'how are refunds handled after cancellation', 5, 32 * 1024);
-    expect(out[0].name).toBe('refund_policy');
-  });
-
-  it('returns [] for an empty/stopword-only query', () => {
-    expect(keywordRank(mems, 'how do you', 5, 32 * 1024)).toEqual([]);
-  });
-
-  it('returns [] when nothing matches', () => {
-    expect(keywordRank(mems, 'quantum entanglement telescope', 5, 32 * 1024)).toEqual([]);
-  });
-
-  it('respects k', () => {
-    const out = keywordRank(mems, 'refunds shipping gmv bookings cancellation orders', 1, 32 * 1024);
-    expect(out).toHaveLength(1);
-  });
-
-  it('respects the byte budget', () => {
-    const out = keywordRank(mems, 'refunds shipping gmv', 5, 10); // too small for any block
-    expect(out).toHaveLength(0);
+    const out = selectForPrompt(mems, { userId: A, groupIds: NO_GROUPS, queryText: '', budgetBytes: 100 });
+    expect(out.map(m => m.name).sort()).toEqual(['p1', 'p2']); // n1 dropped, pinned kept
   });
 });
 

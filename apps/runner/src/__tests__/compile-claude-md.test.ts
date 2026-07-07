@@ -2,7 +2,7 @@
  * @fileoverview Unit tests for compile-claude-md content.
  *
  * Tests cover:
- * - CLAUDE.md inlines learned memories so the model always sees them
+ * - CLAUDE.md no longer inlines memories (they're injected per-turn from the DB)
  * - CLAUDE.md still contains memory-writing guidance (how to save new memories)
  * - The deprecated /recall skill is no longer emitted
  * - Wiki index section is inlined when the wiki dir exists
@@ -20,9 +20,11 @@ describe('compile-claude-md source content', () => {
     'utf-8'
   );
 
-  it('inlines learned memories into CLAUDE.md', () => {
-    expect(src).toContain('# Learned Memories (active)');
-    expect(src).toContain('buildInlinedMemoriesSection');
+  it('does NOT inline memories at compile time (they are injected per turn)', () => {
+    // Memories moved to a single per-turn injection layer in message-handler.ts,
+    // so CLAUDE.md is no longer a memory cache needing a recompile on every write.
+    expect(src).not.toContain('buildInlinedMemoriesSection');
+    expect(src).not.toContain('# Learned Memories (active)');
   });
 
   it('retains memory-writing guidance (save path)', () => {

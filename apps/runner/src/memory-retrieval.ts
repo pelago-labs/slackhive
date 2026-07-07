@@ -1,26 +1,19 @@
 /**
- * @fileoverview Tiered-memory selection + retrieval helpers.
+ * @fileoverview Per-turn memory selection + rendering helpers.
  *
- * Pure functions shared by the compile-time inliner (CLAUDE.md) and the per-turn
- * prompt builder so both agree on which memories are "already inlined":
- *   - selectInlineMemories: deterministic, pinned-first fill to a byte budget.
- *   - keywordRank: token-overlap ranking of the overflow against the user message
- *     (the "needed sometime" tier — no embeddings).
- *   - renderMemoryBlock: the shared group-by-type markdown formatter.
+ * Memories are injected at ONE layer — per turn, in buildPrompt — so there is a
+ * single source of truth (no CLAUDE.md memory cache, no recompile-on-write, no
+ * compile/turn selector agreement). selectForPrompt picks what this sender sees:
+ * pinned + memories scoped to them, then the most relevant globals within a byte
+ * budget. renderMemoryBlock formats them; jaccard/tokenize back the extraction
+ * dedup.
  *
  * @module runner/memory-retrieval
  */
 import type { Memory } from '@slackhive/shared';
 
-/** Byte budget for the always-inlined (CLAUDE.md) memory set. Shared by the
- *  compile-time inliner AND the per-turn resolver so both compute the same
- *  included/overflow split (prevents selector drift). */
-export const MAX_INLINED_MEMORY_BYTES = 32 * 1024;
-/** Per-turn budgets for the scoped ("who is asking") and retrieved ("sometimes")
- *  tiers, and the max memories the retrieved tier injects per turn. */
-export const MAX_SCOPED_MEMORY_BYTES = 8 * 1024;
-export const MAX_RETRIEVED_MEMORY_BYTES = 8 * 1024;
-export const MEMORY_RETRIEVE_K = 6;
+/** Byte budget for the whole per-turn memory block. */
+export const MAX_MEMORY_PROMPT_BYTES = 32 * 1024;
 
 const TYPE_ORDER: Memory['type'][] = ['feedback', 'user', 'project', 'reference'];
 const TYPE_HEADINGS: Record<Memory['type'], string> = {
@@ -30,46 +23,14 @@ const TYPE_HEADINGS: Record<Memory['type'], string> = {
   reference: 'Reference (domain knowledge)',
 };
 
-/** Byte cost of one memory as rendered (`### name` + body) — the unit both the
- *  selector and the keyword ranker budget against. */
+/** Byte cost of one memory as rendered (`### name` + body). */
 function memoryBlockBytes(m: Memory): number {
   return Buffer.byteLength(`\n### ${m.name}\n${m.content.trim()}\n`, 'utf-8');
 }
 
-/** Reserve for the rendered section's title + intro + up to four `## ` group
- *  headings, so the whole block (not just raw memory content) stays under the
- *  caller's budget. Applied inside selectInlineMemories so compile-time and
- *  per-turn use the identical effective budget (no selector drift). */
+/** Reserve for the rendered section's title + intro + up to four `## ` headings,
+ *  so the whole block (not just raw content) stays under the budget. */
 const SECTION_OVERHEAD_BYTES = 800;
-
-/**
- * Split memories into what fits the inline budget vs the overflow.
- * Pinned memories are ALWAYS included (the "remember always" tier, never
- * dropped); the rest fill the remaining budget in their given order. The
- * overflow is what the per-turn retrieved tier keyword-ranks. Deterministic:
- * the same input always yields the same split, so compile-time and per-turn
- * agree on the `included` set.
- */
-export function selectInlineMemories(
-  memories: Memory[],
-  budgetBytes: number,
-): { included: Memory[]; overflow: Memory[] } {
-  // Reserve headroom for the section title/intro/headings so the RENDERED block
-  // stays within budgetBytes (pinned are still never dropped, by design).
-  const effectiveBudget = Math.max(0, budgetBytes - SECTION_OVERHEAD_BYTES);
-  const pinned = memories.filter(m => m.pinned);
-  const rest = memories.filter(m => !m.pinned);
-  const included: Memory[] = [...pinned];
-  const overflow: Memory[] = [];
-  let bytes = pinned.reduce((sum, m) => sum + memoryBlockBytes(m), 0);
-  for (const m of rest) {
-    const b = memoryBlockBytes(m);
-    if (bytes + b > effectiveBudget) { overflow.push(m); continue; }
-    included.push(m);
-    bytes += b;
-  }
-  return { included, overflow };
-}
 
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'is', 'are', 'of', 'to', 'and', 'or', 'in', 'on', 'for', 'with', 'what',
@@ -99,34 +60,42 @@ export function jaccard(a: string, b: string): number {
 }
 
 /**
- * Rank memories by token overlap with the user's message and return the top-k
- * that fit the byte budget. The "needed sometime" tier: recall by keyword, no
- * embeddings. Returns [] when the query has no meaningful tokens or nothing matches.
+ * Choose the memories to inject for one turn, from THIS sender's perspective:
+ *   - exclude memories scoped to someone else;
+ *   - ALWAYS include pinned + memories scoped to this sender;
+ *   - fill the remaining byte budget with global memories, most keyword-relevant
+ *     to the message first (0-score globals still included when they fit, so a
+ *     small set surfaces fully; the budget is the real limit for large sets).
  */
-export function keywordRank(
+export function selectForPrompt(
   memories: Memory[],
-  queryText: string,
-  k: number,
-  budgetBytes: number,
+  opts: { userId: string; groupIds: Set<string>; queryText: string; budgetBytes?: number },
 ): Memory[] {
-  const qTokens = tokenize(queryText);
-  if (qTokens.size === 0) return [];
-  const scored = memories
+  const budget = Math.max(0, (opts.budgetBytes ?? MAX_MEMORY_PROMPT_BYTES) - SECTION_OVERHEAD_BYTES);
+  const scopedToSender = (m: Memory) => m.scopeUserId === opts.userId || (m.scopeGroupId != null && opts.groupIds.has(m.scopeGroupId));
+  const isGlobal = (m: Memory) => !m.scopeUserId && !m.scopeGroupId;
+
+  const visible = memories.filter(m => isGlobal(m) || scopedToSender(m));
+  const priority = visible.filter(m => m.pinned || scopedToSender(m)); // always in
+  const prioritySet = new Set(priority.map(m => m.id));
+  const globals = visible.filter(m => !prioritySet.has(m.id));         // global, unpinned
+
+  const out: Memory[] = [...priority];
+  let bytes = priority.reduce((sum, m) => sum + memoryBlockBytes(m), 0);
+
+  const qTokens = tokenize(opts.queryText);
+  const ranked = globals
     .map(m => {
       const hay = tokenize(`${m.name} ${m.content}`);
       let score = 0;
       for (const t of qTokens) if (hay.has(t)) score += 1;
       return { m, score };
     })
-    .filter(s => s.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  const out: Memory[] = [];
-  let bytes = 0;
-  for (const { m } of scored) {
-    if (out.length >= k) break;
+  for (const { m } of ranked) {
     const b = memoryBlockBytes(m);
-    if (bytes + b > budgetBytes) continue;
+    if (bytes + b > budget) continue;
     out.push(m);
     bytes += b;
   }
@@ -134,8 +103,8 @@ export function keywordRank(
 }
 
 /**
- * Render a set of memories as a markdown block, grouped by type (the same
- * formatting CLAUDE.md has always used). Returns null for an empty set.
+ * Render a set of memories as a markdown block, grouped by type. Returns null
+ * for an empty set.
  */
 export function renderMemoryBlock(memories: Memory[], title: string, intro: string[]): string | null {
   if (memories.length === 0) return null;

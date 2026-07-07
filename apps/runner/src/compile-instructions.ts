@@ -25,10 +25,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Agent, Memory, Skill } from '@slackhive/shared';
+import type { Agent, Skill } from '@slackhive/shared';
 import { getDb, agentIdentityBody } from '@slackhive/shared';
-import { getAgentSkills, getAgentMemories, getAgentWikiFolders } from './db';
-import { selectInlineMemories, renderMemoryBlock, MAX_INLINED_MEMORY_BYTES } from './memory-retrieval';
+import { getAgentSkills, getAgentWikiFolders } from './db';
 import { logger } from './logger';
 
 /**
@@ -256,9 +255,8 @@ export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: str
 
   fs.mkdirSync(workDir, { recursive: true });
 
-  const [skills, memories, assignedFolders] = await Promise.all([
+  const [skills, assignedFolders] = await Promise.all([
     getAgentSkills(agent.id),
-    getAgentMemories(agent.id),
     getAgentWikiFolders(agent.id),
   ]);
 
@@ -274,7 +272,6 @@ export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: str
   logger.info('Compiling agent workspace', {
     agent: agent.slug,
     skills: skills.length,
-    memories: memories.length,
   });
 
   // -------------------------------------------------------------------------
@@ -283,7 +280,7 @@ export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: str
   //    Codex SDK and Claude Code). CLAUDE.md is written too for the headless
   //    claude-agent-sdk, which is confirmed to read CLAUDE.md. Identical content.
   // -------------------------------------------------------------------------
-  const claudeMdContent = buildClaudeMd(agent, memories, skills, overrideClaudeMd, formattingRules, folderSlugToName);
+  const claudeMdContent = buildClaudeMd(agent, skills, overrideClaudeMd, formattingRules, folderSlugToName);
   fs.writeFileSync(path.join(workDir, 'AGENTS.md'), claudeMdContent, 'utf-8');
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
@@ -458,45 +455,6 @@ export function writeAgentsSkills(targetDir: string, skills: Skill[], wikiBody: 
   }
 }
 
-/**
- * Builds the inlined `# Learned Memories (active)` section.
- *
- * Memories are written directly into the system prompt so the model always sees
- * them — replaces the old /recall + on-disk materialization path which required
- * the model to proactively invoke a skill. Rules like "when user is U095..., say X"
- * now fire deterministically because both the rule and the sender ID (prepended
- * by the message handler) are in the turn context.
- *
- * Grouped by type for scanability. Memory `name` is used as the heading so the
- * agent can flag contradictions by name (matches the "update/overwrite by name"
- * workflow in the Memory-writing guidance section).
- *
- * If total bytes exceed {@link MAX_INLINED_MEMORY_BYTES}, overflow memories are
- * dropped with a warning — we prefer a truncated-but-bounded prompt over a
- * runaway token cost.
- */
-function buildInlinedMemoriesSection(memories: Memory[]): string | null {
-  // Only GLOBAL memories (no per-sender scope) go into CLAUDE.md — scoped
-  // memories are injected per-turn for the matching sender. Pinned memories are
-  // kept first and never dropped; overflow is deferred to the per-turn retrieved
-  // tier (keyword-ranked against the message), not lost.
-  const global = memories.filter(m => !m.scopeUserId && !m.scopeGroupId);
-  if (global.length === 0) return null;
-
-  const { included, overflow } = selectInlineMemories(global, MAX_INLINED_MEMORY_BYTES);
-  if (overflow.length > 0) {
-    logger.warn('Memory inlining exceeded cap — overflow deferred to per-turn retrieval', {
-      overflow: overflow.length,
-      cap: MAX_INLINED_MEMORY_BYTES,
-    });
-  }
-
-  return renderMemoryBlock(included, '# Learned Memories (active)', [
-    'These are facts and rules you learned in prior conversations. They are active',
-    'for EVERY turn — apply any that match the current context without being asked.',
-    'If a memory contradicts what the user just said, flag it by name and ask whether to update.',
-  ]);
-}
 
 /**
  * Parses `knowledge/wiki/index.md` to extract article path + one-line summary.
@@ -646,7 +604,6 @@ ${lines.join('\n')}`;
  */
 function buildClaudeMd(
   agent: Agent,
-  memories: Memory[],
   skills: Skill[],
   overrideClaudeMd?: string,
   formattingRules?: string,
@@ -673,10 +630,9 @@ function buildClaudeMd(
   // 3. Platform formatting rules (provided by adapter, or fallback to Slack)
   sections.push(formattingRules ?? SLACK_FORMATTING_SECTION);
 
-  // 4. Inlined learned memories — replaces the old /recall skill path so the
-  //    model always sees them. See buildInlinedMemoriesSection for rationale.
-  const memoriesSection = buildInlinedMemoriesSection(memories);
-  if (memoriesSection) sections.push(memoriesSection);
+  // 4. (Learned memories are no longer inlined here — they're injected per turn
+  //    in message-handler.ts → buildPrompt, from the DB, so there's one source of
+  //    truth and no recompile-on-write.)
 
   // 5. Knowledge base index — inlined so the model knows what exists without
   //    a Read round-trip. See buildWikiIndexSection.

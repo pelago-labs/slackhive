@@ -29,10 +29,7 @@ import {
 import { getSetting, getAgentMemories } from './db';
 import { extractMemories } from './memory-extraction';
 import { reconcileMemories } from './memory-reconcile';
-import {
-  selectInlineMemories, keywordRank, renderMemoryBlock,
-  MAX_INLINED_MEMORY_BYTES, MAX_SCOPED_MEMORY_BYTES, MAX_RETRIEVED_MEMORY_BYTES, MEMORY_RETRIEVE_K,
-} from './memory-retrieval';
+import { selectForPrompt, renderMemoryBlock, MAX_MEMORY_PROMPT_BYTES } from './memory-retrieval';
 
 // Cache the openToWorkspace setting for 60s to avoid a DB hit on every message.
 let _openToWorkspaceCache: { value: boolean; expiresAt: number } | null = null;
@@ -55,7 +52,7 @@ import type { AgentBackend } from '@slackhive/shared';
 import { CorrectionHandler } from './correction-handler';
 import { agentLogger } from './logger';
 import { isShuttingDown } from './shutdown-signal';
-import { VERBOSE_NARRATION_DIRECTIVE, compileAgentWorkspace } from './compile-instructions';
+import { VERBOSE_NARRATION_DIRECTIVE } from './compile-instructions';
 import { getKnownAgentsByBotId } from './agent-registry';
 import { getCachedUserCanTrigger, setCachedUserCanTrigger } from './access-cache';
 import { TurnTracer } from './tracing/turn-tracer';
@@ -720,11 +717,11 @@ export class MessageHandler {
       participantIds,
       createdBy: participantIds[0] ?? null,
     });
-    let changed = applied > 0;
     if (applied > 0) this.log.info('Memory reflection created memories', { count: applied, threadId });
 
     // Phase 2: opt-in periodic self-review. Piggybacks on this debounced pass but
     // throttled per agent, and only when the set is big enough to be worth it.
+    // No recompile needed — memories are injected per-turn from the DB.
     try {
       const reconcile = (await getSetting('memoryReconcile').catch(() => null)) ?? 'off';
       const now = Date.now();
@@ -733,25 +730,11 @@ export class MessageHandler {
         if (all.length >= 8) {
           this.lastReconcileAt = now;
           const { applied: cleaned } = await reconcileMemories(this.agent, all, { apply: true });
-          if (cleaned > 0) { changed = true; this.log.info('Memory reconcile applied', { ops: cleaned }); }
+          if (cleaned > 0) this.log.info('Memory reconcile applied', { ops: cleaned });
         }
       }
     } catch (err) {
       this.log.warn('Memory reconcile skipped', { error: (err as Error).message });
-    }
-
-    // Global memories live in CLAUDE.md (compiled at agent start). Reflection/
-    // reconcile write straight to the DB, so without a recompile a new global
-    // memory would surface nowhere until the next restart. Recompile now (same
-    // path /correct uses; it also refreshes every live session dir). Runs
-    // post-conversation (debounced), so it doesn't disrupt an in-flight turn.
-    if (changed) {
-      try {
-        await compileAgentWorkspace(this.agent);
-        this.log.info('Recompiled workspace after memory changes', { agent: this.agent.slug });
-      } catch (err) {
-        this.log.warn('Recompile after memory change failed', { error: (err as Error).message });
-      }
     }
   }
 
@@ -962,48 +945,24 @@ export class MessageHandler {
       verboseBlock = `${VERBOSE_NARRATION_DIRECTIVE}\n\n`;
     }
 
-    // Tiered memories (per-turn). The pinned/global "always" tier is already in
-    // CLAUDE.md (compile time); here we add the two dynamic tiers, both scoped to
-    // THIS turn: the SCOPED tier (memories for who is asking) and the RETRIEVED
-    // tier (keyword-ranked overflow relevant to the message). Best-effort — a
-    // failure here must never block the turn.
+    // Memories are injected here, per turn (single source of truth — no CLAUDE.md
+    // memory cache). selectForPrompt picks what THIS sender sees: pinned +
+    // memories scoped to them + the most relevant globals within a byte budget.
+    // Best-effort — a failure here must never block the turn.
     let memoryBlock = '';
     try {
-      const allMemories = await getAgentMemories(this.agent.id);
-      // Scoped: memories addressed to this sender (by slack user id) or to a
-      // group the sender belongs to.
-      const scoped = allMemories.filter(m =>
-        (m.scopeUserId && m.scopeUserId === userId) ||
-        (m.scopeGroupId && senderGroupIds.has(m.scopeGroupId)),
-      );
-      const scopedIds = new Set(scoped.map(m => m.id));
-      // Retrieved: exactly the global memories that overflowed CLAUDE.md's budget
-      // (same deterministic split as the compile-time inliner), keyword-ranked
-      // against this message. Agents whose memories fit the budget have no
-      // overflow, so this tier is inert (zero cost).
-      const global = allMemories.filter(m => !m.scopeUserId && !m.scopeGroupId);
-      const { overflow } = selectInlineMemories(global, MAX_INLINED_MEMORY_BYTES);
-      const retrieved = keywordRank(
-        overflow.filter(m => !scopedIds.has(m.id)),
-        userText,
-        MEMORY_RETRIEVE_K,
-        MAX_RETRIEVED_MEMORY_BYTES,
-      );
-
-      const scopedRendered = renderMemoryBlock(
-        selectInlineMemories(scoped, MAX_SCOPED_MEMORY_BYTES).included,
-        '# Memories for this sender',
-        ['Facts and rules specific to who is asking — apply any that match.'],
-      );
-      const retrievedRendered = renderMemoryBlock(
-        retrieved,
-        '# Possibly-relevant memories',
-        ['Older memories that keyword-match this message — use if relevant.'],
-      );
-      const combined = [scopedRendered, retrievedRendered].filter(Boolean).join('\n\n');
-      if (combined) memoryBlock = `${combined}\n\n`;
+      const all = await getAgentMemories(this.agent.id);
+      if (all.length) {
+        const chosen = selectForPrompt(all, {
+          userId, groupIds: senderGroupIds, queryText: userText, budgetBytes: MAX_MEMORY_PROMPT_BYTES,
+        });
+        const rendered = renderMemoryBlock(chosen, '# Learned Memories', [
+          'Facts and rules you have learned in prior conversations. Apply any that match.',
+        ]);
+        if (rendered) memoryBlock = `${rendered}\n\n`;
+      }
     } catch (err) {
-      this.log.warn('Per-turn memory tiers failed (skipped)', { error: (err as Error).message });
+      this.log.warn('Per-turn memory injection failed (skipped)', { error: (err as Error).message });
     }
 
     const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}${groupNames}]\n\n`;
