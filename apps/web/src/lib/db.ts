@@ -974,6 +974,20 @@ export async function deleteMemory(id: string): Promise<void> {
   await (await db()).query('DELETE FROM memories WHERE id = $1', [id]);
 }
 
+/**
+ * Update ONLY a memory's tier fields (pinned/scope) by id, leaving content/type
+ * untouched — so a pin/scope toggle can't clobber a concurrent content update.
+ */
+export async function updateMemoryTier(
+  id: string,
+  tier: { pinned?: boolean; scopeUserId?: string | null; scopeGroupId?: string | null },
+): Promise<void> {
+  await (await db()).query(
+    `UPDATE memories SET pinned = $2, scope_user_id = $3, scope_group_id = $4, updated_at = now() WHERE id = $1`,
+    [id, tier.pinned ? 1 : 0, tier.scopeUserId ?? null, tier.scopeGroupId ?? null],
+  );
+}
+
 // =============================================================================
 // Settings queries
 // =============================================================================

@@ -12,7 +12,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSqliteAdapter, setDb, getDb, closeDb } from '@slackhive/shared';
-import { upsertMemory, getAgentMemories, deleteMemory } from '@/lib/db';
+import { upsertMemory, getAgentMemories, deleteMemory, updateMemoryTier } from '@/lib/db';
 
 let dbPath: string;
 
@@ -69,6 +69,17 @@ describe('memory tier fields (web db, real SQLite)', () => {
     expect(mems).toHaveLength(1);              // updated, not duplicated
     expect(mems[0].pinned).toBe(false);
     expect(mems[0].scopeUserId).toBeNull();
+  });
+
+  it('updateMemoryTier changes only tier fields, not content/type', async () => {
+    const agentId = await seedAgent();
+    const m = await upsertMemory(agentId, 'reference', 'r', 'original content');
+    await updateMemoryTier(m.id, { pinned: true, scopeUserId: 'U9', scopeGroupId: null });
+    const after = (await getAgentMemories(agentId))[0];
+    expect(after.pinned).toBe(true);
+    expect(after.scopeUserId).toBe('U9');
+    expect(after.type).toBe('reference');
+    expect(after.content).toBe('original content'); // untouched
   });
 
   it('delete removes the row', async () => {

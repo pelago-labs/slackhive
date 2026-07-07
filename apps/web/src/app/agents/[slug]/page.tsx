@@ -2592,13 +2592,13 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
     load();
   };
 
-  /** Re-upsert a memory with patched tier fields (pin / scope). */
+  /** Update ONLY a memory's tier fields (pin / scope) via PATCH — never resends
+   *  content, so a toggle can't clobber a concurrent reflection/reconcile write. */
   const patch = async (m: Memory, changes: { pinned?: boolean; scopeUserId?: string | null; scopeGroupId?: string | null }) => {
-    await fetch(`/api/agents/${agentId}/memories`, {
-      method: 'POST',
+    await fetch(`/api/agents/${agentId}/memories/${m.id}`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        type: m.type, name: m.name, content: m.content,
         pinned: 'pinned' in changes ? changes.pinned : m.pinned,
         scopeUserId: 'scopeUserId' in changes ? changes.scopeUserId : m.scopeUserId,
         scopeGroupId: 'scopeGroupId' in changes ? changes.scopeGroupId : m.scopeGroupId,
