@@ -247,6 +247,11 @@ function rowToMemory(row: Record<string, unknown>): Memory {
     type: row.type as Memory['type'],
     name: row.name as string,
     content: row.content as string,
+    pinned: row.pinned === 1 || row.pinned === true,
+    scopeUserId: (row.scope_user_id as string | null) ?? null,
+    scopeGroupId: (row.scope_group_id as string | null) ?? null,
+    createdBy: (row.created_by as string | null) ?? null,
+    source: (row.source as string | null) ?? null,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
@@ -585,16 +590,23 @@ export async function upsertMemory(
   agentId: string,
   type: string,
   name: string,
-  content: string
+  content: string,
+  opts: { pinned?: boolean; scopeUserId?: string | null; scopeGroupId?: string | null; createdBy?: string | null; source?: string | null } = {}
 ): Promise<Memory> {
   const id = randomUUID();
   const r = await (await db()).query(
-    `INSERT INTO memories (id, agent_id, type, name, content)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO memories (id, agent_id, type, name, content, pinned, scope_user_id, scope_group_id, created_by, source)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (agent_id, name) DO UPDATE
-       SET type = EXCLUDED.type, content = EXCLUDED.content, updated_at = now()
+       SET type = EXCLUDED.type, content = EXCLUDED.content,
+           pinned = EXCLUDED.pinned,
+           scope_user_id = EXCLUDED.scope_user_id,
+           scope_group_id = EXCLUDED.scope_group_id,
+           created_by = COALESCE(memories.created_by, EXCLUDED.created_by),
+           source = COALESCE(EXCLUDED.source, memories.source),
+           updated_at = now()
      RETURNING *`,
-    [id, agentId, type, name, content]
+    [id, agentId, type, name, content, opts.pinned ? 1 : 0, opts.scopeUserId ?? null, opts.scopeGroupId ?? null, opts.createdBy ?? null, opts.source ?? null]
   );
   return rowToMemory(r.rows[0]);
 }
