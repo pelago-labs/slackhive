@@ -58,7 +58,7 @@ export {
   listTasks, getTaskWithDetails, countInProgressByAgent,
   sweepStaleActivities,
   recordActivityUsage, getTokensByAgent, getTopUsers,
-  recordMessageFeedback, getFeedbackReport, getFeedbackForThread, buildTaskId,
+  recordMessageFeedback, getFeedbackReport, getFeedbackForThread, getFeedbackForMessages, buildTaskId,
   linkActivityReply, findActivityIdByReply,
 } from './db/activities-repo';
 export type {

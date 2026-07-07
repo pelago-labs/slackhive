@@ -13,7 +13,7 @@ import { randomUUID } from 'crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createSqliteAdapter, setDb, getDb, closeDb,
-  upsertTask, beginActivity, recordMessageFeedback, getFeedbackForThread, buildTaskId,
+  upsertTask, beginActivity, recordMessageFeedback, getFeedbackForThread, getFeedbackForMessages, buildTaskId,
   type Agent,
 } from '@slackhive/shared';
 import { getAgentMemories, upsertMemory } from '../db';
@@ -257,5 +257,20 @@ describe('getFeedbackForThread', () => {
     const agent = await seedAgent();
     const taskId = await upsertTask({ platform: 'slack', channelId: 'C2', threadTs: '200.0', initialAgentId: agent.id });
     expect(await getFeedbackForThread(agent.id, taskId)).toEqual([]);
+  });
+});
+
+describe('getFeedbackForMessages', () => {
+  it('finds feedback by message ts even when activity_id is NULL (dashboard off)', async () => {
+    const agent = await seedAgent();
+    // No activity link — the failure mode getFeedbackForThread would silently miss.
+    await recordMessageFeedback({ agentId: agent.id, channel: 'C1', messageTs: '101.0', raterUserId: 'U1', sentiment: 'down', note: 'filter by PUBLISHED' });
+    const fb = await getFeedbackForMessages(agent.id, 'C1', ['101.0', '999.0']);
+    expect(fb).toEqual([{ sentiment: 'down', note: 'filter by PUBLISHED' }]);
+  });
+
+  it('returns [] for an empty ts list', async () => {
+    const agent = await seedAgent();
+    expect(await getFeedbackForMessages(agent.id, 'C1', [])).toEqual([]);
   });
 });

@@ -24,8 +24,7 @@ import {
   recordActivityUsage,
   getDb,
   redactSensitive,
-  buildTaskId,
-  getFeedbackForThread,
+  getFeedbackForMessages,
 } from '@slackhive/shared';
 import { getSetting, getAgentMemories } from './db';
 import { extractMemories } from './memory-extraction';
@@ -528,7 +527,7 @@ export class MessageHandler {
       // Schedule an end-of-conversation memory reflection (debounced). Human-
       // initiated threaded turns only — skip agent/bot traffic and DMs without a
       // thread. Fire-and-forget; never affects this turn.
-      if (!hasBotMarker && threadId) this.scheduleExtraction(msg.platform as Platform, channelId, threadId);
+      if (!hasBotMarker && threadId) this.scheduleExtraction(channelId, threadId);
 
       try {
         // Flush any reasoning that arrived after the last assistant step so it
@@ -672,14 +671,14 @@ export class MessageHandler {
    * once the conversation has been quiet for `MEMORY_EXTRACTION_DEBOUNCE_MS`
    * (default 5 min). Each new turn resets it, so we reflect once per conversation.
    */
-  private scheduleExtraction(platform: Platform, channelId: string, threadId: string): void {
+  private scheduleExtraction(channelId: string, threadId: string): void {
     const debounceMs = Number(process.env.MEMORY_EXTRACTION_DEBOUNCE_MS) || 5 * 60_000;
     const key = `${channelId}:${threadId}`;
     const existing = this.extractionTimers.get(key);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       this.extractionTimers.delete(key);
-      void this.runExtraction(platform, channelId, threadId)
+      void this.runExtraction(channelId, threadId)
         .catch(err => this.log.warn('Memory reflection failed', { error: (err as Error).message }));
     }, debounceMs);
     timer.unref?.();
@@ -687,7 +686,7 @@ export class MessageHandler {
   }
 
   /** Reflect on a finished conversation and auto-create durable memories. */
-  private async runExtraction(platform: Platform, channelId: string, threadId: string): Promise<void> {
+  private async runExtraction(channelId: string, threadId: string): Promise<void> {
     if (isShuttingDown()) return;
     const setting = (await getSetting('memoryExtraction').catch(() => null)) ?? 'auto';
     if (setting === 'off') return;
@@ -704,7 +703,10 @@ export class MessageHandler {
     if (!transcript.trim()) return;
 
     const existing = await getAgentMemories(this.agent.id);
-    const feedback = await getFeedbackForThread(this.agent.id, buildTaskId(platform, channelId, threadId)).catch(() => []);
+    // Feedback by message ts (works whether or not ACTIVITY_DASHBOARD is on —
+    // an activities-join would silently miss unlinked feedback rows).
+    const messageTs = thread.map(m => m.ts).filter((t): t is string => !!t);
+    const feedback = await getFeedbackForMessages(this.agent.id, channelId, messageTs).catch(() => []);
     // Audience groups — lets the extractor scope a memory to a group by name.
     const groups = (await getDb()
       .query('SELECT name, description FROM agent_groups WHERE agent_id = $1', [this.agent.id])

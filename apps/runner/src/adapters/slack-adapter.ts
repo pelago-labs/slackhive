@@ -536,6 +536,7 @@ export class SlackAdapter implements PlatformAdapter {
       // Exclude the last message (it's the one being replied to)
       return messages.slice(0, -1).map(m => ({
         userId: m.user ?? '',
+        ts: m.ts,
         text: this.stripMention(m.text ?? ''),
         isBot: !!m.bot_id,
         displayName: undefined,

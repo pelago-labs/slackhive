@@ -208,6 +208,9 @@ export interface ThreadMessage {
   /** User who sent this message. */
   userId: string;
 
+  /** Platform message id/timestamp (Slack `ts`) — used to match feedback rows. */
+  ts?: string;
+
   /** Display name of the user. */
   displayName?: string;
 

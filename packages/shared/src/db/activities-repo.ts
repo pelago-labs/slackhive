@@ -827,6 +827,24 @@ export async function getFeedbackForThread(agentId: string, taskId: string): Pro
   }));
 }
 
+/**
+ * Feedback on a specific set of reply message_ts in a channel. Unlike
+ * {@link getFeedbackForThread} this does NOT require an activity link, so it
+ * works even when ACTIVITY_DASHBOARD is off (feedback rows then have a null
+ * activity_id and the activities-join would silently drop them).
+ */
+export async function getFeedbackForMessages(agentId: string, channel: string, messageTs: string[]): Promise<ThreadFeedback[]> {
+  if (messageTs.length === 0) return [];
+  const placeholders = messageTs.map((_, i) => `$${i + 3}`).join(', ');
+  const { rows } = await getDb().query(
+    `SELECT sentiment, note FROM message_feedback
+      WHERE agent_id = $1 AND channel = $2 AND message_ts IN (${placeholders})
+      ORDER BY created_at ASC`,
+    [agentId, channel, ...messageTs],
+  );
+  return rows.map(r => ({ sentiment: r.sentiment as 'up' | 'down', note: (r.note as string | null) ?? null }));
+}
+
 export async function recordMessageFeedback(input: MessageFeedbackInput): Promise<void> {
   const db = getDb();
   const id = randomUUID();
