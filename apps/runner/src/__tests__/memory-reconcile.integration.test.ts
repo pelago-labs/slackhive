@@ -105,6 +105,21 @@ describe('reconcileMemories', () => {
     expect(res.applied).toBe(8);
   });
 
+  it('applies valid ops behind skipped (pinned) ops — cap counts applied, not proposed', async () => {
+    const agent = await seedAgent();
+    const pinnedIds: string[] = [];
+    for (let i = 0; i < 8; i++) pinnedIds.push((await upsertMemory(agent.id, 'feedback', `p${i}`, `pinned ${i}`, { pinned: true })).id);
+    const dup = await upsertMemory(agent.id, 'reference', 'dup', 'a duplicate to remove');
+    // 8 DELETEs targeting pinned (all skipped) followed by one valid DELETE.
+    ops([...pinnedIds.map(id => ({ action: 'DELETE', id, reason: 'x' })), { action: 'DELETE', id: dup.id, reason: 'dup' }]);
+
+    const res = await reconcileMemories(agent, await getAgentMemories(agent.id), { apply: true });
+    expect(res.applied).toBe(1); // the valid delete is NOT crowded out by the 8 skipped
+    const after = await getAgentMemories(agent.id);
+    expect(after.some(m => m.name === 'dup')).toBe(false);
+    expect(after.filter(m => m.pinned).length).toBe(8); // pinned all survive
+  });
+
   it('ignores ops with an unknown id', async () => {
     const agent = await seedAgent();
     await upsertMemory(agent.id, 'reference', 'a', 'x');

@@ -28,7 +28,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Agent, Memory } from '@slackhive/shared';
-import { upsertMemorySafe, getAgentGroupIdByName } from './db';
+import { upsertMemorySafe, getAgentGroupIdByName, getAgentMemories } from './db';
 import { agentLogger } from './logger';
 import { getAgentWorkDir } from './compile-claude-md';
 
@@ -159,10 +159,23 @@ export class MemoryWatcher {
         });
       }
     }
-    const scopeUserId = parsed.scopeUser ? (parsed.scopeUser.replace(/^@/, '').trim() || null) : null;
+    let scopeUserId = parsed.scopeUser ? (parsed.scopeUser.replace(/^@/, '').trim() || null) : null;
+    let pinned = parsed.pinned; // boolean | undefined (undefined = frontmatter omitted it)
+    const fileSpecifiesScope = !!(parsed.scopeUser || parsed.scopeGroup);
+
+    // Preserve pin/scope the file does NOT specify — they may have been set via
+    // the Memories tab (DB-only), and re-syncing a frontmatter-less file must not
+    // silently clobber them (the upsert overwrites tier fields from EXCLUDED).
+    if (pinned === undefined || !fileSpecifiesScope) {
+      const existing = (await getAgentMemories(this.agent.id)).find(m => m.name === parsed.name);
+      if (existing) {
+        if (pinned === undefined) pinned = existing.pinned;
+        if (!fileSpecifiesScope) { scopeUserId = existing.scopeUserId ?? null; scopeGroupId = existing.scopeGroupId ?? null; }
+      }
+    }
 
     await upsertMemorySafe(this.agent.id, parsed.type, parsed.name, content, {
-      pinned: parsed.pinned,
+      pinned: pinned ?? false,
       scopeUserId,
       scopeGroupId,
       source: 'agent',
@@ -172,7 +185,7 @@ export class MemoryWatcher {
       filePath,
       name: parsed.name,
       type: parsed.type,
-      pinned: parsed.pinned,
+      pinned: pinned ?? false,
       scoped: !!(scopeUserId || scopeGroupId),
     });
   }
@@ -188,8 +201,8 @@ export class MemoryWatcher {
 interface ParsedMemoryFrontmatter {
   name: string;
   type: Memory['type'];
-  /** "Remember always" tier. */
-  pinned: boolean;
+  /** "Remember always" tier. undefined = frontmatter omitted it (preserve existing). */
+  pinned: boolean | undefined;
   /** Sender slack user id this memory is scoped to (null = not user-scoped). */
   scopeUser: string | null;
   /** Audience group NAME this memory is scoped to (resolved to an id at sync). */
@@ -225,8 +238,10 @@ export function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null
   const validTypes: Memory['type'][] = ['user', 'feedback', 'project', 'reference'];
   if (!validTypes.includes(type)) return null;
 
+  // undefined when the key is absent, so the watcher can preserve an existing
+  // pin rather than defaulting it to false and clobbering a UI-set pin.
   const pinnedRaw = extractField(frontmatter, 'pinned');
-  const pinned = pinnedRaw ? /^(true|yes|1)$/i.test(pinnedRaw) : false;
+  const pinned = pinnedRaw === null ? undefined : /^(true|yes|1)$/i.test(pinnedRaw);
   const scopeUser = extractField(frontmatter, 'scope_user');
   const scopeGroup = extractField(frontmatter, 'scope_group');
 

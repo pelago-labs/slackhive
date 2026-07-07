@@ -78,12 +78,15 @@ export async function reconcileMemories(
     return { ops: [], applied: 0 };
   }
 
-  const ops = parseOps(reply).slice(0, MAX_OPS_PER_RUN);
+  const ops = parseOps(reply);
   if (!opts.apply) return { ops, applied: 0 };
 
   const byId = new Map(memories.map(m => [m.id, m]));
   let applied = 0;
   for (const op of ops) {
+    // Cap counts APPLIED ops, not proposed — so skipped pinned/unknown ops at
+    // the front of the list don't crowd out valid cleanups behind them.
+    if (applied >= MAX_OPS_PER_RUN) break;
     const target = op.id ? byId.get(op.id) : undefined;
     if (!target || target.pinned) continue; // unknown id, or never touch pinned
     try {

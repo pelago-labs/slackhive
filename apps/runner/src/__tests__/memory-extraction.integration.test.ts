@@ -207,6 +207,24 @@ describe('extractMemories', () => {
     expect(mems[0].content).toContain('PUBLISHED');
   });
 
+  it('SECURITY: a dedup-update preserves an existing pinned + scoped memory (no clobber)', async () => {
+    const agent = await seedAgent();
+    await upsertMemory(agent.id, 'feedback', 'gmv_rule', 'GMV excludes cancelled bookings.', { pinned: true, scopeUserId: 'U1', source: 'manual' });
+    const existing = await getAgentMemories(agent.id);
+    // Near-duplicate proposal with NO pinned and a DIFFERENT scope — must not win.
+    proposals([{ name: 'gmv_cancelled', type: 'reference', content: 'GMV excludes cancelled bookings entirely.', scope_user: 'U_OTHER99' }]);
+
+    await extractMemories(agent, 't', existing, [], [], { participantIds: ['U_OTHER99'] });
+
+    const mems = await getAgentMemories(agent.id);
+    expect(mems).toHaveLength(1);           // updated, not duplicated
+    expect(mems[0].name).toBe('gmv_rule');
+    expect(mems[0].pinned).toBe(true);      // pin preserved (not cleared)
+    expect(mems[0].scopeUserId).toBe('U1'); // scope preserved (not re-scoped to U_OTHER99)
+    expect(mems[0].type).toBe('feedback');  // type preserved
+    expect(mems[0].content).toContain('entirely'); // content refreshed
+  });
+
   it('returns 0 and never throws when the LLM call fails', async () => {
     const agent = await seedAgent();
     mockGen.mockRejectedValueOnce(new Error('provider down'));

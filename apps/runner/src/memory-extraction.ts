@@ -166,15 +166,34 @@ export async function extractMemories(
     const content = (p.content ?? '').trim();
     if (!type || !VALID_TYPES.has(type) || !p.name || !content) continue;
 
-    // Dedup: exact-name match or high token overlap with an existing memory →
-    // update that memory (reuse its name) instead of creating a twin.
-    const dup = existing.find(m => m.name === p.name || jaccard(m.content, content) >= DEDUP_JACCARD_THRESHOLD);
-    const name = dup ? dup.name : slugName(p.name);
-    if (!name) continue;
+    // Dedup against the stored SLUG (names are slugged at write time), or high
+    // token overlap with an existing memory.
+    const proposedSlug = slugName(p.name);
+    if (!proposedSlug) continue;
+    const dup = existing.find(m => m.name === proposedSlug || jaccard(m.content, content) >= DEDUP_JACCARD_THRESHOLD);
 
-    // Resolve scope with verification. user-scope is honored ONLY when it matches
-    // the sole verified participant (self-attribution); otherwise it's dropped to
-    // global. Group-scope resolves a real group name → id (unknown → global).
+    if (dup) {
+      // Refining an existing memory: only its CONTENT changes. Preserve the
+      // target's tier, scope, type, and provenance — a dedup-update must NEVER
+      // clear a pin or re-scope (that would bypass the "never drop pinned" rule).
+      try {
+        await upsertMemory(agent.id, dup.type, dup.name, content, {
+          pinned: dup.pinned,
+          scopeUserId: dup.scopeUserId ?? null,
+          scopeGroupId: dup.scopeGroupId ?? null,
+          createdBy: dup.createdBy ?? opts.createdBy ?? null,
+          source: dup.source ?? 'reflection',
+        });
+        applied += 1;
+        logger.info('memory-extraction: updated', { agent: agent.slug, name: dup.name, type: dup.type, reason: (p.reason ?? '').slice(0, 120) });
+      } catch (err) {
+        logger.warn('memory-extraction: upsert failed', { agent: agent.slug, name: dup.name, error: (err as Error).message });
+      }
+      continue;
+    }
+
+    // New memory: honor the decided scope (user-scope verified against the sole
+    // participant; group-scope resolved by name) + reflection provenance.
     let scopeUserId: string | null = null;
     let scopeGroupId: string | null = null;
     if (p.scope_user && SLACK_ID.test(p.scope_user) && p.scope_user === soleParticipant) {
@@ -184,18 +203,17 @@ export async function extractMemories(
     }
 
     try {
-      await upsertMemory(agent.id, type, name, content, {
+      await upsertMemory(agent.id, type, proposedSlug, content, {
         scopeUserId, scopeGroupId, createdBy: opts.createdBy ?? null, source: 'reflection',
       });
       applied += 1;
       logger.info('memory-extraction: saved', {
-        agent: agent.slug, name, type,
-        action: dup ? 'update' : 'add',
+        agent: agent.slug, name: proposedSlug, type, action: 'add',
         scope: scopeUserId ? `user:${scopeUserId}` : scopeGroupId ? 'group' : 'global',
         reason: (p.reason ?? '').slice(0, 120),
       });
     } catch (err) {
-      logger.warn('memory-extraction: upsert failed', { agent: agent.slug, name, error: (err as Error).message });
+      logger.warn('memory-extraction: upsert failed', { agent: agent.slug, name: proposedSlug, error: (err as Error).message });
     }
   }
   return { applied };
