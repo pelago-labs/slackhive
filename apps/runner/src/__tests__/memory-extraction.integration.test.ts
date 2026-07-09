@@ -13,7 +13,7 @@ import { randomUUID } from 'crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createSqliteAdapter, setDb, getDb, closeDb,
-  upsertTask, beginActivity, recordMessageFeedback, getFeedbackForThread, getFeedbackForMessages, buildTaskId,
+  recordMessageFeedback, getFeedbackForMessages,
   type Agent,
 } from '@slackhive/shared';
 import { getAgentMemories, upsertMemory } from '../db';
@@ -241,29 +241,10 @@ describe('extractMemories', () => {
   });
 });
 
-describe('getFeedbackForThread', () => {
-  it('returns 👍/👎 + notes scoped to the thread', async () => {
-    const agent = await seedAgent();
-    const taskId = await upsertTask({ platform: 'slack', channelId: 'C1', threadTs: '100.0', initialAgentId: agent.id });
-    expect(taskId).toBe(buildTaskId('slack', 'C1', '100.0'));
-    const activityId = await beginActivity({ taskId, agentId: agent.id, platform: 'slack', initiatorKind: 'user' });
-    await recordMessageFeedback({ agentId: agent.id, activityId, channel: 'C1', messageTs: '101.0', raterUserId: 'U1', sentiment: 'down', note: 'filter by PUBLISHED' });
-
-    const fb = await getFeedbackForThread(agent.id, taskId);
-    expect(fb).toEqual([{ sentiment: 'down', note: 'filter by PUBLISHED' }]);
-  });
-
-  it('returns [] for a thread with no feedback', async () => {
-    const agent = await seedAgent();
-    const taskId = await upsertTask({ platform: 'slack', channelId: 'C2', threadTs: '200.0', initialAgentId: agent.id });
-    expect(await getFeedbackForThread(agent.id, taskId)).toEqual([]);
-  });
-});
-
 describe('getFeedbackForMessages', () => {
   it('finds feedback by message ts even when activity_id is NULL (dashboard off)', async () => {
     const agent = await seedAgent();
-    // No activity link — the failure mode getFeedbackForThread would silently miss.
+    // No activity link — the failure mode an activities-join would silently miss.
     await recordMessageFeedback({ agentId: agent.id, channel: 'C1', messageTs: '101.0', raterUserId: 'U1', sentiment: 'down', note: 'filter by PUBLISHED' });
     const fb = await getFeedbackForMessages(agent.id, 'C1', ['101.0', '999.0']);
     expect(fb).toEqual([{ sentiment: 'down', note: 'filter by PUBLISHED' }]);

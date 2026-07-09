@@ -808,30 +808,10 @@ export interface ThreadFeedback {
 }
 
 /**
- * All 👍/👎 feedback for a thread (task), oldest first. Joins message_feedback →
- * activities so it's scoped to this conversation. Used by the memory-reflection
- * pass — a 👎 with a note is its strongest extraction signal.
- */
-export async function getFeedbackForThread(agentId: string, taskId: string): Promise<ThreadFeedback[]> {
-  const { rows } = await getDb().query(
-    `SELECT mf.sentiment, mf.note
-       FROM message_feedback mf
-       JOIN activities a ON a.id = mf.activity_id
-      WHERE a.task_id = $1 AND mf.agent_id = $2
-      ORDER BY mf.created_at ASC`,
-    [taskId, agentId],
-  );
-  return rows.map(r => ({
-    sentiment: r.sentiment as 'up' | 'down',
-    note: (r.note as string | null) ?? null,
-  }));
-}
-
-/**
- * Feedback on a specific set of reply message_ts in a channel. Unlike
- * {@link getFeedbackForThread} this does NOT require an activity link, so it
- * works even when ACTIVITY_DASHBOARD is off (feedback rows then have a null
- * activity_id and the activities-join would silently drop them).
+ * Feedback on a specific set of reply message_ts in a channel. Matches by reply
+ * ts directly (no activity join), so it works even when ACTIVITY_DASHBOARD is off
+ * — feedback rows then have a null activity_id, which an activities-join would
+ * silently drop. This is what the memory-reflection pass uses.
  */
 export async function getFeedbackForMessages(agentId: string, channel: string, messageTs: string[]): Promise<ThreadFeedback[]> {
   if (messageTs.length === 0) return [];

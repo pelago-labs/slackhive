@@ -75,6 +75,10 @@ The Feedback tab is a running feed of every 👍 / 👎 rating people left on ag
 
 Negative feedback here is also the strongest signal the [memory](/agents/memory) reflection pass learns from - a 👎 with a note becomes a corrective memory.
 
+<Note>
+A 👎 now **requires a note** - the vote is only recorded once a non-empty note is submitted (a cancelled or blank dialog records nothing). This makes every negative rating carry a learnable reason, but it also means the **Satisfaction %** counts fewer negatives than a version that recorded note-less downvotes, so the number is not directly comparable across that change.
+</Note>
+
 ## Sessions
 
 The Sessions tab groups activity by Slack thread or test session. Expand a session to inspect the turn chain and open the trace page.

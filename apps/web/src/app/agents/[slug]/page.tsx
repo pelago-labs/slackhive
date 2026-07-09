@@ -2685,6 +2685,9 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
                       {m.source === 'agent' && (
                         <span className="rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground" title="Written by the agent">agent</span>
                       )}
+                      {m.source === 'manual' && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground" title="Created by hand in the Memories tab">manual</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2.5">
                       <span className="text-2xs text-muted-foreground">

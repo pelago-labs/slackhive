@@ -55,6 +55,9 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       pinned: body.pinned,
       scopeUserId: body.scopeUserId,
       scopeGroupId: body.scopeGroupId,
+      // Hand-created via the Memories tab → label it 'manual' so it shows a chip
+      // and reads distinctly from agent-written ('agent') / reflection ('auto').
+      source: 'manual',
     });
     return NextResponse.json(memory, { status: 201 });
   } catch (err) {
