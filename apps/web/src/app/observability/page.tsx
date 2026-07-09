@@ -22,7 +22,7 @@ import { RevealCtx, NodeDetailProvider, buildNodes, NodeRow, SensitiveBadge, typ
 import { relativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { PageShell } from '@/components/patterns';
-import type { TraceTurn } from '@slackhive/shared';
+import type { TraceTurn, FeedbackFeedItem, FeedbackFeedPage } from '@slackhive/shared';
 
 interface AgentLite { id: string; slug: string; name: string }
 type Severity = 'critical' | 'high' | 'medium' | 'low';
@@ -37,6 +37,8 @@ interface Rollup {
   models: { model: string; turns: number; tokens: number }[];
   // all-agents (InsightsRollup) only:
   sessions?: number; errorTurns?: number; feedbackUp?: number; feedbackDown?: number; sensitiveEvents?: number;
+  // window-wide session-status counts (Sessions tab summary cards)
+  sessionsActive?: number; sessionsError?: number; sessionsSensitive?: number;
   tokensByDay?: { date: string; input: number; output: number }[];
   topTools?: { name: string; count: number; errors: number }[];
   // single-session (SessionRollup) only:
@@ -67,12 +69,8 @@ interface InsightsResponse {
 
 interface SessionsPage { sessions: SessionRow[]; nextCursor: string | null }
 
-interface FeedbackItem {
-  id: string; agentId: string; sentiment: 'up' | 'down';
-  raterHandle: string | null; note: string | null; permalink: string | null;
-  createdAt: string; sessionId: string | null;
-}
-interface FeedbackPage { items: FeedbackItem[]; total: number; nextOffset: number | null; summary: { up: number; down: number } | null }
+// FeedbackFeedItem / FeedbackFeedPage are imported from @slackhive/shared (single
+// source of truth shared with the /api/activity/feedback route + getFeedbackFeed).
 
 type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sessions';
 
@@ -136,13 +134,13 @@ function Body(): React.JSX.Element {
 
   // Fetch a page of the feedback feed (limit/offset) for the Feedback tab. Closes
   // over the current scope/window so a filter change hands the tab a fresh fetcher.
-  const loadFeedback = useCallback(async (offset: number, sentiment: 'up' | 'down' | ''): Promise<FeedbackPage> => {
+  const loadFeedback = useCallback(async (offset: number, sentiment: 'up' | 'down' | ''): Promise<FeedbackFeedPage> => {
     const qs = new URLSearchParams({ ...timeParams(windowKey, from, to), offset: String(offset) });
     if (agentFilter) qs.set('agent', agentFilter);
     if (sentiment) qs.set('sentiment', sentiment);
     const r = await fetch(`/api/activity/feedback?${qs}`);
     if (!r.ok) throw new Error('Failed to load feedback');
-    return await r.json() as FeedbackPage;
+    return await r.json() as FeedbackFeedPage;
   }, [agentFilter, windowKey, from, to]);
 
   useEffect(() => { load(); }, [load]);
@@ -217,7 +215,7 @@ function Body(): React.JSX.Element {
             : activeTab === 'sensitive' ? <Sensitive events={data.events ?? []} flows={data.flows ?? []} />
             : activeTab === 'tools' ? <Tools tools={data.tools ?? []} />
             : activeTab === 'feedback' ? <Feedback fetchPage={loadFeedback} agentName={agentName} scope={scope} />
-            : <Sessions sessions={data.sessions ?? []} cursor={data.sessionsCursor ?? null} fetchMore={loadMoreSessions} agentName={agentName} canTokens={canTokens} canReveal={canReveal} />}
+            : <Sessions sessions={data.sessions ?? []} cursor={data.sessionsCursor ?? null} fetchMore={loadMoreSessions} rollup={data.rollup} agentName={agentName} canTokens={canTokens} canReveal={canReveal} />}
         </>
       )}
     </PageShell>
@@ -794,12 +792,12 @@ function TurnRows({ turn, request, sessionId, cols, expanded, onToggle, canToken
  * pages via "Load more" (limit/offset).
  */
 function Feedback({ fetchPage, agentName, scope }: {
-  fetchPage: (offset: number, sentiment: 'up' | 'down' | '') => Promise<FeedbackPage>;
+  fetchPage: (offset: number, sentiment: 'up' | 'down' | '') => Promise<FeedbackFeedPage>;
   agentName: Map<string, string>;
   scope: 'all' | 'agent';
 }) {
   const [sentiment, setSentiment] = useState<'up' | 'down' | ''>('');
-  const [items, setItems] = useState<FeedbackItem[]>([]);
+  const [items, setItems] = useState<FeedbackFeedItem[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   // Scope-wide up/down (sentiment-agnostic) for the header; set from the first page.
   const [summary, setSummary] = useState<{ up: number; down: number } | null>(null);
@@ -833,10 +831,10 @@ function Feedback({ fetchPage, agentName, scope }: {
     }
   }, [nextOffset, loadingMore, fetchPage, sentiment]);
 
-  const cols: Col<FeedbackItem>[] = [
+  const cols: Col<FeedbackFeedItem>[] = [
     { label: '', width: '34px', render: r => r.sentiment === 'up'
         ? <ThumbsUp size={13} className="text-green" /> : <ThumbsDown size={13} className="text-red" /> },
-    ...(scope === 'all' ? [{ label: 'Agent', render: (r: FeedbackItem) => <Subtle>{truncate(agentName.get(r.agentId) ?? r.agentId, 20)}</Subtle> } as Col<FeedbackItem>] : []),
+    ...(scope === 'all' ? [{ label: 'Agent', render: (r: FeedbackFeedItem) => <Subtle>{truncate(agentName.get(r.agentId) ?? r.agentId, 20)}</Subtle> } as Col<FeedbackFeedItem>] : []),
     { label: 'From', render: r => <Subtle>{r.raterHandle ? `@${r.raterHandle}` : '—'}</Subtle> },
     { label: 'Note', render: r => r.note
         ? <span title={r.note}>{truncate(r.note, 70)}</span>
@@ -877,7 +875,7 @@ function Feedback({ fetchPage, agentName, scope }: {
           : error ? <div className="px-3 py-4 text-center text-xs text-muted-foreground">Couldn’t load feedback.</div>
           : (
             <>
-              <Table<FeedbackItem>
+              <Table<FeedbackFeedItem>
                 cols={cols}
                 rows={items}
                 rowHref={r => r.sessionId ? `/activity/${encodeURIComponent(r.sessionId)}` : undefined}
@@ -898,7 +896,7 @@ function Feedback({ fetchPage, agentName, scope }: {
   );
 }
 
-function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal }: { sessions: SessionRow[]; cursor: string | null; fetchMore: (cursor: string) => Promise<SessionsPage>; agentName: Map<string, string>; canTokens: boolean; canReveal: boolean }) {
+function Sessions({ sessions, cursor, fetchMore, rollup, agentName, canTokens, canReveal }: { sessions: SessionRow[]; cursor: string | null; fetchMore: (cursor: string) => Promise<SessionsPage>; rollup: Rollup | null; agentName: Map<string, string>; canTokens: boolean; canReveal: boolean }) {
   const [q, setQ] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'done' | 'error' | 'active'>('all');
   const [sensOnly, setSensOnly] = useState(false);
@@ -996,9 +994,14 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
   const sensCount = rows.filter(s => s.sensitive).length;
   const fbPosCount = rows.filter(s => s.feedbackUp > 0).length;
   const fbNegCount = rows.filter(s => s.feedbackDown > 0).length;
-  const activeCount = rows.filter(s => s.status === 'active').length;
-  const doneCount = rows.filter(s => s.status === 'done').length;
-  const turnCount = rows.reduce((sum, s) => sum + s.turns, 0);
+  // Summary cards reflect the WHOLE window (from the server rollup), not just the
+  // rows loaded so far — falling back to loaded counts only if the rollup is absent.
+  const totSessions = rollup?.sessions ?? rows.length;
+  const totTurns = rollup?.turns ?? rows.reduce((sum, s) => sum + s.turns, 0);
+  const totActive = rollup?.sessionsActive ?? rows.filter(s => s.status === 'active').length;
+  const totError = rollup?.sessionsError ?? rows.filter(s => s.status === 'error').length;
+  const totSensitive = rollup?.sessionsSensitive ?? rows.filter(s => s.sensitive).length;
+  const totDone = Math.max(0, totSessions - totActive - totError);
   const cols = canTokens ? 9 : 8;
   const tdCls = 'whitespace-nowrap border-b border-border px-3 py-2.5 align-middle text-sm text-foreground';
 
@@ -1006,10 +1009,10 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
     <RevealCtx.Provider value={canReveal}>
      <NodeDetailProvider>
       <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
-        <MiniMetric label="Sessions" value={String(rows.length)} sub={`${turnCount} turns`} />
-        <MiniMetric label="Done" value={String(doneCount)} sub="completed sessions" tone="var(--green)" />
-        <MiniMetric label="Running" value={String(activeCount)} sub="currently active" tone={activeCount ? 'var(--blue)' : undefined} />
-        <MiniMetric label="Needs review" value={String(errCount + sensCount)} sub={`${errCount} errors · ${sensCount} sensitive`} tone={errCount + sensCount ? 'var(--red)' : undefined} />
+        <MiniMetric label="Sessions" value={String(totSessions)} sub={`${totTurns} turns`} />
+        <MiniMetric label="Done" value={String(totDone)} sub="completed sessions" tone="var(--green)" />
+        <MiniMetric label="Running" value={String(totActive)} sub="currently active" tone={totActive ? 'var(--blue)' : undefined} />
+        <MiniMetric label="Needs review" value={String(totError + totSensitive)} sub={`${totError} errors · ${totSensitive} sensitive`} tone={totError + totSensitive ? 'var(--red)' : undefined} />
       </div>
       <div className={cardCls}>
         <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-border pb-3">

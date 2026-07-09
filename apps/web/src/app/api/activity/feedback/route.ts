@@ -39,7 +39,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // A restricted caller asking for an agent they can't access → empty page.
     if (agentId && accessibleAgentIds !== null && !accessibleAgentIds.includes(agentId)) {
-      return NextResponse.json({ items: [], total: 0, nextOffset: null });
+      return NextResponse.json({ items: [], total: 0, nextOffset: null, summary: { up: 0, down: 0 } });
     }
 
     const page = await getFeedbackFeed(

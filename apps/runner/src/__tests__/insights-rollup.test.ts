@@ -60,6 +60,13 @@ describe('getInsightsRollup — scope', () => {
     expect(all.sessions).toBe(3);
     expect(all.inputTokens).toBe(305);   // 100 + 200 + 5
     expect(all.errorTurns).toBe(1);
+    // Window-wide session-status breakdown (Sessions tab summary cards) — counts
+    // whole sessions, not turns, across the entire window (not just a loaded page).
+    expect(all.sessionsError).toBe(1);       // t3 is an errored session
+    expect(all.sessionsActive).toBe(0);      // none in progress
+    expect(all.sessionsSensitive).toBe(0);   // no sensitive spans seeded
+    // Done is derived in the UI: sessions − active − error = 3 − 0 − 1 = 2.
+    expect(all.sessions - (all.sessionsActive ?? 0) - (all.sessionsError ?? 0)).toBe(2);
   });
 
   it('restricts to the accessible-agent set', async () => {
