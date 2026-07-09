@@ -688,7 +688,10 @@ export class MessageHandler {
     const setting = (await getSetting('memoryExtraction').catch(() => null)) ?? 'auto';
     if (setting === 'off') return;
 
-    const thread = await this.adapter.getThreadMessages(channelId, threadId, 50);
+    // includeLatest: reflection runs AFTER the turn, so the final reply (and any
+    // 👎 feedback attached to it) must be in scope — the default drop-last is for
+    // live-turn context, not post-hoc reflection.
+    const thread = await this.adapter.getThreadMessages(channelId, threadId, 50, { includeLatest: true });
     if (!thread.length) return; // no transcript (CLI/test adapters) — nothing to reflect on
 
     // Label human turns "Name (Uxxxx):" so the extractor can attribute a

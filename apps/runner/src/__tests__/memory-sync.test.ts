@@ -25,6 +25,11 @@ Memory content here.`;
     expect(result).not.toBeNull();
     expect(result?.name).toBe('test_memory');
     expect(result?.type).toBe('user');
+    // body is the content with the frontmatter block stripped — this is what gets
+    // stored, so a synced memory matches the clean content reflection writes.
+    expect(result?.body).toBe('Memory content here.');
+    expect(result?.body).not.toContain('---');
+    expect(result?.body).not.toContain('name:');
   });
 
   it('returns null for missing frontmatter', () => {

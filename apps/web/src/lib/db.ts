@@ -982,10 +982,18 @@ export async function updateMemoryTier(
   id: string,
   tier: { pinned?: boolean; scopeUserId?: string | null; scopeGroupId?: string | null },
 ): Promise<void> {
-  await (await db()).query(
-    `UPDATE memories SET pinned = $2, scope_user_id = $3, scope_group_id = $4, updated_at = now() WHERE id = $1`,
-    [id, tier.pinned ? 1 : 0, tier.scopeUserId ?? null, tier.scopeGroupId ?? null],
-  );
+  // Partial update: only touch fields the caller actually sent. An omitted field
+  // (undefined) is left unchanged — sending {pinned:true} must not wipe scope, and
+  // {scopeUserId:null} (set global) must not reset the pin. `null` is a real value
+  // (clears the scope); only `undefined` means "leave as-is".
+  const sets: string[] = [];
+  const params: unknown[] = [id];
+  if (tier.pinned !== undefined) { params.push(tier.pinned ? 1 : 0); sets.push(`pinned = $${params.length}`); }
+  if (tier.scopeUserId !== undefined) { params.push(tier.scopeUserId); sets.push(`scope_user_id = $${params.length}`); }
+  if (tier.scopeGroupId !== undefined) { params.push(tier.scopeGroupId); sets.push(`scope_group_id = $${params.length}`); }
+  if (sets.length === 0) return; // nothing to update
+  sets.push('updated_at = now()');
+  await (await db()).query(`UPDATE memories SET ${sets.join(', ')} WHERE id = $1`, params);
 }
 
 // =============================================================================

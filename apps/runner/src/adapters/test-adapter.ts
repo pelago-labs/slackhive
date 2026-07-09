@@ -212,10 +212,12 @@ export class TestAdapter implements PlatformAdapter {
 
   // ─── Context ───────────────────────────────────────────────────────
 
-  async getThreadMessages(_channelId: string, _threadId: string, limit: number): Promise<ThreadMessage[]> {
+  async getThreadMessages(_channelId: string, _threadId: string, limit: number, opts?: { includeLatest?: boolean }): Promise<ThreadMessage[]> {
     // Exclude the current in-flight user message (the last item) from the
     // context window — MessageHandler already prepends it as the sender
     // header. Returning the tail gives the agent previous-turn memory.
+    // Reflection callers pass includeLatest to keep the final message.
+    if (opts?.includeLatest) return this.history.slice(-limit);
     return this.history.slice(0, -1).slice(-limit);
   }
 

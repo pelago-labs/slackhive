@@ -5,7 +5,7 @@ description: "Persistent facts the agent learns from conversations, always visib
 
 Memory is one of the four layers of an agent's brain - see [Concepts](/agents/concepts) for how it fits with the system prompt, skills, and wiki.
 
-Every memory is **inlined into the system prompt on every turn**. There is no retrieval step, no command to trigger - the agent always sees what it has learned.
+Relevant memories are **injected into the prompt on every turn** - selected per sender, no command to trigger. The agent always sees what it has learned that applies to the person it's talking to.
 
 ## Where memory lives in the UI
 
@@ -51,7 +51,7 @@ without lengthy preamble. They use BigQuery, not Redshift.
 
 ## Size budget
 
-Total inlined memory has a cap (`MAX_INLINED_MEMORY_BYTES` in the runner). If an agent accumulates more than the budget allows, the oldest entries overflow and are dropped with a warning. Prune stale memories from the Memory tab.
+The per-turn memory block has a byte cap (`MAX_MEMORY_PROMPT_BYTES` in the runner). Pinned memories and those scoped to the current sender are always included; the remaining budget is filled with the global memories most relevant to the message (by keyword overlap). Memories that don't fit are simply left out of that turn - nothing is deleted. Prune stale memories from the Memory tab to keep the relevant ones surfacing.
 
 ## Updating and deleting
 

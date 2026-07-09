@@ -174,7 +174,7 @@ export class MemoryWatcher {
       }
     }
 
-    await upsertMemorySafe(this.agent.id, parsed.type, parsed.name, content, {
+    await upsertMemorySafe(this.agent.id, parsed.type, parsed.name, parsed.body, {
       pinned: pinned ?? false,
       scopeUserId,
       scopeGroupId,
@@ -207,6 +207,9 @@ interface ParsedMemoryFrontmatter {
   scopeUser: string | null;
   /** Audience group NAME this memory is scoped to (resolved to an id at sync). */
   scopeGroup: string | null;
+  /** The markdown body with the frontmatter block stripped — this is what gets
+   *  stored/rendered, so it matches the clean content the reflection pass writes. */
+  body: string;
 }
 
 /**
@@ -230,6 +233,10 @@ export function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null
   if (!frontmatterMatch) return null;
 
   const frontmatter = frontmatterMatch[1];
+  // Everything after the closing `---` is the memory body. Strip it so we store
+  // just the content (not the raw frontmatter), consistent with reflection-written
+  // memories and clean when injected per-turn.
+  const body = content.slice(frontmatterMatch[0].length).replace(/^\s*\n/, '').trim();
   const name = extractField(frontmatter, 'name');
   const type = extractField(frontmatter, 'type') as Memory['type'] | null;
 
@@ -245,7 +252,7 @@ export function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null
   const scopeUser = extractField(frontmatter, 'scope_user');
   const scopeGroup = extractField(frontmatter, 'scope_group');
 
-  return { name, type, pinned, scopeUser, scopeGroup };
+  return { name, type, pinned, scopeUser, scopeGroup, body };
 }
 
 /**

@@ -82,6 +82,24 @@ describe('memory tier fields (web db, real SQLite)', () => {
     expect(after.content).toBe('original content'); // untouched
   });
 
+  it('updateMemoryTier is a PARTIAL update — omitted fields are left unchanged', async () => {
+    const agentId = await seedAgent();
+    const m = await upsertMemory(agentId, 'reference', 'r', 'body', {
+      pinned: true, scopeUserId: 'U1', scopeGroupId: null,
+    });
+    // A partial patch that only flips scope must NOT reset the pin.
+    await updateMemoryTier(m.id, { scopeUserId: null });
+    let after = (await getAgentMemories(agentId))[0];
+    expect(after.pinned).toBe(true);          // preserved, not clobbered to false
+    expect(after.scopeUserId).toBeNull();     // applied
+    // A partial patch that only unpins must NOT wipe an existing group scope.
+    await updateMemoryTier(m.id, { scopeGroupId: 'grp-9' });
+    await updateMemoryTier(m.id, { pinned: false });
+    after = (await getAgentMemories(agentId))[0];
+    expect(after.pinned).toBe(false);         // applied
+    expect(after.scopeGroupId).toBe('grp-9'); // preserved across the pin-only patch
+  });
+
   it('delete removes the row', async () => {
     const agentId = await seedAgent();
     const m = await upsertMemory(agentId, 'reference', 'x', 'y');

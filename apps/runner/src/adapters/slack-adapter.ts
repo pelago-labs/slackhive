@@ -527,14 +527,13 @@ export class SlackAdapter implements PlatformAdapter {
 
   // ─── Context ───────────────────────────────────────────────────────
 
-  async getThreadMessages(channelId: string, threadId: string, limit: number): Promise<ThreadMessage[]> {
+  async getThreadMessages(channelId: string, threadId: string, limit: number, opts?: { includeLatest?: boolean }): Promise<ThreadMessage[]> {
     try {
       const replies = await this.app.client.conversations.replies({
         channel: channelId, ts: threadId, limit: Math.min(limit, MAX_THREAD_CONTEXT_MESSAGES),
       });
       const messages: any[] = replies.messages ?? [];
-      // Exclude the last message (it's the one being replied to)
-      return messages.slice(0, -1).map(m => ({
+      const mapped = messages.map(m => ({
         userId: m.user ?? '',
         ts: m.ts,
         text: this.stripMention(m.text ?? ''),
@@ -542,6 +541,9 @@ export class SlackAdapter implements PlatformAdapter {
         displayName: undefined,
         files: this.mapFiles(m.files),
       }));
+      // Default: drop the last message (it's the one being replied to). Callers
+      // reflecting on a finished thread pass includeLatest to keep the final reply.
+      return opts?.includeLatest ? mapped : mapped.slice(0, -1);
     } catch {
       return [];
     }
