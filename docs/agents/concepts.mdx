@@ -54,7 +54,7 @@ A skill runs only when called. It doesn't cost context until then. That's the wh
 
 ## 3. Memory - what the agent learned
 
-Structured facts the agent writes down during conversations. Every memory is inlined into the system prompt every turn, so the agent always sees what it has learned - no skill call, no retrieval step.
+Structured facts the agent learns from conversations - it writes some down deliberately, and reflects on finished threads to save others on its own (including lessons from 👍 / 👎 feedback). Relevant memories are injected into the prompt every turn, filtered to whoever is asking, so the agent always applies what it has learned - no skill call, no retrieval step.
 
 **Put here:**
 
@@ -138,7 +138,7 @@ Ask yourself two questions:
 The four layers are not isolated - they compose:
 
 1. **System Prompt** loads every turn. Sets the lens.
-2. **Memories** load every turn, inlined into the system prompt. The agent always knows what it has learned.
+2. **Memories** load every turn, injected into the prompt and filtered to the current sender. The agent always applies what it has learned.
 3. **Skills** load when invoked. `/wiki` and your custom skills.
 4. **Wiki** loads page-by-page when the agent reads it via `/wiki`.
 
