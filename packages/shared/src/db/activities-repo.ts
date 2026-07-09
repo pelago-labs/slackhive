@@ -40,7 +40,7 @@ function truncate(text: string | null | undefined, max = PREVIEW_LIMIT): string 
 }
 
 /** Build the deterministic task id for a platform thread. */
-function buildTaskId(platform: Platform, channelId: string, threadTs: string): string {
+export function buildTaskId(platform: Platform, channelId: string, threadTs: string): string {
   return `${platform}:${channelId}:${threadTs}`;
 }
 
@@ -801,6 +801,30 @@ export async function findActivityIdByReply(replyTs: string): Promise<string | n
   return rows.length ? (rows[0].id as string) : null;
 }
 
+/** One 👍/👎 rating on a reply in a thread — the signal the reflection pass uses. */
+export interface ThreadFeedback {
+  sentiment: 'up' | 'down';
+  note: string | null;
+}
+
+/**
+ * Feedback on a specific set of reply message_ts in a channel. Matches by reply
+ * ts directly (no activity join), so it works even when ACTIVITY_DASHBOARD is off
+ * — feedback rows then have a null activity_id, which an activities-join would
+ * silently drop. This is what the memory-reflection pass uses.
+ */
+export async function getFeedbackForMessages(agentId: string, channel: string, messageTs: string[]): Promise<ThreadFeedback[]> {
+  if (messageTs.length === 0) return [];
+  const placeholders = messageTs.map((_, i) => `$${i + 3}`).join(', ');
+  const { rows } = await getDb().query(
+    `SELECT sentiment, note FROM message_feedback
+      WHERE agent_id = $1 AND channel = $2 AND message_ts IN (${placeholders})
+      ORDER BY created_at ASC`,
+    [agentId, channel, ...messageTs],
+  );
+  return rows.map(r => ({ sentiment: r.sentiment as 'up' | 'down', note: (r.note as string | null) ?? null }));
+}
+
 export async function recordMessageFeedback(input: MessageFeedbackInput): Promise<void> {
   const db = getDb();
   const id = randomUUID();
@@ -901,5 +925,110 @@ export async function getFeedbackReport(
   }
 
   return { up, down, total, scorePercent, ratingCount, recentRatings };
+}
+
+/** One rating in the cross-agent Observability feed. Carries its own agent id
+ *  (the feed can span many agents) and the session/task id for the trace link. */
+export interface FeedbackFeedItem {
+  id: string;
+  agentId: string;
+  sentiment: 'up' | 'down';
+  raterHandle: string | null;
+  note: string | null;
+  permalink: string | null;
+  createdAt: string;
+  /** Task id of the rated turn → links to /activity/[taskId]. Null when the
+   *  feedback row has no activity link (e.g. recorded with the dashboard off). */
+  sessionId: string | null;
+}
+
+export interface FeedbackFeedPage {
+  items: FeedbackFeedItem[];
+  /** Total rows matching the filter (for the "Load more" math). */
+  total: number;
+  /** Offset to pass for the next page, or null when this is the last page. */
+  nextOffset: number | null;
+  /** Up/down totals for the scope+window, IGNORING the sentiment filter — powers
+   *  the header summary (Positive / Negative / Satisfaction). Computed on the
+   *  first page only (offset 0); null on "Load more" (the caller keeps it). */
+  summary: { up: number; down: number } | null;
+}
+
+/**
+ * Paginated feed of individual 👍/👎 ratings, newest first — powers the
+ * Observability "Feedback" tab. Scope is either one agent (`agentId`) or every
+ * agent the caller can see (`accessibleAgentIds`; pass `undefined` for full
+ * access, e.g. a superadmin). An empty `accessibleAgentIds` array means the
+ * caller can see nothing → an empty page (never "all agents").
+ */
+export async function getFeedbackFeed(
+  filter: { agentId?: string; accessibleAgentIds?: string[]; sentiment?: 'up' | 'down'; since?: string; until?: string },
+  limit: number,
+  offset: number,
+): Promise<FeedbackFeedPage> {
+  const db = getDb();
+  const lim = Math.min(Math.max(Number.isFinite(limit) ? limit : 20, 1), 100);
+  const off = Math.max(Number.isFinite(offset) ? offset : 0, 0);
+
+  // Base scope (agent + window) — shared by the summary and the list; the
+  // sentiment filter is layered on top for the list/total only.
+  const baseWheres: string[] = [];
+  const baseParams: unknown[] = [];
+  if (filter.agentId) {
+    baseParams.push(filter.agentId);
+    baseWheres.push(`f.agent_id = $${baseParams.length}`);
+  } else if (filter.accessibleAgentIds) {
+    if (filter.accessibleAgentIds.length === 0) {
+      return { items: [], total: 0, nextOffset: null, summary: off === 0 ? { up: 0, down: 0 } : null };
+    }
+    const ph = filter.accessibleAgentIds.map((_, i) => `$${baseParams.length + i + 1}`).join(', ');
+    baseParams.push(...filter.accessibleAgentIds);
+    baseWheres.push(`f.agent_id IN (${ph})`);
+  }
+  if (filter.since) { baseParams.push(filter.since); baseWheres.push(`f.created_at >= $${baseParams.length}`); }
+  if (filter.until) { baseParams.push(filter.until); baseWheres.push(`f.created_at < $${baseParams.length}`); }
+  const baseWhereSql = baseWheres.length ? `WHERE ${baseWheres.join(' AND ')}` : '';
+
+  // Summary (first page only): up/down over the scope+window, sentiment-agnostic.
+  let summary: { up: number; down: number } | null = null;
+  if (off === 0) {
+    const s = await db.query(
+      `SELECT COALESCE(SUM(CASE WHEN sentiment = 'up'   THEN 1 ELSE 0 END), 0) AS up_count,
+              COALESCE(SUM(CASE WHEN sentiment = 'down' THEN 1 ELSE 0 END), 0) AS down_count
+         FROM message_feedback f ${baseWhereSql}`,
+      baseParams,
+    );
+    summary = { up: Number(s.rows[0]?.up_count ?? 0), down: Number(s.rows[0]?.down_count ?? 0) };
+  }
+
+  const wheres = [...baseWheres];
+  const params = [...baseParams];
+  if (filter.sentiment) { params.push(filter.sentiment); wheres.push(`f.sentiment = $${params.length}`); }
+  const whereSql = wheres.length ? `WHERE ${wheres.join(' AND ')}` : '';
+
+  const countRes = await db.query(`SELECT COUNT(*) AS c FROM message_feedback f ${whereSql}`, params);
+  const total = Number(countRes.rows[0]?.c ?? 0);
+
+  const listRes = await db.query(
+    `SELECT f.id, f.agent_id, f.sentiment, f.rater_handle, f.note, f.permalink, f.created_at, a.task_id
+       FROM message_feedback f
+       LEFT JOIN activities a ON a.id = f.activity_id
+       ${whereSql}
+      ORDER BY f.created_at DESC, f.id DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, lim, off],
+  );
+  const items: FeedbackFeedItem[] = listRes.rows.map(n => ({
+    id: n.id as string,
+    agentId: n.agent_id as string,
+    sentiment: n.sentiment as 'up' | 'down',
+    raterHandle: (n.rater_handle as string | null) ?? null,
+    note: (n.note as string | null) ?? null,
+    permalink: (n.permalink as string | null) ?? null,
+    createdAt: n.created_at as string,
+    sessionId: (n.task_id as string | null) ?? null,
+  }));
+  const nextOffset = off + items.length < total ? off + items.length : null;
+  return { items, total, nextOffset, summary };
 }
 

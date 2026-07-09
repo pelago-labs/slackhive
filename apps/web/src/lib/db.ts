@@ -247,6 +247,11 @@ function rowToMemory(row: Record<string, unknown>): Memory {
     type: row.type as Memory['type'],
     name: row.name as string,
     content: row.content as string,
+    pinned: row.pinned === 1 || row.pinned === true,
+    scopeUserId: (row.scope_user_id as string | null) ?? null,
+    scopeGroupId: (row.scope_group_id as string | null) ?? null,
+    createdBy: (row.created_by as string | null) ?? null,
+    source: (row.source as string | null) ?? null,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
@@ -585,16 +590,23 @@ export async function upsertMemory(
   agentId: string,
   type: string,
   name: string,
-  content: string
+  content: string,
+  opts: { pinned?: boolean; scopeUserId?: string | null; scopeGroupId?: string | null; createdBy?: string | null; source?: string | null } = {}
 ): Promise<Memory> {
   const id = randomUUID();
   const r = await (await db()).query(
-    `INSERT INTO memories (id, agent_id, type, name, content)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO memories (id, agent_id, type, name, content, pinned, scope_user_id, scope_group_id, created_by, source)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (agent_id, name) DO UPDATE
-       SET type = EXCLUDED.type, content = EXCLUDED.content, updated_at = now()
+       SET type = EXCLUDED.type, content = EXCLUDED.content,
+           pinned = EXCLUDED.pinned,
+           scope_user_id = EXCLUDED.scope_user_id,
+           scope_group_id = EXCLUDED.scope_group_id,
+           created_by = COALESCE(memories.created_by, EXCLUDED.created_by),
+           source = COALESCE(EXCLUDED.source, memories.source),
+           updated_at = now()
      RETURNING *`,
-    [id, agentId, type, name, content]
+    [id, agentId, type, name, content, opts.pinned ? 1 : 0, opts.scopeUserId ?? null, opts.scopeGroupId ?? null, opts.createdBy ?? null, opts.source ?? null]
   );
   return rowToMemory(r.rows[0]);
 }
@@ -960,6 +972,28 @@ export async function getAgentMemories(agentId: string): Promise<Memory[]> {
  */
 export async function deleteMemory(id: string): Promise<void> {
   await (await db()).query('DELETE FROM memories WHERE id = $1', [id]);
+}
+
+/**
+ * Update ONLY a memory's tier fields (pinned/scope) by id, leaving content/type
+ * untouched — so a pin/scope toggle can't clobber a concurrent content update.
+ */
+export async function updateMemoryTier(
+  id: string,
+  tier: { pinned?: boolean; scopeUserId?: string | null; scopeGroupId?: string | null },
+): Promise<void> {
+  // Partial update: only touch fields the caller actually sent. An omitted field
+  // (undefined) is left unchanged — sending {pinned:true} must not wipe scope, and
+  // {scopeUserId:null} (set global) must not reset the pin. `null` is a real value
+  // (clears the scope); only `undefined` means "leave as-is".
+  const sets: string[] = [];
+  const params: unknown[] = [id];
+  if (tier.pinned !== undefined) { params.push(tier.pinned ? 1 : 0); sets.push(`pinned = $${params.length}`); }
+  if (tier.scopeUserId !== undefined) { params.push(tier.scopeUserId); sets.push(`scope_user_id = $${params.length}`); }
+  if (tier.scopeGroupId !== undefined) { params.push(tier.scopeGroupId); sets.push(`scope_group_id = $${params.length}`); }
+  if (sets.length === 0) return; // nothing to update
+  sets.push('updated_at = now()');
+  await (await db()).query(`UPDATE memories SET ${sets.join(', ')} WHERE id = $1`, params);
 }
 
 // =============================================================================

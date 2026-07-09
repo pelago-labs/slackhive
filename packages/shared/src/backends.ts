@@ -28,6 +28,11 @@ export const CLAUDE_AUTH_MODE_SETTING_KEY = 'claudeAuthMode';
 
 export const DEFAULT_CODEX_MODEL = 'gpt-5.5';
 
+/** Lightest/cheapest Codex tier for cheap meta-tasks (memory extraction/reconcile),
+ *  the Codex counterpart to DEFAULT_EVAL_JUDGE_MODEL on the Claude side. Kept here
+ *  so a model-lineup rename updates one place. */
+export const LIGHT_CODEX_MODEL = 'gpt-5.5:low';
+
 /**
  * Curated list of Codex models for a ChatGPT-account login (subscription auth has
  * no models API). Codex exposes ONE flagship model (`gpt-5.5`) plus a reasoning

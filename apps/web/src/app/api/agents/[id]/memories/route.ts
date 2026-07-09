@@ -51,7 +51,14 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     if (!body.type || !body.name || !body.content) {
       return NextResponse.json({ error: 'type, name, content are required' }, { status: 400 });
     }
-    const memory = await upsertMemory(id, body.type, body.name, body.content);
+    const memory = await upsertMemory(id, body.type, body.name, body.content, {
+      pinned: body.pinned,
+      scopeUserId: body.scopeUserId,
+      scopeGroupId: body.scopeGroupId,
+      // Hand-created via the Memories tab → label it 'manual' so it shows a chip
+      // and reads distinctly from agent-written ('agent') / reflection ('auto').
+      source: 'manual',
+    });
     return NextResponse.json(memory, { status: 201 });
   } catch (err) {
     return apiError('agents/[id]/memories', err);

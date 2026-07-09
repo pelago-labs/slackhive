@@ -1,25 +1,56 @@
 ---
 title: "Memory"
-description: "Persistent facts the agent learns from conversations, always visible on every turn."
+description: "Persistent facts an agent learns from conversations - saved deliberately or on its own, and surfaced per person on every turn."
 ---
 
 Memory is one of the four layers of an agent's brain - see [Concepts](/agents/concepts) for how it fits with the system prompt, skills, and wiki.
 
-Every memory is **inlined into the system prompt on every turn**. There is no retrieval step, no command to trigger - the agent always sees what it has learned.
+Relevant memories are **injected into the prompt on every turn** - selected for whoever is asking, with no command to trigger. The agent always sees what it has learned that applies to the current conversation.
+
+## How an agent learns
+
+There are two paths, and they complement each other.
+
+### 1. The agent writes it down
+
+During a conversation, when something is worth keeping across sessions, the agent saves a memory - usually confirming first: *"Should I remember that you prefer BigQuery over Redshift?"* It writes a `memory/*.md` file and SlackHive persists it to the database.
+
+### 2. The agent reflects and learns on its own
+
+After a thread goes quiet (about five minutes with no new messages), SlackHive runs a **reflection pass**: a lightweight model reads the whole conversation - **including the 👍 / 👎 feedback** on the agent's replies - and saves durable memories by itself, without being asked.
+
+- **Feedback is the strongest signal.** A 👎 (especially with a note) becomes a corrective `feedback` memory - *"when asked X I did Y and it was flagged; do Z instead."* The lesson is stored, never the raw rating.
+- **It decides who the memory is for** - a global fact, something specific to one person, or something for an [audience group](/agents/audiences).
+- **It stays conservative.** A strict filter keeps only facts that are durable, reusable, and non-obvious; it dedupes against what already exists and caps how many it saves per conversation. Most quiet threads produce nothing - that is the healthy default.
+
+<Note>
+Reflection is on by default. Set **`memoryExtraction`** to `off` in Settings to disable self-learning and keep only the deliberate path.
+</Note>
+
+## Tiers - what the agent remembers, and for whom
+
+Every memory has a tier that controls when it surfaces:
+
+| Tier | Meaning | Behavior |
+|---|---|---|
+| **Pinned** | "Always remember this" | Injected on every turn, for everyone |
+| **User-scoped** | Tied to one person | Only injected when that person is talking |
+| **Group-scoped** | Tied to an [audience](/agents/audiences) | Only injected for members of that group |
+| **Global** | General knowledge | Injected by relevance to the message, within the size budget |
+
+So the agent can learn *"Aman prefers short answers"* for one person without changing how it talks to everyone else.
+
+<Warning>
+A memory saved by the reflection pass can only be scoped to a person who was actually in that conversation - untrusted message text can't plant a memory targeted at someone else. Curating any memory to any scope by hand is fine; that's a trusted action in the Memories tab.
+</Warning>
 
 ## Where memory lives in the UI
 
 Open any agent → **Instructions** tab → **Memory** sub-tab.
 
-- A list of saved memories grouped by type
-- Content and description for each memory
-- A delete button on each memory
-
-## How memories get saved
-
-When something in a conversation is worth keeping across sessions, the agent asks the user first - *"Should I remember that you prefer BigQuery over Redshift?"* - and only writes the memory after you confirm.
-
-Ask-before-saving keeps memory clean and prevents noise.
+- Saved memories grouped by type, with content and description
+- Chips showing each memory's tier (pinned / user / group) and how it was created (agent, reflection, or manual)
+- Controls to pin/unpin, change scope, or delete
 
 ## Memory types
 
@@ -32,11 +63,15 @@ Ask-before-saving keeps memory clean and prevents noise.
 
 ## Memory file format
 
+Memories the agent writes itself are markdown files with frontmatter. The tier fields are optional - omit them for a plain global memory.
+
 ```markdown
 ---
 name: kai_team_lead
 description: Kai leads the data team and prefers concise answers
 type: user
+pinned: false
+scope_user: U08KAI123
 ---
 
 Kai is the lead of the data team. They prefer concise, direct answers
@@ -48,14 +83,18 @@ without lengthy preamble. They use BigQuery, not Redshift.
 | `name` | Yes | Snake_case unique key per agent |
 | `type` | Yes | One of `user`, `feedback`, `project`, `reference` |
 | `description` | No | One-line summary shown in the Memory tab |
+| `pinned` | No | `true` to always inject this memory |
+| `scope_user` | No | A Slack user id - restricts the memory to that person |
+| `scope_group` | No | An audience group name - restricts it to that group |
 
 ## Size budget
 
-Total inlined memory has a cap (`MAX_INLINED_MEMORY_BYTES` in the runner). If an agent accumulates more than the budget allows, the oldest entries overflow and are dropped with a warning. Prune stale memories from the Memory tab.
+The per-turn memory block has a byte cap (`MAX_MEMORY_PROMPT_BYTES` in the runner). Pinned memories and those scoped to the current sender are always included; the remaining budget is filled with the global memories most relevant to the message (by keyword overlap). Memories that don't fit are simply left out of that turn - nothing is deleted. Prune stale memories from the Memory tab to keep the relevant ones surfacing.
 
-## Updating and deleting
+## Keeping memory tidy
 
-- **Update** - the agent overwrites the file with the same `name`. The DB uses `(agent_id, name)` as the unique key, so there are no duplicates.
+- **Update** - saving with an existing `name` overwrites it. The DB uses `(agent_id, name)` as the unique key, so there are no duplicates. The reflection pass refines an existing memory instead of adding a near-duplicate.
+- **Self-review (optional)** - set **`memoryReconcile`** to `auto` in Settings to let the agent periodically merge overlapping memories and drop contradictions. It runs occasionally, only once a memory set is large enough to be worth it, and never touches pinned memories.
 - **Delete** - click × on the memory card. Removed from the database and not reloaded on next start.
 
 Memories persist until you delete them. There is no TTL.
@@ -66,7 +105,13 @@ Memories persist until you delete them. There is no TTL.
   <Card title="Concepts" icon="diagram-project" href="/agents/concepts">
     How memory fits with system prompt, skills, and wiki.
   </Card>
+  <Card title="Audiences" icon="users" href="/agents/audiences">
+    Group senders so memories and behavior can be scoped per cohort.
+  </Card>
   <Card title="Coach" icon="comments" href="/agents/coach">
     Turn conversation insights into skills and wiki pages.
+  </Card>
+  <Card title="Observability" icon="chart-line" href="/features/observability">
+    Review 👍 / 👎 feedback on replies and the traces behind them.
   </Card>
 </CardGroup>

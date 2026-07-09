@@ -805,8 +805,8 @@ export class AgentRunner {
 
     logger.info('Starting agent', { agent: agent.slug });
 
-    // Load configuration from DB
-    // memories are loaded inside compileClaudeMd (inlined into CLAUDE.md).
+    // Load configuration from DB. (Memories are NOT loaded here — they're
+    // injected per-turn in MessageHandler.buildPrompt, not baked into CLAUDE.md.)
     const [mcpServers, permissions, restrictions, envVarValues] = await Promise.all([
       getAgentMcpServers(agent.id),
       getAgentPermissions(agent.id),
@@ -831,9 +831,9 @@ export class AgentRunner {
       agent.id,
     );
 
-    // Compile CLAUDE.md with platform-specific formatting rules.
-    // compileClaudeMd inlines all learned memories directly into the system
-    // prompt (no /recall skill needed) and inlines the wiki index when present.
+    // Compile CLAUDE.md with platform-specific formatting rules. It carries the
+    // agent's instructions, skills, and the wiki index; learned memories are
+    // injected per-turn (see MessageHandler.buildPrompt), not inlined here.
     const workDir = await compileAgentWorkspace(agent, undefined, adapter.getFormattingRules());
 
     // Create the agent backend (Claude Code, Codex, …) per the global setting

@@ -13,10 +13,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes, createHash } from 'crypto';
 import { setSetting } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+
+/** base64url (RFC 4648 §5, no padding) — the encoding PKCE requires. */
+function base64url(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const { mcpUrl, templateId } = await req.json();
@@ -75,22 +80,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'not_supported', message: 'No registration endpoint. Use token paste instead.' });
     }
 
-    // Step 4: Build authorization URL
+    // Step 4: Build authorization URL. PKCE (S256) is REQUIRED by the MCP OAuth
+    // spec — most servers reject an authorize request without a code_challenge
+    // ("code_challenge_method must be S256"). Generate a verifier now, send its
+    // S256 challenge here, and stash the verifier so the callback can prove it.
     const state = randomUUID();
+    const codeVerifier = base64url(randomBytes(32)); // 43-char URL-safe verifier
+    const codeChallenge = base64url(createHash('sha256').update(codeVerifier).digest());
     const authParams = new URLSearchParams({
       response_type: 'code',
       client_id: clientId,
       redirect_uri: redirectUri,
       state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
     });
 
-    // Store state for callback verification
+    // Store state for callback verification (incl. the PKCE verifier).
     await setSetting(`oauth_state:${state}`, JSON.stringify({
       templateId,
       tokenEndpoint: authMeta.token_endpoint,
       clientId,
       clientSecret,
       redirectUri,
+      codeVerifier,
     }));
 
     const authUrl = `${authMeta.authorization_endpoint}?${authParams.toString()}`;

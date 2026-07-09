@@ -81,8 +81,13 @@ export interface PlatformAdapter {
 
   // ─── Context ─────────────────────────────────────────────────────
 
-  /** Fetch preceding messages in a thread for conversation context. */
-  getThreadMessages(channelId: string, threadId: string, limit: number): Promise<ThreadMessage[]>;
+  /**
+   * Fetch messages in a thread. By default the latest message is excluded — in a
+   * live turn that message is the one being replied to (handled separately), so
+   * it must not be duplicated into the context. Post-hoc callers (e.g. memory
+   * reflection) that need the whole conversation pass `{ includeLatest: true }`.
+   */
+  getThreadMessages(channelId: string, threadId: string, limit: number, opts?: { includeLatest?: boolean }): Promise<ThreadMessage[]>;
 
   /** Get a user's display name. */
   getUserDisplayName(userId: string): Promise<string>;
@@ -207,6 +212,9 @@ export interface IncomingMessage {
 export interface ThreadMessage {
   /** User who sent this message. */
   userId: string;
+
+  /** Platform message id/timestamp (Slack `ts`) — used to match feedback rows. */
+  ts?: string;
 
   /** Display name of the user. */
   displayName?: string;

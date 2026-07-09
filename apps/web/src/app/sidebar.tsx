@@ -9,6 +9,7 @@
  */
 
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import { useEffect, useLayoutEffect, useRef, useState, createContext } from 'react';
 import type { Agent } from '@slackhive/shared';
@@ -58,11 +59,18 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
   }, []);
   useEffect(() => { setMounted(true); }, []);
   const profileRef = useRef<HTMLDivElement>(null);
-  // Close the profile menu on outside click / Escape (it's not portaled, so a
-  // backdrop div would be trapped under the sidebar's stacking context).
+  // The collapsed flyout is PORTALED to <body> (see below), so it's not a DOM
+  // child of profileRef — the outside-click check must also spare menuRef, or the
+  // mousedown that opens a menu item would close the menu before its click fires.
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Close the profile menu on outside click / Escape.
   useEffect(() => {
     if (!profileOpen) return;
-    const onDown = (e: MouseEvent) => { if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false); };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (profileRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setProfileOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setProfileOpen(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -287,13 +295,17 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
           </button>
 
           {/* Popup menu */}
-          {profileOpen && (
+          {profileOpen && (() => {
+            const menuEl = (
             <div
+              ref={menuRef}
               className={cn(
                 'z-[60] overflow-hidden rounded-lg border border-border bg-card shadow-lg',
-                // Collapsed: fixed flyout to the RIGHT of the rail so it escapes the
-                // sidebar's overflow-hidden clip (which was cutting the text off).
-                collapsed ? 'fixed bottom-3 left-[58px] w-56' : 'absolute bottom-16 left-3 right-3',
+                // Collapsed: a fixed flyout to the RIGHT of the rail, PORTALED to <body>
+                // (below). The aside has overflow-hidden AND backdrop-filter, which makes
+                // it the containing block for fixed children and clips them — trapping the
+                // flyout and stealing its clicks. Portaling escapes both.
+                collapsed ? 'fixed bottom-3 left-[58px] z-[70] w-56' : 'absolute bottom-16 left-3 right-3',
               )}
             >
               {collapsed && (
@@ -328,7 +340,11 @@ export function Sidebar({ children, mobileOpen, onMobileClose }: { children?: Re
                 Sign out
               </button>
             </div>
-          )}
+            );
+            // Collapsed → portal to <body> to escape the aside's clip/stacking; expanded
+            // → render inline (it already fits inside the sidebar's padding box).
+            return collapsed && mounted ? createPortal(menuEl, document.body) : menuEl;
+          })()}
         </div>
       </aside>
       {children}

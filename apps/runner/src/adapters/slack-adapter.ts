@@ -83,7 +83,10 @@ export class SlackAdapter implements PlatformAdapter {
    *  Keyed `${channel}:${ts}`. The click handler rebuilds the message from the
    *  LIVE blocks in the block_action payload (not stored here), so removal is
    *  restart-proof and never depends on this map. Capped. */
-  private feedbackTargets = new Map<string, { activityId: string | null }>();
+  // activityId links a rated reply to its turn; blocks/text are stashed on a 👎
+  // click so the note-submit handler can remove the buttons (the view_submission
+  // payload doesn't carry the message's blocks).
+  private feedbackTargets = new Map<string, { activityId: string | null; blocks?: unknown[]; text?: string }>();
   /** Cache rater display names so users.info is hit at most once per user. */
   private handleCache = new Map<string, string | null>();
 
@@ -220,9 +223,12 @@ export class SlackAdapter implements PlatformAdapter {
       // valid only briefly). The durable DB fallback runs after the modal.
       const mapActivityId = this.feedbackTargets.get(`${channel}:${ts}`)?.activityId ?? null;
       const threadTs: string | undefined = b.message?.thread_ts;
-      // On 👎, open the note modal FIRST — trigger_id is valid only briefly. The
-      // note path re-upserts the row, so it needs only ts/channel/activity; the
-      // permalink is filled by the click-record below via the ON CONFLICT merge.
+      const liveBlocks: any[] = Array.isArray(b.message?.blocks) ? b.message.blocks : [];
+
+      // 👎 REQUIRES a note. Open the modal FIRST (trigger_id is short-lived) and
+      // DEFER everything: the vote is recorded and the buttons removed only when a
+      // non-empty note is submitted (see the fb_note view handler). A cancelled or
+      // blank modal records nothing — no note-less negative feedback.
       if (sentiment === 'down') {
         try {
           await client.views.open({
@@ -230,50 +236,46 @@ export class SlackAdapter implements PlatformAdapter {
             view: {
               type: 'modal',
               callback_id: 'fb_note',
-              private_metadata: JSON.stringify({ ts, channel, activityId: mapActivityId }),
+              private_metadata: JSON.stringify({ ts, channel, activityId: mapActivityId, threadTs }),
               title: { type: 'plain_text', text: 'Feedback' },
               submit: { type: 'plain_text', text: 'Send' },
               close: { type: 'plain_text', text: 'Cancel' },
               blocks: [{
-                type: 'input', block_id: 'note', optional: true,
-                label: { type: 'plain_text', text: 'What should we improve?' },
+                type: 'input', block_id: 'note', optional: false,
+                label: { type: 'plain_text', text: 'What went wrong?' },
+                hint: { type: 'plain_text', text: 'A note is required so the agent can learn from this.' },
                 element: { type: 'plain_text_input', action_id: 'note_input', multiline: true },
               }],
             },
           });
+          // Stash the live blocks so the submit handler can remove the buttons after
+          // a successful note (the view_submission payload has no message blocks).
+          this.feedbackTargets.set(`${channel}:${ts}`, { activityId: mapActivityId, blocks: liveBlocks, text: b.message?.text ?? '' });
         } catch (err) { this.log.warn('Feedback modal open failed', { error: (err as Error).message }); }
+        return; // nothing is recorded until the note arrives
       }
-      // Now (after the modal) resolve the turn durably: map hit, else the reply→
-      // activity link so a click still attributes correctly after a restart.
+
+      // 👍 — record immediately (no note needed).
       const activityId = mapActivityId ?? await findActivityIdByReply(ts).catch(() => null);
-      // Resolve a permalink lazily, now that someone actually rated (against the
-      // thread root so it lands on the conversation). Only clicks pay this cost.
       let permalink: string | null = null;
       try {
         const pl = await client.chat.getPermalink({ channel, message_ts: threadTs ?? ts });
         permalink = (pl.permalink as string | undefined) ?? null;
       } catch { /* best-effort */ }
-      // Record the vote immediately so a 👎 still counts even if no note follows.
       try {
         await recordMessageFeedback({
           agentId: this.agentId, activityId,
           channel, messageTs: ts,
           raterUserId: userId, raterHandle: await this.handleFor(client, userId),
-          sentiment, permalink,
+          sentiment: 'up', permalink,
         });
       } catch (err) { this.log.warn('Feedback record failed', { error: (err as Error).message }); }
-      // One-shot: remove the buttons and leave a personalized thank-you so the
-      // reply can't be re-rated. CRITICAL: rebuild from the message's OWN live
-      // blocks (carried in the block_action payload) minus the feedback control —
-      // so the agent's reply is preserved across restarts with no stored state.
-      // If the payload has no blocks, skip the edit rather than risk wiping it.
+      // One-shot: remove the buttons and leave a thank-you so the reply can't be
+      // re-rated. Rebuild from the message's OWN live blocks minus the control.
       try {
-        const liveBlocks: any[] = Array.isArray(b.message?.blocks) ? b.message.blocks : [];
         if (liveBlocks.length) {
           const kept = liveBlocks.filter((bl: any) => bl?.type !== 'context_actions');
-          const thanks = sentiment === 'up'
-            ? `<@${userId}> I'm glad you found my response helpful :)`
-            : `<@${userId}> thanks for the feedback — I'll work on improving :)`;
+          const thanks = `<@${userId}> I'm glad you found my response helpful :)`;
           await client.chat.update({
             channel, ts, text: b.message?.text ?? '',
             blocks: [...kept, { type: 'context', elements: [{ type: 'mrkdwn', text: thanks }] }],
@@ -283,25 +285,47 @@ export class SlackAdapter implements PlatformAdapter {
       } catch (err) { this.log.warn('Feedback control update failed', { error: (err as Error).message }); }
     });
     this.app.view('fb_note', async ({ ack, body, view, client }) => {
+      const note = ((view.state.values?.note as any)?.note_input?.value ?? '').trim();
+      // Enforce a non-empty note. Slack's `optional:false` rejects a truly empty
+      // field, but a whitespace-only value passes — so re-validate here and keep the
+      // modal open with an inline error instead of recording a blank downvote.
+      if (!note) {
+        await ack({ response_action: 'errors', errors: { note: 'Please describe what went wrong — this can’t be blank.' } } as any);
+        return;
+      }
       await ack();
       try {
-        const note = ((view.state.values?.note as any)?.note_input?.value ?? '').trim();
-        if (!note) return;
         const meta = JSON.parse(view.private_metadata || '{}');
         const userId = (body as any).user?.id;
         if (!userId || !meta.ts) return;
+        const stashed = this.feedbackTargets.get(`${meta.channel}:${meta.ts}`);
         // Resolve the turn durably if the click-time map had no hit (post-restart).
-        const activityId = meta.activityId ?? await findActivityIdByReply(meta.ts).catch(() => null);
-        // Full upsert (not UPDATE-only): if the click-record hasn't landed yet —
-        // or failed — this still writes the 👎 row with the note; otherwise the
-        // ON CONFLICT merge attaches the note. The permalink is set by the
-        // click-record and preserved here by COALESCE (note path omits it).
+        const activityId = meta.activityId ?? stashed?.activityId ?? await findActivityIdByReply(meta.ts).catch(() => null);
+        let permalink: string | null = null;
+        try {
+          const pl = await client.chat.getPermalink({ channel: meta.channel, message_ts: meta.threadTs ?? meta.ts });
+          permalink = (pl.permalink as string | undefined) ?? null;
+        } catch { /* best-effort */ }
+        // This is the ONLY write for a 👎 — the click no longer records anything,
+        // so a negative rating always carries a note.
         await recordMessageFeedback({
           agentId: this.agentId, activityId,
           channel: meta.channel, messageTs: meta.ts,
           raterUserId: userId, raterHandle: await this.handleFor(client, userId),
-          sentiment: 'down', note,
+          sentiment: 'down', note, permalink,
         });
+        // Remove the buttons + thank-you, using the blocks stashed at click time.
+        // Best-effort: after a restart the stash is gone, so we simply skip the edit.
+        const blocks = Array.isArray(stashed?.blocks) ? (stashed!.blocks as any[]) : [];
+        if (blocks.length) {
+          const kept = blocks.filter((bl: any) => bl?.type !== 'context_actions');
+          const thanks = `<@${userId}> thanks for the feedback — I'll work on improving :)`;
+          await client.chat.update({
+            channel: meta.channel, ts: meta.ts, text: stashed?.text ?? '',
+            blocks: [...kept, { type: 'context', elements: [{ type: 'mrkdwn', text: thanks }] }],
+          });
+        }
+        this.feedbackTargets.delete(`${meta.channel}:${meta.ts}`);
       } catch (err) { this.log.warn('Feedback note submit failed', { error: (err as Error).message }); }
     });
 
@@ -527,20 +551,23 @@ export class SlackAdapter implements PlatformAdapter {
 
   // ─── Context ───────────────────────────────────────────────────────
 
-  async getThreadMessages(channelId: string, threadId: string, limit: number): Promise<ThreadMessage[]> {
+  async getThreadMessages(channelId: string, threadId: string, limit: number, opts?: { includeLatest?: boolean }): Promise<ThreadMessage[]> {
     try {
       const replies = await this.app.client.conversations.replies({
         channel: channelId, ts: threadId, limit: Math.min(limit, MAX_THREAD_CONTEXT_MESSAGES),
       });
       const messages: any[] = replies.messages ?? [];
-      // Exclude the last message (it's the one being replied to)
-      return messages.slice(0, -1).map(m => ({
+      const mapped = messages.map(m => ({
         userId: m.user ?? '',
+        ts: m.ts,
         text: this.stripMention(m.text ?? ''),
         isBot: !!m.bot_id,
         displayName: undefined,
         files: this.mapFiles(m.files),
       }));
+      // Default: drop the last message (it's the one being replied to). Callers
+      // reflecting on a finished thread pass includeLatest to keep the final reply.
+      return opts?.includeLatest ? mapped : mapped.slice(0, -1);
     } catch {
       return [];
     }

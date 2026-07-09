@@ -2565,6 +2565,7 @@ const MEM_TYPE_STYLE: Record<string, string> = {
 
 function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -2576,11 +2577,39 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, [agentId]);
+  useEffect(() => {
+    fetch(`/api/agents/${agentId}/groups`)
+      .then(r => r.json())
+      .then(d => setGroups(d.groups ?? []))
+      .catch(() => setGroups([]));
+  }, [agentId]);
+
+  const groupName = (id: string) => groups.find(g => g.id === id)?.name ?? 'group';
 
   const remove = async (id: string, name: string) => {
     if (!confirm(`Delete memory "${name}"? This cannot be undone.`)) return;
     await fetch(`/api/agents/${agentId}/memories/${id}`, { method: 'DELETE' });
     load();
+  };
+
+  /** Update ONLY a memory's tier fields (pin / scope) via PATCH — never resends
+   *  content, so a toggle can't clobber a concurrent reflection/reconcile write. */
+  const patch = async (m: Memory, changes: { pinned?: boolean; scopeUserId?: string | null; scopeGroupId?: string | null }) => {
+    await fetch(`/api/agents/${agentId}/memories/${m.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pinned: 'pinned' in changes ? changes.pinned : m.pinned,
+        scopeUserId: 'scopeUserId' in changes ? changes.scopeUserId : m.scopeUserId,
+        scopeGroupId: 'scopeGroupId' in changes ? changes.scopeGroupId : m.scopeGroupId,
+      }),
+    });
+    load();
+  };
+
+  const onScopeChange = (m: Memory, value: string) => {
+    if (value === 'global') return patch(m, { scopeUserId: null, scopeGroupId: null });
+    if (value.startsWith('group:')) return patch(m, { scopeUserId: null, scopeGroupId: value.slice(6) });
   };
 
   const toggle = (id: string) =>
@@ -2638,9 +2667,27 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
                       <span className="text-2xs text-muted-foreground">
                         {expanded.has(m.id) ? '▼' : '▶'}
                       </span>
-                      <span className="font-mono text-sm font-medium text-foreground">
+                      <span className="truncate font-mono text-sm font-medium text-foreground">
                         {m.name}
                       </span>
+                      {m.pinned && (
+                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-[0.04em] text-amber-600 dark:text-amber-400">Pinned</span>
+                      )}
+                      {m.scopeUserId && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground" title={`Only for user ${m.scopeUserId}`}>User</span>
+                      )}
+                      {m.scopeGroupId && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground" title="Only for this group">{groupName(m.scopeGroupId)}</span>
+                      )}
+                      {m.source === 'reflection' && (
+                        <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-2xs font-medium text-blue-600 dark:text-blue-400" title={m.createdBy ? `Auto-learned from ${m.createdBy}'s conversation` : 'Auto-learned from a conversation'}>auto</span>
+                      )}
+                      {m.source === 'agent' && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground" title="Written by the agent">agent</span>
+                      )}
+                      {m.source === 'manual' && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground" title="Created by hand in the Memories tab">manual</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2.5">
                       <span className="text-2xs text-muted-foreground">
@@ -2653,7 +2700,29 @@ function MemorySection({ agentId, canEdit }: { agentId: string; canEdit: boolean
                     </div>
                   </div>
                   {expanded.has(m.id) && (
-                    <pre className="m-0 whitespace-pre-wrap border-t border-border bg-muted px-3.5 py-3 font-mono text-2xs leading-relaxed text-muted-foreground">{m.content}</pre>
+                    <div className="border-t border-border bg-muted">
+                      <pre className="m-0 whitespace-pre-wrap px-3.5 py-3 font-mono text-2xs leading-relaxed text-muted-foreground">{m.content}</pre>
+                      {canEdit && (
+                        <div className="flex flex-wrap items-center gap-3 border-t border-border px-3.5 py-2.5 text-2xs">
+                          <button
+                            onClick={() => patch(m, { pinned: !m.pinned })}
+                            className="cursor-pointer rounded border border-border bg-card px-2 py-1 font-medium text-foreground transition-colors hover:bg-accent"
+                          >{m.pinned ? 'Unpin' : 'Pin (always remember)'}</button>
+                          <label className="flex items-center gap-1.5 text-muted-foreground">
+                            Scope
+                            <select
+                              value={m.scopeUserId ? 'user' : m.scopeGroupId ? `group:${m.scopeGroupId}` : 'global'}
+                              onChange={e => onScopeChange(m, e.target.value)}
+                              className="rounded border border-border bg-card px-1.5 py-1 text-foreground"
+                            >
+                              <option value="global">Everyone</option>
+                              {m.scopeUserId && <option value="user" disabled>{`User ${m.scopeUserId}`}</option>}
+                              {groups.map(g => <option key={g.id} value={`group:${g.id}`}>{g.name}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}

@@ -100,6 +100,11 @@ function rowToMemory(row: Record<string, unknown>): Memory {
     type: row.type as Memory['type'],
     name: row.name as string,
     content: row.content as string,
+    pinned: row.pinned === 1 || row.pinned === true,
+    scopeUserId: (row.scope_user_id as string | null) ?? null,
+    scopeGroupId: (row.scope_group_id as string | null) ?? null,
+    createdBy: (row.created_by as string | null) ?? null,
+    source: (row.source as string | null) ?? null,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
   };
@@ -393,23 +398,45 @@ export async function getAgentMemories(agentId: string): Promise<Memory[]> {
   return result.rows.map(rowToMemory);
 }
 
+/** Optional tier + provenance fields. Omitted fields default to unpinned/global. */
+export interface MemoryTierOpts {
+  pinned?: boolean;
+  scopeUserId?: string | null;
+  scopeGroupId?: string | null;
+  /** Provenance — who/what produced this memory. */
+  createdBy?: string | null;
+  source?: string | null;
+}
+
+// Shared INSERT + ON CONFLICT: original creator is preserved (COALESCE keeps the
+// first non-null created_by); source keeps a provided value else the existing one
+// (so a UI pin/scope edit that omits source doesn't wipe provenance).
+const MEMORY_UPSERT_SQL = `
+  INSERT INTO memories (id, agent_id, type, name, content, pinned, scope_user_id, scope_group_id, created_by, source)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+  ON CONFLICT (agent_id, name) DO UPDATE
+    SET content = EXCLUDED.content,
+        type = EXCLUDED.type,
+        pinned = EXCLUDED.pinned,
+        scope_user_id = EXCLUDED.scope_user_id,
+        scope_group_id = EXCLUDED.scope_group_id,
+        created_by = COALESCE(memories.created_by, EXCLUDED.created_by),
+        source = COALESCE(EXCLUDED.source, memories.source),
+        updated_at = now()`;
+
+function memoryUpsertParams(agentId: string, type: string, name: string, content: string, opts: MemoryTierOpts): unknown[] {
+  return [randomUUID(), agentId, type, name, content, opts.pinned ? 1 : 0,
+    opts.scopeUserId ?? null, opts.scopeGroupId ?? null, opts.createdBy ?? null, opts.source ?? null];
+}
+
 export async function upsertMemory(
   agentId: string,
   type: Memory['type'],
   name: string,
-  content: string
+  content: string,
+  opts: MemoryTierOpts = {}
 ): Promise<Memory> {
-  const id = randomUUID();
-  const result = await getDb().query(
-    `INSERT INTO memories (id, agent_id, type, name, content)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (agent_id, name) DO UPDATE
-       SET content = EXCLUDED.content,
-           type = EXCLUDED.type,
-           updated_at = now()
-     RETURNING *`,
-    [id, agentId, type, name, content]
-  );
+  const result = await getDb().query(`${MEMORY_UPSERT_SQL}\n     RETURNING *`, memoryUpsertParams(agentId, type, name, content, opts));
   return rowToMemory(result.rows[0]);
 }
 
@@ -417,18 +444,25 @@ export async function upsertMemorySafe(
   agentId: string,
   type: Memory['type'],
   name: string,
-  content: string
+  content: string,
+  opts: MemoryTierOpts = {}
 ): Promise<void> {
-  const id = randomUUID();
-  await getDb().query(
-    `INSERT INTO memories (id, agent_id, type, name, content)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (agent_id, name) DO UPDATE
-       SET content = EXCLUDED.content,
-           type = EXCLUDED.type,
-           updated_at = now()`,
-    [id, agentId, type, name, content]
+  await getDb().query(MEMORY_UPSERT_SQL, memoryUpsertParams(agentId, type, name, content, opts));
+}
+
+/** Delete a memory by id (scoped to its agent). Used by the reconcile pass. */
+export async function deleteMemory(agentId: string, id: string): Promise<void> {
+  await getDb().query('DELETE FROM memories WHERE agent_id = $1 AND id = $2', [agentId, id]);
+}
+
+/** Resolve an audience group name → its id for an agent, or null. Used to turn a
+ *  memory's `scope_group: <name>` frontmatter into a stored scope_group_id. */
+export async function getAgentGroupIdByName(agentId: string, name: string): Promise<string | null> {
+  const r = await getDb().query(
+    'SELECT id FROM agent_groups WHERE agent_id = $1 AND name = $2 LIMIT 1',
+    [agentId, name]
   );
+  return r.rows.length ? (r.rows[0].id as string) : null;
 }
 
 // =============================================================================

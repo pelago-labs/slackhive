@@ -454,6 +454,12 @@ export interface AgentRollup {
   tokensByDay: { date: string; input: number; output: number }[];
   topTools: { name: string; count: number; errors: number }[];
   models: ModelUsage[];
+  // Session-level status breakdown across the whole window (not just a loaded
+  // page) — powers the Sessions tab's summary cards. Populated by
+  // getInsightsRollup; optional because getAgentRollup doesn't compute them.
+  sessionsActive?: number;
+  sessionsError?: number;
+  sessionsSensitive?: number;
 }
 
 /**
@@ -634,7 +640,7 @@ async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRo
   const fbWhere = fbScope!.clause;
   const fbParams: unknown[] = [...fbScope!.params];
 
-  const [act, byDay, span, lat, tools, models, fb, sens] = await Promise.all([
+  const [act, byDay, span, lat, tools, models, fb, sens, sessStatus, sensSess] = await Promise.all([
     db.query(`SELECT COUNT(DISTINCT task_id) sessions, COUNT(*) turns,
                      SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) error_turns,
                      COALESCE(SUM(input_tokens),0) input_tokens,
@@ -670,11 +676,22 @@ async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRo
                      SUM(CASE WHEN sentiment='down' THEN 1 ELSE 0 END) down
                 FROM message_feedback WHERE ${fbWhere}`, fbParams),
     db.query(`SELECT COUNT(*) c FROM spans WHERE ${spanWhere} AND sensitive = 1 AND kind IN ('tool', 'generation')`, spanParams),
+    // Session-level status breakdown (window-wide): classify each thread by its
+    // turns — Running if any turn is in progress, else Error if any errored, else Done.
+    db.query(`SELECT SUM(CASE WHEN has_active = 1 THEN 1 ELSE 0 END) active,
+                     SUM(CASE WHEN has_active = 0 AND has_error = 1 THEN 1 ELSE 0 END) errored
+                FROM (SELECT task_id,
+                             MAX(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) has_active,
+                             MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) has_error
+                        FROM activities WHERE ${actWhere} GROUP BY task_id)`, actParams),
+    // Sessions (threads) that touched sensitive data, window-wide.
+    db.query(`SELECT COUNT(DISTINCT session_id) c FROM spans WHERE ${spanWhere} AND sensitive = 1 AND kind IN ('tool', 'generation')`, spanParams),
   ]);
 
   const a0 = act.rows[0] ?? {};
   const s0 = span.rows[0] ?? {};
   const f0 = fb.rows[0] ?? {};
+  const ss0 = sessStatus.rows[0] ?? {};
   const durations = lat.rows.map(r => Number(r.ms)).filter(m => Number.isFinite(m) && m >= 0).sort((x, y) => x - y);
   const inputTokens = n(a0.input_tokens);
   const outputTokens = n(a0.output_tokens);
@@ -694,6 +711,9 @@ async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRo
     feedbackUp: n(f0.up),
     feedbackDown: n(f0.down),
     sensitiveEvents: n((sens.rows[0] ?? {}).c),
+    sessionsActive: n(ss0.active),
+    sessionsError: n(ss0.errored),
+    sessionsSensitive: n((sensSess.rows[0] ?? {}).c),
     tokensByDay: byDay.rows.map(r => ({ date: String(r.d), input: n(r.input), output: n(r.output) })),
     topTools: tools.rows.map(r => ({ name: String(r.name), count: n(r.c), errors: n(r.e) })),
     models: foldModels(models.rows),

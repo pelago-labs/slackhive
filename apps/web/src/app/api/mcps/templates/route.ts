@@ -82,7 +82,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Store env var values in the encrypted env vars store
   const envRefs: Record<string, string> = {};
   if (envValues) {
-    for (const [key, value] of Object.entries(envValues)) {
+    for (const [key, rawValue] of Object.entries(envValues)) {
+      // Trim: a pasted API key/token almost always picks up a trailing newline or
+      // space, which then rides into "Authorization: Bearer <key>" and gets the
+      // request 401'd. Secrets never intend leading/trailing whitespace.
+      const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
       if (value) {
         // Store in platform env_vars with a namespaced key
         const storeKey = `MCP_${template.id.toUpperCase()}_${key}`;
@@ -135,7 +139,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     };
 
     // Handle OAuth token (pasted by user)
-    const oauthToken = envValues?.['__OAUTH_ACCESS_TOKEN'];
+    const oauthToken = envValues?.['__OAUTH_ACCESS_TOKEN']?.trim();
     if (oauthToken) {
       const storeKey = `MCP_${template.id.toUpperCase()}_TOKEN`;
       await setEnvVar(storeKey, oauthToken, `OAuth token for ${template.name}`);

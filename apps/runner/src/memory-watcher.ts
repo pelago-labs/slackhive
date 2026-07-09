@@ -28,7 +28,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Agent, Memory } from '@slackhive/shared';
-import { upsertMemorySafe } from './db';
+import { upsertMemorySafe, getAgentGroupIdByName, getAgentMemories } from './db';
 import { agentLogger } from './logger';
 import { getAgentWorkDir } from './compile-claude-md';
 
@@ -147,12 +147,46 @@ export class MemoryWatcher {
       return;
     }
 
-    await upsertMemorySafe(this.agent.id, parsed.type, parsed.name, content);
+    // Resolve the optional tier fields. `scope_group` is a group NAME → look up
+    // its id; `scope_user` is expected to be the sender's slack user id (as shown
+    // in the [Sender: … (Uxxx) …] header), with a leading '@' tolerated.
+    let scopeGroupId: string | null = null;
+    if (parsed.scopeGroup) {
+      scopeGroupId = await getAgentGroupIdByName(this.agent.id, parsed.scopeGroup);
+      if (!scopeGroupId) {
+        this.log.warn('Memory scope_group not found — storing as global', {
+          group: parsed.scopeGroup, name: parsed.name,
+        });
+      }
+    }
+    let scopeUserId = parsed.scopeUser ? (parsed.scopeUser.replace(/^@/, '').trim() || null) : null;
+    let pinned = parsed.pinned; // boolean | undefined (undefined = frontmatter omitted it)
+    const fileSpecifiesScope = !!(parsed.scopeUser || parsed.scopeGroup);
+
+    // Preserve pin/scope the file does NOT specify — they may have been set via
+    // the Memories tab (DB-only), and re-syncing a frontmatter-less file must not
+    // silently clobber them (the upsert overwrites tier fields from EXCLUDED).
+    if (pinned === undefined || !fileSpecifiesScope) {
+      const existing = (await getAgentMemories(this.agent.id)).find(m => m.name === parsed.name);
+      if (existing) {
+        if (pinned === undefined) pinned = existing.pinned;
+        if (!fileSpecifiesScope) { scopeUserId = existing.scopeUserId ?? null; scopeGroupId = existing.scopeGroupId ?? null; }
+      }
+    }
+
+    await upsertMemorySafe(this.agent.id, parsed.type, parsed.name, parsed.body, {
+      pinned: pinned ?? false,
+      scopeUserId,
+      scopeGroupId,
+      source: 'agent',
+    });
 
     this.log.info('Memory synced to DB', {
       filePath,
       name: parsed.name,
       type: parsed.type,
+      pinned: pinned ?? false,
+      scoped: !!(scopeUserId || scopeGroupId),
     });
   }
 }
@@ -167,6 +201,15 @@ export class MemoryWatcher {
 interface ParsedMemoryFrontmatter {
   name: string;
   type: Memory['type'];
+  /** "Remember always" tier. undefined = frontmatter omitted it (preserve existing). */
+  pinned: boolean | undefined;
+  /** Sender slack user id this memory is scoped to (null = not user-scoped). */
+  scopeUser: string | null;
+  /** Audience group NAME this memory is scoped to (resolved to an id at sync). */
+  scopeGroup: string | null;
+  /** The markdown body with the frontmatter block stripped — this is what gets
+   *  stored/rendered, so it matches the clean content the reflection pass writes. */
+  body: string;
 }
 
 /**
@@ -190,6 +233,10 @@ export function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null
   if (!frontmatterMatch) return null;
 
   const frontmatter = frontmatterMatch[1];
+  // Everything after the closing `---` is the memory body. Strip it so we store
+  // just the content (not the raw frontmatter), consistent with reflection-written
+  // memories and clean when injected per-turn.
+  const body = content.slice(frontmatterMatch[0].length).replace(/^\s*\n/, '').trim();
   const name = extractField(frontmatter, 'name');
   const type = extractField(frontmatter, 'type') as Memory['type'] | null;
 
@@ -198,7 +245,14 @@ export function parseMemoryFile(content: string): ParsedMemoryFrontmatter | null
   const validTypes: Memory['type'][] = ['user', 'feedback', 'project', 'reference'];
   if (!validTypes.includes(type)) return null;
 
-  return { name, type };
+  // undefined when the key is absent, so the watcher can preserve an existing
+  // pin rather than defaulting it to false and clobbering a UI-set pin.
+  const pinnedRaw = extractField(frontmatter, 'pinned');
+  const pinned = pinnedRaw === null ? undefined : /^(true|yes|1)$/i.test(pinnedRaw);
+  const scopeUser = extractField(frontmatter, 'scope_user');
+  const scopeGroup = extractField(frontmatter, 'scope_group');
+
+  return { name, type, pinned, scopeUser, scopeGroup, body };
 }
 
 /**

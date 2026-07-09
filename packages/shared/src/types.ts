@@ -414,6 +414,21 @@ export interface Memory {
    * the auto-memory system format.
    */
   content: string;
+  /**
+   * "Remember always" tier — when true this memory is inlined into CLAUDE.md
+   * every turn and is never dropped when the memory set exceeds the byte budget.
+   */
+  pinned: boolean;
+  /**
+   * "Based on who is asking" tier. When set, this memory is only injected for
+   * the matching sender. `scopeUserId` is a slack_user_id; `scopeGroupId` is an
+   * agent_groups.id. Both null = global (visible to everyone).
+   */
+  scopeUserId?: string | null;
+  scopeGroupId?: string | null;
+  /** Provenance — how/who created this memory (audit + anti-poisoning). */
+  createdBy?: string | null;
+  source?: string | null; // 'agent' | 'reflection' | 'manual'
   createdAt: Date;
   updatedAt: Date;
 }
@@ -838,6 +853,10 @@ export interface UpsertMemoryRequest {
   type: MemoryType;
   name: string;
   content: string;
+  /** Tier fields (optional; default unpinned + global). */
+  pinned?: boolean;
+  scopeUserId?: string | null;
+  scopeGroupId?: string | null;
 }
 
 // =============================================================================

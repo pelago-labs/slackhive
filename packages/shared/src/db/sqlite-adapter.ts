@@ -275,11 +275,16 @@ CREATE TABLE IF NOT EXISTS permissions (
 );
 
 CREATE TABLE IF NOT EXISTS memories (
-  id         TEXT PRIMARY KEY,
-  agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-  type       TEXT NOT NULL CHECK (type IN ('user', 'feedback', 'project', 'reference')),
-  name       TEXT NOT NULL,
-  content    TEXT NOT NULL,
+  id             TEXT PRIMARY KEY,
+  agent_id       TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  type           TEXT NOT NULL CHECK (type IN ('user', 'feedback', 'project', 'reference')),
+  name           TEXT NOT NULL,
+  content        TEXT NOT NULL,
+  pinned         INTEGER NOT NULL DEFAULT 0,  -- "remember always" tier
+  scope_user_id  TEXT,                        -- slack_user_id; null = global
+  scope_group_id TEXT,                        -- agent_groups.id; null = global
+  created_by     TEXT,                        -- provenance: user id whose conversation produced it
+  source         TEXT,                        -- 'agent' | 'reflection' | 'manual'
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (agent_id, name)
@@ -861,6 +866,33 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const groupCols = (db.pragma('table_info(agent_groups)') as { name: string }[]).map(c => c.name);
   if (groupCols.length > 0 && !groupCols.includes('verbose')) {
     db.exec('ALTER TABLE agent_groups ADD COLUMN verbose INTEGER NOT NULL DEFAULT 0');
+  }
+
+  // Tiered memory: pinned ("remember always") + per-sender scoping ("who is
+  // asking"). Defaults reproduce the prior behavior (unpinned, global scope).
+  const memoryCols = (db.pragma('table_info(memories)') as { name: string }[]).map(c => c.name);
+  if (memoryCols.length > 0 && !memoryCols.includes('pinned')) {
+    db.exec('ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+  }
+  if (memoryCols.length > 0 && !memoryCols.includes('scope_user_id')) {
+    db.exec('ALTER TABLE memories ADD COLUMN scope_user_id TEXT');
+  }
+  if (memoryCols.length > 0 && !memoryCols.includes('scope_group_id')) {
+    db.exec('ALTER TABLE memories ADD COLUMN scope_group_id TEXT');
+  }
+  if (memoryCols.length > 0 && !memoryCols.includes('created_by')) {
+    db.exec('ALTER TABLE memories ADD COLUMN created_by TEXT');
+  }
+  if (memoryCols.length > 0 && !memoryCols.includes('source')) {
+    db.exec('ALTER TABLE memories ADD COLUMN source TEXT');
+  }
+  // Indexes for the new columns live HERE (not in the schema DDL) — the DDL runs
+  // before this migration, so on an existing DB the columns don't exist yet when
+  // the DDL executes. Running after the ALTERs above, they're safe on both fresh
+  // and migrated databases.
+  if (memoryCols.length > 0) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_memories_pinned     ON memories(agent_id, pinned)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_memories_scope_user ON memories(agent_id, scope_user_id)');
   }
 
   // Defensive: agent_groups.(agent_id, priority) must be unique. If an earlier

@@ -16,7 +16,7 @@ export type {
 } from './agent-backend';
 export {
   AGENT_BACKEND_SETTING_KEY, DEFAULT_AGENT_BACKEND,
-  CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, CODEX_MODELS,
+  CODEX_MODEL_SETTING_KEY, DEFAULT_CODEX_MODEL, LIGHT_CODEX_MODEL, CODEX_MODELS,
   CODEX_REASONING_EFFORTS, splitCodexModel,
   CODEX_AUTH_MODE_SETTING_KEY, CLAUDE_AUTH_MODE_SETTING_KEY,
   BACKEND_DESCRIPTORS, getBackendDescriptor,
@@ -58,14 +58,15 @@ export {
   listTasks, getTaskWithDetails, countInProgressByAgent,
   sweepStaleActivities,
   recordActivityUsage, getTokensByAgent, getTopUsers,
-  recordMessageFeedback, getFeedbackReport,
+  recordMessageFeedback, getFeedbackReport, getFeedbackForMessages, getFeedbackFeed, buildTaskId,
   linkActivityReply, findActivityIdByReply,
 } from './db/activities-repo';
 export type {
   BeginActivityInput, BeginToolCallInput, TaskListColumn, TaskListResult,
   TaskWithDetails,
   ActivityUsageInput, AgentTokenUsage, UserActivitySummary,
-  MessageFeedbackInput, AgentFeedbackReport, FeedbackRating,
+  MessageFeedbackInput, AgentFeedbackReport, FeedbackRating, ThreadFeedback,
+  FeedbackFeedItem, FeedbackFeedPage,
 } from './db/activities-repo';
 export {
   MODELS,

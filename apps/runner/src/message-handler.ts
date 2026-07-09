@@ -24,8 +24,12 @@ import {
   recordActivityUsage,
   getDb,
   redactSensitive,
+  getFeedbackForMessages,
 } from '@slackhive/shared';
-import { getSetting } from './db';
+import { getSetting, getAgentMemories } from './db';
+import { extractMemories } from './memory-extraction';
+import { reconcileMemories } from './memory-reconcile';
+import { selectForPrompt, renderMemoryBlock, MAX_MEMORY_PROMPT_BYTES } from './memory-retrieval';
 
 // Cache the openToWorkspace setting for 60s to avoid a DB hit on every message.
 let _openToWorkspaceCache: { value: boolean; expiresAt: number } | null = null;
@@ -103,6 +107,10 @@ export class MessageHandler {
   private currentReactions = new Map<string, string>();
   /** Recent message signatures → last-seen ms, for at-least-once delivery dedup. */
   private recentMessages = new Map<string, number>();
+  /** Per-thread debounce timers for end-of-conversation memory reflection. */
+  private extractionTimers = new Map<string, NodeJS.Timeout>();
+  /** Last time the reconcile/self-review pass ran for this agent (throttle). */
+  private lastReconcileAt = 0;
 
   constructor(
     private adapter: PlatformAdapter,
@@ -512,6 +520,12 @@ export class MessageHandler {
       }
 
       if (recorder) await this.closeActivity(recorder.activityId, 'done');
+
+      // Schedule an end-of-conversation memory reflection (debounced). Human-
+      // initiated threaded turns only — skip agent/bot traffic and DMs without a
+      // thread. Fire-and-forget; never affects this turn.
+      if (!hasBotMarker && threadId) this.scheduleExtraction(channelId, threadId);
+
       try {
         // Flush any reasoning that arrived after the last assistant step so it
         // isn't dropped from the trace.
@@ -646,6 +660,84 @@ export class MessageHandler {
     } catch (err) {
       this.log.warn('activity: openActivity failed', { error: (err as Error).message });
       return null;
+    }
+  }
+
+  /**
+   * Debounce a memory-reflection pass for a thread: (re)arm a timer that fires
+   * once the conversation has been quiet for `MEMORY_EXTRACTION_DEBOUNCE_MS`
+   * (default 5 min). Each new turn resets it, so we reflect once per conversation.
+   */
+  private scheduleExtraction(channelId: string, threadId: string): void {
+    const debounceMs = Number(process.env.MEMORY_EXTRACTION_DEBOUNCE_MS) || 5 * 60_000;
+    const key = `${channelId}:${threadId}`;
+    const existing = this.extractionTimers.get(key);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.extractionTimers.delete(key);
+      void this.runExtraction(channelId, threadId)
+        .catch(err => this.log.warn('Memory reflection failed', { error: (err as Error).message }));
+    }, debounceMs);
+    timer.unref?.();
+    this.extractionTimers.set(key, timer);
+  }
+
+  /** Reflect on a finished conversation and auto-create durable memories. */
+  private async runExtraction(channelId: string, threadId: string): Promise<void> {
+    if (isShuttingDown()) return;
+    const setting = (await getSetting('memoryExtraction').catch(() => null)) ?? 'auto';
+    if (setting === 'off') return;
+
+    // includeLatest: reflection runs AFTER the turn, so the final reply (and any
+    // 👎 feedback attached to it) must be in scope — the default drop-last is for
+    // live-turn context, not post-hoc reflection.
+    const thread = await this.adapter.getThreadMessages(channelId, threadId, 50, { includeLatest: true });
+    if (!thread.length) return; // no transcript (CLI/test adapters) — nothing to reflect on
+
+    // Label human turns "Name (Uxxxx):" so the extractor can attribute a
+    // user-specific memory to a real id.
+    const transcript = thread
+      .map(m => `${m.isBot ? this.agent.name : `${m.displayName || m.userId} (${m.userId})`}: ${m.text.trim()}`)
+      .filter(line => line.trim())
+      .join('\n');
+    if (!transcript.trim()) return;
+
+    const existing = await getAgentMemories(this.agent.id);
+    // Feedback by message ts (works whether or not ACTIVITY_DASHBOARD is on —
+    // an activities-join would silently miss unlinked feedback rows).
+    const messageTs = thread.map(m => m.ts).filter((t): t is string => !!t);
+    const feedback = await getFeedbackForMessages(this.agent.id, channelId, messageTs).catch(() => []);
+    // Audience groups — lets the extractor scope a memory to a group by name.
+    const groups = (await getDb()
+      .query('SELECT name, description FROM agent_groups WHERE agent_id = $1', [this.agent.id])
+      .catch(() => ({ rows: [] as { name: string; description: string | null }[] })))
+      .rows.map(r => ({ name: r.name as string, description: (r.description as string | null) ?? null }));
+
+    // Verified human participants (from the platform, NOT message text). User-scoped
+    // memories are only trusted when there's exactly one — see extractMemories.
+    const participantIds = [...new Set(thread.filter(m => !m.isBot).map(m => m.userId))];
+    const { applied } = await extractMemories(this.agent, transcript, existing, feedback, groups, {
+      participantIds,
+      createdBy: participantIds[0] ?? null,
+    });
+    if (applied > 0) this.log.info('Memory reflection created memories', { count: applied, threadId });
+
+    // Phase 2: opt-in periodic self-review. Piggybacks on this debounced pass but
+    // throttled per agent, and only when the set is big enough to be worth it.
+    // No recompile needed — memories are injected per-turn from the DB.
+    try {
+      const reconcile = (await getSetting('memoryReconcile').catch(() => null)) ?? 'off';
+      const now = Date.now();
+      if (reconcile === 'auto' && now - this.lastReconcileAt > 6 * 60 * 60 * 1000) {
+        const all = await getAgentMemories(this.agent.id);
+        if (all.length >= 8) {
+          this.lastReconcileAt = now;
+          const { applied: cleaned } = await reconcileMemories(this.agent, all, { apply: true });
+          if (cleaned > 0) this.log.info('Memory reconcile applied', { ops: cleaned });
+        }
+      }
+    } catch (err) {
+      this.log.warn('Memory reconcile skipped', { error: (err as Error).message });
     }
   }
 
@@ -810,6 +902,9 @@ export class MessageHandler {
     let verboseBlock = '';
     let groupNames = '';
     let resolvedVerbose = this.agent.verbose === true;
+    // Group ids the sender belongs to — reused by the scoped memory tier below
+    // so we don't re-query.
+    const senderGroupIds = new Set<string>();
     try {
       const db = getDb();
       const r = await db.query(
@@ -829,7 +924,8 @@ export class MessageHandler {
 
         const lines: string[] = [];
         const names: string[] = [];
-        for (const row of r.rows as { name: string; instructions: string }[]) {
+        for (const row of r.rows as { id: string; name: string; instructions: string }[]) {
+          senderGroupIds.add(row.id);
           // Strip framing metacharacters so an audience name can't break out
           // of the senderHeader / audienceBlock format and inject fake
           // directives. (CR/LF, '[' / ']' close-brackets, '·' separator.)
@@ -850,6 +946,26 @@ export class MessageHandler {
 
     if (resolvedVerbose) {
       verboseBlock = `${VERBOSE_NARRATION_DIRECTIVE}\n\n`;
+    }
+
+    // Memories are injected here, per turn (single source of truth — no CLAUDE.md
+    // memory cache). selectForPrompt picks what THIS sender sees: pinned +
+    // memories scoped to them + the most relevant globals within a byte budget.
+    // Best-effort — a failure here must never block the turn.
+    let memoryBlock = '';
+    try {
+      const all = await getAgentMemories(this.agent.id);
+      if (all.length) {
+        const chosen = selectForPrompt(all, {
+          userId, groupIds: senderGroupIds, queryText: userText, budgetBytes: MAX_MEMORY_PROMPT_BYTES,
+        });
+        const rendered = renderMemoryBlock(chosen, '# Learned Memories', [
+          'Facts and rules you have learned in prior conversations. Apply any that match.',
+        ]);
+        if (rendered) memoryBlock = `${rendered}\n\n`;
+      }
+    } catch (err) {
+      this.log.warn('Per-turn memory injection failed (skipped)', { error: (err as Error).message });
     }
 
     const senderHeader = `[Sender: ${senderName} (${userId}) · channel ${channelId}${threadId ? ` · thread ${threadId}` : ''}${groupNames}]\n\n`;
@@ -977,7 +1093,7 @@ export class MessageHandler {
     }
 
     const allTextChunks = [...linkedChunks, ...textChunks];
-    const textPrompt = `${senderHeader}${verboseBlock}${audienceBlock}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
+    const textPrompt = `${senderHeader}${verboseBlock}${audienceBlock}${memoryBlock}${threadContext}${allTextChunks.length > 0 ? allTextChunks.join('\n\n') + '\n\n' : ''}${userText}`.trim();
 
     if (binaryBlocks.length > 0) {
       const blocks: ContentBlockParam[] = [];

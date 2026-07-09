@@ -25,13 +25,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Agent, Memory, Skill } from '@slackhive/shared';
+import type { Agent, Skill } from '@slackhive/shared';
 import { getDb, agentIdentityBody } from '@slackhive/shared';
-import { getAgentSkills, getAgentMemories, getAgentWikiFolders } from './db';
+import { getAgentSkills, getAgentWikiFolders } from './db';
 import { logger } from './logger';
-
-/** Soft cap on inlined memory bytes in CLAUDE.md. Anything above this is truncated with a log. */
-const MAX_INLINED_MEMORY_BYTES = 32 * 1024;
 
 /**
  * Verbose narration directive. Injected into the per-message user turn by
@@ -258,9 +255,8 @@ export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: str
 
   fs.mkdirSync(workDir, { recursive: true });
 
-  const [skills, memories, assignedFolders] = await Promise.all([
+  const [skills, assignedFolders] = await Promise.all([
     getAgentSkills(agent.id),
-    getAgentMemories(agent.id),
     getAgentWikiFolders(agent.id),
   ]);
 
@@ -276,7 +272,6 @@ export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: str
   logger.info('Compiling agent workspace', {
     agent: agent.slug,
     skills: skills.length,
-    memories: memories.length,
   });
 
   // -------------------------------------------------------------------------
@@ -285,7 +280,7 @@ export async function compileAgentWorkspace(agent: Agent, overrideClaudeMd?: str
   //    Codex SDK and Claude Code). CLAUDE.md is written too for the headless
   //    claude-agent-sdk, which is confirmed to read CLAUDE.md. Identical content.
   // -------------------------------------------------------------------------
-  const claudeMdContent = buildClaudeMd(agent, memories, skills, overrideClaudeMd, formattingRules, folderSlugToName);
+  const claudeMdContent = buildClaudeMd(agent, skills, overrideClaudeMd, formattingRules, folderSlugToName);
   fs.writeFileSync(path.join(workDir, 'AGENTS.md'), claudeMdContent, 'utf-8');
   fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
 
@@ -460,81 +455,6 @@ export function writeAgentsSkills(targetDir: string, skills: Skill[], wikiBody: 
   }
 }
 
-/**
- * Builds the inlined `# Learned Memories (active)` section.
- *
- * Memories are written directly into the system prompt so the model always sees
- * them — replaces the old /recall + on-disk materialization path which required
- * the model to proactively invoke a skill. Rules like "when user is U095..., say X"
- * now fire deterministically because both the rule and the sender ID (prepended
- * by the message handler) are in the turn context.
- *
- * Grouped by type for scanability. Memory `name` is used as the heading so the
- * agent can flag contradictions by name (matches the "update/overwrite by name"
- * workflow in the Memory-writing guidance section).
- *
- * If total bytes exceed {@link MAX_INLINED_MEMORY_BYTES}, overflow memories are
- * dropped with a warning — we prefer a truncated-but-bounded prompt over a
- * runaway token cost.
- */
-function buildInlinedMemoriesSection(memories: Memory[]): string | null {
-  if (memories.length === 0) return null;
-
-  const groups: Record<Memory['type'], Memory[]> = {
-    feedback: [], user: [], project: [], reference: [],
-  };
-  for (const m of memories) {
-    if (groups[m.type]) groups[m.type].push(m);
-  }
-
-  const typeHeadings: Record<Memory['type'], string> = {
-    feedback: 'Feedback (behavioral rules — apply unconditionally)',
-    user: 'User (facts about people)',
-    project: 'Project (current initiatives)',
-    reference: 'Reference (domain knowledge)',
-  };
-
-  const parts: string[] = [
-    '# Learned Memories (active)',
-    '',
-    'These are facts and rules you learned in prior conversations. They are active',
-    'for EVERY turn — apply any that match the current context without being asked.',
-    'If a memory contradicts what the user just said, flag it by name and ask whether to update.',
-    '',
-  ];
-
-  let bytes = Buffer.byteLength(parts.join('\n'), 'utf-8');
-  let dropped = 0;
-
-  for (const type of ['feedback', 'user', 'project', 'reference'] as const) {
-    const rows = groups[type];
-    if (rows.length === 0) continue;
-    const heading = `## ${typeHeadings[type]}`;
-    parts.push(heading);
-    bytes += Buffer.byteLength(heading + '\n', 'utf-8');
-
-    for (const m of rows) {
-      const block = `\n### ${m.name}\n${m.content.trim()}\n`;
-      const blockBytes = Buffer.byteLength(block, 'utf-8');
-      if (bytes + blockBytes > MAX_INLINED_MEMORY_BYTES) {
-        dropped += 1;
-        continue;
-      }
-      parts.push(block);
-      bytes += blockBytes;
-    }
-    parts.push('');
-  }
-
-  if (dropped > 0) {
-    logger.warn('Memory inlining exceeded cap — some memories dropped', {
-      dropped,
-      cap: MAX_INLINED_MEMORY_BYTES,
-    });
-  }
-
-  return parts.join('\n');
-}
 
 /**
  * Parses `knowledge/wiki/index.md` to extract article path + one-line summary.
@@ -684,7 +604,6 @@ ${lines.join('\n')}`;
  */
 function buildClaudeMd(
   agent: Agent,
-  memories: Memory[],
   skills: Skill[],
   overrideClaudeMd?: string,
   formattingRules?: string,
@@ -711,10 +630,9 @@ function buildClaudeMd(
   // 3. Platform formatting rules (provided by adapter, or fallback to Slack)
   sections.push(formattingRules ?? SLACK_FORMATTING_SECTION);
 
-  // 4. Inlined learned memories — replaces the old /recall skill path so the
-  //    model always sees them. See buildInlinedMemoriesSection for rationale.
-  const memoriesSection = buildInlinedMemoriesSection(memories);
-  if (memoriesSection) sections.push(memoriesSection);
+  // 4. (Learned memories are no longer inlined here — they're injected per turn
+  //    in message-handler.ts → buildPrompt, from the DB, so there's one source of
+  //    truth and no recompile-on-write.)
 
   // 5. Knowledge base index — inlined so the model knows what exists without
   //    a Read round-trip. See buildWikiIndexSection.
@@ -742,9 +660,22 @@ Use the Write tool to create \`memory/{type}_{name}.md\`:
 name: {short_descriptive_name}
 type: {feedback | user | project | reference}
 description: {one line summary}
+pinned: {true only if this must be remembered on EVERY turn — omit otherwise}
+scope_user: {a specific sender's id from the [Sender: … (Uxxx) …] header, if this memory is only about/for that person — omit for everyone}
+scope_group: {an audience group name, if this memory only applies when a member of that group is asking — omit for everyone}
 ---
 {1–3 sentences. The rule, the why, the trigger. Pointer to the full source if it lives elsewhere.}
 \`\`\`
+
+## Memory tiers (pinned / scope) — use sparingly
+- **Default (omit all three)**: a global memory — available to everyone, surfaced
+  when relevant. This is almost always what you want.
+- **\`pinned: true\`** — "remember always": inlined every single turn, never dropped.
+  Reserve for a FEW critical, universal rules; over-pinning bloats every prompt.
+- **\`scope_user: Uxxx\`** — "only about/for this person": use the sender id shown in
+  the \`[Sender: name (Uxxx) …]\` header, not a display name.
+- **\`scope_group: <name>\`** — "only when a member of this audience asks": use an
+  existing group name exactly.
 
 ## Memory ≠ documentation
 
