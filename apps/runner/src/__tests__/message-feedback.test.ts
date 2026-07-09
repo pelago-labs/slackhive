@@ -154,6 +154,21 @@ describe('getFeedbackFeed (Observability feed)', () => {
     const a = await seedAgent();
     await recordMessageFeedback({ agentId: a, messageTs: 'a', raterUserId: 'r', sentiment: 'up' });
     const feed = await getFeedbackFeed({ accessibleAgentIds: [] }, 20, 0);
-    expect(feed).toEqual({ items: [], total: 0, nextOffset: null });
+    expect(feed).toEqual({ items: [], total: 0, nextOffset: null, summary: { up: 0, down: 0 } });
+  });
+
+  it('summary carries scope-wide up/down (ignoring the sentiment filter); null past page 0', async () => {
+    const agentId = await seedAgent();
+    for (let i = 0; i < 3; i++) await recordMessageFeedback({ agentId, messageTs: `u${i}`, raterUserId: `u${i}`, sentiment: 'up' });
+    await recordMessageFeedback({ agentId, messageTs: 'd0', raterUserId: 'd', sentiment: 'down' });
+
+    // Filtered to 'down', but the summary still reflects ALL ratings in scope.
+    const first = await getFeedbackFeed({ agentId, sentiment: 'down' }, 2, 0);
+    expect(first.summary).toEqual({ up: 3, down: 1 });
+    expect(first.total).toBe(1); // list total honors the filter
+
+    // "Load more" (offset > 0) omits the summary — the caller keeps the first page's.
+    const more = await getFeedbackFeed({ agentId }, 2, 2);
+    expect(more.summary).toBeNull();
   });
 });

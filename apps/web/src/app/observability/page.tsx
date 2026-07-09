@@ -72,7 +72,7 @@ interface FeedbackItem {
   raterHandle: string | null; note: string | null; permalink: string | null;
   createdAt: string; sessionId: string | null;
 }
-interface FeedbackPage { items: FeedbackItem[]; total: number; nextOffset: number | null }
+interface FeedbackPage { items: FeedbackItem[]; total: number; nextOffset: number | null; summary: { up: number; down: number } | null }
 
 type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sessions';
 
@@ -439,7 +439,7 @@ function Overview({ data, agentName, canTokens, onTab }: { data: InsightsRespons
               rows={topTools.slice(0, 6).map(t => ({ label: t.name, value: t.count, sub: `${t.count}${t.errors ? ` · ${t.errors} err` : ''}` }))} />
           </div>
         )}
-        <FeedbackCard r={r} scope={data.scope} />
+        <FeedbackCard r={r} scope={data.scope} onTab={onTab} />
       </div>
 
       {/* Recent sessions */}
@@ -667,7 +667,7 @@ function Subtle({ children }: { children: React.ReactNode }) { return <span clas
 
 /** Satisfaction card (rendered on the Overview): big %, a green/red split bar,
  *  up/down counts, and a contextual note. Returns null when there are no ratings. */
-function FeedbackCard({ r, scope }: { r: Rollup | null; scope: string }): React.JSX.Element | null {
+function FeedbackCard({ r, scope, onTab }: { r: Rollup | null; scope: string; onTab: (t: TabKey) => void }): React.JSX.Element | null {
   const up = r?.feedbackUp ?? 0, down = r?.feedbackDown ?? 0;
   const total = up + down;
   if (total === 0) return null;
@@ -675,10 +675,13 @@ function FeedbackCard({ r, scope }: { r: Rollup | null; scope: string }): React.
   const toneCls = pct >= 80 ? 'text-green' : pct >= 50 ? 'text-amber' : 'text-red';
   const label = pct >= 80 ? 'Great' : pct >= 50 ? 'Mixed' : 'Poor';
   return (
-    <div className={cardCls}>
-      <div className="mb-2.5 flex items-center">
+    <div onClick={() => onTab('feedback')} role="button" tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTab('feedback'); } }}
+      className={cn(cardCls, 'cursor-pointer transition-colors hover:border-primary/40')}>
+      <div className="mb-2.5 flex items-center gap-2">
         <span className="text-sm font-semibold">Satisfaction</span>
-        <span className="ml-auto text-2xs text-muted-foreground">{total} rating{total === 1 ? '' : 's'}</span>
+        <span className="text-2xs text-muted-foreground">· {total} rating{total === 1 ? '' : 's'}</span>
+        <span className="ml-auto inline-flex items-center gap-1 text-2xs font-medium text-muted-foreground">View all <ArrowRight size={11} /></span>
       </div>
       <div className="flex items-baseline gap-2.5">
         <span className={cn('text-3xl font-bold leading-none tracking-[-0.02em]', toneCls)}>{pct}%</span>
@@ -797,8 +800,9 @@ function Feedback({ fetchPage, agentName, scope }: {
 }) {
   const [sentiment, setSentiment] = useState<'up' | 'down' | ''>('');
   const [items, setItems] = useState<FeedbackItem[]>([]);
-  const [total, setTotal] = useState(0);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
+  // Scope-wide up/down (sentiment-agnostic) for the header; set from the first page.
+  const [summary, setSummary] = useState<{ up: number; down: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
@@ -810,7 +814,7 @@ function Feedback({ fetchPage, agentName, scope }: {
     const my = ++gen.current;
     setLoading(true); setError(false);
     fetchPage(0, sentiment)
-      .then(page => { if (gen.current === my) { setItems(page.items); setTotal(page.total); setNextOffset(page.nextOffset); } })
+      .then(page => { if (gen.current === my) { setItems(page.items); setNextOffset(page.nextOffset); setSummary(page.summary); } })
       .catch(() => { if (gen.current === my) setError(true); })
       .finally(() => { if (gen.current === my) setLoading(false); });
   }, [fetchPage, sentiment]);
@@ -845,9 +849,17 @@ function Feedback({ fetchPage, agentName, scope }: {
 
   return (
     <>
-      <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
-        <MiniMetric label={sentiment === 'up' ? 'Positive' : sentiment === 'down' ? 'Negative' : 'Ratings'} value={String(total)} sub="in this window" />
-      </div>
+      {(() => {
+        const up = summary?.up ?? 0, down = summary?.down ?? 0, rated = up + down;
+        const score = rated === 0 ? 0 : Math.round((up / rated) * 100);
+        return (
+          <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
+            <MiniMetric label="Satisfaction" value={rated === 0 ? '—' : `${score}%`} sub={`${rated} rated in this window`} tone={rated === 0 ? undefined : score >= 66 ? 'var(--green)' : score >= 33 ? 'var(--amber)' : 'var(--red)'} />
+            <MiniMetric label="Positive" value={String(up)} sub="thumbs up" tone={up ? 'var(--green)' : undefined} />
+            <MiniMetric label="Negative" value={String(down)} sub="thumbs down" tone={down ? 'var(--red)' : undefined} />
+          </div>
+        );
+      })()}
       <div className={cardCls}>
         <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-border pb-3">
           <div className="mr-1 text-sm font-semibold text-foreground">Feedback</div>
@@ -890,6 +902,7 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
   const [q, setQ] = useState('');
   const [stateFilter, setStateFilter] = useState<'all' | 'done' | 'error' | 'active'>('all');
   const [sensOnly, setSensOnly] = useState(false);
+  const [fbFilter, setFbFilter] = useState<'all' | 'up' | 'down'>('all');
   const [initiator, setInitiator] = useState('');
   // Accumulated rows + the cursor for the next page. Reset whenever the first page
   // changes (a filter/window re-fetch hands down a fresh `sessions` array).
@@ -969,6 +982,8 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
     return rows.filter(s => {
       if (stateFilter !== 'all' && s.status !== stateFilter) return false;
       if (sensOnly && !s.sensitive) return false;
+      if (fbFilter === 'up' && s.feedbackUp === 0) return false;
+      if (fbFilter === 'down' && s.feedbackDown === 0) return false;
       if (initiator && s.initiatorHandle !== initiator) return false;
       if (needle && !(
         (s.summary ?? '').toLowerCase().includes(needle) ||
@@ -976,9 +991,11 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
         s.agentIds.some(id => (agentName.get(id) ?? '').toLowerCase().includes(needle)))) return false;
       return true;
     });
-  }, [rows, q, stateFilter, sensOnly, initiator, agentName]);
+  }, [rows, q, stateFilter, sensOnly, fbFilter, initiator, agentName]);
   const errCount = rows.filter(s => s.status === 'error').length;
   const sensCount = rows.filter(s => s.sensitive).length;
+  const fbPosCount = rows.filter(s => s.feedbackUp > 0).length;
+  const fbNegCount = rows.filter(s => s.feedbackDown > 0).length;
   const activeCount = rows.filter(s => s.status === 'active').length;
   const doneCount = rows.filter(s => s.status === 'done').length;
   const turnCount = rows.reduce((sum, s) => sum + s.turns, 0);
@@ -1002,6 +1019,12 @@ function Sessions({ sessions, cursor, fetchMore, agentName, canTokens, canReveal
               <FilterChip key={key} active={stateFilter === key} onClick={() => setStateFilter(key)}>{label}</FilterChip>
             ))}
             {sensCount > 0 && <FilterChip active={sensOnly} onClick={() => setSensOnly(v => !v)} color="#b45309">Sensitive {sensCount}</FilterChip>}
+            {fbPosCount > 0 && <FilterChip active={fbFilter === 'up'} onClick={() => setFbFilter(f => f === 'up' ? 'all' : 'up')} color="var(--green)">
+              <span className="inline-flex items-center gap-1"><ThumbsUp size={11} />{fbPosCount}</span>
+            </FilterChip>}
+            {fbNegCount > 0 && <FilterChip active={fbFilter === 'down'} onClick={() => setFbFilter(f => f === 'down' ? 'all' : 'down')} color="var(--red)">
+              <span className="inline-flex items-center gap-1"><ThumbsDown size={11} />{fbNegCount}</span>
+            </FilterChip>}
           </div>
           {initiators.length > 0 && (
             <select value={initiator} onChange={e => setInitiator(e.target.value)} title="Filter by who initiated"

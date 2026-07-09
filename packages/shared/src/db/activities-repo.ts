@@ -964,10 +964,14 @@ export interface FeedbackFeedItem {
 
 export interface FeedbackFeedPage {
   items: FeedbackFeedItem[];
-  /** Total rows matching the filter (for the header count / "Load more" math). */
+  /** Total rows matching the filter (for the "Load more" math). */
   total: number;
   /** Offset to pass for the next page, or null when this is the last page. */
   nextOffset: number | null;
+  /** Up/down totals for the scope+window, IGNORING the sentiment filter — powers
+   *  the header summary (Positive / Negative / Satisfaction). Computed on the
+   *  first page only (offset 0); null on "Load more" (the caller keeps it). */
+  summary: { up: number; down: number } | null;
 }
 
 /**
@@ -986,20 +990,40 @@ export async function getFeedbackFeed(
   const lim = Math.min(Math.max(Number.isFinite(limit) ? limit : 20, 1), 100);
   const off = Math.max(Number.isFinite(offset) ? offset : 0, 0);
 
-  const wheres: string[] = [];
-  const params: unknown[] = [];
+  // Base scope (agent + window) — shared by the summary and the list; the
+  // sentiment filter is layered on top for the list/total only.
+  const baseWheres: string[] = [];
+  const baseParams: unknown[] = [];
   if (filter.agentId) {
-    params.push(filter.agentId);
-    wheres.push(`f.agent_id = $${params.length}`);
+    baseParams.push(filter.agentId);
+    baseWheres.push(`f.agent_id = $${baseParams.length}`);
   } else if (filter.accessibleAgentIds) {
-    if (filter.accessibleAgentIds.length === 0) return { items: [], total: 0, nextOffset: null };
-    const ph = filter.accessibleAgentIds.map((_, i) => `$${params.length + i + 1}`).join(', ');
-    params.push(...filter.accessibleAgentIds);
-    wheres.push(`f.agent_id IN (${ph})`);
+    if (filter.accessibleAgentIds.length === 0) {
+      return { items: [], total: 0, nextOffset: null, summary: off === 0 ? { up: 0, down: 0 } : null };
+    }
+    const ph = filter.accessibleAgentIds.map((_, i) => `$${baseParams.length + i + 1}`).join(', ');
+    baseParams.push(...filter.accessibleAgentIds);
+    baseWheres.push(`f.agent_id IN (${ph})`);
   }
+  if (filter.since) { baseParams.push(filter.since); baseWheres.push(`f.created_at >= $${baseParams.length}`); }
+  if (filter.until) { baseParams.push(filter.until); baseWheres.push(`f.created_at < $${baseParams.length}`); }
+  const baseWhereSql = baseWheres.length ? `WHERE ${baseWheres.join(' AND ')}` : '';
+
+  // Summary (first page only): up/down over the scope+window, sentiment-agnostic.
+  let summary: { up: number; down: number } | null = null;
+  if (off === 0) {
+    const s = await db.query(
+      `SELECT COALESCE(SUM(CASE WHEN sentiment = 'up'   THEN 1 ELSE 0 END), 0) AS up_count,
+              COALESCE(SUM(CASE WHEN sentiment = 'down' THEN 1 ELSE 0 END), 0) AS down_count
+         FROM message_feedback f ${baseWhereSql}`,
+      baseParams,
+    );
+    summary = { up: Number(s.rows[0]?.up_count ?? 0), down: Number(s.rows[0]?.down_count ?? 0) };
+  }
+
+  const wheres = [...baseWheres];
+  const params = [...baseParams];
   if (filter.sentiment) { params.push(filter.sentiment); wheres.push(`f.sentiment = $${params.length}`); }
-  if (filter.since) { params.push(filter.since); wheres.push(`f.created_at >= $${params.length}`); }
-  if (filter.until) { params.push(filter.until); wheres.push(`f.created_at < $${params.length}`); }
   const whereSql = wheres.length ? `WHERE ${wheres.join(' AND ')}` : '';
 
   const countRes = await db.query(`SELECT COUNT(*) AS c FROM message_feedback f ${whereSql}`, params);
@@ -1025,6 +1049,6 @@ export async function getFeedbackFeed(
     sessionId: (n.task_id as string | null) ?? null,
   }));
   const nextOffset = off + items.length < total ? off + items.length : null;
-  return { items, total, nextOffset };
+  return { items, total, nextOffset, summary };
 }
 
