@@ -65,6 +65,16 @@ The Tools tab shows tool reliability across the selected window:
 
 This is the quickest way to separate "the agent reasoned poorly" from "the database, API, or MCP server failed."
 
+## Feedback
+
+The Feedback tab is a running feed of every 👍 / 👎 rating people left on agent replies, newest first. Each row shows the sentiment, which agent was rated, who rated it, the note (the reason on a 👎), and when - and links straight to the trace of the rated turn so you can see exactly what the agent did.
+
+- Filter by **Positive** or **Negative** to focus on what to fix or what's working
+- Scope to one agent (via the agent filter) or view all agents you can access
+- Page through with **Load more**
+
+Negative feedback here is also the strongest signal the [memory](/agents/memory) reflection pass learns from - a 👎 with a note becomes a corrective memory.
+
 ## Sessions
 
 The Sessions tab groups activity by Slack thread or test session. Expand a session to inspect the turn chain and open the trace page.

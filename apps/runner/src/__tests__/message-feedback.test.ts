@@ -17,6 +17,7 @@ import {
   closeDb,
   recordMessageFeedback,
   getFeedbackReport,
+  getFeedbackFeed,
 } from '@slackhive/shared';
 
 let dbPath: string;
@@ -98,5 +99,61 @@ describe('getFeedbackReport', () => {
     await recordMessageFeedback({ agentId: a, messageTs: 'm1', raterUserId: 'u1', sentiment: 'up' });
     expect((await getFeedbackReport(b)).total).toBe(0);
     expect((await getFeedbackReport(a)).total).toBe(1);
+  });
+});
+
+describe('getFeedbackFeed (Observability feed)', () => {
+  it('paginates newest-first with a correct nextOffset chain', async () => {
+    const agentId = await seedAgent();
+    // 5 ratings; ts sorts so we can assert order (created_at DESC, id DESC).
+    for (let i = 0; i < 5; i++) {
+      await recordMessageFeedback({ agentId, messageTs: `m${i}`, raterUserId: `u${i}`, sentiment: i % 2 ? 'down' : 'up' });
+    }
+    const p1 = await getFeedbackFeed({ agentId }, 2, 0);
+    expect(p1.total).toBe(5);
+    expect(p1.items).toHaveLength(2);
+    expect(p1.nextOffset).toBe(2);
+
+    const p2 = await getFeedbackFeed({ agentId }, 2, p1.nextOffset!);
+    expect(p2.items).toHaveLength(2);
+    expect(p2.nextOffset).toBe(4);
+
+    const p3 = await getFeedbackFeed({ agentId }, 2, p2.nextOffset!);
+    expect(p3.items).toHaveLength(1);
+    expect(p3.nextOffset).toBeNull(); // last page
+
+    // No duplicates/gaps across the three pages.
+    const ids = [...p1.items, ...p2.items, ...p3.items].map(i => i.id);
+    expect(new Set(ids).size).toBe(5);
+  });
+
+  it('filters by sentiment (total reflects the filter)', async () => {
+    const agentId = await seedAgent();
+    for (let i = 0; i < 3; i++) await recordMessageFeedback({ agentId, messageTs: `up${i}`, raterUserId: `u${i}`, sentiment: 'up' });
+    await recordMessageFeedback({ agentId, messageTs: 'd0', raterUserId: 'd', sentiment: 'down', note: 'nope' });
+
+    const down = await getFeedbackFeed({ agentId, sentiment: 'down' }, 20, 0);
+    expect(down.total).toBe(1);
+    expect(down.items).toEqual([expect.objectContaining({ sentiment: 'down', note: 'nope' })]);
+  });
+
+  it('scopes to accessibleAgentIds (RBAC): spans allowed agents, excludes others', async () => {
+    const a = await seedAgent();
+    const b = await seedAgent();
+    const c = await seedAgent();
+    await recordMessageFeedback({ agentId: a, messageTs: 'a', raterUserId: 'r', sentiment: 'up' });
+    await recordMessageFeedback({ agentId: b, messageTs: 'b', raterUserId: 'r', sentiment: 'up' });
+    await recordMessageFeedback({ agentId: c, messageTs: 'c', raterUserId: 'r', sentiment: 'down' });
+
+    const feed = await getFeedbackFeed({ accessibleAgentIds: [a, b] }, 20, 0);
+    expect(feed.total).toBe(2);
+    expect(new Set(feed.items.map(i => i.agentId))).toEqual(new Set([a, b])); // c excluded
+  });
+
+  it('empty accessibleAgentIds means "sees nothing", never "all agents"', async () => {
+    const a = await seedAgent();
+    await recordMessageFeedback({ agentId: a, messageTs: 'a', raterUserId: 'r', sentiment: 'up' });
+    const feed = await getFeedbackFeed({ accessibleAgentIds: [] }, 20, 0);
+    expect(feed).toEqual({ items: [], total: 0, nextOffset: null });
   });
 });

@@ -67,6 +67,13 @@ interface InsightsResponse {
 
 interface SessionsPage { sessions: SessionRow[]; nextCursor: string | null }
 
+interface FeedbackItem {
+  id: string; agentId: string; sentiment: 'up' | 'down';
+  raterHandle: string | null; note: string | null; permalink: string | null;
+  createdAt: string; sessionId: string | null;
+}
+interface FeedbackPage { items: FeedbackItem[]; total: number; nextOffset: number | null }
+
 type TabKey = 'overview' | 'tokens' | 'sensitive' | 'tools' | 'feedback' | 'sessions';
 
 const cardCls = 'rounded-lg border border-border bg-card px-4 py-3.5 shadow-card';
@@ -127,6 +134,17 @@ function Body(): React.JSX.Element {
     return await r.json() as SessionsPage;
   }, [agentFilter, windowKey, from, to]);
 
+  // Fetch a page of the feedback feed (limit/offset) for the Feedback tab. Closes
+  // over the current scope/window so a filter change hands the tab a fresh fetcher.
+  const loadFeedback = useCallback(async (offset: number, sentiment: 'up' | 'down' | ''): Promise<FeedbackPage> => {
+    const qs = new URLSearchParams({ ...timeParams(windowKey, from, to), offset: String(offset) });
+    if (agentFilter) qs.set('agent', agentFilter);
+    if (sentiment) qs.set('sentiment', sentiment);
+    const r = await fetch(`/api/activity/feedback?${qs}`);
+    if (!r.ok) throw new Error('Failed to load feedback');
+    return await r.json() as FeedbackPage;
+  }, [agentFilter, windowKey, from, to]);
+
   useEffect(() => { load(); }, [load]);
 
   // Reflect filters in the URL (shareable / bookmarkable). Only replace when the
@@ -151,6 +169,7 @@ function Body(): React.JSX.Element {
     { key: 'tokens', label: 'Tokens & Cost', Icon: Coins },
     { key: 'sensitive', label: 'Sensitive', Icon: ShieldAlert },
     { key: 'tools', label: 'Tools', Icon: Wrench },
+    { key: 'feedback', label: 'Feedback', Icon: ThumbsUp },
     { key: 'sessions', label: 'Sessions', Icon: Layers },
   ];
   const activeTab = tabs.some(t => t.key === tab) ? tab : 'overview';
@@ -197,6 +216,7 @@ function Body(): React.JSX.Element {
             : activeTab === 'tokens' ? <Tokens data={data} agentName={agentName} canTokens={canTokens} isSuper={isSuper} />
             : activeTab === 'sensitive' ? <Sensitive events={data.events ?? []} flows={data.flows ?? []} />
             : activeTab === 'tools' ? <Tools tools={data.tools ?? []} />
+            : activeTab === 'feedback' ? <Feedback fetchPage={loadFeedback} agentName={agentName} scope={scope} />
             : <Sessions sessions={data.sessions ?? []} cursor={data.sessionsCursor ?? null} fetchMore={loadMoreSessions} agentName={agentName} canTokens={canTokens} canReveal={canReveal} />}
         </>
       )}
@@ -759,6 +779,109 @@ function TurnRows({ turn, request, sessionId, cols, expanded, onToggle, canToken
           </td>
         </tr>
       )}
+    </>
+  );
+}
+
+/**
+ * Feedback tab: a paginated, newest-first feed of every 👍/👎 rating in scope,
+ * each row linking to the rated turn's trace. Self-fetching (the composed
+ * insights snapshot doesn't carry the feed): it (re)loads page 0 whenever the
+ * scope/window (fetchPage identity) or the sentiment filter changes, and appends
+ * pages via "Load more" (limit/offset).
+ */
+function Feedback({ fetchPage, agentName, scope }: {
+  fetchPage: (offset: number, sentiment: 'up' | 'down' | '') => Promise<FeedbackPage>;
+  agentName: Map<string, string>;
+  scope: 'all' | 'agent';
+}) {
+  const [sentiment, setSentiment] = useState<'up' | 'down' | ''>('');
+  const [items, setItems] = useState<FeedbackItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState(false);
+  // Bumped on every (re)load so a slow in-flight fetch from a prior scope/filter
+  // can't write stale rows over the current view.
+  const gen = useRef(0);
+
+  useEffect(() => {
+    const my = ++gen.current;
+    setLoading(true); setError(false);
+    fetchPage(0, sentiment)
+      .then(page => { if (gen.current === my) { setItems(page.items); setTotal(page.total); setNextOffset(page.nextOffset); } })
+      .catch(() => { if (gen.current === my) setError(true); })
+      .finally(() => { if (gen.current === my) setLoading(false); });
+  }, [fetchPage, sentiment]);
+
+  const loadMore = useCallback(async () => {
+    if (nextOffset == null || loadingMore) return;
+    const my = gen.current;
+    setLoadingMore(true);
+    try {
+      const page = await fetchPage(nextOffset, sentiment);
+      if (gen.current !== my) return; // scope/filter changed mid-fetch → drop
+      setItems(prev => { const seen = new Set(prev.map(i => i.id)); return [...prev, ...page.items.filter(i => !seen.has(i.id))]; });
+      setNextOffset(page.nextOffset);
+    } catch { /* keep offset so the user can retry */ } finally {
+      if (gen.current === my) setLoadingMore(false);
+    }
+  }, [nextOffset, loadingMore, fetchPage, sentiment]);
+
+  const cols: Col<FeedbackItem>[] = [
+    { label: '', width: '34px', render: r => r.sentiment === 'up'
+        ? <ThumbsUp size={13} className="text-green" /> : <ThumbsDown size={13} className="text-red" /> },
+    ...(scope === 'all' ? [{ label: 'Agent', render: (r: FeedbackItem) => <Subtle>{truncate(agentName.get(r.agentId) ?? r.agentId, 20)}</Subtle> } as Col<FeedbackItem>] : []),
+    { label: 'From', render: r => <Subtle>{r.raterHandle ? `@${r.raterHandle}` : '—'}</Subtle> },
+    { label: 'Note', render: r => r.note
+        ? <span title={r.note}>{truncate(r.note, 70)}</span>
+        : <Subtle>{r.sentiment === 'up' ? '(no note)' : '(no reason given)'}</Subtle> },
+    { label: 'When', align: 'right', render: r => <Subtle><span title={r.createdAt}>{relativeTime(r.createdAt)}</span></Subtle> },
+    { label: 'Trace', align: 'right', render: r => r.sessionId
+        ? <span className="inline-flex justify-end text-muted-foreground"><ExternalLink size={13} /></span>
+        : <Subtle>—</Subtle> },
+  ];
+
+  return (
+    <>
+      <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5">
+        <MiniMetric label={sentiment === 'up' ? 'Positive' : sentiment === 'down' ? 'Negative' : 'Ratings'} value={String(total)} sub="in this window" />
+      </div>
+      <div className={cardCls}>
+        <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-border pb-3">
+          <div className="mr-1 text-sm font-semibold text-foreground">Feedback</div>
+          <div className="inline-flex flex-wrap gap-1">
+            {([['', 'All'], ['up', 'Positive'], ['down', 'Negative']] as const).map(([key, label]) => (
+              <FilterChip key={key || 'all'} active={sentiment === key} onClick={() => setSentiment(key)}>
+                {key === 'up' ? <span className="inline-flex items-center gap-1 text-green"><ThumbsUp size={11} />{label}</span>
+                  : key === 'down' ? <span className="inline-flex items-center gap-1 text-red"><ThumbsDown size={11} />{label}</span>
+                  : label}
+              </FilterChip>
+            ))}
+          </div>
+        </div>
+        {loading ? <div className="px-3 py-4 text-center text-xs text-muted-foreground">Loading…</div>
+          : error ? <div className="px-3 py-4 text-center text-xs text-muted-foreground">Couldn’t load feedback.</div>
+          : (
+            <>
+              <Table<FeedbackItem>
+                cols={cols}
+                rows={items}
+                rowHref={r => r.sessionId ? `/activity/${encodeURIComponent(r.sessionId)}` : undefined}
+                empty="No feedback in this window."
+              />
+              {nextOffset != null && (
+                <div className="flex justify-center pt-3">
+                  <button onClick={loadMore} disabled={loadingMore} className={cn(
+                    'rounded-md border border-border bg-card px-4 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted',
+                    loadingMore ? 'cursor-default opacity-60' : 'cursor-pointer',
+                  )}>{loadingMore ? 'Loading…' : 'Load more'}</button>
+                </div>
+              )}
+            </>
+          )}
+      </div>
     </>
   );
 }

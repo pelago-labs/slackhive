@@ -947,3 +947,84 @@ export async function getFeedbackReport(
   return { up, down, total, scorePercent, ratingCount, recentRatings };
 }
 
+/** One rating in the cross-agent Observability feed. Carries its own agent id
+ *  (the feed can span many agents) and the session/task id for the trace link. */
+export interface FeedbackFeedItem {
+  id: string;
+  agentId: string;
+  sentiment: 'up' | 'down';
+  raterHandle: string | null;
+  note: string | null;
+  permalink: string | null;
+  createdAt: string;
+  /** Task id of the rated turn → links to /activity/[taskId]. Null when the
+   *  feedback row has no activity link (e.g. recorded with the dashboard off). */
+  sessionId: string | null;
+}
+
+export interface FeedbackFeedPage {
+  items: FeedbackFeedItem[];
+  /** Total rows matching the filter (for the header count / "Load more" math). */
+  total: number;
+  /** Offset to pass for the next page, or null when this is the last page. */
+  nextOffset: number | null;
+}
+
+/**
+ * Paginated feed of individual 👍/👎 ratings, newest first — powers the
+ * Observability "Feedback" tab. Scope is either one agent (`agentId`) or every
+ * agent the caller can see (`accessibleAgentIds`; pass `undefined` for full
+ * access, e.g. a superadmin). An empty `accessibleAgentIds` array means the
+ * caller can see nothing → an empty page (never "all agents").
+ */
+export async function getFeedbackFeed(
+  filter: { agentId?: string; accessibleAgentIds?: string[]; sentiment?: 'up' | 'down'; since?: string; until?: string },
+  limit: number,
+  offset: number,
+): Promise<FeedbackFeedPage> {
+  const db = getDb();
+  const lim = Math.min(Math.max(Number.isFinite(limit) ? limit : 20, 1), 100);
+  const off = Math.max(Number.isFinite(offset) ? offset : 0, 0);
+
+  const wheres: string[] = [];
+  const params: unknown[] = [];
+  if (filter.agentId) {
+    params.push(filter.agentId);
+    wheres.push(`f.agent_id = $${params.length}`);
+  } else if (filter.accessibleAgentIds) {
+    if (filter.accessibleAgentIds.length === 0) return { items: [], total: 0, nextOffset: null };
+    const ph = filter.accessibleAgentIds.map((_, i) => `$${params.length + i + 1}`).join(', ');
+    params.push(...filter.accessibleAgentIds);
+    wheres.push(`f.agent_id IN (${ph})`);
+  }
+  if (filter.sentiment) { params.push(filter.sentiment); wheres.push(`f.sentiment = $${params.length}`); }
+  if (filter.since) { params.push(filter.since); wheres.push(`f.created_at >= $${params.length}`); }
+  if (filter.until) { params.push(filter.until); wheres.push(`f.created_at < $${params.length}`); }
+  const whereSql = wheres.length ? `WHERE ${wheres.join(' AND ')}` : '';
+
+  const countRes = await db.query(`SELECT COUNT(*) AS c FROM message_feedback f ${whereSql}`, params);
+  const total = Number(countRes.rows[0]?.c ?? 0);
+
+  const listRes = await db.query(
+    `SELECT f.id, f.agent_id, f.sentiment, f.rater_handle, f.note, f.permalink, f.created_at, a.task_id
+       FROM message_feedback f
+       LEFT JOIN activities a ON a.id = f.activity_id
+       ${whereSql}
+      ORDER BY f.created_at DESC, f.id DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, lim, off],
+  );
+  const items: FeedbackFeedItem[] = listRes.rows.map(n => ({
+    id: n.id as string,
+    agentId: n.agent_id as string,
+    sentiment: n.sentiment as 'up' | 'down',
+    raterHandle: (n.rater_handle as string | null) ?? null,
+    note: (n.note as string | null) ?? null,
+    permalink: (n.permalink as string | null) ?? null,
+    createdAt: n.created_at as string,
+    sessionId: (n.task_id as string | null) ?? null,
+  }));
+  const nextOffset = off + items.length < total ? off + items.length : null;
+  return { items, total, nextOffset };
+}
+
