@@ -489,10 +489,14 @@ async function computeAgentRollup(opts: { agentId: string; since?: string; until
   if (Number.isFinite(sinceMs)) { spanW.push(`start_ms >= $${spanParams.length + 1}`); spanParams.push(sinceMs); }
   if (Number.isFinite(untilMs)) { spanW.push(`start_ms <= $${spanParams.length + 1}`); spanParams.push(untilMs); }
   const spanWhere = spanW.join(' AND ');
-  // Feedback is a sparse, lifetime signal — NOT window-scoped, so satisfaction
-  // always reflects the agent's standing rather than vanishing on a short window.
-  const fbWhere = `agent_id = $1`;
+  // feedback scope (created_at window) — window-scoped like every other rollup metric,
+  // so satisfaction matches the selected time range. Small samples stay honest because
+  // the card reports the rating count and hides itself when there are none.
+  const fbW: string[] = ['agent_id = $1'];
   const fbParams: unknown[] = [agentId];
+  if (since) { fbW.push(`created_at >= $${fbParams.length + 1}`); fbParams.push(since); }
+  if (until) { fbW.push(`created_at <= $${fbParams.length + 1}`); fbParams.push(until); }
+  const fbWhere = fbW.join(' AND ');
 
   const [act, byDay, span, lat, tools, models, fb, sens] = await Promise.all([
     db.query(`SELECT COUNT(DISTINCT task_id) sessions, COUNT(*) turns,
@@ -635,10 +639,13 @@ async function computeInsightsRollup(filter: InsightsFilter): Promise<InsightsRo
   if (Number.isFinite(untilMs)) { spanW.push(`start_ms <= $${spanParams.length + 1}`); spanParams.push(untilMs); }
   const spanWhere = spanW.join(' AND ');
 
-  // feedback: lifetime (not window-scoped), matching getAgentRollup.
+  // feedback scope (created_at window) — window-scoped like every other Overview card.
   const fbScope = insightsScope(filter, 1);
-  const fbWhere = fbScope!.clause;
   const fbParams: unknown[] = [...fbScope!.params];
+  const fbW = [fbScope!.clause];
+  if (filter.since) { fbW.push(`created_at >= $${fbParams.length + 1}`); fbParams.push(filter.since); }
+  if (filter.until) { fbW.push(`created_at <= $${fbParams.length + 1}`); fbParams.push(filter.until); }
+  const fbWhere = fbW.join(' AND ');
 
   const [act, byDay, span, lat, tools, models, fb, sens, sessStatus, sensSess] = await Promise.all([
     db.query(`SELECT COUNT(DISTINCT task_id) sessions, COUNT(*) turns,
