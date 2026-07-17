@@ -848,6 +848,9 @@ export class AgentRunner {
     // Wire message handler: adapter → MessageHandler → backend
     const messageHandler = new MessageHandler(adapter, backend, agent, restrictions);
     adapter.onMessage(msg => messageHandler.handleMessage(msg));
+    adapter.onMessageDeleted?.(async event => {
+      await messageHandler.cancelByDeletedMessage(event.channelId, event.messageId);
+    });
 
     // Start the platform connection
     await adapter.start();

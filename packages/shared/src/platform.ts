@@ -38,6 +38,9 @@ export interface PlatformAdapter {
   /** Register the message handler. Called once at setup. */
   onMessage(handler: (msg: IncomingMessage) => Promise<void>): void;
 
+  /** Register an optional platform message-deletion handler. */
+  onMessageDeleted?(handler: (event: MessageDeletedEvent) => Promise<void>): void;
+
   // ─── Send ────────────────────────────────────────────────────────
 
   /** Post a message. Returns the platform message ID. */
@@ -206,6 +209,12 @@ export interface IncomingMessage {
 
   /** Raw platform event data (escape hatch for platform-specific logic). */
   raw?: unknown;
+}
+
+/** Normalized notification that a platform message was deleted. */
+export interface MessageDeletedEvent {
+  channelId: string;
+  messageId: string;
 }
 
 /** A message in thread context (for building conversation history). */

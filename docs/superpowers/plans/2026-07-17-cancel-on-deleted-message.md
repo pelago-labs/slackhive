@@ -44,8 +44,9 @@
 - Produces: `MessageHandler.cancelByDeletedMessage(channelId: string, messageId: string): Promise<boolean>`
 
 - [ ] Write failing tests for matching, unrelated, and duplicate deletions. Assert controller abort, exactly one non-threaded cancellation notice, no fallback/final payload, and no post-deletion reaction update.
+- [ ] Add a failing race test where deletion arrives immediately before active-run registration.
 - [ ] Run `npm test -w apps/runner -- src/__tests__/message-handler-deletion.test.ts` and verify the feature assertions fail.
-- [ ] Introduce a small active-run record with source key, controller, and deletion flag; index it by session and source message with identity-guarded cleanup.
+- [ ] Introduce a small active-run record with source key, controller, and deletion flag; index it by session and source message with identity-guarded cleanup. Add a bounded 60-second deletion tombstone for pre-registration races.
 - [ ] Implement `cancelByDeletedMessage`, set the deletion flag before aborting, and post the exact notice without a thread ID.
 - [ ] Guard response-posting paths and route deletion abort cleanup to `error` with `cancelled: source message deleted` while skipping reactions.
 - [ ] Rerun deletion and existing abort tests and verify they pass.
@@ -64,4 +65,3 @@
 - [ ] Run the focused deletion and abort tests.
 - [ ] Run `npm test -w apps/runner`; confirm no new failures relative to the 665/666 baseline.
 - [ ] Inspect `git diff --check` and `git status --short`, then commit the feature with `feat(runner): cancel runs when Slack messages are deleted`.
-

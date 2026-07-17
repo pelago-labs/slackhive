@@ -15,11 +15,11 @@
  * @module runner/adapters/slack-adapter
  */
 
-import { App, LogLevel } from '@slack/bolt';
+import { App, LogLevel, subtype } from '@slack/bolt';
 import { WebClient } from '@slack/web-api';
 import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment, MessagePayload,
-  SlackCredentials,
+  MessageDeletedEvent, SlackCredentials,
 } from '@slackhive/shared';
 import { recordMessageFeedback, linkActivityReply, findActivityIdByReply, PAYLOAD_BREAK } from '@slackhive/shared';
 import { agentLogger } from '../logger';
@@ -77,6 +77,7 @@ export class SlackAdapter implements PlatformAdapter {
   private log: Logger;
   private botUserId?: string;
   private messageHandler?: (msg: IncomingMessage) => Promise<void>;
+  private messageDeletedHandler?: (event: MessageDeletedEvent) => Promise<void>;
   private credentials: SlackCredentials;
   private readonly agentId: string;
   /** Messages carrying feedback buttons → the activity to attribute a click to.
@@ -162,6 +163,13 @@ export class SlackAdapter implements PlatformAdapter {
           app_id: (event as any).app_id,
         },
       });
+    });
+
+    this.app.message(subtype('message_deleted'), async ({ message }) => {
+      if (!this.messageDeletedHandler) return;
+      const msg = message as { channel?: string; deleted_ts?: string };
+      if (!msg.channel || !msg.deleted_ts) return;
+      await this.messageDeletedHandler({ channelId: msg.channel, messageId: msg.deleted_ts });
     });
 
     this.app.message(async ({ message, client }) => {
@@ -350,6 +358,10 @@ export class SlackAdapter implements PlatformAdapter {
 
   onMessage(handler: (msg: IncomingMessage) => Promise<void>): void {
     this.messageHandler = handler;
+  }
+
+  onMessageDeleted(handler: (event: MessageDeletedEvent) => Promise<void>): void {
+    this.messageDeletedHandler = handler;
   }
 
   // ─── Send ──────────────────────────────────────────────────────────

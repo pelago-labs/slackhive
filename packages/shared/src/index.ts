@@ -8,7 +8,7 @@
 export * from './types';
 export type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment,
-  MessagePayload, PlatformCredentials, SlackCredentials,
+  MessagePayload, MessageDeletedEvent, PlatformCredentials, SlackCredentials,
 } from './platform';
 export { PAYLOAD_BREAK } from './platform';
 export type {
