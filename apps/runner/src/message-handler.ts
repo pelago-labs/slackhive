@@ -97,7 +97,7 @@ const DELETED_MESSAGE_TOMBSTONE_MAX = 1_000;
 
 interface ActiveSourceRun {
   controller: AbortController;
-  cancelReason?: 'source_message_deleted';
+  state: 'running' | 'response_delivered' | 'cancelled';
 }
 
 /** Text files at or below this are inlined into the prompt (small, convenient,
@@ -140,9 +140,9 @@ export class MessageHandler {
       this.rememberDeletedMessage(sourceKey);
       return false;
     }
-    if (run.cancelReason || run.controller.signal.aborted) return false;
+    if (run.state !== 'running' || run.controller.signal.aborted) return false;
 
-    run.cancelReason = 'source_message_deleted';
+    run.state = 'cancelled';
     run.controller.abort();
     try {
       await this.adapter.postMessage(channelId, DELETED_MESSAGE_NOTICE);
@@ -274,7 +274,7 @@ export class MessageHandler {
     this.activeControllers.get(sessionKey)?.abort();
     const abortController = new AbortController();
     this.activeControllers.set(sessionKey, abortController);
-    const activeSourceRun: ActiveSourceRun = { controller: abortController };
+    const activeSourceRun: ActiveSourceRun = { controller: abortController, state: 'running' };
     const sourceMessageKey = this.sourceMessageKey(channelId, messageId);
     this.activeSourceRuns.set(sourceMessageKey, activeSourceRun);
     if (this.consumeDeletedMessage(sourceMessageKey)) {
@@ -525,6 +525,7 @@ export class MessageHandler {
               sentMessages.push(finalResult);
               lastReply = await this.postFormattedMessage(channelId, threadId, finalResult, activeSourceRun);
             }
+            if (sentMessages.length > 0) activeSourceRun.state = 'response_delivered';
           }
         }
       }
@@ -548,6 +549,7 @@ export class MessageHandler {
         const fallback = real ?? '_No response generated._';
         this.log.info('No messages sent, using fallback');
         lastReply = await this.postFormattedMessage(channelId, threadId, fallback, activeSourceRun);
+        activeSourceRun.state = 'response_delivered';
         // A real fallback answer still deserves feedback controls; the empty
         // placeholder does not. Record it so the gate below fires for the former.
         if (real) sentMessages.push(real);
@@ -592,7 +594,7 @@ export class MessageHandler {
     } catch (error: any) {
       if (error?.name === 'AbortError') {
         this.log.debug('Request aborted', { sessionKey });
-        const deletedAtSource = activeSourceRun.cancelReason === 'source_message_deleted';
+        const deletedAtSource = activeSourceRun.state === 'cancelled';
         if (!deletedAtSource) {
           if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':stop_button:').catch(() => {});
           await this.swapReaction(channelId, messageId, sessionKey, 'stop_button');
@@ -624,7 +626,7 @@ export class MessageHandler {
         turn?.end({
           status: 'error',
           errorMessage: error?.name === 'AbortError'
-            ? (activeSourceRun.cancelReason === 'source_message_deleted' ? 'cancelled: source message deleted' : 'aborted')
+            ? (activeSourceRun.state === 'cancelled' ? 'cancelled: source message deleted' : 'aborted')
             : (error?.message ?? 'unknown error'),
           finalAnswer: turnFinalAnswer ?? lastAssistantText ?? undefined,
           inputTokens: turnUsage?.input_tokens,
@@ -687,7 +689,7 @@ export class MessageHandler {
   }
 
   private throwIfSourceDeleted(run: ActiveSourceRun): void {
-    if (run.cancelReason !== 'source_message_deleted') return;
+    if (run.state !== 'cancelled') return;
     throw Object.assign(new Error('source message deleted'), { name: 'AbortError' });
   }
 

@@ -119,4 +119,22 @@ describe('MessageHandler source-message deletion', () => {
     expect(adapter.postPayload).toHaveBeenCalledOnce();
     expect(adapter.postMessage).toHaveBeenCalledWith('C1', NOTICE);
   });
+
+  it('does not cancel after the final response has been delivered', async () => {
+    vi.mocked(backend.streamQuery).mockImplementation(async function* () {
+      yield { type: 'result', subtype: 'success', result: 'finished answer' } as any;
+    });
+    let cancellationResult: boolean | undefined;
+    vi.mocked(adapter.postReaction).mockImplementation(async (_channelId, _messageId, emoji) => {
+      if (emoji === 'white_check_mark') {
+        cancellationResult = await handler.cancelByDeletedMessage('C1', '123.456');
+      }
+    });
+
+    await handler.handleMessage(makeMessage());
+
+    expect(adapter.postPayload).toHaveBeenCalledOnce();
+    expect(cancellationResult).toBe(false);
+    expect(adapter.postMessage).not.toHaveBeenCalled();
+  });
 });
