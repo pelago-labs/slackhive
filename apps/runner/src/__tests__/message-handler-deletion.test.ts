@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Agent, AgentBackend, IncomingMessage, PlatformAdapter } from '@slackhive/shared';
 import { MessageHandler } from '../message-handler';
+import { DeletedMessageNoticeCoordinator } from '../deleted-message-notice-coordinator';
 
 const NOTICE = '⛔ Request cancelled because the original message was deleted.';
 
@@ -91,6 +92,35 @@ describe('MessageHandler source-message deletion', () => {
     await inflight;
 
     expect(adapter.postMessage).toHaveBeenCalledOnce();
+  });
+
+  it('posts one notice when multiple agents cancel the same deleted message', async () => {
+    const secondAdapter = makeAdapter();
+    const noticeCoordinator = new DeletedMessageNoticeCoordinator();
+    handler = new MessageHandler(adapter, backend, makeAgent(), null, noticeCoordinator);
+    const secondHandler = new MessageHandler(
+      secondAdapter,
+      makeBackend(),
+      makeAgent(),
+      null,
+      noticeCoordinator,
+    );
+    const message = makeMessage('multi-agent-delete');
+    const inflight = handler.handleMessage(message);
+    const secondInflight = secondHandler.handleMessage(message);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    const results = await Promise.all([
+      handler.cancelByDeletedMessage('C1', message.id),
+      secondHandler.cancelByDeletedMessage('C1', message.id),
+    ]);
+    await Promise.all([inflight, secondInflight]);
+
+    expect(results).toEqual([true, true]);
+    expect(
+      vi.mocked(adapter.postMessage).mock.calls.length
+      + vi.mocked(secondAdapter.postMessage).mock.calls.length,
+    ).toBe(1);
   });
 
   it('honors a deletion that arrives just before the run is registered', async () => {

@@ -30,6 +30,7 @@ import { getSetting, getAgentMemories } from './db';
 import { extractMemories } from './memory-extraction';
 import { reconcileMemories } from './memory-reconcile';
 import { selectForPrompt, renderMemoryBlock, MAX_MEMORY_PROMPT_BYTES } from './memory-retrieval';
+import { DeletedMessageNoticeCoordinator, pruneTimestampCache } from './deleted-message-notice-coordinator';
 
 // Cache the openToWorkspace setting for 60s to avoid a DB hit on every message.
 let _openToWorkspaceCache: { value: boolean; expiresAt: number } | null = null;
@@ -127,6 +128,7 @@ export class MessageHandler {
     private backend: AgentBackend,
     private agent: Agent,
     private restrictions: Restriction | null,
+    private noticeCoordinator = new DeletedMessageNoticeCoordinator(),
   ) {
     this.log = agentLogger(agent.slug);
     this.correctionHandler = new CorrectionHandler(agent);
@@ -144,6 +146,7 @@ export class MessageHandler {
 
     run.state = 'cancelled';
     run.controller.abort();
+    if (!this.noticeCoordinator.claim(sourceKey)) return true;
     try {
       await this.adapter.postMessage(channelId, DELETED_MESSAGE_NOTICE);
     } catch (err) {
@@ -674,11 +677,12 @@ export class MessageHandler {
   private rememberDeletedMessage(sourceKey: string): void {
     const now = Date.now();
     this.recentDeletedMessages.set(sourceKey, now);
-    for (const [key, deletedAt] of this.recentDeletedMessages) {
-      if (now - deletedAt > DELETED_MESSAGE_TOMBSTONE_MS || this.recentDeletedMessages.size > DELETED_MESSAGE_TOMBSTONE_MAX) {
-        this.recentDeletedMessages.delete(key);
-      }
-    }
+    pruneTimestampCache(
+      this.recentDeletedMessages,
+      now,
+      DELETED_MESSAGE_TOMBSTONE_MS,
+      DELETED_MESSAGE_TOMBSTONE_MAX,
+    );
   }
 
   private consumeDeletedMessage(sourceKey: string): boolean {
