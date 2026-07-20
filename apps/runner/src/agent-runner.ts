@@ -33,6 +33,8 @@ import { loadFingerprintSalt } from './tracing/fingerprint';
 import { SlackAdapter } from './adapters/slack-adapter';
 import { TestAdapter } from './adapters/test-adapter';
 import { MessageHandler } from './message-handler';
+import { wireMessageHandler } from './message-handler-wiring';
+import { DeletedMessageNoticeCoordinator } from './deleted-message-notice-coordinator';
 import { JobScheduler } from './job-scheduler';
 import { BackupScheduler } from './backup-scheduler';
 import { markShuttingDown } from './shutdown-signal';
@@ -392,6 +394,9 @@ function buildParticipantWorkDir(
 export class AgentRunner {
   /** Map of agent ID → running agent resources. */
   private runningAgents: Map<string, RunningAgent> = new Map();
+
+  /** Shared across agents so one Slack deletion produces one public notice. */
+  private deletedMessageNotices = new DeletedMessageNoticeCoordinator();
 
   /** Map of `${rootAgentId}:${sessionId}` → ephemeral team test session. */
   private testSessions: Map<string, TeamTestSession> = new Map();
@@ -846,8 +851,14 @@ export class AgentRunner {
     memoryWatcher.start();
 
     // Wire message handler: adapter → MessageHandler → backend
-    const messageHandler = new MessageHandler(adapter, backend, agent, restrictions);
-    adapter.onMessage(msg => messageHandler.handleMessage(msg));
+    const messageHandler = new MessageHandler(
+      adapter,
+      backend,
+      agent,
+      restrictions,
+      this.deletedMessageNotices,
+    );
+    wireMessageHandler(adapter, messageHandler);
 
     // Start the platform connection
     await adapter.start();
@@ -1000,7 +1011,7 @@ export class AgentRunner {
     if (agent.slackBotUserId) adapter.setBotUserId(agent.slackBotUserId);
 
     const messageHandler = new MessageHandler(adapter, backend, agent, null);
-    adapter.onMessage(msg => messageHandler.handleMessage(msg));
+    wireMessageHandler(adapter, messageHandler);
 
     const participant: AgentParticipant = {
       agent, adapter, backend, messageHandler,

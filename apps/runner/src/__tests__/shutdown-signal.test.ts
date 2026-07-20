@@ -77,9 +77,10 @@ describe('shutdown-signal wiring (source-text contract)', () => {
     // The abort catch block must gate closeActivity behind !isShuttingDown().
     // Use a regex that tolerates whitespace/wrapping changes but enforces
     // both the `recorder &&` check and the `!isShuttingDown()` guard sit
-    // around the closeActivity call inside the AbortError branch.
+    // around the closeActivity call inside the AbortError branch. The final
+    // reason may distinguish ordinary aborts from source-message deletion.
     expect(handlerSrc).toMatch(
-      /if\s*\(\s*recorder\s*&&\s*!isShuttingDown\(\)\s*\)\s*\{\s*await\s+this\.closeActivity\(\s*recorder\.activityId\s*,\s*'error'\s*,\s*'aborted'\s*\)/,
+      /if\s*\(\s*recorder\s*&&\s*!isShuttingDown\(\)\s*\)\s*\{[\s\S]{0,300}?await\s+this\.closeActivity\(\s*recorder\.activityId\s*,\s*'error'/,
     );
   });
 });

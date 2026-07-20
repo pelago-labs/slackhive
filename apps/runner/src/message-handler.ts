@@ -30,6 +30,7 @@ import { getSetting, getAgentMemories } from './db';
 import { extractMemories } from './memory-extraction';
 import { reconcileMemories } from './memory-reconcile';
 import { selectForPrompt, renderMemoryBlock, MAX_MEMORY_PROMPT_BYTES } from './memory-retrieval';
+import { DeletedMessageNoticeCoordinator, pruneTimestampCache } from './deleted-message-notice-coordinator';
 
 // Cache the openToWorkspace setting for 60s to avoid a DB hit on every message.
 let _openToWorkspaceCache: { value: boolean; expiresAt: number } | null = null;
@@ -91,6 +92,14 @@ const DUPLICATE_MESSAGE_WINDOW_MS = 15_000;
  *  stay O(1) (a single Map.get) and only pay the O(n) sweep when the map actually
  *  grows — so a busy agent can't accumulate stale keys without bound. */
 const DUPLICATE_CACHE_MAX = 1_000;
+const DELETED_MESSAGE_NOTICE = '⛔ Request cancelled because the original message was deleted.';
+const DELETED_MESSAGE_TOMBSTONE_MS = 60_000;
+const DELETED_MESSAGE_TOMBSTONE_MAX = 1_000;
+
+interface ActiveSourceRun {
+  controller: AbortController;
+  state: 'running' | 'response_delivered' | 'cancelled';
+}
 
 /** Text files at or below this are inlined into the prompt (small, convenient,
  *  ~8K tokens). Larger ones are written to the agent's cwd to read on demand —
@@ -104,6 +113,8 @@ export class MessageHandler {
   private log: Logger;
   private correctionHandler: CorrectionHandler;
   private activeControllers = new Map<string, AbortController>();
+  private activeSourceRuns = new Map<string, ActiveSourceRun>();
+  private recentDeletedMessages = new Map<string, number>();
   private currentReactions = new Map<string, string>();
   /** Recent message signatures → last-seen ms, for at-least-once delivery dedup. */
   private recentMessages = new Map<string, number>();
@@ -117,9 +128,35 @@ export class MessageHandler {
     private backend: AgentBackend,
     private agent: Agent,
     private restrictions: Restriction | null,
+    private noticeCoordinator = new DeletedMessageNoticeCoordinator(),
   ) {
     this.log = agentLogger(agent.slug);
     this.correctionHandler = new CorrectionHandler(agent);
+  }
+
+  /** Cancel the run triggered by an exact platform message deletion. */
+  async cancelByDeletedMessage(channelId: string, messageId: string): Promise<boolean> {
+    const sourceKey = this.sourceMessageKey(channelId, messageId);
+    const run = this.activeSourceRuns.get(sourceKey);
+    if (!run) {
+      this.rememberDeletedMessage(sourceKey);
+      return false;
+    }
+    if (run.state !== 'running' || run.controller.signal.aborted) return false;
+
+    run.state = 'cancelled';
+    run.controller.abort();
+    if (!this.noticeCoordinator.claim(sourceKey)) return true;
+    try {
+      await this.adapter.postMessage(channelId, DELETED_MESSAGE_NOTICE);
+    } catch (err) {
+      this.log.warn('Failed to post deleted-message cancellation notice', {
+        channelId,
+        messageId,
+        error: (err as Error).message,
+      });
+    }
+    return true;
   }
 
   /**
@@ -240,6 +277,15 @@ export class MessageHandler {
     this.activeControllers.get(sessionKey)?.abort();
     const abortController = new AbortController();
     this.activeControllers.set(sessionKey, abortController);
+    const activeSourceRun: ActiveSourceRun = { controller: abortController, state: 'running' };
+    const sourceMessageKey = this.sourceMessageKey(channelId, messageId);
+    this.activeSourceRuns.set(sourceMessageKey, activeSourceRun);
+    if (this.consumeDeletedMessage(sourceMessageKey)) {
+      await this.cancelByDeletedMessage(channelId, messageId);
+      if (this.activeControllers.get(sessionKey) === abortController) this.activeControllers.delete(sessionKey);
+      if (this.activeSourceRuns.get(sourceMessageKey) === activeSourceRun) this.activeSourceRuns.delete(sourceMessageKey);
+      return;
+    }
 
     // Thinking reaction + status message
     await this.swapReaction(channelId, messageId, sessionKey, 'thinking_face');
@@ -304,6 +350,7 @@ export class MessageHandler {
         // Backend reset the conversation (e.g. Codex context overflow) — tell the
         // user, since the agent has lost the earlier thread history.
         if (message.type === 'system' && (message as any).subtype === 'context_reset') {
+          this.throwIfSourceDeleted(activeSourceRun);
           try { turn?.recordEvent('context_reset'); } catch { /* trace best-effort */ }
           await this.adapter.postMessage(channelId, '_Note: I hit my context limit and had to reset this thread — earlier messages are no longer in my memory. Continuing from your latest message._', threadId).catch(() => {});
           continue;
@@ -384,7 +431,8 @@ export class MessageHandler {
                 safeText,
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
-                const posted = await this.postFormattedMessage(channelId, threadId, verbosePost);
+                this.throwIfSourceDeleted(activeSourceRun);
+                const posted = await this.postFormattedMessage(channelId, threadId, verbosePost, activeSourceRun);
                 // Only a post with real answer text counts as the final reply —
                 // a trailing thinking-only chunk must not steal the feedback buttons.
                 if (safeText) { sentMessages.push(safeText); lastReply = posted; }
@@ -398,7 +446,8 @@ export class MessageHandler {
                 textContent,
               ].filter(Boolean).join('\n\n');
               if (verbosePost) {
-                const posted = await this.postFormattedMessage(channelId, threadId, verbosePost);
+                this.throwIfSourceDeleted(activeSourceRun);
+                const posted = await this.postFormattedMessage(channelId, threadId, verbosePost, activeSourceRun);
                 if (textContent) { sentMessages.push(textContent); lastReply = posted; }
               }
             }
@@ -475,9 +524,11 @@ export class MessageHandler {
             // only produced the answer via the result).
             const alreadyStreamed = resolvedVerbose && sentMessages.length > 0;
             if (finalResult && !alreadyStreamed && !sentMessages.includes(finalResult)) {
+              this.throwIfSourceDeleted(activeSourceRun);
               sentMessages.push(finalResult);
-              lastReply = await this.postFormattedMessage(channelId, threadId, finalResult);
+              lastReply = await this.postFormattedMessage(channelId, threadId, finalResult, activeSourceRun);
             }
+            if (sentMessages.length > 0) activeSourceRun.state = 'response_delivered';
           }
         }
       }
@@ -496,10 +547,12 @@ export class MessageHandler {
 
       // Fallback if no messages were sent
       if (sentMessages.length === 0) {
+        this.throwIfSourceDeleted(activeSourceRun);
         const real = lastAssistantText ?? lastToolResultText;
         const fallback = real ?? '_No response generated._';
         this.log.info('No messages sent, using fallback');
-        lastReply = await this.postFormattedMessage(channelId, threadId, fallback);
+        lastReply = await this.postFormattedMessage(channelId, threadId, fallback, activeSourceRun);
+        activeSourceRun.state = 'response_delivered';
         // A real fallback answer still deserves feedback controls; the empty
         // placeholder does not. Record it so the gate below fires for the former.
         if (real) sentMessages.push(real);
@@ -544,14 +597,21 @@ export class MessageHandler {
     } catch (error: any) {
       if (error?.name === 'AbortError') {
         this.log.debug('Request aborted', { sessionKey });
-        if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':stop_button:').catch(() => {});
-        await this.swapReaction(channelId, messageId, sessionKey, 'stop_button');
+        const deletedAtSource = activeSourceRun.state === 'cancelled';
+        if (!deletedAtSource) {
+          if (statusMsgId) await this.adapter.updateMessage(channelId, statusMsgId, ':stop_button:').catch(() => {});
+          await this.swapReaction(channelId, messageId, sessionKey, 'stop_button');
+        }
         // Graceful shutdown aborts every in-flight call. If we close the
         // activity here, the next process's sweepStaleActivities won't see
         // it (sweep only looks at status='in_progress') and auto-replay
         // skips the work. Leave it in_progress so the next boot picks it up.
         if (recorder && !isShuttingDown()) {
-          await this.closeActivity(recorder.activityId, 'error', 'aborted');
+          await this.closeActivity(
+            recorder.activityId,
+            'error',
+            deletedAtSource ? 'cancelled: source message deleted' : 'aborted',
+          );
         }
       } else {
         this.log.error('Error streaming Claude response', { sessionKey, error: error?.message });
@@ -568,7 +628,9 @@ export class MessageHandler {
         if (turn && pendingReasoning) { try { turn.recordGeneration({ reasoning: pendingReasoning }); } catch { /* trace best-effort */ } pendingReasoning = ''; }
         turn?.end({
           status: 'error',
-          errorMessage: error?.name === 'AbortError' ? 'aborted' : (error?.message ?? 'unknown error'),
+          errorMessage: error?.name === 'AbortError'
+            ? (activeSourceRun.state === 'cancelled' ? 'cancelled: source message deleted' : 'aborted')
+            : (error?.message ?? 'unknown error'),
           finalAnswer: turnFinalAnswer ?? lastAssistantText ?? undefined,
           inputTokens: turnUsage?.input_tokens,
           outputTokens: turnUsage?.output_tokens,
@@ -601,8 +663,38 @@ export class MessageHandler {
       if (this.activeControllers.get(sessionKey) === abortController) {
         this.activeControllers.delete(sessionKey);
       }
+      if (this.activeSourceRuns.get(sourceMessageKey) === activeSourceRun) {
+        this.activeSourceRuns.delete(sourceMessageKey);
+      }
       setTimeout(() => this.currentReactions.delete(sessionKey), 5 * 60 * 1000);
     }
+  }
+
+  private sourceMessageKey(channelId: string, messageId: string): string {
+    return `${channelId}:${messageId}`;
+  }
+
+  private rememberDeletedMessage(sourceKey: string): void {
+    const now = Date.now();
+    this.recentDeletedMessages.set(sourceKey, now);
+    pruneTimestampCache(
+      this.recentDeletedMessages,
+      now,
+      DELETED_MESSAGE_TOMBSTONE_MS,
+      DELETED_MESSAGE_TOMBSTONE_MAX,
+    );
+  }
+
+  private consumeDeletedMessage(sourceKey: string): boolean {
+    const deletedAt = this.recentDeletedMessages.get(sourceKey);
+    if (deletedAt === undefined) return false;
+    this.recentDeletedMessages.delete(sourceKey);
+    return Date.now() - deletedAt <= DELETED_MESSAGE_TOMBSTONE_MS;
+  }
+
+  private throwIfSourceDeleted(run: ActiveSourceRun): void {
+    if (run.state !== 'cancelled') return;
+    throw Object.assign(new Error('source message deleted'), { name: 'AbortError' });
   }
 
   /**
@@ -761,11 +853,17 @@ export class MessageHandler {
    * Returns the LAST posted message's id + the payload it was posted with, so the
    * caller can attach feedback controls to that final reply.
    */
-  private async postFormattedMessage(channelId: string, threadId: string | undefined, text: string): Promise<{ ts: string; payload: MessagePayload }> {
+  private async postFormattedMessage(
+    channelId: string,
+    threadId: string | undefined,
+    text: string,
+    sourceRun?: ActiveSourceRun,
+  ): Promise<{ ts: string; payload: MessagePayload }> {
     const out = this.maybeRedact(text);
     const payloads = this.adapter.buildPayloads(out);
     let last: { ts: string; payload: MessagePayload } | undefined;
     for (const payload of payloads) {
+      if (sourceRun) this.throwIfSourceDeleted(sourceRun);
       const ts = await this.adapter.postPayload(channelId, payload, threadId);
       last = { ts, payload };
     }

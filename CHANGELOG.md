@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Slack message-deletion cancellation** — deleting a question while an agent is still processing it now aborts the run, suppresses remaining output, and posts a visible cancellation notice in the channel or DM.
+
 ---
 
 ## [0.1.19] - 2026-03-31
