@@ -16,7 +16,7 @@
 
 import cron from 'node-cron';
 import type { ScheduledJob, PlatformAdapter } from '@slackhive/shared';
-import { JOB_SILENT_SENTINEL, parseJobSentinel } from '@slackhive/shared';
+import { JOB_SILENT_SENTINEL, parseJobSentinel, containsBareUrl } from '@slackhive/shared';
 import { getAllEnabledJobs, getScheduledJobById, failOrphanedJobRuns, insertJobRun, updateJobRun } from './db';
 import type { AgentBackend } from '@slackhive/shared';
 import { logger } from './logger';
@@ -298,18 +298,39 @@ export class JobScheduler {
       // first payload becomes the thread parent.
       const payloads = agent.adapter.buildPayloads(output);
       if (anchorTs && payloads.length > 0) {
-        // Promote the headline into the anchor. If the in-place edit fails for
-        // any reason other than the blocks (which updatePayload itself retries
-        // as text), don't fail the whole run — the output is real and partly
-        // posted already. Degrade to posting the headline as a thread reply so
-        // the content still lands; the anchor just keeps its title.
-        try {
-          await agent.adapter.updatePayload(targetChannelId, anchorTs, payloads[0]);
-        } catch (err) {
-          logger.warn('Anchor promotion failed; posting headline as a reply instead', {
-            jobId: job.id, error: (err as Error).message,
-          });
-          await agent.adapter.postPayload(targetChannelId, payloads[0], anchorTs);
+        // Platforms never render link/media previews on message EDITS — only on
+        // fresh posts. If the headline is plain text carrying a bare URL (e.g. a
+        // GIF link), promoting it into the anchor via update would silently drop
+        // the preview: delete the placeholder anchor and post fresh instead
+        // (accepting the rare orphaned mid-run thread reply). Otherwise keep the
+        // in-place promotion, which preserves any replies threaded during the run.
+        const headline = payloads[0];
+        let promoted = false;
+        if (!headline.blocks && containsBareUrl(headline.text)) {
+          try {
+            await agent.adapter.deleteMessage(targetChannelId, anchorTs);
+            anchorTs = await agent.adapter.postPayload(targetChannelId, headline);
+            promoted = true;
+          } catch (err) {
+            logger.warn('Anchor repost for link preview failed; falling back to in-place promotion', {
+              jobId: job.id, error: (err as Error).message,
+            });
+          }
+        }
+        if (!promoted) {
+          // Promote the headline into the anchor. If the in-place edit fails for
+          // any reason other than the blocks (which updatePayload itself retries
+          // as text), don't fail the whole run — the output is real and partly
+          // posted already. Degrade to posting the headline as a thread reply so
+          // the content still lands; the anchor just keeps its title.
+          try {
+            await agent.adapter.updatePayload(targetChannelId, anchorTs, headline);
+          } catch (err) {
+            logger.warn('Anchor promotion failed; posting headline as a reply instead', {
+              jobId: job.id, error: (err as Error).message,
+            });
+            await agent.adapter.postPayload(targetChannelId, headline, anchorTs);
+          }
         }
         // Real output now occupies/anchors the message — a later failure must
         // not overwrite the anchor with an error line.

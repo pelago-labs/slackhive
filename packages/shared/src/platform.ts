@@ -62,6 +62,14 @@ export interface PlatformAdapter {
    */
   updatePayload(channelId: string, messageId: string, payload: MessagePayload): Promise<void>;
 
+  /**
+   * Delete a previously posted message. Used by the job scheduler to replace
+   * the pre-posted "running…" anchor with a FRESH post when the output carries
+   * a bare URL: platforms don't render link/media previews on message edits,
+   * so promoting via update would silently drop the preview.
+   */
+  deleteMessage(channelId: string, messageId: string): Promise<void>;
+
   /** Add a reaction/emoji to a message. */
   postReaction(channelId: string, messageId: string, emoji: string): Promise<void>;
 
@@ -272,6 +280,18 @@ export interface FileAttachment {
  * to strip it; adapters MUST split on it and remove it (see {@link PlatformAdapter.buildPayloads}).
  */
 export const PAYLOAD_BREAK = '<!--slackhive:break-->';
+
+/**
+ * True when the text carries a bare (unlabeled) http(s) URL — one a platform
+ * would auto-unfurl in a plain-text message. Labeled links (`<url|label>`)
+ * never unfurl, so they don't count. Platform-neutral: used by the Slack
+ * adapter (skip the blocks feedback-rewrite that kills previews) and the job
+ * scheduler (repost instead of edit — edits never gain previews).
+ */
+export function containsBareUrl(text: string): boolean {
+  const withoutLabeled = text.replace(/<https?:\/\/[^\s|>]+\|[^>]*>/g, '');
+  return /https?:\/\/\S+/.test(withoutLabeled);
+}
 
 /** Platform-ready message payload for posting. */
 export interface MessagePayload {
