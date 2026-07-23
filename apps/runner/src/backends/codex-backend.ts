@@ -33,7 +33,7 @@ import { getSession, upsertSession, deleteSession, cleanupStaleSessions, getSett
 import { reapStaleSessionDirs, markSessionUsed, sessionDirName } from './prune-session-dirs';
 import { agentLogger } from '../logger';
 import { McpProcessManager } from '../mcp-process-manager.js';
-import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject, CODEX_CAPABILITY_NOTE } from './codex-config';
+import { buildCodexConfig, buildThreadOptions, createCodexClient, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject, agentHasWebSearch, CODEX_CAPABILITY_NOTE } from './codex-config';
 import { translateEvent, mapUsage, toCodexInput } from './codex-translate';
 import type { Logger } from 'winston';
 
@@ -397,6 +397,9 @@ export class CodexBackend implements AgentBackend {
       // network-sandboxed MCP call surfaces as "user cancelled". So enable network
       // for parity; the workspace-write sandbox still confines the filesystem.
       networkAccess: true,
+      // Codex's web search runs server-side at OpenAI — networkAccess can't gate
+      // it. Honor the agent's Internet Access capability (same rule as the UI).
+      webSearch: agentHasWebSearch(this.permissions),
     });
     let input = await toCodexInput(prompt, sessionWorkDir);
     // Persona/identity (and the capability note) ride in the prompt itself — Codex's

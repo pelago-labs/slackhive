@@ -83,6 +83,19 @@ export function agentHasBash(permissions: Permission | null): boolean {
 }
 
 /**
+ * Whether the agent's "Internet Access" capability is on — same rule as the UI
+ * toggle (WebSearch in allowedTools, not denied). Gates Codex's built-in web
+ * search: it runs server-side at OpenAI, so no local sandbox can block it —
+ * `webSearchEnabled: false` is the only off switch. No permissions row = off,
+ * matching the UI (the toggle reads as off for an empty allowlist).
+ */
+export function agentHasWebSearch(permissions: Permission | null): boolean {
+  const allowed = permissions?.allowedTools ?? [];
+  const denied = permissions?.deniedTools ?? [];
+  return allowed.includes('WebSearch') && !denied.includes('WebSearch');
+}
+
+/**
  * Constructor-level Codex `config` (flattened to dotted `--config` TOML by the SDK).
  * Carries the per-agent-stable settings: MCP servers, doc size, disabling Codex's
  * native memory (SlackHive manages memory), and forcing file-based auth so
@@ -154,6 +167,9 @@ export function buildThreadOptions(opts: {
   workDir: string;
   model: string;
   networkAccess: boolean;
+  /** Agent's Internet Access capability (see agentHasWebSearch) — gates Codex's
+   *  server-side web search, which no local sandbox setting can block. */
+  webSearch: boolean;
   reasoningEffort?: CodexReasoningEffort;
 }): ThreadOptions {
   return {
@@ -163,8 +179,8 @@ export function buildThreadOptions(opts: {
     approvalPolicy: 'never',
     additionalDirectories: [opts.workDir],
     networkAccessEnabled: opts.networkAccess,
-    webSearchEnabled: true,
-    webSearchMode: 'live',
+    webSearchEnabled: opts.webSearch,
+    ...(opts.webSearch && { webSearchMode: 'live' as const }),
     model: opts.model,
     ...(opts.reasoningEffort && { modelReasoningEffort: opts.reasoningEffort }),
   };
