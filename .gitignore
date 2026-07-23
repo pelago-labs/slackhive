@@ -52,3 +52,4 @@ CLAUDE.md
 # Design docs
 design.md
 .npmrc
+.playwright-mcp/
