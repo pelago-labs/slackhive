@@ -24,6 +24,9 @@ import { DEFAULT_SLACK_BOT_SCOPES, BOSS_ADDITIONAL_SCOPES } from '@slackhive/sha
  * @param {string} opts.name - Agent display name.
  * @param {string} [opts.description] - Short description of the agent.
  * @param {boolean} [opts.isBoss] - Whether this is the boss agent (adds extra scopes).
+ * @param {string} [opts.redirectUrl] - OAuth redirect URL to register, enabling the
+ *   automated install flow (bot-token capture at our callback). Slack only accepts
+ *   https URLs here, so callers must omit it on plain-http origins.
  * @returns {SlackAppManifest} Complete Slack app manifest object.
  *
  * @example
@@ -34,6 +37,7 @@ export function generateSlackManifest(opts: {
   name: string;
   description?: string;
   isBoss?: boolean;
+  redirectUrl?: string;
 }): SlackAppManifest {
   const scopes = opts.isBoss
     ? [...DEFAULT_SLACK_BOT_SCOPES, ...BOSS_ADDITIONAL_SCOPES]
@@ -68,6 +72,7 @@ export function generateSlackManifest(opts: {
       scopes: {
         bot: uniqueScopes,
       },
+      ...(opts.redirectUrl ? { redirect_urls: [opts.redirectUrl] } : {}),
     },
     settings: {
       event_subscriptions: {

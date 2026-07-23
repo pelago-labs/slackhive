@@ -828,6 +828,15 @@ export class AgentRunner {
       await updateAgentStatus(agent.id, 'stopped', 'Slack is not configured for this agent.', this.runnerId);
       return;
     }
+    // Mid-onboarding: the automated flow creates the integration row at app
+    // provisioning time (signing secret only) — bot/app tokens land in later
+    // steps. Park as stopped, not error: nothing is broken yet.
+    if (!integration.credentials.botToken || !integration.credentials.appToken) {
+      const missing = !integration.credentials.botToken ? 'bot token' : 'app-level token';
+      logger.info('Slack setup incomplete — agent parked until onboarding finishes', { agent: agent.slug, missing });
+      await updateAgentStatus(agent.id, 'stopped', `Slack setup is incomplete (missing ${missing}) — finish the steps on the agent's Slack settings page.`, this.runnerId);
+      return;
+    }
 
     // Create platform adapter
     const adapter = new SlackAdapter(

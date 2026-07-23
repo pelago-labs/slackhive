@@ -15,6 +15,7 @@ import {
   Grid2X2,
   KeyRound,
   LogIn,
+  Plug,
   Plus,
   Search,
   ShieldCheck,
@@ -39,7 +40,7 @@ import { Switch } from '@/components/ui/switch';
 import AiProviderSection from './AiProviderSection';
 import BackupSection from './BackupSection';
 
-type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'users' | 'backups';
+type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'slackauto' | 'users' | 'backups';
 
 interface User {
   id: string;
@@ -79,6 +80,7 @@ export default function SettingsPage() {
     { id: 'ai',      label: 'AI Backend',         Icon: Bot,               show: canManageUsers },
     { id: 'access',  label: 'Access Control',      Icon: ShieldCheck,       show: canManageUsers },
     { id: 'signin',  label: 'Sign in with Slack',  Icon: LogIn,             show: canManageUsers && isSuperadmin },
+    { id: 'slackauto', label: 'Slack Automation',  Icon: Plug,              show: canManageUsers },
     { id: 'backups', label: 'Backups',            Icon: DatabaseBackup,    show: isSuperadmin },
     { id: 'users',   label: 'Users',              Icon: Users,             show: canManageUsers },
   ] as const).filter(n => n.show);
@@ -121,6 +123,7 @@ export default function SettingsPage() {
           {active === 'ai'      && canManageUsers && <AITab />}
           {active === 'access'  && canManageUsers && <AccessControlSection />}
           {active === 'signin'  && canManageUsers && isSuperadmin && <AuthTab />}
+          {active === 'slackauto' && canManageUsers && <SlackAutomationTab />}
           {active === 'backups' && isSuperadmin && <BackupSection />}
           {active === 'users'   && canManageUsers && <UsersTab />}
         </div>
@@ -1116,6 +1119,92 @@ function AuthTab() {
             ✓ Sign in with Slack is enabled. Users will see the button on the login page.
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Settings tab for the workspace-level Slack App Configuration token that
+ * powers automated agent onboarding (auto-creating Slack apps from manifests).
+ * Pasted once; the server rotates it every ~12h thereafter. Visible to admins —
+ * the whole onboarding flow is admin-gated, not superadmin-gated.
+ */
+function SlackAutomationTab() {
+  const inputClass = 'w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none';
+  const labelClass = 'mb-1.5 block text-xs font-medium text-muted-foreground';
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [token, setToken] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
+
+  const load = () => {
+    fetch('/api/system/slack-config').then(r => r.ok ? r.json() : null)
+      .then(d => setConfigured(Boolean(d?.configured))).catch(() => setConfigured(false));
+  };
+  useEffect(load, []);
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      const r = await fetch('/api/system/slack-config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: token }),
+      });
+      const d = await r.json();
+      if (r.ok) { setToken(''); setToast('Configured — agents can now be connected to Slack with one click'); setTimeout(() => setToast(''), 4000); load(); }
+      else setError(d.error ?? 'Failed to save token');
+    } finally { setSaving(false); }
+  };
+
+  const remove = async () => {
+    if (!confirm('Remove the App Configuration token? Automated Slack onboarding will stop working until a new one is pasted.')) return;
+    await fetch('/api/system/slack-config', { method: 'DELETE' });
+    load();
+  };
+
+  return (
+    <div className="max-w-[560px]">
+      <h2 className="m-0 mb-1 flex items-center gap-2 text-base font-semibold text-foreground">
+        Slack app automation
+        {configured !== null && (
+          <span className={cn('rounded-full px-2 py-0.5 text-2xs font-medium', configured ? 'bg-green/15 text-green' : 'bg-muted text-muted-foreground')}>
+            {configured ? 'Configured' : 'Not configured'}
+          </span>
+        )}
+      </h2>
+      <p className="m-0 mb-4 text-sm text-muted-foreground">
+        Lets SlackHive create each agent&apos;s Slack app automatically (no more manifest pasting). One-time setup:{' '}
+        <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-primary">api.slack.com/apps</a>
+        {' '}→ scroll to <strong>Your App Configuration Tokens</strong> → <strong>Generate Token</strong> → pick your workspace → copy the{' '}
+        <strong>Refresh Token</strong> (<code>xoxe-1-…</code>). SlackHive rotates it automatically from then on.
+      </p>
+      <div className="flex flex-col gap-3">
+        <div>
+          <label className={labelClass}>App Configuration Refresh Token</label>
+          <input
+            className={inputClass}
+            type="password"
+            value={token}
+            onChange={e => setToken(e.target.value)}
+            placeholder={configured ? 'Configured — paste a new token to replace' : 'xoxe-1-…'}
+          />
+        </div>
+        {error && <p className="m-0 text-xs text-destructive">{error}</p>}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving || !token.trim()}
+            className={cn('rounded-lg bg-primary px-[18px] py-2 text-sm font-semibold text-primary-foreground', saving || !token.trim() ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}
+          >
+            {saving ? 'Validating…' : 'Save & Validate'}
+          </button>
+          {configured && (
+            <button onClick={remove} className="cursor-pointer rounded-lg border border-destructive/30 bg-transparent px-3.5 py-2 text-sm font-medium text-destructive">Remove</button>
+          )}
+          {toast && <span className="text-sm text-green">{toast}</span>}
+        </div>
       </div>
     </div>
   );

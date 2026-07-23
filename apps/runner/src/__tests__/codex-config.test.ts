@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { McpServer, Permission } from '@slackhive/shared';
-import { agentHasBash, buildThreadOptions, buildCodexConfig, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject } from '../backends/codex-config';
+import { agentHasBash, agentHasWebSearch, buildThreadOptions, buildCodexConfig, buildIdentityInstructions, isSessionScopedServer, sessionScopedSecrets, tomlDeclaresProject } from '../backends/codex-config';
 
 const mcp = (name: string, type: string, config: Record<string, unknown>): McpServer =>
   ({ id: name, name, type, config } as unknown as McpServer);
@@ -40,7 +40,7 @@ describe('codex-config / persona via developer_instructions', () => {
 
 describe('codex-config / buildThreadOptions', () => {
   it('maps acceptEdits + web search onto thread options (danger-full-access for headless MCP — codex#16685)', () => {
-    const opts = buildThreadOptions({ sessionWorkDir: '/w/s', workDir: '/w', model: 'gpt-5.4', networkAccess: false });
+    const opts = buildThreadOptions({ sessionWorkDir: '/w/s', workDir: '/w', model: 'gpt-5.4', networkAccess: false, webSearch: true });
     expect(opts).toMatchObject({
       workingDirectory: '/w/s',
       skipGitRepoCheck: true,
@@ -52,7 +52,26 @@ describe('codex-config / buildThreadOptions', () => {
     });
   });
   it('enables network when the agent has Bash', () => {
-    expect(buildThreadOptions({ sessionWorkDir: '/w/s', workDir: '/w', model: 'm', networkAccess: true }).networkAccessEnabled).toBe(true);
+    expect(buildThreadOptions({ sessionWorkDir: '/w/s', workDir: '/w', model: 'm', networkAccess: true, webSearch: true }).networkAccessEnabled).toBe(true);
+  });
+  it('disables server-side web search when the Internet Access capability is off', () => {
+    const opts = buildThreadOptions({ sessionWorkDir: '/w/s', workDir: '/w', model: 'm', networkAccess: true, webSearch: false });
+    expect(opts.webSearchEnabled).toBe(false);
+    expect(opts).not.toHaveProperty('webSearchMode');
+  });
+});
+
+describe('codex-config / agentHasWebSearch', () => {
+  const perm = (allowed: string[], denied: string[] = []) =>
+    ({ id: 'p', agentId: 'a', allowedTools: allowed, deniedTools: denied }) as unknown as Permission;
+
+  it('on when WebSearch is allowed (the UI Internet Access toggle)', () => {
+    expect(agentHasWebSearch(perm(['Read', 'WebSearch', 'WebFetch']))).toBe(true);
+  });
+  it('off when WebSearch is absent, denied, or there is no permissions row', () => {
+    expect(agentHasWebSearch(perm(['Read', 'Write']))).toBe(false);
+    expect(agentHasWebSearch(perm(['WebSearch'], ['WebSearch']))).toBe(false);
+    expect(agentHasWebSearch(null)).toBe(false);
   });
 });
 

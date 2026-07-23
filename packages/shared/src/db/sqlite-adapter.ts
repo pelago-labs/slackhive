@@ -418,6 +418,8 @@ CREATE TABLE IF NOT EXISTS platform_integrations (
   bot_user_id TEXT,
   bot_handle  TEXT,
   bot_image_url TEXT,
+  app_id      TEXT,
+  app_credentials TEXT,
   enabled     INTEGER DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(agent_id, platform)
@@ -806,6 +808,15 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   }
   if (!piCols.includes('bot_image_url')) {
     db.exec('ALTER TABLE platform_integrations ADD COLUMN bot_image_url TEXT');
+  }
+  // Auto-provisioned platform app metadata: the platform-side app id plus its
+  // encrypted app credentials (for Slack: {clientId, clientSecret, verificationToken}),
+  // kept separate from `credentials` which stays strictly the runner-facing blob.
+  if (!piCols.includes('app_id')) {
+    db.exec('ALTER TABLE platform_integrations ADD COLUMN app_id TEXT');
+  }
+  if (!piCols.includes('app_credentials')) {
+    db.exec('ALTER TABLE platform_integrations ADD COLUMN app_credentials TEXT');
   }
 
   const mcpServerCols = (db.pragma('table_info(mcp_servers)') as { name: string }[]).map(c => c.name);
