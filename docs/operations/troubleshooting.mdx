@@ -45,6 +45,12 @@ Heartbeats resume within 15s of the new runner starting. The dot goes back to gr
 
 Token sources: [api.slack.com/apps](https://api.slack.com/apps) → OAuth & Permissions (bot token), Basic Information → App-Level Tokens (app token), Basic Information → Signing Secret.
 
+## "Slack setup is incomplete (missing bot token / app-level token)"
+
+**What it means.** Not an error — the agent is mid-way through [automated onboarding](/configuration/slack-app#automated-onboarding). Its Slack app exists, but one of the tokens hasn't been captured yet, so the runner parks the agent as **stopped** until onboarding finishes.
+
+**Fix:** open the agent's **Settings → Slack** page and complete the remaining step the stepper highlights — installing the app to your workspace (captures the bot token) and/or pasting the App-Level Token. The agent starts automatically once both are in place.
+
 ## Stale lock after a crash
 
 **What it means.** The runner was killed without cleanup (`kill -9`, power loss). The lock file points to a PID that no longer exists.

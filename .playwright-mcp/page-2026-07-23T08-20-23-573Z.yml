@@ -1,0 +1,351 @@
+- generic [active] [ref=f16e1]:
+  - generic [ref=f16e3]:
+    - generic [ref=f16e6]:
+      - link [ref=f16e8] [cursor=pointer]:
+        - /url: /
+      - generic [ref=f16e10]:
+        - generic [ref=f16e11]:
+          - generic [ref=f16e12] [cursor=pointer]:
+            - generic [ref=f16e13]: 
+            - text: Menu
+          - text: — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —
+        - generic [ref=f16e14]:
+          - list:
+            - text:     
+            - listitem [ref=f16e15]:
+              - generic [ref=f16e16] [cursor=pointer]: 
+    - banner
+    - generic [ref=f16e18]:
+      - figure [ref=f16e20]:
+        - img "Become a Defender of Justice and Liberty, Join CJP" [ref=f16e22]
+      - generic [ref=f16e23]:
+        - generic [ref=f16e26]:
+          - generic [ref=f16e27]: "Select Language :"
+          - combobox [ref=f16e28]:
+            - option "English" [selected]
+            - option "हिंदी"
+            - option "తెలుగు"
+        - generic [ref=f16e29]:
+          - generic [ref=f16e30]:
+            - paragraph [ref=f16e31]: "Citizens for Justice and Peace (CJP) is a Human Rights movement dedicated to upholding and defending the freedom and constitutional rights of all Indians. We call our focus areas our Four Pillars. These are:"
+            - paragraph [ref=f16e32]: Minority Rights - Rights of religious, ethnic, caste, gender and sexual minorities as well as persons with disabilities.
+            - paragraph [ref=f16e33]: Freedom of Expression - A healthy and vibrant democracy always respects free expression and the dignity of different belief systems, cultures and languages. Hate speech, we believe, is an abuse of this freedom.
+            - paragraph [ref=f16e34]: Criminal Justice Reform - CJP believes that our agencies - investigation, prosecutorial and judicial - need further democratisation to ensure both, quality and quick justice delivery.
+            - paragraph [ref=f16e35]: Child Rights & Education - CJP works to inculcate pluralism and Constitutional values in young minds. We also work in the field of Juvenile Justice Reform and protection of children from Sexual Abuse.
+            - paragraph [ref=f16e36]: All our campaigns are aimed at empowering the disempowered and defending their rights and freedoms, so that all Indians may live in peace and with dignity.
+            - iframe [ref=f16e38]:
+              - generic [ref=f17e1]:
+                - generic "YouTube Video Player" [ref=f17e3]
+                - generic [ref=f17e5]:
+                  - generic:
+                    - generic:
+                      - button "Play video" [ref=f17e10] [cursor=pointer]
+                      - button "Hide player controls" [ref=f17e12] [cursor=pointer]
+                      - generic [ref=f17e14]:
+                        - generic [ref=f17e19]:
+                          - generic [ref=f17e20]:
+                            - 'link "CJP: #JungJaari for India''s Rights" [ref=f17e21] [cursor=pointer]':
+                              - /url: https://www.youtube.com/watch?v=-EhcvH_r3CQ
+                            - link "Citizens for Justice and Peace" [ref=f17e22] [cursor=pointer]:
+                              - /url: /channel/UCjk-gRIp3Bk9Q1-tynFB96g
+                          - generic [ref=f17e24]:
+                            - button [ref=f17e25] [cursor=pointer]
+                            - generic [ref=f17e27]:
+                              - generic: Citizens for Justice and Peace
+                              - generic: 22.5K subscribers
+                        - generic [ref=f17e28]:
+                          - button "Share" [ref=f17e31] [cursor=pointer]
+                          - link "Watch on YouTube" [ref=f17e42] [cursor=pointer]:
+                            - /url: https://www.youtube.com/watch?v=-EhcvH_r3CQ
+                            - generic [ref=f17e43]: Watch on
+            - paragraph [ref=f16e39]: "Ever since our relaunch in 2017, we have spearheaded both, legal campaigns as well as citizens' interventions to empower and assist our fellow Indians navigate complex and extremely divisive political ploys, and hate-filled communal minefields. We also worked to ensure police transparency and accountability when vulnerable communities are under threat. Some of our initiatives include:"
+            - heading "KEY INTERVENTIONS" [level=2] [ref=f16e40]
+            - 'heading "HATE HATAO: NATIONWIDE" [level=3] [ref=f16e41]'
+            - paragraph [ref=f16e42]: "Objective: To spot instances of hate speech (by politicians, social media trolls and news broadcasters/publications) and report it to relevant authorities. (Special focus on Hate Speech against religious minorities, Dalits, Adivasis, Women, Children and LGBTQIA+)"
+            - paragraph [ref=f16e43]: "Actions: Over 200 petitions moved before organisations like National Commission for Minorities (NCM), National Human Rights Commission (NHRC), National Broadcasting and Digital Standards Authority (NBDSA), National Commission for Scheduled Tribes (NCST), National Commission for Women (NCW), Facebook, Twitter etc."
+            - heading "PETITIONS TO JUDICIAL AND NON-JUDICIAL AUTHORITIES" [level=3] [ref=f16e44]
+            - list [ref=f16e45]:
+              - listitem [ref=f16e46]:
+                - generic [ref=f16e47]:
+                  - link "Petition to NBDSA" [ref=f16e48] [cursor=pointer]:
+                    - /url: https://cjp.org.in/nbdsa-orders-news-nation-to-take-down-video-of-conversion-jihad-show/
+                  - text: ":"
+                - text: News Nation ordered to take down videos of “Conversion Jihad” show.
+              - listitem [ref=f16e49]:
+                - generic [ref=f16e50]:
+                  - link "Complaint to Twitter" [ref=f16e51] [cursor=pointer]:
+                    - /url: https://cjp.org.in/cjp-impact-twitter-suspends-21-accounts-threatening-muslim-women-with-sexual-violence/
+                  - text: ":"
+                - text: 21 accounts threatening Muslim women with sexual violence removed.
+              - listitem [ref=f16e52]:
+                - generic [ref=f16e53]:
+                  - link "Complaint to NCM" [ref=f16e54] [cursor=pointer]:
+                    - /url: https://cjp.org.in/ncm-seeks-report-from-dgp-assam-on-cjps-complaint-against-kamlendu-sarkar/
+                  - text: ":"
+                - text: DGP asked to submit report on action taken against Kamlendu Sarkar’s hate speech where he had alleged that Prophet Mohammed was a rapist.
+              - listitem [ref=f16e55]:
+                - link "Intervention Application (Crl. M.P. No. 102148 of 2020) before Supreme Court:" [ref=f16e57] [cursor=pointer]:
+                  - /url: https://cjp.org.in/sc-entrusts-witness-protection-of-hathras-victims-family-to-crpf/
+                - text: CJP had prayed for a judicial monitoring of the Hathras rape and forced cremation investigation, and the protection of witnesses by Central paramilitary forces. The SC directed that CRPF provide security to the victim’s family and the witnesses. The court also directed the Allahabad High Court to monitor the CBI probe into the case.
+            - 'heading "CITIZENSHIP: ASSAM" [level=3] [ref=f16e58]'
+            - list [ref=f16e59]:
+              - listitem [ref=f16e60]: Provide legal aid (legal counseling and legal representation)
+              - listitem [ref=f16e61]: Train lawyers and paralegals to improve quality of legal aid provided
+              - listitem [ref=f16e62]: Release detainees from Assam Detention camps; provide psycho-social and rehabilitative support to them and their families
+            - paragraph [ref=f16e63]: "Objective: To help Indian citizens defend their citizenship"
+            - paragraph [ref=f16e64]: "Actions: Helped over 12 lakh Indian citizens compile documents and file applications for inclusion of names in the National Register of Citizens (NRC)."
+            - list [ref=f16e65]:
+              - listitem [ref=f16e66]: CJP also helped them defend their citizenship during the Claims and Objections stage.
+              - listitem [ref=f16e67]: Helped over 50 eligible inmates of detention centres get released on bail.
+              - listitem [ref=f16e68]: Trained volunteers to offer paralegal assistance to people during the citizenship crisis. They reach around 100 families each month.
+              - listitem [ref=f16e69]: Assisting people move Guwahati High Court against ex parte orders by Foreigners’ Tribunals.
+              - listitem [ref=f16e70]: Helping migrant labourers from other states who have been declared “foreigners” in Assam and thrown behind bars.
+              - listitem [ref=f16e71]: Conducting studies and surveys to ascertain if existing legal aid structure is sufficiently competent to tackle expected deluge of applications from people excluded from the NRC.
+              - listitem [ref=f16e72]: Strategic legal interventions to defend rights and freedoms of our fellow Indians in Assam.
+            - heading "PETITIONS TO JUDICIAL AND NON-JUDICIAL AUTHORITIES" [level=3] [ref=f16e73]
+            - list [ref=f16e74]:
+              - listitem [ref=f16e75]:
+                - link "Petition on Legal Aid before Gauhati High Court:" [ref=f16e76] [cursor=pointer]:
+                  - /url: https://cjp.org.in/cjps-assam-legal-aid-petition-gauhati-hc-asks-centre-and-state-to-indicate-stand-on-funding/
+                - text: The HC asked the Centre and the State of Assam to indicate stand on funding, observing proper funding could help provide competent legal aid.
+              - listitem [ref=f16e77]:
+                - 'link "Intervention Application before Supreme Court: The court passed an interim order directing the Assam government to ensure that children whose parents’ names are included in the NRC in Assam are not sent to detention centres." [ref=f16e78] [cursor=pointer]':
+                  - /url: https://cjp.org.in/the-cjp-effect-sc-orders-no-children-be-sent-to-detention-camps-in-assam/
+              - link:
+                - /url: https://cjp.org.in/the-cjp-effect-sc-orders-no-children-be-sent-to-detention-camps-in-assam/
+              - listitem [ref=f16e79]:
+                - link:
+                  - /url: https://cjp.org.in/the-cjp-effect-sc-orders-no-children-be-sent-to-detention-camps-in-assam/
+                - link "Memorandum to Deputy Commissioner (Bongaigaon district, Assam), Principal Secretary to the Government of Assam and Superintendent of Police (Border)" [ref=f16e80] [cursor=pointer]:
+                  - /url: https://cjp.org.in/ft-notices-pasted-on-electric-poles-cjp-petitions-assam-authorities/
+                - text: about Foreigners’ Tribunal notices being pasted on electricity poles in Bongaigaon instead of being served to people.
+              - listitem [ref=f16e81]:
+                - link "CJP helped Gangadhar Pramanik" [ref=f16e82] [cursor=pointer]:
+                  - /url: https://cjp.org.in/this-is-my-son-my-ganga-is-back/
+                - text: ", a man from West Bengal declared foreigner in Assam, get released from a detention centre and be reunited with his family. Later, the West Bengal government also confirmed his citizenship."
+              - listitem [ref=f16e83]:
+                - link "Resource for all legal and paralegal" [ref=f16e84] [cursor=pointer]:
+                  - /url: https://cjp.org.in/assam-paralegal-training-workshop/
+                - text: matters that concerns the citizenship crisis in Assam.
+            - 'heading "FOREST RIGHTS: SONBHADRA AND DUDHWA NATIONAL PARK (UTTAR PRADESH), CHITRAKOOT (MADHYA PRADESH)" [level=3] [ref=f16e85]'
+            - 'heading "PARTNER ORGANISATION: ALL INDIA UNION OF FOREST WORKING PEOPLE (AIUFWP)" [level=3] [ref=f16e86]'
+            - paragraph [ref=f16e87]: "Objective: To empower Adivasis, forest-dwellers and forest workers defend their rights under the Forest Rights Act 2006. To also defend Forest Rights activists against malicious prosecution and incarceration on trumped up charges."
+            - paragraph [ref=f16e88]: "Actions: Training Adivasi and forest working people file Community Forest Rights claims as per FRA 2006. Over 7,000 people trained across 60 villages so far!"
+            - list [ref=f16e89]:
+              - listitem [ref=f16e90]: Support them in filing Community Forest Rights Claims and follow-ups.
+              - listitem [ref=f16e91]: Moving NCST, NHRC etc. to help get justice for Adivasis and forest dwellers who are harassed by the Forest Department or local police.
+              - listitem [ref=f16e92]: Over 150 complaints files so far against false and malicious prosecution of Adivasi human rights defenders!
+              - listitem [ref=f16e93]: CJP has moved court to help secure release of Forest Rights Defenders detained on trumped up charges.
+              - listitem [ref=f16e94]: Mentoring Adivasi women to take up leadership of grassroots movements.
+            - 'heading "CJP''S GRASSROOTS FELLOWSHIP: NATIONWIDE" [level=3] [ref=f16e95]'
+            - paragraph [ref=f16e96]: CJP’s Grassroots Fellowship Program is a unique initiative aiming to give voice and agency, as well as mentor youth leaders from among the communities with whom we work closely. These presently include migrant workers, Dalits, Adivasis and forest workers.
+            - list [ref=f16e97]:
+              - listitem [ref=f16e98]: We also train these fellows in correct research and documentation procedures, in order to build a community of on-ground researchers and community leaders.
+              - listitem [ref=f16e99]: We are exploring solutions to gain access to legal and Constitutional experts. Explore solutions, gain access to legal and constitutional experts.
+              - listitem [ref=f16e100]: Build a community of on-ground researchers and community leaders.
+            - heading "KHOJ" [level=3] [ref=f16e101]
+            - paragraph [ref=f16e102]: "Objective: To give an opportunity to school children to understand diversity, peace and harmony."
+            - list [ref=f16e103]:
+              - listitem [ref=f16e104]: We teach students to be critical in their approach to knowledge and decision making.
+              - listitem [ref=f16e105]: We encourage children to go beyond the narrow confines of their syllabus, and foster an open atmosphere of learning and sharing within the classroom.
+              - listitem [ref=f16e106]: The emphasis is on pluralism and inclusion.
+              - listitem [ref=f16e107]: Khoj has helped 56,000 students in over 850 schools; 1,300 teachers have been trained.
+            - 'heading "GUJARAT VIOLENCE 2002: IN THE COURTS" [level=3] [ref=f16e108]'
+            - paragraph [ref=f16e109]: Zakia Jafri and CJP moved Supreme Court to ask for a proper investigation into allegations made in Zakia Jafri’s complaint from June 2008 and the Protest Petition. The SIT probing the Gujarat 2002 violence had failed to take into account several key pieces of evidence and filed a closure report that was accepted by a Magistrate’s court. The court also claimed it had no power to direct further investigation, and we have sought clarification on the same. While Zakia Jafri is the first petitioner, CJP via its secretary Teesta Setalvad is the second petitioner in the Zakia Jafri Case. CJP has also helped survivors in trials related to Naroda Patiya, Naroda Gam, Sardarpura, Ode (1 and 2) and Gulberg massacre.
+            - heading "PETITIONS TO JUDICIAL AUTHORITIES" [level=3] [ref=f16e110]
+            - list [ref=f16e111]:
+              - listitem [ref=f16e112]:
+                - link "SLP before Supreme Court" [ref=f16e113] [cursor=pointer]:
+                  - /url: https://cjp.org.in/zakia-jafri-and-cjp-still-seeking-justice-for-gujarat-2002-victims-and-survivors/
+                - text: ": Hearings concluded"
+              - listitem [ref=f16e114]:
+                - text: CJP via its secretary Teesta Setalvad is the second petitioner in the
+                - link "Zakia Jafri Case" [ref=f16e115] [cursor=pointer]:
+                  - /url: https://cjp.org.in/zakia-jafri-case/
+                - text: .
+            - heading "CJP'S OTHER ACTIVITIES" [level=2] [ref=f16e116]
+            - paragraph [ref=f16e117]: "Workshops and Training Sessions: CJP conducts a variety of workshops to empower media students, activists and legal practitioners and teachers, in the proper methods to conduct fact finding missions and document their findings. We also conduct Teachers Training workshops in Constitutional values, Pluralism, History and Social Sciences."
+            - paragraph [ref=f16e118]:
+              - text: CJP's series of workshops on How to Spot and Stop Fake News are being held at different locations, Chennai, Mangalore, Mumbai and Varanasi. The one in February 2018 at Varanasi's Mahatma Gandhi Kashi Vidyapeeth struck fear in the hearts of right-wing extremists. They not only threatened us but also
+              - link "surrounded CJP Secretary Teesta Setalvad" [ref=f16e119] [cursor=pointer]:
+                - /url: https://cjp.org.in/up-police-sides-with-the-abvp-prevents-cjps-workshop-on-how-to-stop-fake-news/
+              - text: and tried to prevent us from conducting the workshop, the contents of which were designed to expose their modus operandi in spreading misinformation. The workshop however continued at another venue.
+            - heading "Legal and Community Resources:" [level=2] [ref=f16e120]
+            - paragraph [ref=f16e121]:
+              - text: Keeping in mind the need to provide help to defenders of constitutional values, CJP has put together comprehensive
+              - link "legal" [ref=f16e122] [cursor=pointer]:
+                - /url: https://cjp.org.in/section/legal-resources/
+              - text: and
+              - link "community resources" [ref=f16e123] [cursor=pointer]:
+                - /url: https://cjp.org.in/tag/CommunityResources/
+              - text: that address issues as wide ranging as gender, caste and child rights.
+            - paragraph [ref=f16e124]:
+              - text: Read more about
+              - link "CJP's Other Initiatives" [ref=f16e125] [cursor=pointer]:
+                - /url: https://cjp.org.in/cjps-other-initiatives/
+            - paragraph [ref=f16e126]:
+              - text: Read all about
+              - link "CJP's Impact" [ref=f16e127] [cursor=pointer]:
+                - /url: https://cjp.org.in/cjps-other-initiatives/
+            - paragraph [ref=f16e128]:
+              - text: For any queries please write to
+              - link "info@cjp.org.in" [ref=f16e129] [cursor=pointer]:
+                - /url: mailto:info@cjp.org.in
+          - complementary [ref=f16e131]:
+            - complementary [ref=f16e132]:
+              - heading "About CJP" [level=3] [ref=f16e133]
+              - list [ref=f16e134]:
+                - listitem [ref=f16e135]:
+                  - link "About us" [ref=f16e136] [cursor=pointer]:
+                    - /url: /about
+                - listitem [ref=f16e137]:
+                  - link "CJP'S Impact" [ref=f16e138] [cursor=pointer]:
+                    - /url: /cjps-impact/
+                - listitem [ref=f16e139]:
+                  - link "CJP'S Other Initiatives" [ref=f16e140] [cursor=pointer]:
+                    - /url: /cjps-other-initiatives/
+              - generic [ref=f16e141]:
+                - list [ref=f16e142]:
+                  - listitem [ref=f16e143]:
+                    - link "One time" [ref=f16e144]:
+                      - /url: "#onetime"
+                  - listitem [ref=f16e145]:
+                    - link "Monthly" [ref=f16e146] [cursor=pointer]:
+                      - /url: "#monthly"
+                - generic [ref=f16e148]:
+                  - heading "I WOULD LIKE TO DONATE" [level=2] [ref=f16e149]
+                  - paragraph [ref=f16e150]: All Fields are Compulsory
+                  - generic [ref=f16e152]:
+                    - generic [ref=f16e153]:
+                      - generic [ref=f16e154] [cursor=pointer]: ₹ 200
+                      - generic [ref=f16e155] [cursor=pointer]: ₹ 500
+                      - generic [ref=f16e156] [cursor=pointer]: ₹ 1,000
+                      - paragraph [ref=f16e158]: Help us cover a part of one lawyer’s fees to provide legal aid to excluded communities.
+                      - generic [ref=f16e159] [cursor=pointer]: ₹ 3,000
+                      - generic [ref=f16e160] [cursor=pointer]: ₹ 5,000
+                      - generic [ref=f16e161] [cursor=pointer]: ₹ 12,000
+                    - textbox "₹ Other Amount" [ref=f16e163]
+                    - generic [ref=f16e164] [cursor=pointer]: Donate Now
+              - link "Justice for all Join CJP Donate Now" [ref=f16e168] [cursor=pointer]:
+                - /url: https://cjp.org.in/donate/
+                - generic [ref=f16e169]:
+                  - generic [ref=f16e170]: Justice for allJoin CJP
+                  - generic [ref=f16e171]: Donate Now
+    - contentinfo [ref=f16e172]:
+      - generic [ref=f16e175]:
+        - complementary [ref=f16e177]:
+          - heading "About us" [level=3] [ref=f16e178]
+          - generic [ref=f16e179]:
+            - text: For over 15 years, CJP has stood for the defence of rights and dignity of the voiceless and most marginalized sections of Indian society. Bringing alive the values of individual and collective freedoms and dignities enshrined in the Indian Constitution and its Preamble, CJP has stood for equality, dignity and non-discrimination of all Indians. We have intervened in the courts to ensure accountability of persons in power and in high office. Justice, we believe, is a prerequisite for lasting peace and social harmony
+            - emphasis [ref=f16e180]:
+              - text: ...
+              - link "read more" [ref=f16e181] [cursor=pointer]:
+                - /url: /about
+        - complementary [ref=f16e183]:
+          - heading "Make a difference" [level=3] [ref=f16e184]
+          - generic [ref=f16e185]:
+            - list [ref=f16e186]:
+              - listitem [ref=f16e187]:
+                - link "Donate" [ref=f16e188] [cursor=pointer]:
+                  - /url: /donate/
+              - listitem [ref=f16e189]:
+                - link "Volunteer" [ref=f16e190] [cursor=pointer]:
+                  - /url: /volunteer/
+              - listitem [ref=f16e191]:
+                - link "Submit Content" [ref=f16e192] [cursor=pointer]:
+                  - /url: /submit-content/
+              - listitem [ref=f16e193]:
+                - link "Report a Hate Crime" [ref=f16e194] [cursor=pointer]:
+                  - /url: /report-crime/
+              - listitem [ref=f16e195]:
+                - link "Become a Friend" [ref=f16e196] [cursor=pointer]:
+                  - /url: /friend/
+              - listitem [ref=f16e197]:
+                - link "Terms & Conditions" [ref=f16e198] [cursor=pointer]:
+                  - /url: https://cjp.org.in/terms-conditions-for-donation/
+              - listitem [ref=f16e199]:
+                - link "Privacy Policy" [ref=f16e200] [cursor=pointer]:
+                  - /url: /privacy-policy/
+              - listitem [ref=f16e201]:
+                - link "Refund & Cancellation" [ref=f16e202] [cursor=pointer]:
+                  - /url: /refund-and-cancellation/
+            - separator [ref=f16e203]
+            - heading "Media Section" [level=3] [ref=f16e204]
+            - list [ref=f16e205]:
+              - listitem [ref=f16e206]:
+                - link "Press Releases" [ref=f16e207] [cursor=pointer]:
+                  - /url: /section/press-releases
+              - listitem [ref=f16e208]:
+                - link "Media Mentions" [ref=f16e209] [cursor=pointer]:
+                  - /url: /section/media-mentions
+              - listitem [ref=f16e210]:
+                - link "Op-eds in Other Media" [ref=f16e211] [cursor=pointer]:
+                  - /url: /section/op-eds-in-other-media/
+        - generic [ref=f16e212]:
+          - complementary [ref=f16e213]:
+            - heading "Stay Informed" [level=3] [ref=f16e214]
+            - generic [ref=f16e219]:
+              - textbox "First Name" [ref=f16e221]
+              - textbox "Your Email" [ref=f16e223]
+              - textbox [ref=f16e225]
+              - button "Subscribe" [ref=f16e227] [cursor=pointer]
+          - complementary [ref=f16e228]:
+            - generic [ref=f16e229]:
+              - separator [ref=f16e230]
+              - list [ref=f16e231]:
+                - listitem [ref=f16e232]:
+                  - link "Sabrang" [ref=f16e233] [cursor=pointer]:
+                    - /url: https://sabrangindia.in
+                - listitem [ref=f16e234]:
+                  - link "Communalism Combat" [ref=f16e235] [cursor=pointer]:
+                    - /url: https://www.sabrang.com/cc/
+        - complementary [ref=f16e237]:
+          - heading "Not to be missed" [level=3] [ref=f16e238]
+          - list [ref=f16e240]:
+            - listitem [ref=f16e241]:
+              - heading [level=3] [ref=f16e243]:
+                - link "Quit India Was a “Flop”? Not according to historical archives" [ref=f16e244] [cursor=pointer]:
+                  - /url: https://cjp.org.in/quit-india-was-a-flop-not-according-to-historical-archives/
+            - listitem [ref=f16e245]:
+              - heading [level=3] [ref=f16e247]:
+                - 'link "They Belong Here: An elderly couple’s victory for citizenship" [ref=f16e248] [cursor=pointer]':
+                  - /url: https://cjp.org.in/they-belong-here-an-elderly-couples-victory-for-citizenship/
+            - listitem [ref=f16e249]:
+              - heading [level=3] [ref=f16e251]:
+                - 'link "Odisha Likely Set to Free Dara Singh: A look at the three murders behind his life sentences" [ref=f16e252] [cursor=pointer]':
+                  - /url: https://cjp.org.in/odisha-likely-set-to-free-dara-singh-a-look-at-the-three-murders-behind-his-life-sentences/
+            - listitem [ref=f16e253]:
+              - heading [level=3] [ref=f16e255]:
+                - 'link "Another CJP Victory: Barpeta Tribunal declares Alam Khan ‘not a foreigner’" [ref=f16e256] [cursor=pointer]':
+                  - /url: https://cjp.org.in/another-cjp-victory-barpeta-tribunal-declares-alam-khan-not-a-foreigner/
+            - listitem [ref=f16e257]:
+              - heading [level=3] [ref=f16e259]:
+                - 'link "झूठ, अफवाह और नफरत: नए भारत में ‘दुश्मन’ गढ़ने की राजनीति" [ref=f16e260] [cursor=pointer]':
+                  - /url: https://cjp.org.in/jhooth-afwah-aur-nafrat-naye-bharat-mein-dushman/
+      - contentinfo [ref=f16e262]:
+        - generic [ref=f16e263]:
+          - list [ref=f16e265]:
+            - listitem [ref=f16e266]:
+              - link "" [ref=f16e267] [cursor=pointer]:
+                - /url: https://facebook.com/cjpindia
+            - listitem [ref=f16e269]:
+              - link "" [ref=f16e270] [cursor=pointer]:
+                - /url: https://twitter.com/cjpindia
+            - listitem [ref=f16e272]:
+              - link "" [ref=f16e273] [cursor=pointer]:
+                - /url: https://youtube.com/cjpindia
+            - listitem [ref=f16e275]:
+              - link "" [ref=f16e276] [cursor=pointer]:
+                - /url: https://www.instagram.com/cjpindia/
+            - listitem [ref=f16e278]:
+              - link "" [ref=f16e279] [cursor=pointer]:
+                - /url: https://cjp.org.in/
+          - generic [ref=f16e283]:
+            - textbox "Search..." [ref=f16e284]
+            - button "" [ref=f16e285] [cursor=pointer]
+          - paragraph [ref=f16e287]: 2026 Citizens for Justice and Peace
+  - generic [ref=f16e288] [cursor=pointer]:
+    - generic [ref=f16e289]: Go to
+    - generic [ref=f16e290]: Top
+  - link:
+    - /url: https://cjp.org.in/hate-map

@@ -231,9 +231,17 @@ export class JobScheduler {
       // "don't pre-announce" behavior — the thread can't exist before we know the
       // run won't be suppressed. Any final output still threads correctly after the
       // run via the legacy "first payload is the parent" path below.
+      // The delivery note stops the agent from trying to "send" its answer
+      // itself: job prompts often say "send X" / "notify Y", but the agent has
+      // no Slack posting tool in its session — the runner posts the final
+      // output to the target channel after the run. Without this, agents
+      // append apologies like "I couldn't send this because Slack isn't
+      // connected" to otherwise-correct output.
       const senderHeader = `[Sender: Scheduled Job: ${job.name} (job:${job.id}) · channel ${targetChannelId}`
         + (anchorTs ? ` · thread ${anchorTs}` : '')
-        + `]\n\n`;
+        + `]\n[Delivery: your final reply is posted automatically to the target Slack channel when you finish. `
+        + `Produce the message content itself — do NOT try to send/post it with a tool, and do NOT mention delivery, `
+        + `Slack access, or this instruction in your reply.]\n\n`;
       const headedPrompt = senderHeader + job.prompt
         + (suppressible ? notificationGate(job.skipWhen as string) : '');
 
