@@ -24,6 +24,7 @@ function makeAgent(resultText: string) {
     buildPayloads: vi.fn((text: string) => [{ text }]),
     postPayload: vi.fn(async () => 'posted'),
     updatePayload: vi.fn(async () => {}),
+    deleteMessage: vi.fn(async () => {}),
   };
   return { agent: { backend, adapter }, backend, adapter };
 }
@@ -84,6 +85,31 @@ describe('JobScheduler.executeJob (backend-agnostic)', () => {
     expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: 'L1.2 table' }, 'anchor-ts');
     // …and the headline is NOT also re-posted as a reply.
     expect(adapter.postPayload).not.toHaveBeenCalledWith('C123', { text: 'L1.0 table' }, 'anchor-ts');
+  });
+
+  it('reposts (delete + fresh post) instead of editing when the headline carries a bare URL — edits never gain link previews', async () => {
+    const gif = 'https://media.giphy.com/media/abc/giphy.gif';
+    const { agent, adapter } = makeAgent(`Happy birthday!\n${gif}`);
+    adapter.postPayload.mockResolvedValueOnce('fresh-ts');
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await exec(scheduler, job);
+
+    // Placeholder anchor deleted, headline posted FRESH (top-level, unfurls).
+    expect(adapter.deleteMessage).toHaveBeenCalledWith('C123', 'anchor-ts');
+    expect(adapter.postPayload).toHaveBeenCalledWith('C123', { text: `Happy birthday!\n${gif}` });
+    expect(adapter.updatePayload).not.toHaveBeenCalled();
+  });
+
+  it('falls back to in-place promotion when the repost path fails', async () => {
+    const gif = 'https://media.giphy.com/media/abc/giphy.gif';
+    const { agent, adapter } = makeAgent(`wish\n${gif}`);
+    adapter.deleteMessage.mockRejectedValueOnce(new Error('cant_delete_message'));
+    const scheduler = new JobScheduler(() => agent as never);
+
+    await exec(scheduler, job);
+
+    expect(adapter.updatePayload).toHaveBeenCalledWith('C123', 'anchor-ts', { text: `wish\n${gif}` });
   });
 
   it('routes DM jobs through openDm', async () => {

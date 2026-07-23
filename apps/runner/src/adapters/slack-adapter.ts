@@ -21,7 +21,7 @@ import type {
   PlatformAdapter, IncomingMessage, ThreadMessage, FileAttachment, MessagePayload,
   MessageDeletedEvent, SlackCredentials,
 } from '@slackhive/shared';
-import { recordMessageFeedback, linkActivityReply, findActivityIdByReply, PAYLOAD_BREAK } from '@slackhive/shared';
+import { recordMessageFeedback, linkActivityReply, findActivityIdByReply, PAYLOAD_BREAK, containsBareUrl } from '@slackhive/shared';
 import { agentLogger } from '../logger';
 import { SLACK_FORMATTING_SECTION } from '../compile-claude-md';
 import type { Logger } from 'winston';
@@ -428,6 +428,10 @@ export class SlackAdapter implements PlatformAdapter {
 
   async updateMessage(channelId: string, messageId: string, text: string): Promise<void> {
     await this.app.client.chat.update({ channel: channelId, ts: messageId, text });
+  }
+
+  async deleteMessage(channelId: string, messageId: string): Promise<void> {
+    await this.app.client.chat.delete({ channel: channelId, ts: messageId });
   }
 
   async updatePayload(channelId: string, messageId: string, payload: MessagePayload): Promise<void> {
@@ -966,17 +970,9 @@ export function isMediaUrl(url: string): boolean {
   try { return MEDIA_HOSTS.test(new URL(url).hostname); } catch { return false; }
 }
 
-/**
- * True when the text carries a bare (unlabeled) http(s) URL — i.e. one Slack
- * would auto-unfurl in a plain-text message. Labeled links (`<url|label>`) are
- * stripped first: they never unfurl, so they don't count. URLs inside code
- * fences DO count (v1 simplification — a fenced URL merely skips the inline
- * feedback rewrite, costing nothing but a separate rating message).
- */
-export function containsBareUrl(text: string): boolean {
-  const withoutLabeled = text.replace(/<https?:\/\/[^\s|>]+\|[^>]*>/g, '');
-  return /https?:\/\/\S+/.test(withoutLabeled);
-}
+// containsBareUrl moved to @slackhive/shared (platform-neutral: the job
+// scheduler needs it too). Re-exported here so existing imports keep working.
+export { containsBareUrl } from '@slackhive/shared';
 
 function splitTextForBlocks(text: string): string[] {
   const MAX = 3000;
