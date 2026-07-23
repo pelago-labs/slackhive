@@ -377,6 +377,10 @@ export class SlackAdapter implements PlatformAdapter {
           text: payload.text,
           ...(threadId && { thread_ts: threadId }),
           ...(payload.blocks && { blocks: payload.blocks }),
+          // Slack never unfurls URLs inside blocks; on plain-text payloads ask
+          // for both media and link previews explicitly (bot default is
+          // media-only).
+          ...(!payload.blocks && { unfurl_links: true, unfurl_media: true }),
         };
         try {
           const result = await client.chat.postMessage(opts);
@@ -405,6 +409,8 @@ export class SlackAdapter implements PlatformAdapter {
       text: payload.text,
       ...(threadId && { thread_ts: threadId }),
       ...(payload.blocks && { blocks: payload.blocks }),
+      // See postMessage: explicit unfurls on plain-text payloads only.
+      ...(!payload.blocks && { unfurl_links: true, unfurl_media: true }),
     };
     try {
       const result = await this.app.client.chat.postMessage(opts);
@@ -511,8 +517,12 @@ export class SlackAdapter implements PlatformAdapter {
     if (!messageId) return;
     const activityId = ctx.activityId ?? null;
     const baseBlocks = this.answerBlocks(payload);
-    // Inline attach (preferred).
-    if (baseBlocks) {
+    // Rewriting a reply into blocks kills Slack's link/media unfurls (URLs in
+    // blocks never unfurl). If the reply carries a bare URL — a GIF link, a
+    // shared doc — keep the message as plain text and use the standalone
+    // rating message instead, so the preview survives.
+    // Inline attach (preferred when it can't cost an unfurl).
+    if (baseBlocks && !containsBareUrl(payload.text)) {
       try {
         await this.app.client.chat.update({
           channel: channelId, ts: messageId,
@@ -617,6 +627,13 @@ export class SlackAdapter implements PlatformAdapter {
       codeBlocks.push(match);
       return `\x00CB${codeBlocks.length - 1}\x00`;
     });
+
+    // Labeled links to media never unfurl in Slack — the label suppresses the
+    // preview and buys nothing (the URL is the content). Unwrap both markdown
+    // [label](url) and Slack <url|label> forms to the bare URL for media hosts
+    // and image/video extensions so previews render.
+    formatted = formatted.replace(/\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g, (m, url) => (isMediaUrl(url) ? url : m));
+    formatted = formatted.replace(/<(https?:\/\/[^\s|>]+)\|[^>]*>/g, (m, url) => (isMediaUrl(url) ? url : m));
 
     // Auto-wrap bare markdown tables in code blocks
     formatted = formatted.replace(
@@ -937,6 +954,28 @@ function buildSlackTableBlock(parsed: { headers: string[]; rows: string[][]; ali
  *  per-block cap. Single source for both buildPayloads and answerBlocks. */
 export function sectionBlocksFromText(text: string): Record<string, any>[] {
   return splitTextForBlocks(text).map(chunk => ({ type: 'section', text: { type: 'mrkdwn', text: chunk } }));
+}
+
+/** Hosts whose links are always media (GIF/video services with extensionless URLs). */
+const MEDIA_HOSTS = /(?:^|\.)(?:giphy\.com|media\.giphy\.com|tenor\.com|media\.tenor\.com|gfycat\.com)$/i;
+const MEDIA_EXT = /\.(?:gif|png|jpe?g|webp|mp4|mov|webm)(?:\?|#|$)/i;
+
+/** True for URLs Slack renders as an inline media preview (image/GIF/video). */
+export function isMediaUrl(url: string): boolean {
+  if (MEDIA_EXT.test(url)) return true;
+  try { return MEDIA_HOSTS.test(new URL(url).hostname); } catch { return false; }
+}
+
+/**
+ * True when the text carries a bare (unlabeled) http(s) URL — i.e. one Slack
+ * would auto-unfurl in a plain-text message. Labeled links (`<url|label>`) are
+ * stripped first: they never unfurl, so they don't count. URLs inside code
+ * fences DO count (v1 simplification — a fenced URL merely skips the inline
+ * feedback rewrite, costing nothing but a separate rating message).
+ */
+export function containsBareUrl(text: string): boolean {
+  const withoutLabeled = text.replace(/<https?:\/\/[^\s|>]+\|[^>]*>/g, '');
+  return /https?:\/\/\S+/.test(withoutLabeled);
 }
 
 function splitTextForBlocks(text: string): string[] {

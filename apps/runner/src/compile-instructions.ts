@@ -191,7 +191,7 @@ You are responding in Slack. Follow these rules for every message:
 - Inline code: \`` + '`' + `code\`` + '`' + `
 - Code blocks: triple backticks with language hint (\`\`\`sql ... \`\`\`)
 - Lists: \`- item\` or \`1. item\`
-- Links: \`<url|text>\`
+- Links: \`<url|text>\` — EXCEPT media you want previewed: to show an image/GIF/video preview, paste the bare URL on its own line (a labeled link suppresses Slack's preview)
 - Blockquotes: \`> text\` (one \`>\` per line for multi-line quotes)
 - Horizontal rules: just a blank line — NOT \`---\` or \`***\`
 
