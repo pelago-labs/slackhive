@@ -158,7 +158,7 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
   if (!agent) return null;
   const d = await db();
   const r = await d.query(
-    'SELECT credentials, bot_user_id, bot_handle, bot_image_url, app_id FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
+    'SELECT credentials, bot_user_id, bot_handle, bot_image_url, app_id, app_credentials FROM platform_integrations WHERE agent_id = $1 AND platform = $2 AND enabled = 1',
     [agent.id, 'slack']
   );
   if (r.rows.length > 0) {
@@ -179,6 +179,12 @@ async function enrichAgentWithPlatform(agent: Agent | null): Promise<Agent | nul
       agent.slackBotImageUrl = r.rows[0].bot_image_url as string | undefined;
     }
     agent.slackAppId = (r.rows[0].app_id as string | null) ?? undefined;
+    if (r.rows[0].app_credentials) {
+      try {
+        const appCreds = JSON.parse(decrypt(r.rows[0].app_credentials as string, getEncryptionKey()));
+        agent.slackInstallRedirectRegistered = Boolean(appCreds.redirectRegistered);
+      } catch { /* leave undefined — UI falls back to client-side https check */ }
+    }
   }
   return agent;
 }
@@ -472,6 +478,23 @@ export interface SlackAppProvision {
   clientSecret: string;
   verificationToken?: string;
   signingSecret?: string;
+  /** Whether an OAuth redirect URL was registered in the app manifest — decides
+   *  whether the automated install (bot-token capture) is available. */
+  redirectRegistered?: boolean;
+}
+
+/**
+ * Serializes all read-modify-write updates of the encrypted platform credential
+ * blob. The OAuth install callback, the settings stepper, and provisioning can
+ * write concurrently; without serialization, interleaved SELECT→UPDATE pairs
+ * would silently drop the other writer's just-captured token. All these writes
+ * happen in this web process, so an in-process chain is sufficient.
+ */
+let credentialWriteChain: Promise<unknown> = Promise.resolve();
+function withCredentialWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = credentialWriteChain.then(fn, fn);
+  credentialWriteChain = run.catch(() => {});
+  return run;
 }
 
 /**
@@ -480,46 +503,53 @@ export interface SlackAppProvision {
  * blob with the signing secret (merged — never clobbers tokens already saved).
  */
 export async function upsertSlackAppProvision(agentId: string, prov: SlackAppProvision): Promise<void> {
-  const d = await db();
-  const key = getEncryptionKey();
-  const appCredentials = encrypt(
-    JSON.stringify({ clientId: prov.clientId, clientSecret: prov.clientSecret, verificationToken: prov.verificationToken }),
-    key
-  );
-
-  const existing = await d.query(
-    `SELECT id, credentials FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
-    [agentId]
-  );
-  let creds: Record<string, string> = {};
-  if (existing.rows.length > 0 && existing.rows[0].credentials) {
-    try {
-      creds = JSON.parse(decrypt(existing.rows[0].credentials as string, key));
-    } catch { /* start fresh if undecryptable */ }
-  }
-  if (prov.signingSecret) creds.signingSecret = prov.signingSecret;
-  const encrypted = encrypt(JSON.stringify(creds), key);
-
-  if (existing.rows.length > 0) {
-    await d.query(
-      `UPDATE platform_integrations SET app_id = $1, app_credentials = $2, credentials = $3
-       WHERE agent_id = $4 AND platform = 'slack'`,
-      [prov.appId, appCredentials, encrypted, agentId]
+  return withCredentialWriteLock(async () => {
+    const d = await db();
+    const key = getEncryptionKey();
+    const appCredentials = encrypt(
+      JSON.stringify({
+        clientId: prov.clientId,
+        clientSecret: prov.clientSecret,
+        verificationToken: prov.verificationToken,
+        redirectRegistered: prov.redirectRegistered ?? false,
+      }),
+      key
     );
-  } else {
-    await d.query(
-      `INSERT INTO platform_integrations (id, agent_id, platform, credentials, app_id, app_credentials)
-       VALUES ($1, $2, 'slack', $3, $4, $5)`,
-      [randomUUID(), agentId, encrypted, prov.appId, appCredentials]
+
+    const existing = await d.query(
+      `SELECT id, credentials FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
+      [agentId]
     );
-  }
+    let creds: Record<string, string> = {};
+    if (existing.rows.length > 0 && existing.rows[0].credentials) {
+      try {
+        creds = JSON.parse(decrypt(existing.rows[0].credentials as string, key));
+      } catch { /* start fresh if undecryptable */ }
+    }
+    if (prov.signingSecret) creds.signingSecret = prov.signingSecret;
+    const encrypted = encrypt(JSON.stringify(creds), key);
+
+    if (existing.rows.length > 0) {
+      await d.query(
+        `UPDATE platform_integrations SET app_id = $1, app_credentials = $2, credentials = $3
+         WHERE agent_id = $4 AND platform = 'slack'`,
+        [prov.appId, appCredentials, encrypted, agentId]
+      );
+    } else {
+      await d.query(
+        `INSERT INTO platform_integrations (id, agent_id, platform, credentials, app_id, app_credentials)
+         VALUES ($1, $2, 'slack', $3, $4, $5)`,
+        [randomUUID(), agentId, encrypted, prov.appId, appCredentials]
+      );
+    }
+  });
 }
 
 /**
  * Loads the auto-provisioned Slack app metadata for an agent (decrypted).
  * Returns null when the agent has no provisioned app (manual onboarding or none).
  */
-export async function getSlackAppProvision(agentId: string): Promise<{ appId: string; clientId: string; clientSecret: string } | null> {
+export async function getSlackAppProvision(agentId: string): Promise<{ appId: string; clientId: string; clientSecret: string; redirectRegistered: boolean } | null> {
   const d = await db();
   const r = await d.query(
     `SELECT app_id, app_credentials FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
@@ -528,7 +558,7 @@ export async function getSlackAppProvision(agentId: string): Promise<{ appId: st
   if (r.rows.length === 0 || !r.rows[0].app_id || !r.rows[0].app_credentials) return null;
   try {
     const c = JSON.parse(decrypt(r.rows[0].app_credentials as string, getEncryptionKey()));
-    return { appId: r.rows[0].app_id as string, clientId: c.clientId, clientSecret: c.clientSecret };
+    return { appId: r.rows[0].app_id as string, clientId: c.clientId, clientSecret: c.clientSecret, redirectRegistered: Boolean(c.redirectRegistered) };
   } catch (err) {
     console.error(`[db] failed to decrypt app credentials for agent ${agentId}:`, (err as Error).message);
     return null;
@@ -559,32 +589,8 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
   // token — never clobbers credentials captured earlier (e.g. the OAuth-captured
   // bot token).
   if (req.platformCredentials) {
-    const d = await db();
-    const key = getEncryptionKey();
-
-    // Check if integration row exists (and load current blob for the merge)
-    const existing = await d.query(
-      `SELECT id, credentials FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
-      [id]
-    );
-
-    let current: Record<string, string> = {};
-    if (existing.rows.length > 0 && existing.rows[0].credentials) {
-      try {
-        current = JSON.parse(decrypt(existing.rows[0].credentials as string, key));
-      } catch (err) {
-        console.error(`[db] failed to decrypt existing platform credentials for agent ${id}:`, (err as Error).message);
-      }
-    }
-    const merged: Record<string, string> = { ...current };
-    for (const [k, v] of Object.entries(req.platformCredentials)) {
-      if (v === undefined || v === null) continue;
-      if (v === '') delete merged[k];
-      else merged[k] = v as string;
-    }
-    const encrypted = encrypt(JSON.stringify(merged), key);
-
-    // Fetch bot handle + profile image from Slack if bot token provided
+    // Fetch bot handle + profile image from Slack if bot token provided.
+    // Network call happens OUTSIDE the write lock to keep the critical section short.
     let botHandle: string | null = null;
     let botImageUrl: string | null = null;
     if (req.platformCredentials.botToken) {
@@ -593,21 +599,48 @@ export async function updateAgent(id: string, req: UpdateAgentRequest): Promise<
       botImageUrl = profile.imageUrl ?? null;
     }
 
-    if (existing.rows.length > 0) {
-      await d.query(
-        `UPDATE platform_integrations SET credentials = $1,
-           bot_handle = COALESCE($3, bot_handle),
-           bot_image_url = COALESCE($4, bot_image_url)
-         WHERE agent_id = $2 AND platform = 'slack'`,
-        [encrypted, id, botHandle, botImageUrl]
+    await withCredentialWriteLock(async () => {
+      const d = await db();
+      const key = getEncryptionKey();
+
+      // Check if integration row exists (and load current blob for the merge)
+      const existing = await d.query(
+        `SELECT id, credentials FROM platform_integrations WHERE agent_id = $1 AND platform = 'slack'`,
+        [id]
       );
-    } else {
-      await d.query(
-        `INSERT INTO platform_integrations (id, agent_id, platform, credentials, bot_handle, bot_image_url)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [randomUUID(), id, 'slack', encrypted, botHandle, botImageUrl]
-      );
-    }
+
+      let current: Record<string, string> = {};
+      if (existing.rows.length > 0 && existing.rows[0].credentials) {
+        try {
+          current = JSON.parse(decrypt(existing.rows[0].credentials as string, key));
+        } catch (err) {
+          console.error(`[db] failed to decrypt existing platform credentials for agent ${id}:`, (err as Error).message);
+        }
+      }
+      const merged: Record<string, string> = { ...current };
+      for (const [k, v] of Object.entries(req.platformCredentials!)) {
+        if (v === undefined || v === null) continue;
+        if (v === '') delete merged[k];
+        else merged[k] = v as string;
+      }
+      const encrypted = encrypt(JSON.stringify(merged), key);
+
+      if (existing.rows.length > 0) {
+        await d.query(
+          `UPDATE platform_integrations SET credentials = $1,
+             bot_handle = COALESCE($3, bot_handle),
+             bot_image_url = COALESCE($4, bot_image_url)
+           WHERE agent_id = $2 AND platform = 'slack'`,
+          [encrypted, id, botHandle, botImageUrl]
+        );
+      } else {
+        await d.query(
+          `INSERT INTO platform_integrations (id, agent_id, platform, credentials, bot_handle, bot_image_url)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [randomUUID(), id, 'slack', encrypted, botHandle, botImageUrl]
+        );
+      }
+    });
   }
 
   if (fields.length === 0) return getAgentById(id);
@@ -1127,6 +1160,19 @@ export async function setSetting(key: string, value: string): Promise<void> {
  */
 export async function deleteSetting(key: string): Promise<void> {
   await (await db()).query('DELETE FROM settings WHERE key = $1', [key]);
+}
+
+/**
+ * Returns all settings whose key starts with the given prefix.
+ * Used for prefix-scoped ephemeral rows (e.g. OAuth install states) so
+ * abandoned entries can be swept.
+ */
+export async function listSettingsByPrefix(prefix: string): Promise<Array<{ key: string; value: string }>> {
+  const r = await (await db()).query(
+    "SELECT key, value FROM settings WHERE key LIKE $1 || '%'",
+    [prefix]
+  );
+  return r.rows.map(row => ({ key: row.key as string, value: row.value as string }));
 }
 
 /**

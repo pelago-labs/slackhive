@@ -112,6 +112,9 @@ export interface Agent {
   slackBotHandle?: string;
   /** Slack app id (A0…) when the app was auto-provisioned via the manifest API. */
   slackAppId?: string;
+  /** Whether the auto-provisioned app registered an OAuth redirect URL (https
+   *  origin at provision time) — decides if the automated install is available. */
+  slackInstallRedirectRegistered?: boolean;
   /** Slack profile image URL (cached from users.info on save / refresh). */
   slackBotImageUrl?: string;
   /**

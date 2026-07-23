@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Ne
     const { id } = await params;
     const url = await slackProvisioner.buildInstallRedirect(id, originFromRequest(req));
     if (!url) {
-      return NextResponse.json({ error: 'No provisioned Slack app for this agent — run provision first' }, { status: 409 });
+      return NextResponse.json({ error: 'Automated install unavailable: either no Slack app is provisioned for this agent, or it was provisioned without an OAuth redirect URL (http origin) — use the install link on the agent page and paste the bot token instead.' }, { status: 409 });
     }
     return NextResponse.redirect(url);
   } catch (err) {

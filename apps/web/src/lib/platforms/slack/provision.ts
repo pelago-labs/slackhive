@@ -15,7 +15,7 @@ import type { Agent } from '@slackhive/shared';
 import { DEFAULT_SLACK_BOT_SCOPES, BOSS_ADDITIONAL_SCOPES } from '@slackhive/shared';
 import { generateSlackManifest } from '@/lib/slack-manifest';
 import {
-  getSetting, setSetting, deleteSetting,
+  getSetting, setSetting, deleteSetting, listSettingsByPrefix,
   upsertSlackAppProvision, getSlackAppProvision, updateAgent,
 } from '@/lib/db';
 import { getConfigAccessToken, isConfigTokenConfigured, SlackConfigTokenError } from './config-token';
@@ -88,6 +88,7 @@ export const slackProvisioner: PlatformProvisioner = {
       clientSecret: d.credentials.client_secret,
       verificationToken: d.credentials.verification_token,
       signingSecret: d.credentials.signing_secret,
+      redirectRegistered: useOauthRedirect,
     });
 
     return {
@@ -101,8 +102,12 @@ export const slackProvisioner: PlatformProvisioner = {
 
   async buildInstallRedirect(agentId: string, origin: string): Promise<string | null> {
     const prov = await getSlackAppProvision(agentId);
-    if (!prov) return null;
+    // No provisioned app, or the app was created without a registered redirect
+    // URL (http origin at provision time) — Slack would reject the authorize
+    // request with redirect_uri mismatch, so refuse up front.
+    if (!prov || !prov.redirectRegistered) return null;
 
+    await sweepExpiredInstallStates();
     const state = randomUUID();
     await setSetting(`slack_install_state:${state}`, JSON.stringify({ agentId, ts: Date.now() }));
 
@@ -116,6 +121,37 @@ export const slackProvisioner: PlatformProvisioner = {
   },
 };
 
+/** Removes abandoned single-use install states past their TTL (best-effort). */
+async function sweepExpiredInstallStates(): Promise<void> {
+  try {
+    const rows = await listSettingsByPrefix('slack_install_state:');
+    for (const row of rows) {
+      let ts = 0;
+      try { ts = (JSON.parse(row.value) as { ts?: number }).ts ?? 0; } catch { /* malformed → sweep */ }
+      if (Date.now() - ts > INSTALL_STATE_TTL_MS) await deleteSetting(row.key);
+    }
+  } catch { /* sweeping is best-effort — never block an install on it */ }
+}
+
+/**
+ * Resolves (and burns) a single-use install state without performing the code
+ * exchange. Lets the callback route attribute even DENIED installs to the right
+ * agent so errors surface on that agent's page instead of vanishing.
+ * Returns null for unknown, malformed, or expired states.
+ */
+export async function consumeInstallState(state: string): Promise<{ agentId: string } | null> {
+  const key = `slack_install_state:${state}`;
+  const raw = await getSetting(key);
+  if (raw) await deleteSetting(key); // single-use, burn immediately
+  try {
+    const parsed = raw ? (JSON.parse(raw) as { agentId: string; ts: number }) : null;
+    if (!parsed || Date.now() - parsed.ts > INSTALL_STATE_TTL_MS) return null;
+    return { agentId: parsed.agentId };
+  } catch {
+    return null;
+  }
+}
+
 /** Outcome of the OAuth install callback exchange. */
 export interface InstallCallbackResult {
   agentId: string;
@@ -123,25 +159,15 @@ export interface InstallCallbackResult {
 }
 
 /**
- * Validates the single-use state and exchanges the OAuth code for the bot token,
- * merging it into the agent's credential blob (updateAgent merge semantics).
+ * Exchanges the OAuth code for the bot token for an already state-resolved
+ * agent, merging it into the credential blob (updateAgent merge semantics).
  * Deliberately does NOT publish a reload — the app-level token is still missing
  * and the runner would only park the agent as unconfigured.
  *
  * @throws Error with a short machine-readable message used as ?install_error=…
  */
-export async function handleInstallCallback(code: string, state: string, origin: string): Promise<InstallCallbackResult> {
-  const raw = await getSetting(`slack_install_state:${state}`);
-  if (raw) await deleteSetting(`slack_install_state:${state}`); // single-use, burn immediately
-  let parsed: { agentId: string; ts: number } | null = null;
-  try {
-    parsed = raw ? JSON.parse(raw) : null;
-  } catch { /* fall through to state error */ }
-  if (!parsed || Date.now() - parsed.ts > INSTALL_STATE_TTL_MS) {
-    throw new Error('state');
-  }
-
-  const prov = await getSlackAppProvision(parsed.agentId);
+export async function handleInstallCallback(code: string, agentId: string, origin: string): Promise<InstallCallbackResult> {
+  const prov = await getSlackAppProvision(agentId);
   if (!prov) throw new Error('not_provisioned');
 
   const d = await slackApi<{
@@ -160,7 +186,7 @@ export async function handleInstallCallback(code: string, state: string, origin:
 
   // Merge the bot token into the credential blob; updateAgent also resolves and
   // caches the bot handle + avatar via fetchSlackBotProfile.
-  await updateAgent(parsed.agentId, { platformCredentials: { botToken: d.access_token } });
+  await updateAgent(agentId, { platformCredentials: { botToken: d.access_token } });
 
-  return { agentId: parsed.agentId, botUserId: d.bot_user_id };
+  return { agentId, botUserId: d.bot_user_id };
 }

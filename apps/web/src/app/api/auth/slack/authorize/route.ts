@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { setSetting, getSetting } from '@/lib/db';
+import { originFromRequest } from '@/lib/request-origin';
 
 
 export const dynamic = 'force-dynamic';
@@ -23,9 +24,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const state = randomUUID();
   await setSetting(`slack_oauth_state:${state}`, '1');
 
-  const proto = req.headers.get('x-forwarded-proto') ?? req.nextUrl.protocol.replace(':', '');
-  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? req.nextUrl.host;
-  const redirectUri = `${proto}://${host}/api/auth/slack/callback`;
+  const redirectUri = `${originFromRequest(req)}/api/auth/slack/callback`;
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,

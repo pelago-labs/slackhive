@@ -1151,7 +1151,7 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
         const data = await r.json().catch(() => null);
         setForm({ slackBotToken: '', slackAppToken: '', slackSigningSecret: '' });
         setSlackInfo(null);
-        onUpdate(data ?? { ...agent, slackBotToken: undefined, slackAppToken: undefined, slackSigningSecret: undefined, slackBotUserId: undefined });
+        onUpdate(data ?? { ...agent, slackBotToken: undefined, slackAppToken: undefined, slackSigningSecret: undefined, slackBotUserId: undefined, slackAppId: undefined, slackBotHandle: undefined, slackBotImageUrl: undefined, slackInstallRedirectRegistered: undefined });
         setMsg('Disconnected');
       } else setMsg('Disconnect failed');
     } catch { setMsg('Disconnect failed'); }
@@ -1159,7 +1159,13 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
   };
   const slackConfigured = !!(agent.slackBotToken || agent.slackAppToken || agent.slackSigningSecret);
   const fullyConnected = !!(agent.slackBotToken && agent.slackAppToken);
-  const httpsOrigin = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  // Whether the automated OAuth install is available: the flag persisted at
+  // provision time is authoritative; the client-side protocol check is only a
+  // fallback for pre-flag rows.
+  const oauthInstallAvailable = agent.slackInstallRedirectRegistered
+    ?? (typeof window !== 'undefined' && window.location.protocol === 'https:');
+  const appTokenValid = !!form.slackAppToken?.trim().startsWith('xapp-');
+  const botTokenValid = !!form.slackBotToken?.trim().startsWith('xoxb-');
   // Onboarding step derived purely from agent state — no extra status column.
   const step: 'connect' | 'install' | 'apptoken' | 'connected' =
     fullyConnected ? 'connected'
@@ -1181,11 +1187,12 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
   };
 
   const saveAppToken = async () => {
+    if (!appTokenValid) { setStepError('Paste an App-Level Token first — it starts with xapp-.'); return; }
     setSaving(true); setStepError('');
     try {
       const r = await fetch(`/api/agents/${agent.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platformCredentials: { appToken: form.slackAppToken } }),
+        body: JSON.stringify({ platformCredentials: { appToken: form.slackAppToken!.trim() } }),
       });
       const data = await r.json();
       if (r.ok) { onUpdate(data); setMsg('Saved — connecting the agent…'); } else setStepError(data.error ?? 'Error');
@@ -1193,11 +1200,12 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
   };
 
   const saveBotTokenManual = async () => {
+    if (!botTokenValid) { setStepError('Paste the Bot Token first — it starts with xoxb-.'); return; }
     setSaving(true); setStepError('');
     try {
       const r = await fetch(`/api/agents/${agent.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platformCredentials: { botToken: form.slackBotToken } }),
+        body: JSON.stringify({ platformCredentials: { botToken: form.slackBotToken!.trim() } }),
       });
       const data = await r.json();
       if (r.ok) onUpdate(data); else setStepError(data.error ?? 'Error');
@@ -1252,7 +1260,7 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
             <div className="min-w-0 flex-1">
               <div className="text-xs font-semibold text-foreground">Install to your workspace</div>
               {step === 'install' && isAdmin && (
-                httpsOrigin ? (
+                oauthInstallAvailable ? (
                   <div className="mt-1.5">
                     <a href={`/api/agents/${agent.id}/slack/install`} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-sm font-medium text-primary-foreground no-underline">Install to workspace</a>
                     <p className="mb-0 mt-1.5 text-2xs text-muted-foreground">Opens Slack&apos;s approval screen — click <strong>Allow</strong>. The bot token is captured automatically when you land back here.</p>
@@ -1263,8 +1271,8 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
                       Open <a href={`https://api.slack.com/apps/${agent.slackAppId}/install-on-team`} target="_blank" rel="noopener noreferrer" className="font-medium text-primary no-underline">Install App</a> → <strong>Install to Workspace</strong> → <strong>Allow</strong>, then paste the Bot Token (from <strong>OAuth &amp; Permissions</strong>):
                     </p>
                     <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password"
-                      hint={form.slackBotToken && !form.slackBotToken.startsWith('xoxb-') ? <span className="text-red">Bot tokens start with <code className="font-mono text-2xs">xoxb-</code></span> : undefined} />
-                    <PrimaryBtn onClick={saveBotTokenManual} loading={saving}>Save Bot Token</PrimaryBtn>
+                      hint={form.slackBotToken && !botTokenValid ? <span className="text-red">Bot tokens start with <code className="font-mono text-2xs">xoxb-</code></span> : undefined} />
+                    <PrimaryBtn onClick={saveBotTokenManual} loading={saving} disabled={!botTokenValid}>Save Bot Token</PrimaryBtn>
                   </div>
                 )
               )}
@@ -1283,8 +1291,8 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
                     <a href={`https://api.slack.com/apps/${agent.slackAppId ?? ''}/general`} target="_blank" rel="noopener noreferrer" className="font-medium text-primary no-underline">Open the app&apos;s Basic Information page</a> → <strong>App-Level Tokens</strong> → <strong>Generate Token and Scopes</strong> → add scope <code className="font-mono text-2xs">connections:write</code> → <strong>Generate</strong> → copy the <code className="font-mono text-2xs">xapp-1-…</code> token and paste it here. (Slack has no API for this token — it&apos;s the only manual step.)
                   </p>
                   <Field label="App-Level Token" value={form.slackAppToken ?? ''} onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password"
-                    hint={form.slackAppToken && !form.slackAppToken.startsWith('xapp-') ? <span className="text-red">App-level tokens start with <code className="font-mono text-2xs">xapp-</code> — did you paste the wrong one?</span> : undefined} />
-                  <PrimaryBtn onClick={saveAppToken} loading={saving}>Save &amp; Go Live</PrimaryBtn>
+                    hint={form.slackAppToken && !appTokenValid ? <span className="text-red">App-level tokens start with <code className="font-mono text-2xs">xapp-</code> — did you paste the wrong one?</span> : undefined} />
+                  <PrimaryBtn onClick={saveAppToken} loading={saving} disabled={!appTokenValid}>Save &amp; Go Live</PrimaryBtn>
                 </div>
               )}
             </div>
@@ -1298,7 +1306,40 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
         </Card>
       )}
 
-      {(step === 'connected' || showManual) && <Card title="Slack Credentials">
+      {step === 'connected' && (
+        <Card title="Slack Connection">
+          {slackInfo ? (
+            <div className="rounded-md border border-green/30 bg-green/10 px-3.5 py-2.5 text-xs">
+              <div className="mb-2 flex items-center gap-1.5">
+                <div className="h-[7px] w-[7px] shrink-0 rounded-full bg-green" />
+                <span className="font-semibold text-green">Connected to Slack</span>
+                <span className="ml-auto text-2xs text-muted-foreground">{slackInfo.teamName}</span>
+              </div>
+              <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+                <span className="text-muted-foreground">Display name</span>
+                <span className="font-medium text-foreground">{slackInfo.displayName}</span>
+                <span className="text-muted-foreground">@handle</span>
+                <span className="font-mono text-foreground">@{slackInfo.handle}</span>
+                {agent.slackBotUserId && <>
+                  <span className="text-muted-foreground">Bot User ID</span>
+                  <span className="font-mono text-foreground">{agent.slackBotUserId}</span>
+                </>}
+              </div>
+            </div>
+          ) : (
+            <p className="m-0 text-xs text-muted-foreground">Credentials saved — the runner is connecting the agent to Slack.</p>
+          )}
+          {canEdit && (
+            <div className="mt-3">
+              <button onClick={() => setShowManual(s => !s)} className="cursor-pointer border-none bg-transparent p-0 text-2xs font-medium text-muted-foreground">
+                {showManual ? '▾' : '▸'} Edit credentials manually (only needed when rotating a token)
+              </button>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {showManual && <Card title="Slack Credentials">
         <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={form.slackBotToken && !form.slackBotToken.startsWith('xoxb-')
             ? <span className="text-red">Bot tokens start with <code className="font-mono text-2xs">xoxb-</code> — did you paste the wrong one?</span>
@@ -1309,25 +1350,6 @@ function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Ag
             : <>Basic Information → <strong>App-Level Tokens</strong> → Generate with scope <code className="font-mono text-2xs">connections:write</code></>} />
         <Field label="Signing Secret (optional)" value={form.slackSigningSecret ?? ''} onChange={v => setForm(f => ({ ...f, slackSigningSecret: v }))} type="password" readOnly={!canEdit}
           hint="Not used in Socket Mode (how agents connect) — only needed for the HTTP Events API. Basic Information → App Credentials → Signing Secret." />
-        {slackInfo && (
-          <div className="rounded-md border border-green/30 bg-green/10 px-3.5 py-2.5 text-xs">
-            <div className="mb-2 flex items-center gap-1.5">
-              <div className="h-[7px] w-[7px] shrink-0 rounded-full bg-green" />
-              <span className="font-semibold text-green">Connected to Slack</span>
-              <span className="ml-auto text-2xs text-muted-foreground">{slackInfo.teamName}</span>
-            </div>
-            <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-              <span className="text-muted-foreground">Display name</span>
-              <span className="font-medium text-foreground">{slackInfo.displayName}</span>
-              <span className="text-muted-foreground">@handle</span>
-              <span className="font-mono text-foreground">@{slackInfo.handle}</span>
-              {agent.slackBotUserId && <>
-                <span className="text-muted-foreground">Bot User ID</span>
-                <span className="font-mono text-foreground">{agent.slackBotUserId}</span>
-              </>}
-            </div>
-          </div>
-        )}
       </Card>}
 
       <Card title="Allowed Channels">
@@ -3541,11 +3563,11 @@ function TextArea({ label, value, onChange, hint, rows = 3, readOnly, grow }: {
   );
 }
 
-function PrimaryBtn({ children, onClick, loading }: {
-  children: React.ReactNode; onClick?: () => void; loading?: boolean;
+function PrimaryBtn({ children, onClick, loading, disabled }: {
+  children: React.ReactNode; onClick?: () => void; loading?: boolean; disabled?: boolean;
 }) {
   return (
-    <Button size="sm" onClick={onClick} disabled={loading}>
+    <Button size="sm" onClick={onClick} disabled={loading || disabled}>
       {loading ? 'Saving…' : children}
     </Button>
   );

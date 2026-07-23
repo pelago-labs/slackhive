@@ -15,6 +15,7 @@ import {
   Grid2X2,
   KeyRound,
   LogIn,
+  Plug,
   Plus,
   Search,
   ShieldCheck,
@@ -39,7 +40,7 @@ import { Switch } from '@/components/ui/switch';
 import AiProviderSection from './AiProviderSection';
 import BackupSection from './BackupSection';
 
-type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'users' | 'backups';
+type SettingsSection = 'general' | 'ai' | 'access' | 'signin' | 'slackauto' | 'users' | 'backups';
 
 interface User {
   id: string;
@@ -79,6 +80,7 @@ export default function SettingsPage() {
     { id: 'ai',      label: 'AI Backend',         Icon: Bot,               show: canManageUsers },
     { id: 'access',  label: 'Access Control',      Icon: ShieldCheck,       show: canManageUsers },
     { id: 'signin',  label: 'Sign in with Slack',  Icon: LogIn,             show: canManageUsers && isSuperadmin },
+    { id: 'slackauto', label: 'Slack Automation',  Icon: Plug,              show: canManageUsers },
     { id: 'backups', label: 'Backups',            Icon: DatabaseBackup,    show: isSuperadmin },
     { id: 'users',   label: 'Users',              Icon: Users,             show: canManageUsers },
   ] as const).filter(n => n.show);
@@ -121,6 +123,7 @@ export default function SettingsPage() {
           {active === 'ai'      && canManageUsers && <AITab />}
           {active === 'access'  && canManageUsers && <AccessControlSection />}
           {active === 'signin'  && canManageUsers && isSuperadmin && <AuthTab />}
+          {active === 'slackauto' && canManageUsers && <SlackAutomationTab />}
           {active === 'backups' && isSuperadmin && <BackupSection />}
           {active === 'users'   && canManageUsers && <UsersTab />}
         </div>
@@ -1117,18 +1120,19 @@ function AuthTab() {
           </p>
         )}
       </div>
-
-      <SlackAutomationCard inputClass={inputClass} labelClass={labelClass} />
     </div>
   );
 }
 
 /**
- * Settings card for the workspace-level Slack App Configuration token that
+ * Settings tab for the workspace-level Slack App Configuration token that
  * powers automated agent onboarding (auto-creating Slack apps from manifests).
- * Pasted once; the server rotates it every ~12h thereafter.
+ * Pasted once; the server rotates it every ~12h thereafter. Visible to admins —
+ * the whole onboarding flow is admin-gated, not superadmin-gated.
  */
-function SlackAutomationCard({ inputClass, labelClass }: { inputClass: string; labelClass: string }) {
+function SlackAutomationTab() {
+  const inputClass = 'w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none';
+  const labelClass = 'mb-1.5 block text-xs font-medium text-muted-foreground';
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [token, setToken] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1161,7 +1165,7 @@ function SlackAutomationCard({ inputClass, labelClass }: { inputClass: string; l
   };
 
   return (
-    <div className="mt-10 border-t border-border pt-8">
+    <div className="max-w-[560px]">
       <h2 className="m-0 mb-1 flex items-center gap-2 text-base font-semibold text-foreground">
         Slack app automation
         {configured !== null && (

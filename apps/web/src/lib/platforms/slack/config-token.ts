@@ -75,18 +75,16 @@ export async function getConfigAccessToken(): Promise<string> {
 }
 
 /**
- * Stores a freshly pasted refresh token and validates it by rotating once.
- * On rotation failure the stored value is cleared again so the settings UI
- * keeps reporting "not configured" rather than a poisoned state.
+ * Validates a freshly pasted refresh token by rotating with it FIRST, and only
+ * persists the rotated material on success — a bad paste never destroys a
+ * previously working configuration (the stored token is left untouched).
  */
 export async function saveConfigRefreshToken(refreshToken: string): Promise<void> {
-  await setSetting(REFRESH_TOKEN_KEY, encrypt(refreshToken.trim(), getEncryptionKey()));
-  try {
-    await rotateConfigToken();
-  } catch (err) {
-    await clearConfigToken();
-    throw err;
+  const rotated = await callRotateApi(refreshToken.trim());
+  if (!rotated) {
+    throw new SlackConfigTokenError('invalid', 'Slack rejected that App Configuration token — generate a new one at api.slack.com/apps (Your App Configuration Tokens) and paste the Refresh Token (xoxe-1-…).');
   }
+  await persistRotation(rotated);
 }
 
 /** Forgets all stored config-token material. */
@@ -96,26 +94,49 @@ export async function clearConfigToken(): Promise<void> {
   await deleteSetting(TOKEN_EXP_KEY);
 }
 
+interface RotatedTokens { token: string; refreshToken: string; exp: number; }
+
+/** Calls tooling.tokens.rotate; returns null when Slack rejects the token. */
+async function callRotateApi(refreshToken: string): Promise<RotatedTokens | null> {
+  const res = await fetch('https://slack.com/api/tooling.tokens.rotate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ refresh_token: refreshToken }),
+  });
+  const d = (await res.json()) as {
+    ok: boolean; token?: string; refresh_token?: string; exp?: number; error?: string;
+  };
+  if (!d.ok || !d.token || !d.refresh_token) return null;
+  return { token: d.token, refreshToken: d.refresh_token, exp: d.exp ?? Math.floor(Date.now() / 1000) + 12 * 3600 };
+}
+
+async function persistRotation(r: RotatedTokens): Promise<void> {
+  const key = getEncryptionKey();
+  // Persist the NEW refresh token first — the old one is now dead (chained rotation).
+  await setSetting(REFRESH_TOKEN_KEY, encrypt(r.refreshToken, key));
+  await setSetting(ACCESS_TOKEN_KEY, encrypt(r.token, key));
+  await setSetting(TOKEN_EXP_KEY, String(r.exp));
+}
+
 async function rotateConfigToken(): Promise<string> {
   const encRefresh = await getSetting(REFRESH_TOKEN_KEY);
   if (!encRefresh) {
     throw new SlackConfigTokenError('missing', 'Slack app automation is not set up — paste an App Configuration refresh token in Settings.');
   }
   const key = getEncryptionKey();
-  const res = await fetch('https://slack.com/api/tooling.tokens.rotate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ refresh_token: decrypt(encRefresh, key) }),
-  });
-  const d = (await res.json()) as {
-    ok: boolean; token?: string; refresh_token?: string; exp?: number; error?: string;
-  };
-  if (!d.ok || !d.token || !d.refresh_token) {
-    throw new SlackConfigTokenError('invalid', `Slack rejected the App Configuration token (${d.error ?? 'unknown error'}) — generate a new one at api.slack.com/apps and re-paste it in Settings.`);
+  const rotated = await callRotateApi(decrypt(encRefresh, key));
+  if (!rotated) {
+    // Chained rotation means a concurrent rotation by another process kills our
+    // refresh token. Before declaring the config invalid, re-read storage: if
+    // someone else just rotated, a fresh access token is already there — use it.
+    const expRaw = await getSetting(TOKEN_EXP_KEY);
+    const cached = await getSetting(ACCESS_TOKEN_KEY);
+    if (cached && expRaw && Number(expRaw) - EXPIRY_MARGIN_S > Date.now() / 1000) {
+      const currentRefresh = await getSetting(REFRESH_TOKEN_KEY);
+      if (currentRefresh !== encRefresh) return decrypt(cached, key);
+    }
+    throw new SlackConfigTokenError('invalid', 'Slack rejected the App Configuration token — generate a new one at api.slack.com/apps and re-paste it in Settings.');
   }
-  // Persist the NEW refresh token first — the old one is now dead.
-  await setSetting(REFRESH_TOKEN_KEY, encrypt(d.refresh_token, key));
-  await setSetting(ACCESS_TOKEN_KEY, encrypt(d.token, key));
-  await setSetting(TOKEN_EXP_KEY, String(d.exp ?? Math.floor(Date.now() / 1000) + 12 * 3600));
-  return d.token;
+  await persistRotation(rotated);
+  return rotated.token;
 }

@@ -27,10 +27,15 @@ import {
 } from '@/lib/platforms/slack/config-token';
 
 const fetchMock = vi.fn();
-beforeEach(() => {
+beforeEach(async () => {
   settings.clear();
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
+  // Restore the default map-backed behavior in case a test overrode it.
+  const dbMock = await import('@/lib/db');
+  (dbMock.getSetting as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (k: string) => settings.get(k) ?? null);
+  (dbMock.setSetting as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (k: string, v: string) => { settings.set(k, v); });
+  (dbMock.deleteSetting as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (k: string) => { settings.delete(k); });
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -95,11 +100,43 @@ describe('slack config token keeper', () => {
     await expect(getConfigAccessToken()).rejects.toMatchObject({ code: 'invalid' });
   });
 
-  it('saveConfigRefreshToken validates by rotating and clears on rejection', async () => {
+  it('saveConfigRefreshToken rejects a bad paste without becoming configured', async () => {
     fetchMock.mockResolvedValueOnce({ json: async () => ({ ok: false, error: 'invalid_refresh_token' }) } as unknown as Response);
 
     await expect(saveConfigRefreshToken('xoxe-1-bogus')).rejects.toBeInstanceOf(SlackConfigTokenError);
     expect(await isConfigTokenConfigured()).toBe(false);
+  });
+
+  it('a bad paste NEVER destroys a previously working configuration', async () => {
+    settings.set(REFRESH_TOKEN_KEY, encrypt('xoxe-1-working', TEST_KEY));
+    settings.set(ACCESS_TOKEN_KEY, encrypt('working-access', TEST_KEY));
+    settings.set(TOKEN_EXP_KEY, String(Math.floor(Date.now() / 1000) + 3600));
+    fetchMock.mockResolvedValueOnce({ json: async () => ({ ok: false, error: 'invalid_refresh_token' }) } as unknown as Response);
+
+    await expect(saveConfigRefreshToken('xoxe-1-bogus')).rejects.toBeInstanceOf(SlackConfigTokenError);
+    // Prior config untouched: still configured, same refresh token, cache still valid.
+    expect(await isConfigTokenConfigured()).toBe(true);
+    expect(decrypt(settings.get(REFRESH_TOKEN_KEY)!, TEST_KEY)).toBe('xoxe-1-working');
+    expect(await getConfigAccessToken()).toBe('working-access');
+    expect(fetchMock).toHaveBeenCalledTimes(1); // only the failed validation call
+  });
+
+  it('cross-process rotation race: falls back to the fresher stored token instead of erroring', async () => {
+    // Our in-memory view holds an old refresh token; another process already
+    // rotated (Slack rejects ours) and left a fresh access + refresh token in storage.
+    settings.set(REFRESH_TOKEN_KEY, encrypt('xoxe-1-stale', TEST_KEY));
+    const getSettingMock = (await import('@/lib/db')).getSetting as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ json: async () => ({ ok: false, error: 'invalid_refresh_token' }) } as unknown as Response);
+    // Simulate the other process's writes landing between our read and the retry re-read.
+    getSettingMock.mockImplementation(async (k: string) => {
+      if (k === REFRESH_TOKEN_KEY && fetchMock.mock.calls.length > 0) return encrypt('xoxe-1-other-proc', TEST_KEY);
+      if (k === ACCESS_TOKEN_KEY && fetchMock.mock.calls.length > 0) return encrypt('other-proc-access', TEST_KEY);
+      if (k === TOKEN_EXP_KEY && fetchMock.mock.calls.length > 0) return String(Math.floor(Date.now() / 1000) + 3600);
+      return settings.get(k) ?? null;
+    });
+
+    const token = await getConfigAccessToken();
+    expect(token).toBe('other-proc-access');
   });
 
   it('saveConfigRefreshToken stores rotated material on success', async () => {
