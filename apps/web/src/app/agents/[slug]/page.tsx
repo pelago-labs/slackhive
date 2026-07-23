@@ -914,7 +914,7 @@ function AgentSettingsTab({ agent, onUpdate, canEdit, viewOnly, allAgents, role,
       </div>
       <div className="min-w-0">
         {section === 'general' && <GeneralSettingsSection agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
-        {section === 'slack'   && <SlackSettingsSection   agent={agent} onUpdate={onUpdate} canEdit={canEdit} />}
+        {section === 'slack'   && <SlackSettingsSection   agent={agent} onUpdate={onUpdate} canEdit={canEdit} isAdmin={isAdmin} />}
         {section === 'evals'   && <EvalsPanel agent={agent} onAskCoach={onAskCoach} onOpenCoach={onOpenCoach} />}
         {section === 'feedback' && <FeedbackPanel agent={agent} />}
         {section === 'logs'    && <LogsTab    agentId={agent.id} slug={agent.slug} />}
@@ -1088,7 +1088,7 @@ function GeneralSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; on
   );
 }
 
-function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean }) {
+function SlackSettingsSection({ agent, onUpdate, canEdit, isAdmin }: { agent: Agent; onUpdate: (a: Agent) => void; canEdit: boolean; isAdmin: boolean }) {
   const [form, setForm] = useState({ slackBotToken: agent.slackBotToken, slackAppToken: agent.slackAppToken, slackSigningSecret: agent.slackSigningSecret });
   const [allowedChannels, setAllowedChannels] = useState('');
   const [slackInfo, setSlackInfo] = useState<{ displayName: string; handle: string; teamName: string } | null>(null);
@@ -1096,6 +1096,13 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
   const [showManifest, setShowManifest] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  // Automated onboarding state
+  const [automationReady, setAutomationReady] = useState<boolean | null>(null); // null = unknown/loading
+  const [provisioning, setProvisioning] = useState(false);
+  const [stepError, setStepError] = useState('');
+  const [showManual, setShowManual] = useState(false);
+  const installedFlag = useSearchParams().get('installed') === '1';
+  const installError = useSearchParams().get('install_error');
 
   useEffect(() => {
     if (!agent.slackBotToken) return;
@@ -1104,6 +1111,11 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
   useEffect(() => {
     fetch(`/api/agents/${agent.id}/restrictions`).then(r => r.json()).then((d: Restriction) => setAllowedChannels((d.allowedChannels ?? []).join('\n'))).catch(() => {});
   }, [agent.id]);
+  useEffect(() => {
+    if (!isAdmin) { setAutomationReady(false); return; }
+    fetch('/api/system/slack-config').then(r => r.ok ? r.json() : null)
+      .then(d => setAutomationReady(Boolean(d?.configured))).catch(() => setAutomationReady(false));
+  }, [isAdmin]);
 
   const save = async () => {
     setSaving(true);
@@ -1146,11 +1158,60 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
     finally { setDisconnecting(false); setTimeout(() => setMsg(''), 3000); }
   };
   const slackConfigured = !!(agent.slackBotToken || agent.slackAppToken || agent.slackSigningSecret);
+  const fullyConnected = !!(agent.slackBotToken && agent.slackAppToken);
+  const httpsOrigin = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  // Onboarding step derived purely from agent state — no extra status column.
+  const step: 'connect' | 'install' | 'apptoken' | 'connected' =
+    fullyConnected ? 'connected'
+    : agent.slackBotToken ? 'apptoken'
+    : agent.slackAppId ? 'install'
+    : 'connect';
+
+  const provision = async () => {
+    setProvisioning(true); setStepError('');
+    try {
+      const r = await fetch(`/api/agents/${agent.id}/slack/provision`, { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) { setStepError(data.error ?? 'Provisioning failed'); return; }
+      // Refresh the agent so slackAppId lands and the stepper advances.
+      const ar = await fetch(`/api/agents/${agent.id}`);
+      if (ar.ok) onUpdate(await ar.json());
+    } catch { setStepError('Provisioning failed'); }
+    finally { setProvisioning(false); }
+  };
+
+  const saveAppToken = async () => {
+    setSaving(true); setStepError('');
+    try {
+      const r = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platformCredentials: { appToken: form.slackAppToken } }),
+      });
+      const data = await r.json();
+      if (r.ok) { onUpdate(data); setMsg('Saved — connecting the agent…'); } else setStepError(data.error ?? 'Error');
+    } finally { setSaving(false); setTimeout(() => setMsg(''), 4000); }
+  };
+
+  const saveBotTokenManual = async () => {
+    setSaving(true); setStepError('');
+    try {
+      const r = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platformCredentials: { botToken: form.slackBotToken } }),
+      });
+      const data = await r.json();
+      if (r.ok) onUpdate(data); else setStepError(data.error ?? 'Error');
+    } finally { setSaving(false); }
+  };
+
+  const stepBadge = (n: number, active: boolean, done: boolean) => (
+    <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold ${done ? 'bg-green text-background' : active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{done ? '✓' : n}</span>
+  );
 
   return (
     <div className="flex max-w-[980px] flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2.5">
-        {canEdit && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
+        {canEdit && showManual && <PrimaryBtn onClick={save} loading={saving}>Save Changes</PrimaryBtn>}
         <GhostBtn onClick={loadManifest}>View Slack Manifest</GhostBtn>
         {canEdit && slackConfigured && (
           <button onClick={disconnect} disabled={disconnecting} className="ml-auto inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-destructive/30 bg-card px-3.5 py-1.5 text-sm font-medium text-destructive disabled:cursor-not-allowed"><Plug size={13} /> {disconnecting ? 'Disconnecting…' : 'Disconnect Slack'}</button>
@@ -1158,20 +1219,86 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
         {msg && <span className="text-xs text-green">{msg}</span>}
       </div>
 
-      {!slackConfigured && (
+      {step !== 'connected' && (
         <Card title="Connect this agent to Slack">
-          <p className="mb-3 mt-0 text-xs leading-relaxed text-muted-foreground">
-            This agent isn&apos;t connected yet, so it can&apos;t post to Slack. It takes ~2 minutes:
-          </p>
-          <ol className="mb-1 mt-0 list-decimal pl-[18px] text-xs leading-loose text-muted-foreground">
-            <li>Open <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="font-medium text-primary no-underline">api.slack.com/apps</a> → <strong>Create New App</strong> → <strong>From a manifest</strong>.</li>
-            <li>Click <strong>View Slack Manifest</strong> above, copy it, and paste it into the JSON tab → <strong>Create</strong>.</li>
-            <li><strong>Install to Workspace</strong> (sidebar → Install App), then paste the Bot &amp; App-Level tokens below and <strong>Save</strong>.</li>
-          </ol>
+          {installError && <p className="mb-3 mt-0 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">Install didn&apos;t complete ({installError}). If your workspace requires approval, a Slack admin must approve the install first — then retry. </p>}
+          {installedFlag && step === 'apptoken' && <p className="mb-3 mt-0 rounded-md border border-green/30 bg-green/10 px-3 py-2 text-xs text-green">Installed — bot token captured automatically. One step left.</p>}
+          {stepError && <p className="mb-3 mt-0 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{stepError}</p>}
+
+          {/* Step 1 — create the Slack app */}
+          <div className="mb-3 flex items-start gap-2.5">
+            {stepBadge(1, step === 'connect', step !== 'connect')}
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-foreground">Create the Slack app</div>
+              {step === 'connect' && (
+                isAdmin ? (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <PrimaryBtn onClick={provision} loading={provisioning}>Connect to Slack</PrimaryBtn>
+                    {automationReady === false && (
+                      <span className="text-2xs text-muted-foreground">Set up the App Configuration token in <a href="/settings" className="font-medium text-primary no-underline">Settings → Slack app automation</a> first (one-time), or use the manual setup below.</span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mb-0 mt-1 text-xs text-muted-foreground">Ask an admin to connect this agent to Slack.</p>
+                )
+              )}
+              {step !== 'connect' && agent.slackAppId && <p className="mb-0 mt-1 text-2xs text-muted-foreground">App <code className="font-mono">{agent.slackAppId}</code> created automatically.</p>}
+            </div>
+          </div>
+
+          {/* Step 2 — install to workspace (admin approval) */}
+          <div className="mb-3 flex items-start gap-2.5">
+            {stepBadge(2, step === 'install', step === 'apptoken')}
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-foreground">Install to your workspace</div>
+              {step === 'install' && isAdmin && (
+                httpsOrigin ? (
+                  <div className="mt-1.5">
+                    <a href={`/api/agents/${agent.id}/slack/install`} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-sm font-medium text-primary-foreground no-underline">Install to workspace</a>
+                    <p className="mb-0 mt-1.5 text-2xs text-muted-foreground">Opens Slack&apos;s approval screen — click <strong>Allow</strong>. The bot token is captured automatically when you land back here.</p>
+                  </div>
+                ) : (
+                  <div className="mt-1.5">
+                    <p className="mb-1.5 mt-0 text-xs text-muted-foreground">
+                      Open <a href={`https://api.slack.com/apps/${agent.slackAppId}/install-on-team`} target="_blank" rel="noopener noreferrer" className="font-medium text-primary no-underline">Install App</a> → <strong>Install to Workspace</strong> → <strong>Allow</strong>, then paste the Bot Token (from <strong>OAuth &amp; Permissions</strong>):
+                    </p>
+                    <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password"
+                      hint={form.slackBotToken && !form.slackBotToken.startsWith('xoxb-') ? <span className="text-red">Bot tokens start with <code className="font-mono text-2xs">xoxb-</code></span> : undefined} />
+                    <PrimaryBtn onClick={saveBotTokenManual} loading={saving}>Save Bot Token</PrimaryBtn>
+                  </div>
+                )
+              )}
+              {step === 'install' && !isAdmin && <p className="mb-0 mt-1 text-xs text-muted-foreground">Waiting for an admin to install the app.</p>}
+            </div>
+          </div>
+
+          {/* Step 3 — the one remaining paste */}
+          <div className="flex items-start gap-2.5">
+            {stepBadge(3, step === 'apptoken', false)}
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-foreground">Add the App-Level Token</div>
+              {step === 'apptoken' && canEdit && (
+                <div className="mt-1.5">
+                  <p className="mb-1.5 mt-0 text-xs text-muted-foreground">
+                    <a href={`https://api.slack.com/apps/${agent.slackAppId ?? ''}/general`} target="_blank" rel="noopener noreferrer" className="font-medium text-primary no-underline">Open the app&apos;s Basic Information page</a> → <strong>App-Level Tokens</strong> → <strong>Generate Token and Scopes</strong> → add scope <code className="font-mono text-2xs">connections:write</code> → <strong>Generate</strong> → copy the <code className="font-mono text-2xs">xapp-1-…</code> token and paste it here. (Slack has no API for this token — it&apos;s the only manual step.)
+                  </p>
+                  <Field label="App-Level Token" value={form.slackAppToken ?? ''} onChange={v => setForm(f => ({ ...f, slackAppToken: v }))} type="password"
+                    hint={form.slackAppToken && !form.slackAppToken.startsWith('xapp-') ? <span className="text-red">App-level tokens start with <code className="font-mono text-2xs">xapp-</code> — did you paste the wrong one?</span> : undefined} />
+                  <PrimaryBtn onClick={saveAppToken} loading={saving}>Save &amp; Go Live</PrimaryBtn>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 border-t border-border pt-3">
+            <button onClick={() => setShowManual(s => !s)} className="cursor-pointer border-none bg-transparent p-0 text-2xs font-medium text-muted-foreground">
+              {showManual ? '▾' : '▸'} Set up manually instead (paste all tokens yourself)
+            </button>
+          </div>
         </Card>
       )}
 
-      <Card title="Slack Credentials">
+      {(step === 'connected' || showManual) && <Card title="Slack Credentials">
         <Field label="Bot Token" value={form.slackBotToken ?? ''} onChange={v => setForm(f => ({ ...f, slackBotToken: v }))} type="password" readOnly={!canEdit}
           hint={form.slackBotToken && !form.slackBotToken.startsWith('xoxb-')
             ? <span className="text-red">Bot tokens start with <code className="font-mono text-2xs">xoxb-</code> — did you paste the wrong one?</span>
@@ -1201,7 +1328,7 @@ function SlackSettingsSection({ agent, onUpdate, canEdit }: { agent: Agent; onUp
             </div>
           </div>
         )}
-      </Card>
+      </Card>}
 
       <Card title="Allowed Channels">
         <p className="mb-2.5 mt-0 text-xs leading-relaxed text-muted-foreground">

@@ -113,3 +113,23 @@ describe('generateSlackManifest', () => {
     expect(m.display_information.background_color).toBe('#1a1a1a');
   });
 });
+
+// ─── OAuth redirect registration (automated onboarding) ──────────────────────
+
+describe('generateSlackManifest redirect_urls', () => {
+  it('omits redirect_urls when redirectUrl is not passed', () => {
+    const m = generateSlackManifest({ name: 'Bot' });
+    expect(m.oauth_config.redirect_urls).toBeUndefined();
+  });
+
+  it('registers redirect_urls when redirectUrl is passed', () => {
+    const m = generateSlackManifest({ name: 'Bot', redirectUrl: 'https://hive.example.com/api/slack/install/callback' });
+    expect(m.oauth_config.redirect_urls).toEqual(['https://hive.example.com/api/slack/install/callback']);
+  });
+
+  it('leaves scopes unchanged when redirectUrl is passed', () => {
+    const withUrl = generateSlackManifest({ name: 'Bot', redirectUrl: 'https://x.example/cb' });
+    const without = generateSlackManifest({ name: 'Bot' });
+    expect(withUrl.oauth_config.scopes.bot).toEqual(without.oauth_config.scopes.bot);
+  });
+});

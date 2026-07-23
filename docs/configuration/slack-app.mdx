@@ -5,9 +5,10 @@ description: "Create and configure a Slack app for each agent."
 
 Every SlackHive agent needs its own Slack app. The app is how your agent gets a Slack identity (`@handle`), connects to your workspace, and receives messages.
 
-The good news: **you don't need to configure scopes or settings manually.** SlackHive generates a complete app manifest from the agent page - you just paste it into Slack and click a few buttons.
+There are two ways to set this up:
 
-This page walks through that process in detail, and covers troubleshooting if something goes wrong.
+- **Automated onboarding (recommended)** — SlackHive creates the Slack app for you via Slack's manifest API. Per agent: click **Connect to Slack**, click **Install** (and **Allow**), then paste a single App-Level Token. Requires a one-time workspace setup.
+- **Manual setup (fallback)** — the original flow: paste a generated manifest into api.slack.com and copy three tokens back by hand.
 
 ## What you're creating
 
@@ -16,13 +17,61 @@ Each Slack app gives your agent:
 - **Socket Mode** - a persistent connection that receives messages in real time (no webhooks needed, no public URL required)
 - The right **OAuth scopes** - permissions to read messages, post replies, and add reactions
 
-## Step 1: Generate the manifest
+## Automated onboarding
+
+### One-time workspace setup (admin)
+
+SlackHive needs an **App Configuration token** to create Slack apps on your behalf. This is pasted once, covers all future agents, and is renewed automatically every ~12 hours from then on.
+
+<Steps>
+  <Step title="Generate the token">
+    Go to [api.slack.com/apps](https://api.slack.com/apps) and scroll to the bottom of the "Your Apps" page. Under **Your App Configuration Tokens**, click **Generate Token** and pick your workspace.
+  </Step>
+  <Step title="Copy the Refresh Token">
+    Slack shows two tokens. Copy the **Refresh Token** (starts with `xoxe-1-`), not the Access Token.
+  </Step>
+  <Step title="Paste into SlackHive">
+    Go to **Settings → Authentication → Slack app automation**, paste the token, and click **Save & Validate**. The status chip switches to **Configured**.
+  </Step>
+</Steps>
+
+<Note>
+  The token is tied to the Slack user who generated it and to the workspace — generate it with an account that's allowed to create apps there. If it's ever revoked in Slack, the Settings card shows an error and you simply paste a new one.
+</Note>
+
+### Per agent (3 clicks + 1 paste)
+
+On the agent's **Settings → Slack** page (the new-agent wizard lands here automatically):
+
+<Steps>
+  <Step title="Connect to Slack">
+    Click **Connect to Slack**. SlackHive creates the Slack app automatically — name, scopes, Socket Mode, event subscriptions — and stores the app credentials and signing secret for you.
+  </Step>
+  <Step title="Install to your workspace">
+    Click **Install to workspace** and then **Allow** on Slack's approval screen. The bot token is captured automatically when you land back in SlackHive. (If your workspace restricts app installs, Slack routes the request to its admin approval queue first.)
+  </Step>
+  <Step title="Add the App-Level Token">
+    Click the **Basic Information** deep link SlackHive shows, then **App-Level Tokens → Generate Token and Scopes**, add the `connections:write` scope, **Generate**, and paste the `xapp-1-…` value back. This is the only manual token — Slack provides no API for it.
+  </Step>
+</Steps>
+
+Save, and the agent goes live automatically.
+
+<Note>
+  The fully automated install (step 2) requires SlackHive to be served over **https** — Slack refuses to register plain-http OAuth redirect URLs. On an http origin (e.g. `http://localhost:3001`), app creation is still automatic, but the install step shows a direct install link and asks you to paste the Bot Token (`xoxb-…`) yourself — one extra paste, nothing else changes.
+</Note>
+
+## Manual setup (fallback)
+
+The original flow. On the agent's Slack settings page, expand **Set up manually instead**.
+
+### Step 1: Generate the manifest
 
 Open the agent's **Overview** tab, find the Slack connection card, and click **Manage Slack** or **Connect Slack**. Then click **View Slack Manifest**. SlackHive creates a JSON manifest pre-configured for your agent with the correct name, scopes, and Socket Mode settings.
 
 Keep this manifest JSON ready - you'll paste it into Slack in the next step.
 
-## Step 2: Create the Slack app
+### Step 2: Create the Slack app
 
 <Steps>
   <Step title="Open the Slack API console">
@@ -45,7 +94,7 @@ Keep this manifest JSON ready - you'll paste it into Slack in the next step.
   </Step>
 </Steps>
 
-## Step 3: Install to your workspace
+### Step 3: Install to your workspace
 
 Your app exists, but it's not yet installed in your workspace.
 
@@ -63,7 +112,7 @@ Your app exists, but it's not yet installed in your workspace.
 
 Your bot user (`@your-agent-name`) now exists in your workspace.
 
-## Step 4: Collect your credentials
+### Step 4: Collect your credentials
 
 You need three values to connect the agent in SlackHive. Here's exactly where to find each one.
 
@@ -89,7 +138,7 @@ You need three values to connect the agent in SlackHive. Here's exactly where to
 2. Under **App Credentials**, find **Signing Secret**
 3. Click **Show** to reveal it, then copy the hex string
 
-## Step 5: Enter credentials in SlackHive
+### Step 5: Enter credentials in SlackHive
 
 Go back to the agent's **Overview** tab in SlackHive, open the Slack connection card, and paste the required values:
 

@@ -110,6 +110,8 @@ export interface Agent {
   slackSigningSecret?: string;
   slackBotUserId?: string;
   slackBotHandle?: string;
+  /** Slack app id (A0…) when the app was auto-provisioned via the manifest API. */
+  slackAppId?: string;
   /** Slack profile image URL (cached from users.info on save / refresh). */
   slackBotImageUrl?: string;
   /**
@@ -722,6 +724,9 @@ export interface SlackAppManifest {
     scopes: {
       bot: string[];
     };
+    /** Registered OAuth redirect URLs — required for the automated install flow
+     *  (bot-token capture at our callback). Slack only accepts https URLs. */
+    redirect_urls?: string[];
   };
   settings: {
     event_subscriptions: {
