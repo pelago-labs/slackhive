@@ -32,7 +32,13 @@ When the runner starts, it creates a separate Slack Bolt connection for each age
 
 ## Setting up agents across workspaces
 
-Each workspace needs its own Slack app. For each workspace:
+Each workspace needs its own Slack app per agent.
+
+<Note>
+  [Automated onboarding](/configuration/slack-app#automated-onboarding) works here too, with one caveat: the App Configuration token behind it is **per-workspace**. SlackHive stores one such token (Settings → Slack Automation), so agents in that workspace onboard with the automated flow. For agents in a *different* workspace, use the manual flow below (or temporarily swap in a config token generated for that workspace before clicking Connect).
+</Note>
+
+For each additional workspace, the manual flow is:
 
 <Steps>
   <Step title="Create a Slack app for that workspace">
