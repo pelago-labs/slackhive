@@ -26,29 +26,30 @@ export const CODEX_AUTH_MODE_SETTING_KEY = 'codexAuthMode';
 /** Settings-table key holding the chosen Claude auth mode ('subscription' | 'apiKey'). */
 export const CLAUDE_AUTH_MODE_SETTING_KEY = 'claudeAuthMode';
 
-export const DEFAULT_CODEX_MODEL = 'gpt-5.5';
+export const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol';
 
 /** Lightest/cheapest Codex tier for cheap meta-tasks (memory extraction/reconcile),
  *  the Codex counterpart to DEFAULT_EVAL_JUDGE_MODEL on the Claude side. Kept here
  *  so a model-lineup rename updates one place. */
-export const LIGHT_CODEX_MODEL = 'gpt-5.5:low';
+export const LIGHT_CODEX_MODEL = 'gpt-5.6-sol:low';
 
 /**
  * Curated list of Codex models for a ChatGPT-account login (subscription auth has
- * no models API). Codex exposes ONE flagship model (`gpt-5.5`) plus a reasoning
+ * no models API). Codex exposes ONE flagship model (`gpt-5.6-sol`) plus a reasoning
  * level — "Instant/Thinking" are NOT separate models (that's the ChatGPT app's
  * naming). We surface the reasoning levels as friendly choices and encode them as
  * `<model>:<effort>`; the runner splits that into `model` + `modelReasoningEffort`
  * (see splitCodexModel / buildThreadOptions). A bare `<model>` = the model's
- * default effort (medium). `gpt-5.4*` are legacy (the server migrates 5.4 → 5.5).
+ * default effort (medium). `gpt-5.4*`/`gpt-5.5*` are legacy (the server migrates
+ * them to the current flagship).
  * API-key auth bypasses this list (it gets the real /v1/models list from OpenAI).
  */
 export const CODEX_MODELS: readonly ModelOption[] = [
   // Default first — SelectField marks the first option as "(default)".
-  { value: 'gpt-5.5',       label: 'GPT-5.5',          sub: 'Balanced' },
-  { value: 'gpt-5.5:low',   label: 'GPT-5.5 Instant',  sub: 'Fast, light reasoning' },
-  { value: 'gpt-5.5:high',  label: 'GPT-5.5 Thinking', sub: 'Deep reasoning' },
-  { value: 'gpt-5.5:xhigh', label: 'GPT-5.5 Max',      sub: 'Max reasoning (slowest)' },
+  { value: 'gpt-5.6-sol',       label: 'GPT-5.6 Sol',          sub: 'Balanced' },
+  { value: 'gpt-5.6-sol:low',   label: 'GPT-5.6 Sol Instant',  sub: 'Fast, light reasoning' },
+  { value: 'gpt-5.6-sol:high',  label: 'GPT-5.6 Sol Thinking', sub: 'Deep reasoning' },
+  { value: 'gpt-5.6-sol:xhigh', label: 'GPT-5.6 Sol Max',      sub: 'Max reasoning (slowest)' },
 ];
 
 /** Valid Codex reasoning efforts (Codex SDK `ModelReasoningEffort`). */
